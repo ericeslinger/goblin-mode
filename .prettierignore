@@ -1,0 +1,9 @@
+node_modules
+dist
+lib
+.angular
+package-lock.json
+test-results
+playwright-report
+.wrangler
+*.md

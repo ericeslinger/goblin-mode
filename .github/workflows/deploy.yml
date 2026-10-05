@@ -1,0 +1,52 @@
+# Deploy-only workflow (2026-10-05). Gates and e2e run locally before a
+# PR merges (see CLAUDE.md); this only builds and ships main, because
+# there are not enough Actions minutes for CI.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      HAS_FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+    steps:
+      - name: Skip until deploy settings exist
+        id: ready
+        run: |
+          if [ -z "$FIREBASE_PROJECT_ID" ] || [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$HAS_FIREBASE_SA" != "true" ]; then
+            echo "::notice::Deploy settings are not configured yet (see QUESTIONS.md); skipping."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.go == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.ready.outputs.go == 'true'
+        with:
+          node-version: 22.22.3
+          cache: npm
+      - if: steps.ready.outputs.go == 'true'
+        run: npm ci --no-audit --no-fund
+      - name: Write Google credentials
+        if: steps.ready.outputs.go == 'true'
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/gcp.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp.json" >> "$GITHUB_ENV"
+      - name: Deploy
+        if: steps.ready.outputs.go == 'true'
+        run: bash scripts/deploy.sh
