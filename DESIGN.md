@@ -183,8 +183,9 @@ Firebase Google sign-in:
 4. `/oauth/token` exchanges the code for an access token and refresh
    token. Tokens are random, stored hashed under `oauth/`, revocable.
 
-The owner uid is a function parameter (`OWNER_UID`); any other account is
-refused. MVP tools:
+The owner uid is a function parameter (`OWNER_UID`,
+`DjudV1dnNxdpn7XP1VTluVJMLNb2` in `mossgoblin-garden`); any other
+account is refused. MVP tools:
 
 | Tool | Does |
 | --- | --- |
@@ -213,6 +214,12 @@ reminder's note, or a new note from its template.
 
 ## Security
 
+**Only one account exists (2026-10-05).** End-user sign-up is disabled
+in Firebase Auth and Eric's account was created by hand in the console,
+so a stranger cannot get a uid at all; that settles the open-sign-in
+cost exposure. The rules stay uid-scoped rather than hard-coding the
+owner uid, so the emulator and rules tests need no special account.
+
 Google sign-in. Firestore rules allow only `request.auth.uid == uid`
 under `users/{uid}`, and only for the write path each collection has:
 the client writes `notes`, `reminders` and `devices`; `notes/history`
@@ -220,7 +227,9 @@ and `activity` are read-only to the client; anything unlisted, and
 `oauth/`, is denied. Storage is deny-all until attachments (Phase 2)
 decide its write path.
 No end-to-end encryption, so MCP and search can read notes (2026-10-05).
-Firestore point-in-time recovery is on as the backstop for bad edits.
+Firestore point-in-time recovery (7 days) is the backstop for bad edits,
+and a weekly scheduled Firestore backup covers anything older (both set
+up by Eric, 2026-10-05).
 
 ## Delivery
 

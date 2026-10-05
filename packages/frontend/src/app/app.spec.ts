@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { App } from './app';
-import { isLocalHost } from './firebase';
+import { configFor, isLocalHost } from './firebase';
 
 describe('App', () => {
   it('creates', async () => {
@@ -19,5 +19,16 @@ describe('isLocalHost', () => {
     expect(isLocalHost('127.0.0.1')).toBe(true);
     expect(isLocalHost('mossgoblin.garden')).toBe(false);
     expect(isLocalHost('localhost.mossgoblin.garden')).toBe(false);
+  });
+});
+
+describe('configFor', () => {
+  it('uses the demo emulator project on localhost', () => {
+    expect(configFor('localhost').projectId).toBe('demo-goblin-mode');
+    expect(configFor('127.0.0.1').projectId).toBe('demo-goblin-mode');
+  });
+
+  it('uses the real project everywhere else', () => {
+    expect(configFor('mossgoblin.garden').projectId).toBe('mossgoblin-garden');
   });
 });

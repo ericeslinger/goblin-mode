@@ -4,13 +4,14 @@ Answered ones move into DESIGN.md with their date.
 
 ## Setup Eric owes before the first deploy
 
-1. **Firebase project.** Create one (Blaze plan, for Functions and
-   scheduled jobs), enable Google sign-in, Firestore with point-in-time
-   recovery, and Storage. Then:
-   - paste its web config into
-     `packages/frontend/src/environments/firebase-config.ts`
-     (`PRODUCTION_FIREBASE_CONFIG`; it is not secret);
-   - set the repository variable `FIREBASE_PROJECT_ID`;
+1. **Firebase project** `mossgoblin-garden` (created 2026-10-05; its web
+   config is in `packages/frontend/src/environments/firebase-config.ts`,
+   `.firebaserc` alias `prod`). Done by Eric (2026-10-05): Blaze plan,
+   point-in-time recovery, weekly Firestore backups. Still to check or
+   do: Google sign-in enabled, Firestore and Storage created in
+   `us-central1`. Then:
+   - set the repository variable `FIREBASE_PROJECT_ID` to
+     `mossgoblin-garden`;
    - add the repository secret `FIREBASE_SERVICE_ACCOUNT` (a service
      account JSON key with Firebase Admin, Cloud Functions Admin, Service
      Account User and Cloud Scheduler Admin);
@@ -30,12 +31,10 @@ Answered ones move into DESIGN.md with their date.
 
 ## Technical
 
-- **Who can sign in. Decide before the first production deploy.** The
-  rules confine each user to their own `users/{uid}`, so a stranger
-  signing in with Google cannot read Eric's data, but can still write
-  notes into their own space on Eric's Blaze project, which costs money.
-  Options: an owner-uid check in the rules once the uid is known, or an
-  Identity Platform blocking function that refuses other accounts at
-  sign-in.
+- **Google sign-in for the hand-made account.** Sign-up is disabled
+  and the owner account was created in the console. Confirm that
+  "Sign in with Google" on mossgoblin.garden signs into that same uid
+  (it should when the emails match) rather than being refused as a new
+  account.
 - **Region.** Functions default to `us-central1`. Move closer if latency
   to the MCP endpoint matters.

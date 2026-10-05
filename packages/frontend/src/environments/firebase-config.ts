@@ -5,7 +5,14 @@ export const EMULATOR_PROJECT_ID = 'demo-goblin-mode';
 
 /**
  * The production Firebase web config, baked into the build (there is no
- * Firebase Hosting init.json). Filled in once the project exists; see
- * QUESTIONS.md.
+ * Firebase Hosting init.json). Not secret: every browser that loads the
+ * app gets it; the rules are what protect the data.
  */
-export const PRODUCTION_FIREBASE_CONFIG: FirebaseOptions | null = null;
+export const PRODUCTION_FIREBASE_CONFIG: FirebaseOptions | null = {
+  apiKey: 'AIzaSyCeU5pFODUAwkYQ0CkHpIfk1f8EQXi4d9w',
+  authDomain: 'mossgoblin-garden.firebaseapp.com',
+  projectId: 'mossgoblin-garden',
+  storageBucket: 'mossgoblin-garden.firebasestorage.app',
+  messagingSenderId: '579728131419',
+  appId: '1:579728131419:web:a41bc4d18434855bcc067e',
+};
