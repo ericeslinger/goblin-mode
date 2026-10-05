@@ -72,8 +72,6 @@ Dated, and deliberate; everything else follows the plugin.
 
 - **Hosting is a Cloudflare Worker**, not Firebase Hosting, and the
   backend package is `packages/functions` (stack playbook, 2026-10-04).
-- **The coding agent opens, reviews and merges PRs** under the rule below
-  (Eric, 2026-10-05), where house style has Eric open PRs.
 - **No CI** (2026-10-05). Rules tests need the emulator, so they run in
   `npm run e2e` rather than in a CI job.
 - **Rules shape validators are not generated yet.** `notes`,
@@ -94,12 +92,16 @@ Dated, and deliberate; everything else follows the plugin.
 5. **Merge** with a merge commit only when all hold: the latest summary
    says approved; every comment is answered; gate and e2e are green on
    the exact head after the last push; main has not moved since; and the
-   change touches no schema. If main moved, merge it in and go back to 4.
-6. **Start fresh from main** for the next change. Never stack new work
-   on a merged branch.
+   change has no schema change or data migration. If main moved, merge
+   it in and go back to 4.
+6. **Delete the merged branch** on origin and locally, then **start
+   fresh from main** for the next change. Never stack new work on a
+   merged branch, and never delete a branch with unmerged commits.
 
-Wait for Eric instead of merging when the change touches the Firestore
-data model, a migration, auth, the rules, the merge policy itself, or
+This is the house-style rule (Eric, 2026-10-05), hardened here: also
+wait for Eric, with a PR comment saying why, when the change touches
+`packages/schema`'s stored-document schemas, `firestore.rules` or
+`storage.rules`, a data migration, auth, the merge policy itself, or
 the reviewer flags it for Eric to read.
 
 ## Cloud sessions
