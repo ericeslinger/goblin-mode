@@ -227,7 +227,9 @@ and `activity` are read-only to the client; anything unlisted, and
 `oauth/`, is denied. Storage is deny-all until attachments (Phase 2)
 decide its write path.
 No end-to-end encryption, so MCP and search can read notes (2026-10-05).
-Firestore point-in-time recovery is on as the backstop for bad edits.
+Firestore point-in-time recovery (7 days) is the backstop for bad edits,
+and a weekly scheduled Firestore backup covers anything older (both set
+up by Eric, 2026-10-05).
 
 ## Delivery
 

@@ -6,8 +6,10 @@ Answered ones move into DESIGN.md with their date.
 
 1. **Firebase project** `mossgoblin-garden` (created 2026-10-05; its web
    config is in `packages/frontend/src/environments/firebase-config.ts`,
-   `.firebaserc` alias `prod`). Still to check or do: Blaze plan, Google
-   sign-in enabled, Firestore with point-in-time recovery, Storage. Then:
+   `.firebaserc` alias `prod`). Done by Eric (2026-10-05): Blaze plan,
+   point-in-time recovery, weekly Firestore backups. Still to check or
+   do: Google sign-in enabled, Firestore and Storage created in
+   `us-central1`. Then:
    - set the repository variable `FIREBASE_PROJECT_ID` to
      `mossgoblin-garden`;
    - add the repository secret `FIREBASE_SERVICE_ACCOUNT` (a service
