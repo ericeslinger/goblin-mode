@@ -16,6 +16,12 @@ git fetch origin refs/pull/<n>/head
 git diff origin/main...FETCH_HEAD
 ```
 
+Never `git checkout`, `switch`, `reset` or `stash` in the repository:
+it is the coding agent's working copy, and moving its HEAD makes its
+next commit land off the branch. Read files at the PR head with
+`git show FETCH_HEAD:<path>`, or use a separate
+`git worktree add <tmp> FETCH_HEAD` and remove it when done.
+
 Read CLAUDE.md as it stands at the PR head, plus DESIGN.md and
 QUESTIONS.md wherever the diff touches a decided or open question.
 
