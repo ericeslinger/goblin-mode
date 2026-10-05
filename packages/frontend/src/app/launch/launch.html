@@ -1,0 +1,23 @@
+<div class="launch">
+  <header class="bar">
+    <span class="muted">Browse</span>
+    <span class="spacer"></span>
+    @if (auth.user() === null) {
+      <button type="button" class="link" (click)="signIn()">Sign in</button>
+    }
+    <span class="sync" [class.offline]="!online()" role="status">
+      {{ online() ? 'synced' : 'offline' }}
+    </span>
+    <a routerLink="/settings" class="muted" aria-label="Settings">Settings</a>
+  </header>
+
+  <section class="capture">
+    <textarea #editor class="editor" placeholder="Start typing" aria-label="New note"></textarea>
+  </section>
+
+  <section class="right-now" aria-labelledby="right-now-title">
+    <div class="handle" aria-hidden="true"></div>
+    <h2 id="right-now-title">Right Now</h2>
+    <p class="muted">Nothing due.</p>
+  </section>
+</div>

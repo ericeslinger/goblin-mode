@@ -1,0 +1,36 @@
+{
+  "name": "goblin-mode",
+  "private": true,
+  "workspaces": [
+    "packages/schema",
+    "packages/frontend",
+    "packages/functions",
+    "packages/e2e",
+    "packages/rules-tests"
+  ],
+  "scripts": {
+    "gate": "bash scripts/gate.sh",
+    "e2e": "bash scripts/e2e.sh",
+    "typecheck": "tsc -p packages/schema && tsc -p packages/frontend/tsconfig.app.json --noEmit && tsc -p packages/frontend/tsconfig.spec.json --noEmit && tsc -p packages/functions --noEmit && tsc -p packages/e2e --noEmit && tsc -p packages/rules-tests && tsc -p infra/worker --noEmit",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "test:unit": "vitest run --project schema --project functions --project worker && npm run test -w packages/frontend -- --watch=false",
+    "build": "npm run build -w packages/frontend && npm run build:functions",
+    "build:functions": "node scripts/build-functions.mjs",
+    "deploy:functions:dry": "bash scripts/deploy-functions.sh --dry-run",
+    "emulators": "bash scripts/emulators.sh"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@cloudflare/workers-types": "^5.20261005.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "firebase-tools": "^15.32.1",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
+  }
+}
