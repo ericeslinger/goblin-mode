@@ -2,7 +2,8 @@
 
 A single-user, offline-first notes PWA at mossgoblin.garden, with Claude
 as an editor through MCP. Built on the Angular + Firebase + Cloudflare
-stack playbook; this file outranks the playbook and any plugin.
+stack playbook and the `house-style` plugin (enabled in
+`.claude/settings.json`); this file outranks both.
 
 ## Read this first
 
@@ -23,7 +24,7 @@ stack playbook; this file outranks the playbook and any plugin.
   waiting on an emulator.
 - **Owner-only data.** Everything lives under `users/{uid}` and the rules
   allow only that uid. `oauth/` is server-only. A rules change needs a
-  rules test in `packages/e2e/rules`.
+  rules test in `packages/rules-tests`.
 - **Never lose a keystroke.** Note writes go through the Firestore
   persistent cache, never a network-only path, and nothing in the
   capture flow waits on the network or on auth before accepting input.
@@ -43,7 +44,8 @@ stack playbook; this file outranks the playbook and any plugin.
 
 Hard-wrap at about 75 columns. No em-dashes. Decisions are dated in
 place and never silently re-litigated; to change one, say so and date
-the change.
+the change. No model identifiers or tooling banners in commits, PR
+bodies or code comments.
 
 ## Gates
 
@@ -51,16 +53,33 @@ There is no CI (2026-10-05). The only GitHub workflow is `deploy.yml`,
 which deploys `main` after merge; there are not enough Actions minutes
 for anything else.
 
-- `npm run gate` must pass before every commit: typecheck, lint
-  (eslint + prettier), frontend build, unit tests (vitest for shared,
-  functions and worker; `ng test` for the frontend), the functions deploy
-  dry run, and the Worker deploy dry run.
+- `npm run gate` must pass before every commit: typechecks (spec files
+  included), `prettier --check`, the frontend build, unit tests (vitest
+  for schema, functions and worker; `ng test` for the frontend), the
+  functions deploy dry run (staged `npm install --omit=dev` and import),
+  and the Worker deploy dry run. No ESLint (house style).
 - `npm run e2e` must pass before pushing or opening a PR: it builds the
   e2e configuration, starts the e2e emulator suite (ports 9199, 8180,
-  5101), serves the app on :4300, runs the rules tests and the Playwright
-  journeys, and tears everything down.
+  5101), serves the app on :4300, runs the rules tests
+  (`packages/rules-tests`) and the Playwright journeys (including the axe
+  accessibility journey), and tears everything down.
 - Prose-only changes skip both. A new test suite is wired into a gate in
   the same change. A new user flow gets a journey in the same PR.
+
+## Where this repo differs from house style
+
+Dated, and deliberate; everything else follows the plugin.
+
+- **Hosting is a Cloudflare Worker**, not Firebase Hosting, and the
+  backend package is `packages/functions` (stack playbook, 2026-10-04).
+- **The coding agent opens, reviews and merges PRs** under the rule below
+  (Eric, 2026-10-05), where house style has Eric open PRs.
+- **No CI** (2026-10-05). Rules tests need the emulator, so they run in
+  `npm run e2e` rather than in a CI job.
+- **Rules shape validators are not generated yet.** `notes`,
+  `reminders` and `devices` are direct client writes (see
+  `packages/schema/src/model.ts`), so the generator and its drift check
+  arrive with the first real client write (build order step 2).
 
 ## PRs, review and merging
 

@@ -17,7 +17,7 @@ import { buildInfo } from '../build-info';
         <p>Not signed in.</p>
       }
       <h2>Version</h2>
-      <p data-testid="version">{{ build.sha }} &middot; {{ build.time }}</p>
+      <p>{{ build.sha }} &middot; {{ build.time }}</p>
     </main>
   `,
 })

@@ -21,11 +21,6 @@ Answered ones move into DESIGN.md with their date.
 3. **Anthropic API key** for titles: a Functions secret
    `ANTHROPIC_API_KEY` (`firebase functions:secrets:set`). Needed at
    build order step 5, not before.
-4. **house-style plugin.** The playbook enables `ericeslinger/claude-skills`
-   in `.claude/settings.json`. Not wired yet: confirm the marketplace
-   name and plugin id.
-5. **A `main` branch.** The repo had no commits; the scaffold PR needs a
-   base. Push an empty initial commit to `main`, or let Claude do it.
 
 ## Product
 

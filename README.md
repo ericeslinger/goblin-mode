@@ -31,10 +31,11 @@ npm run e2e    # before every PR
 ## Layout
 
 ```
-packages/shared     types and pure logic
-packages/frontend   Angular PWA
-packages/functions  Cloud Functions
-packages/e2e        Playwright journeys and rules tests
-infra/worker        Cloudflare Worker (static assets + proxy)
-scripts/            gate, e2e, deploy
+packages/schema       zod contract and pure logic
+packages/frontend     Angular PWA
+packages/functions    Cloud Functions
+packages/e2e          Playwright journeys
+packages/rules-tests  Firestore rules allow/deny suites
+infra/worker          Cloudflare Worker (static assets + proxy)
+scripts/              gate, e2e, deploy
 ```

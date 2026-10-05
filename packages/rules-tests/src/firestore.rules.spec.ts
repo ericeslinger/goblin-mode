@@ -14,7 +14,11 @@ beforeAll(async () => {
   const [host, port] = (process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180').split(':');
   env = await initializeTestEnvironment({
     projectId: 'demo-goblin-mode-rules',
-    firestore: { rules: readFileSync('firestore.rules', 'utf8'), host, port: Number(port) },
+    firestore: {
+      rules: readFileSync(new URL('../../../firestore.rules', import.meta.url), 'utf8'),
+      host,
+      port: Number(port),
+    },
   });
 });
 

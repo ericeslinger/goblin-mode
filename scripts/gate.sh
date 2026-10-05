@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Must pass before every commit: typecheck, lint, builds, unit tests and
-# the functions deploy dry run. See CLAUDE.md, Gates.
+# Must pass before every commit: typechecks (specs included), prettier,
+# the frontend build, unit tests, and the functions and Worker deploy dry
+# runs. See CLAUDE.md, Gates.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -8,8 +9,8 @@ step() { printf '\n== %s\n' "$1"; }
 
 step typecheck
 npm run typecheck
-step lint
-npm run lint
+step format
+npm run format:check
 step "build frontend"
 npm run build -w packages/frontend
 step "unit tests"

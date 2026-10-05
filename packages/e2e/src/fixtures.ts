@@ -1,4 +1,5 @@
 import { type Page, test as base, expect } from '@playwright/test';
+import type { Persona } from './personas';
 
 export const AUTH_EMULATOR = process.env['FIREBASE_AUTH_EMULATOR_HOST'] ?? '127.0.0.1:9199';
 const PROJECT = 'demo-goblin-mode';
@@ -31,6 +32,19 @@ export async function resetAccount(email: string, password: string): Promise<voi
     },
   );
   if (!created.ok) throw new Error(`could not create ${email}: ${await created.text()}`);
+}
+
+/**
+ * Signs in through the emulator-only /dev-sign-in page and waits for the
+ * launch screen. Resets the account first, so it is retry-safe.
+ */
+export async function signInAs(page: Page, persona: Persona): Promise<void> {
+  await resetAccount(persona.email, persona.password);
+  await page.goto('/dev-sign-in');
+  await page.getByLabel('Email').fill(persona.email);
+  await page.getByLabel('Password').fill(persona.password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible();
 }
 
 export const test = base.extend({

@@ -1,5 +1,6 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, InjectionToken, inject, signal } from '@angular/core';
 import {
+  Auth,
   GoogleAuthProvider,
   User,
   onAuthStateChanged,
@@ -9,20 +10,34 @@ import {
 } from 'firebase/auth';
 import { FIREBASE } from './firebase';
 
+/** The Firebase Auth calls the service makes, as a seam for unit specs. */
+export interface AuthApi {
+  onAuthStateChanged(auth: Auth, next: (user: User | null) => void): unknown;
+  signInWithPopup(auth: Auth, provider: GoogleAuthProvider): Promise<unknown>;
+  signInWithEmailAndPassword(auth: Auth, email: string, password: string): Promise<unknown>;
+  signOut(auth: Auth): Promise<void>;
+}
+
+export const AUTH_API = new InjectionToken<AuthApi>('auth-api', {
+  providedIn: 'root',
+  factory: () => ({ onAuthStateChanged, signInWithPopup, signInWithEmailAndPassword, signOut }),
+});
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly fb = inject(FIREBASE);
+  private readonly api = inject(AUTH_API);
 
   /** undefined while the persisted session is still being restored. */
   readonly user = signal<User | null | undefined>(undefined);
   readonly usingEmulators = this.fb.usingEmulators;
 
   constructor() {
-    onAuthStateChanged(this.fb.auth, (u) => this.user.set(u));
+    this.api.onAuthStateChanged(this.fb.auth, (u) => this.user.set(u));
   }
 
   signInWithGoogle(): Promise<unknown> {
-    return signInWithPopup(this.fb.auth, new GoogleAuthProvider());
+    return this.api.signInWithPopup(this.fb.auth, new GoogleAuthProvider());
   }
 
   /** Email and password sign-in, offered only against the emulator. */
@@ -30,10 +45,10 @@ export class AuthService {
     if (!this.fb.usingEmulators) {
       return Promise.reject(new Error('Dev sign-in is emulator-only.'));
     }
-    return signInWithEmailAndPassword(this.fb.auth, email, password);
+    return this.api.signInWithEmailAndPassword(this.fb.auth, email, password);
   }
 
   signOut(): Promise<void> {
-    return signOut(this.fb.auth);
+    return this.api.signOut(this.fb.auth);
   }
 }

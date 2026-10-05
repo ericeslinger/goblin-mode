@@ -32,18 +32,21 @@ server routes below to Cloud Functions under the same origin.
 
 ```
 packages/
-  shared/      types and pure logic used by client and functions
+  schema/      the zod contract and pure logic; client and functions import it
   frontend/    Angular PWA
   functions/   Cloud Functions (esbuild bundle, no devDependencies)
   e2e/         Playwright journeys against the emulator suite
+  rules-tests/ allow/deny suites for firestore.rules
 infra/worker/  Cloudflare Worker: static assets + same-origin proxy
 scripts/       gate, e2e, deploy helpers
 firestore.rules, storage.rules, firebase.json
 ```
 
 npm workspaces, one lockfile at the root. Build tools (typescript,
-esbuild, vitest, eslint, firebase-tools, wrangler, playwright) are root
-devDependencies so the functions manifest stays free of them.
+esbuild, vitest, prettier, firebase-tools, wrangler, playwright) are root
+devDependencies so the functions manifest stays free of them. Functions
+are one handler per file in concept directories; `index.ts` is wiring,
+and `boundary.spec.ts` freezes the exported names.
 
 ## Data model
 
@@ -62,6 +65,17 @@ oauth/...                     MCP auth state, server-only
 
 Ids are generated client-side (Firestore auto ids) so a note exists the
 moment it is created offline.
+
+The zod schemas in `packages/schema/src/model.ts` are the contract; the
+interfaces below are their shape. **Write path per collection
+(2026-10-05):** `notes`, `reminders` and `devices` are written directly
+by the client, because capture, done and snooze must work offline; they
+are owner-only and nothing is derived from them by rules.
+`notes/history`, `activity` and `oauth` are function-only
+(`allow write: if false`). Direct-write collections get rules shape
+validators generated from the schemas, with a drift check in the gate,
+starting with step 2. Claude's MCP writes go through functions and are
+parsed against the same schemas.
 
 ### Note
 
@@ -228,7 +242,8 @@ Each step is one or more PRs, each with a journey.
 1. Scaffold: workspaces, gates, emulators, hook, review agent, deploy
    workflow, an app shell that signs in.
 2. Capture: launch screen editor, autosave, offline, new-or-resume,
-   Previous note, Recent list and search, two-pane layout.
+   Previous note, Recent list and search, two-pane layout; the rules
+   shape-validator generator for `notes`.
 3. Reminders: Right Now panel and full list, add, done, snooze, recurring.
 4. Push: device registration, `sendDuePush`, notification taps.
 5. History and titles: `noteHistory`, `noteTitle`.

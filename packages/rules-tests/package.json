@@ -1,0 +1,5 @@
+{
+  "name": "@goblin/rules-tests",
+  "private": true,
+  "type": "module"
+}

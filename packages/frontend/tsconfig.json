@@ -13,7 +13,7 @@
     "module": "preserve",
     "strict": true,
     "paths": {
-      "@goblin/shared": ["../shared/src/index.ts"]
+      "@goblin/schema": ["../schema/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

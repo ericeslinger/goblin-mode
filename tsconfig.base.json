@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "paths": {
-      "@goblin/shared": ["./packages/shared/src/index.ts"]
+      "@goblin/schema": ["./packages/schema/src/index.ts"]
     }
   }
 }

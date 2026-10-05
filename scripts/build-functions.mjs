@@ -1,6 +1,6 @@
 // Bundles packages/functions into lib/index.js with esbuild. Runtime
 // dependencies stay external and are installed by the deploy from the
-// functions manifest; workspace code (@goblin/shared) is bundled in.
+// functions manifest; workspace code (@goblin/schema) is bundled in.
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 
