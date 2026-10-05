@@ -12,6 +12,7 @@ cd "$(dirname "$0")/.."
 
 export FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9199
 export FIRESTORE_EMULATOR_HOST=127.0.0.1:8180
+export FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9198
 APP_PORT=4300
 LOG_DIR="${TMPDIR:-/tmp}/goblin-e2e"
 mkdir -p "$LOG_DIR"
@@ -28,7 +29,7 @@ port_in_use() {
   (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
 }
 
-for port in 9199 8180 5101 "$APP_PORT"; do
+for port in 9199 8180 5101 9198 "$APP_PORT"; do
   if port_in_use "$port"; then
     echo "error: port $port is already in use; is another e2e run (or a stray emulator) up?" >&2
     exit 1
@@ -52,7 +53,7 @@ node scripts/build-functions.mjs
 # ignores NO_PROXY, so start the suite with every proxy variable unset, in
 # its own process group so it can be stopped cleanly.
 setsid env -u HTTPS_PROXY -u https_proxy -u HTTP_PROXY -u http_proxy \
-  npx firebase emulators:start --config firebase.e2e.json --only auth,firestore,functions \
+  npx firebase emulators:start --config firebase.e2e.json --only auth,firestore,functions,storage \
   > "$LOG_DIR/emulators.log" 2>&1 &
 pids+=($!)
 
@@ -63,6 +64,7 @@ pids+=($!)
 wait_for_port 9199 "auth emulator"
 wait_for_port 8180 "firestore emulator"
 wait_for_port 5101 "functions emulator"
+wait_for_port 9198 "storage emulator"
 wait_for_port "$APP_PORT" "static server"
 
 npx vitest run --project rules

@@ -60,7 +60,7 @@ for anything else.
   and the Worker deploy dry run. No ESLint (house style).
 - `npm run e2e` must pass before pushing or opening a PR: it builds the
   e2e configuration, starts the e2e emulator suite (ports 9199, 8180,
-  5101), serves the app on :4300, runs the rules tests
+  5101, 9198), serves the app on :4300, runs the rules tests
   (`packages/rules-tests`) and the Playwright journeys (including the axe
   accessibility journey), and tears everything down.
 - Prose-only changes skip both. A new test suite is wired into a gate in

@@ -30,9 +30,12 @@ Answered ones move into DESIGN.md with their date.
 
 ## Technical
 
-- **Who can sign in.** The rules confine each user to their own
-  `users/{uid}`, so a stranger signing in with Google sees an empty app
-  and cannot read Eric's data. Blocking other accounts entirely needs
-  an Identity Platform blocking function; worth it?
+- **Who can sign in. Decide before the first production deploy.** The
+  rules confine each user to their own `users/{uid}`, so a stranger
+  signing in with Google cannot read Eric's data, but can still write
+  notes into their own space on Eric's Blaze project, which costs money.
+  Options: an owner-uid check in the rules once the uid is known, or an
+  Identity Platform blocking function that refuses other accounts at
+  sign-in.
 - **Region.** Functions default to `us-central1`. Move closer if latency
   to the MCP endpoint matters.

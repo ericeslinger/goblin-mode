@@ -213,8 +213,12 @@ reminder's note, or a new note from its template.
 
 ## Security
 
-Google sign-in; Firestore and Storage rules allow only
-`request.auth.uid == uid` under `users/{uid}`; `oauth/` is server-only.
+Google sign-in. Firestore rules allow only `request.auth.uid == uid`
+under `users/{uid}`, and only for the write path each collection has:
+the client writes `notes`, `reminders` and `devices`; `notes/history`
+and `activity` are read-only to the client; anything unlisted, and
+`oauth/`, is denied. Storage is deny-all until attachments (Phase 2)
+decide its write path.
 No end-to-end encryption, so MCP and search can read notes (2026-10-05).
 Firestore point-in-time recovery is on as the backstop for bad edits.
 

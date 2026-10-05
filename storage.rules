@@ -1,9 +1,11 @@
 rules_version = '2';
 
+// Deny-all until attachments arrive (build order Phase 2); the write path
+// for files is decided then, with its own rules tests.
 service firebase.storage {
   match /b/{bucket}/o {
-    match /users/{uid}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }
