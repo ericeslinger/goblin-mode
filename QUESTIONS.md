@@ -4,13 +4,12 @@ Answered ones move into DESIGN.md with their date.
 
 ## Setup Eric owes before the first deploy
 
-1. **Firebase project.** Create one (Blaze plan, for Functions and
-   scheduled jobs), enable Google sign-in, Firestore with point-in-time
-   recovery, and Storage. Then:
-   - paste its web config into
-     `packages/frontend/src/environments/firebase-config.ts`
-     (`PRODUCTION_FIREBASE_CONFIG`; it is not secret);
-   - set the repository variable `FIREBASE_PROJECT_ID`;
+1. **Firebase project** `mossgoblin-garden` (created 2026-10-05; its web
+   config is in `packages/frontend/src/environments/firebase-config.ts`,
+   `.firebaserc` alias `prod`). Still to check or do: Blaze plan, Google
+   sign-in enabled, Firestore with point-in-time recovery, Storage. Then:
+   - set the repository variable `FIREBASE_PROJECT_ID` to
+     `mossgoblin-garden`;
    - add the repository secret `FIREBASE_SERVICE_ACCOUNT` (a service
      account JSON key with Firebase Admin, Cloud Functions Admin, Service
      Account User and Cloud Scheduler Admin);

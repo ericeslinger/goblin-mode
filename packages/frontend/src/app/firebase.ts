@@ -1,5 +1,5 @@
 import { InjectionToken } from '@angular/core';
-import { FirebaseApp, initializeApp } from 'firebase/app';
+import { FirebaseApp, FirebaseOptions, initializeApp } from 'firebase/app';
 import { Auth, connectAuthEmulator, getAuth } from 'firebase/auth';
 import {
   Firestore,
@@ -29,15 +29,20 @@ export function isLocalHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
-export function initFirebase(hostname: string): FirebaseHandles {
-  const usingEmulators = isLocalHost(hostname);
-  const config = usingEmulators
-    ? { projectId: EMULATOR_PROJECT_ID, apiKey: 'emulator-api-key', authDomain: hostname }
-    : PRODUCTION_FIREBASE_CONFIG;
-  if (!config) {
+/** The Firebase config for the host the page was served from. */
+export function configFor(hostname: string): FirebaseOptions {
+  if (isLocalHost(hostname)) {
+    return { projectId: EMULATOR_PROJECT_ID, apiKey: 'emulator-api-key', authDomain: hostname };
+  }
+  if (!PRODUCTION_FIREBASE_CONFIG) {
     throw new Error('No production Firebase config is set; see QUESTIONS.md.');
   }
-  const app = initializeApp(config);
+  return PRODUCTION_FIREBASE_CONFIG;
+}
+
+export function initFirebase(hostname: string): FirebaseHandles {
+  const usingEmulators = isLocalHost(hostname);
+  const app = initializeApp(configFor(hostname));
   const auth = getAuth(app);
   // The persistent cache is what makes Goblin Mode offline-first: writes
   // land in IndexedDB at once and sync when the network is back.
