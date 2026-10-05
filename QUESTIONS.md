@@ -29,12 +29,10 @@ Answered ones move into DESIGN.md with their date.
 
 ## Technical
 
-- **Who can sign in. Decide before the first production deploy.** The
-  rules confine each user to their own `users/{uid}`, so a stranger
-  signing in with Google cannot read Eric's data, but can still write
-  notes into their own space on Eric's Blaze project, which costs money.
-  Options: an owner-uid check in the rules once the uid is known, or an
-  Identity Platform blocking function that refuses other accounts at
-  sign-in.
+- **Google sign-in for the hand-made account.** Sign-up is disabled
+  and the owner account was created in the console. Confirm that
+  "Sign in with Google" on mossgoblin.garden signs into that same uid
+  (it should when the emails match) rather than being refused as a new
+  account.
 - **Region.** Functions default to `us-central1`. Move closer if latency
   to the MCP endpoint matters.

@@ -183,8 +183,9 @@ Firebase Google sign-in:
 4. `/oauth/token` exchanges the code for an access token and refresh
    token. Tokens are random, stored hashed under `oauth/`, revocable.
 
-The owner uid is a function parameter (`OWNER_UID`); any other account is
-refused. MVP tools:
+The owner uid is a function parameter (`OWNER_UID`,
+`DjudV1dnNxdpn7XP1VTluVJMLNb2` in `mossgoblin-garden`); any other
+account is refused. MVP tools:
 
 | Tool | Does |
 | --- | --- |
@@ -212,6 +213,12 @@ reminders, cleared otherwise). Tapping a notification opens the
 reminder's note, or a new note from its template.
 
 ## Security
+
+**Only one account exists (2026-10-05).** End-user sign-up is disabled
+in Firebase Auth and Eric's account was created by hand in the console,
+so a stranger cannot get a uid at all; that settles the open-sign-in
+cost exposure. The rules stay uid-scoped rather than hard-coding the
+owner uid, so the emulator and rules tests need no special account.
 
 Google sign-in. Firestore rules allow only `request.auth.uid == uid`
 under `users/{uid}`, and only for the write path each collection has:
