@@ -8,17 +8,13 @@ Done 2026-10-05/06: the Firebase project `mossgoblin-garden` (Blaze,
 point-in-time recovery, weekly backups, sign-up disabled, owner account
 created by hand), the deploy service account, the Cloudflare token, and
 the GitHub secrets and variables. The first deploy succeeded on
-2026-10-06.
+2026-10-06. The Web Push key pair was generated on 2026-10-06; its
+public key is in `firebase-config.ts`.
 
 Still owed:
 
-1. **Web Push key** for notifications (step 5). In the Firebase
-   console: Project settings, Cloud Messaging, Web Push certificates,
-   Generate key pair. Send me the public key (the long string shown);
-   it is public and goes in `firebase-config.ts`. Until then Settings
-   says notifications are not set up yet. The first deploy of
-   `sendDuePush` may also ask to enable the Cloud Scheduler API for
-   the project, as earlier deploys did for other APIs.
+1. **Cloud Scheduler API**, if the first deploy of `sendDuePush` asks
+   for it, as earlier deploys did for other APIs.
 2. **Anthropic API key** for titles: a Functions secret
    `ANTHROPIC_API_KEY` (`firebase functions:secrets:set`). Needed at
    build order step 6, not before.

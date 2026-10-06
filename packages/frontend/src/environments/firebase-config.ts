@@ -20,7 +20,8 @@ export const PRODUCTION_FIREBASE_CONFIG: FirebaseOptions | null = {
 /**
  * The public key of the project's Web Push certificate (Firebase console:
  * Project settings, Cloud Messaging, Web Push certificates). Public by
- * design, like the config above. Until it is set, Settings says
- * notifications are not set up yet (QUESTIONS.md).
+ * design, like the config above (set 2026-10-06). Without it, Settings
+ * says notifications are not set up yet.
  */
-export const PRODUCTION_VAPID_KEY: string | null = null;
+export const PRODUCTION_VAPID_KEY: string | null =
+  'BJkXc9JszShs5959cEA7j-2ZuAHPhh5S3huq8hJM0sZyhWwwMM8zJfvfmoep2MidX7UrtlhHYkZMro5P3xBo4nk';

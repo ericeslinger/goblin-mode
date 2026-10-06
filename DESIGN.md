@@ -468,7 +468,7 @@ Each step is one or more PRs, each with a journey.
 4. Reminders: Right Now panel and full list, add, done, snooze,
    recurring. Done 2026-10-06.
 5. Push: device registration, `sendDuePush`, notification taps.
-   Built 2026-10-06; live once the Web Push key is set (QUESTIONS.md).
+   Built 2026-10-06, with the Web Push key set the same day.
 6. History and titles: `noteHistory`, `noteTitle`.
 7. MCP: OAuth, tools, connector set up in claude.ai.
 
