@@ -425,6 +425,43 @@ Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it
 is slow.
 
+**As built (2026-10-06).**
+
+- **Routes.** `infra/worker/src/routes.json` maps paths to functions
+  for the Worker and for the e2e static server alike: `/mcp` to `mcp`;
+  the two `/.well-known/oauth-*` documents and `/oauth/register`,
+  `/oauth/token`, `/oauth/approve` and `/oauth/revoke` to `oauth`.
+  `/oauth/authorize` is the app's consent page. The issuer and every
+  endpoint are named from the forwarded host, so no domain is
+  configured.
+- **Registration** accepts public clients whose redirect URIs are on
+  `https://claude.ai` or `https://claude.com` only, so a stranger
+  cannot register a client that sends codes elsewhere.
+- **Consent.** The page asks the oauth function who is asking (client
+  name, return origin), then on Allow posts the request with Eric's
+  Firebase ID token. The function verifies the token and refuses any
+  uid but `OWNER_UID`; without `OWNER_UID`, nobody can connect.
+- **Codes and tokens** are 32 random bytes, stored only as SHA-256
+  hashes under `oauth/` (denied to clients by the rules). Codes live
+  five minutes and work once, with PKCE S256 required. Access tokens
+  live an hour; refresh tokens 90 days, rotating on every use. Settings,
+  Disconnect Claude, deletes every token, and claude.ai must connect
+  again. Expired codes and tokens are not swept yet; there are few.
+- **MCP** is stateless Streamable HTTP (POST only, JSON responses): each
+  request checks the bearer token belongs to the owner, then builds a
+  server with the eight MVP tools. Writes are validated against the zod
+  contract before they land; Claude's note writes carry `updatedBy:
+  claude` and `deviceId: claude`, so History keeps the version Claude
+  replaced. Claude cannot change a title Eric set, and there is no
+  delete tool (archive instead). The server's instructions repeat the
+  verbatim rule, the emphasis convention (`*bold*`, `_italic_`) and
+  that times are ISO 8601 with an offset.
+- **Testing.** The e2e suite runs the whole flow against the emulators:
+  register, consent, code, token, `tools/call create_note`, the note in
+  the app, then Disconnect. Its owner has a fixed uid that `e2e.sh`
+  gives the functions emulator as `OWNER_UID` (`.env.local`, written
+  for the run and deleted after).
+
 ## Push
 
 The app registers an FCM token per device in `devices`. `sendDuePush`
@@ -549,6 +586,7 @@ Each step is one or more PRs, each with a journey.
 6. History and titles: `noteHistory`, `noteTitle` (Claude through
    workload identity federation, set up 2026-10-06). Built 2026-10-06;
    titles come on settle.
-7. MCP: OAuth, tools, connector set up in claude.ai.
+7. MCP: OAuth, tools, connector set up in claude.ai. Built 2026-10-06;
+   the connector is added in claude.ai by Eric (QUESTIONS.md).
 
 First deploy to mossgoblin.garden: done 2026-10-06.

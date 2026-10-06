@@ -6,6 +6,7 @@ describe('functionFor', () => {
     expect(functionFor('/mcp')).toBe('mcp');
     expect(functionFor('/.well-known/oauth-authorization-server')).toBe('oauth');
     expect(functionFor('/oauth/token')).toBe('oauth');
+    expect(functionFor('/oauth/revoke')).toBe('oauth');
     expect(functionFor('/api/health')).toBe('health');
   });
 

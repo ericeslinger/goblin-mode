@@ -8,5 +8,7 @@ initializeApp();
 configureFunctions();
 
 export { health } from './health/health';
+export { mcp } from './mcp/http';
+export { oauth } from './oauth/http';
 export { noteHistory, noteTitle } from './notes/triggers';
 export { sendDuePush } from './push/send-due-push';

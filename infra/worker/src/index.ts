@@ -5,22 +5,20 @@
 // to Cloud Functions, so the MCP endpoint and its OAuth live on the
 // app's own origin.
 
+import routes from './routes.json';
+
 export interface Env {
   ASSETS: Fetcher;
   /** e.g. https://us-central1-<project>.cloudfunctions.net */
   FUNCTIONS_ORIGIN: string;
 }
 
-/** Path prefix -> Cloud Function name. */
-export const ROUTES: ReadonlyArray<readonly [string, string]> = [
-  ['/api/health', 'health'],
-  ['/mcp', 'mcp'],
-  ['/.well-known/oauth-protected-resource', 'oauth'],
-  ['/.well-known/oauth-authorization-server', 'oauth'],
-  ['/oauth/register', 'oauth'],
-  ['/oauth/token', 'oauth'],
-  ['/oauth/approve', 'oauth'],
-];
+/**
+ * Path prefix -> Cloud Function name. Shared with the e2e static server
+ * (scripts/serve-static.mjs), so journeys reach functions the same way;
+ * every prefix must also be in wrangler.toml's run_worker_first.
+ */
+export const ROUTES = routes as unknown as ReadonlyArray<readonly [string, string]>;
 
 export function functionFor(pathname: string): string | undefined {
   for (const [prefix, fn] of ROUTES) {

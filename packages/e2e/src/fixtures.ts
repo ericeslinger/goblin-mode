@@ -13,25 +13,39 @@ export async function prepPage(page: Page): Promise<void> {
   await page.route(/fonts\.(googleapis|gstatic)\.com|apis\.google\.com/, (r) => r.abort());
 }
 
+export const FIRESTORE_EMULATOR = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
+
 /**
- * Wipes every Auth emulator account and creates this one, so setup is
- * retry-safe. Journeys run serially (one worker), so a wipe is safe.
+ * Wipes every Auth emulator account and all Firestore data, then creates
+ * this persona under its fixed uid, so setup is retry-safe and every
+ * journey starts empty. Journeys run serially (one worker), so a wipe is
+ * safe.
  */
-export async function resetAccount(email: string, password: string): Promise<void> {
+export async function resetAccount(persona: Persona): Promise<void> {
   const base = `http://${AUTH_EMULATOR}`;
   const wiped = await fetch(`${base}/emulator/v1/projects/${PROJECT}/accounts`, {
     method: 'DELETE',
   });
   if (!wiped.ok) throw new Error(`could not wipe accounts: ${await wiped.text()}`);
+  const cleared = await fetch(
+    `http://${FIRESTORE_EMULATOR}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`,
+    { method: 'DELETE' },
+  );
+  if (!cleared.ok) throw new Error(`could not clear Firestore: ${await cleared.text()}`);
+  // The admin create call (Bearer owner) takes a fixed uid.
   const created = await fetch(
-    `${base}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=e2e-fake-key`,
+    `${base}/identitytoolkit.googleapis.com/v1/projects/${PROJECT}/accounts`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, password, returnSecureToken: true }),
+      headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+      body: JSON.stringify({
+        localId: persona.uid,
+        email: persona.email,
+        password: persona.password,
+      }),
     },
   );
-  if (!created.ok) throw new Error(`could not create ${email}: ${await created.text()}`);
+  if (!created.ok) throw new Error(`could not create ${persona.email}: ${await created.text()}`);
 }
 
 /**
@@ -44,7 +58,7 @@ export async function signInAs(
   persona: Persona,
   { reset = true }: { reset?: boolean } = {},
 ): Promise<void> {
-  if (reset) await resetAccount(persona.email, persona.password);
+  if (reset) await resetAccount(persona);
   await page.goto('/dev-sign-in');
   await page.getByLabel('Email').fill(persona.email);
   await page.getByLabel('Password').fill(persona.password);
