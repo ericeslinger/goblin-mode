@@ -14,14 +14,9 @@ workload identity federation was set up and tested on 2026-10-06 (a
 token exchange from `goblin-titles` succeeded); its ids are GitHub
 variables (README.md, Run your own).
 
-Still owed:
-
-1. **New GitHub variables, before PR #12 merges** (deploy configuration,
-   2026-10-06). The deploy now reads them instead of committed values,
-   and stops before building without the required ones. The list is
-   in README.md, Run your own.
-2. **Cloud Scheduler API**, if the first deploy of `sendDuePush` asks
-   for it, as earlier deploys did for other APIs.
+Also done 2026-10-06: the GitHub variables for deploy configuration
+(PR #13), and the Cloud Scheduler API (the first `sendDuePush` deploy
+enabled it). Nothing is owed right now.
 
 ## Product
 

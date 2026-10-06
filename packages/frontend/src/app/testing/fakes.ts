@@ -33,8 +33,11 @@ export class FakeNotes {
   }
   private n = 0;
   readonly written = new Set<string>();
-  save = vi.fn((id: string, _body: string) => void this.written.add(id));
+  save = vi.fn(
+    (id: string, _body: string, _opts?: { restore?: boolean }) => void this.written.add(id),
+  );
   remove = vi.fn((id: string) => void this.written.delete(id));
+  settle = vi.fn((_id: string, _opts?: { edited?: boolean }) => undefined);
   newId = () => `new${++this.n}`;
   find = (id: string) => this.notes().find((x) => x.id === id);
   exists = (id: string) => this.written.has(id) || !!this.find(id);

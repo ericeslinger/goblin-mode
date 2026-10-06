@@ -99,6 +99,7 @@ interface Note {
   updatedAt: Timestamp;
   updatedBy: 'user' | 'claude';
   deviceId: string;             // last writer, for conflict history
+  settledAt?: Timestamp;        // last left after a change; asks for a title
 }
 ```
 
@@ -171,10 +172,37 @@ the previous version into `history` when the writer's `deviceId`
 changes or the last snapshot is older than 10 minutes, so an
 overwritten edit can be recovered from the note's History.
 
+**History (as built, 2026-10-06).** `noteHistory` runs on every note
+write and keeps the replaced version (a `NoteVersion`: body, title,
+who wrote it from where, when, and why it was kept) when another
+device wrote over it, when Claude wrote over Eric or Eric over Claude,
+when ten minutes passed since the last kept version (or since the note
+was created), or when the note was deleted. A write that leaves the
+body alone (a title, a settle) keeps nothing. The rules are
+`keepReason` in `packages/schema/src/history.ts`. The header's History
+link lists a note's last 50 versions, newest first; opening one shows
+it whole, and Restore puts it back. A restore writes as its own writer
+(the device id plus `~restore`), so the text it replaces is kept too.
+Versions are never pruned yet; one person's history is small.
+
 **Titles.** The client shows the first words until a better title
 arrives. A trigger on note writes asks a small Claude model for a title
 when the first paragraph changes and `titleSource` is not `user`. No
 credential, or an error, leaves the first-words title.
+
+**Titles on settle (Eric, 2026-10-06; replaces "when the first
+paragraph changes").** A note is settled when Eric leaves it: a fresh
+note after five minutes away, New, or opening another note (the list,
+Previous note, a link, a restore of another note). Leaving writes
+`settledAt` (a server time, merged; body and `updatedAt` untouched) if
+the note has text and changed since its last settle, so reading an old
+note never calls Claude. `noteTitle` asks `claude-haiku-4-5` for two
+to six words when `settledAt` moves, the note has four or more words,
+and the title is not Eric's own; it writes `title` with `titleSource:
+llm` only if the note is still at that settle. Between settles the app
+keeps Claude's title rather than putting first words back. A settle
+that has to wait for sign-in (the five-minute case at launch) is held
+on the device and written once the notes load.
 
 **Claude credentials: workload identity federation, no API key (Eric,
 2026-10-06; replaces the `ANTHROPIC_API_KEY` secret planned on
@@ -519,7 +547,8 @@ Each step is one or more PRs, each with a journey.
 5. Push: device registration, `sendDuePush`, notification taps.
    Built 2026-10-06, with the Web Push key set the same day.
 6. History and titles: `noteHistory`, `noteTitle` (Claude through
-   workload identity federation, set up 2026-10-06).
+   workload identity federation, set up 2026-10-06). Built 2026-10-06;
+   titles come on settle.
 7. MCP: OAuth, tools, connector set up in claude.ai.
 
 First deploy to mossgoblin.garden: done 2026-10-06.

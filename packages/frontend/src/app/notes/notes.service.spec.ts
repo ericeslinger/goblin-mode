@@ -105,6 +105,54 @@ describe('NotesService', () => {
     expect(update).not.toHaveProperty('titleSource');
   });
 
+  it('keeps a Claude title until the next settle replaces it', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'n1', data: { body: 'x', title: 'Loan call', titleSource: 'llm', archived: false } },
+    ]);
+    notes.save('n1', 'call the credit union instead');
+    expect(api.set.mock.lastCall![2]).not.toHaveProperty('title');
+  });
+
+  it('settles a note that changed since its last settle, and only then', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    const at = (ms: number) => ({ toMillis: () => ms });
+    push([
+      { id: 'fresh', data: { body: 'never settled', updatedAt: at(5) } },
+      { id: 'edited', data: { body: 'changed after', updatedAt: at(9), settledAt: at(5) } },
+      { id: 'read', data: { body: 'only read', updatedAt: at(5), settledAt: at(9) } },
+      { id: 'blank', data: { body: '  ' } },
+    ]);
+    for (const id of ['fresh', 'edited', 'read', 'blank']) notes.settle(id);
+    expect(api.set.mock.calls.map(([, path, data, merge]) => [path, data, merge])).toEqual([
+      ['users/u1/notes/fresh', { settledAt: 'SERVER_TIME' }, true],
+      ['users/u1/notes/edited', { settledAt: 'SERVER_TIME' }, true],
+    ]);
+    notes.settle('read', { edited: true });
+    expect(api.set.mock.lastCall![1]).toBe('users/u1/notes/read');
+  });
+
+  it('writes a restore as its own writer, so history keeps what it replaces', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'n1', data: { body: 'now', archived: false } }]);
+    notes.save('n1', 'before', { restore: true });
+    expect(api.set.mock.lastCall![2]['deviceId']).toBe(notes.deviceId() + '~restore');
+  });
+
+  it("drops Claude's title for the newer text on a restore", () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'n1', data: { body: 'newer text', title: 'Newer', titleSource: 'llm' } }]);
+    notes.save('n1', 'older words here', { restore: true });
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      title: 'older words here',
+      titleSource: 'words',
+    });
+  });
+
   it('removes a note and drops it from the list at once', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

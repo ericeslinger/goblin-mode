@@ -8,4 +8,5 @@ initializeApp();
 configureFunctions();
 
 export { health } from './health/health';
+export { noteHistory, noteTitle } from './notes/triggers';
 export { sendDuePush } from './push/send-due-push';

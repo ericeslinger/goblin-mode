@@ -43,6 +43,12 @@ and variables, Actions); nothing in the code names a deployment.
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_WORKSPACE_ID` | variable, optional | Only if the federation rule covers several workspaces |
 
+Also create a Google service account named `goblin-titles` in the
+project, with `roles/datastore.user`, and let the deploy service
+account act as it (`roles/iam.serviceAccountUser` on it): `noteTitle`
+always runs as that account, even with titles off. DESIGN.md, Titles,
+covers the Claude side.
+
 A push to `main` deploys. The deploy stops before building when a
 required value is missing; an optional one left out turns its feature
 off. DESIGN.md, Deploy configuration, has the details.

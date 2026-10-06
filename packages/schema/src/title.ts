@@ -19,3 +19,41 @@ export function firstWordsTitle(body: string): string {
   if (title.length > MAX_CHARS) title = title.slice(0, MAX_CHARS - 1).trimEnd() + '…';
   return title;
 }
+
+/** The first non-empty line, trimmed: what a title is keyed on. */
+export function firstLine(body: string): string {
+  return (
+    body
+      .split('\n')
+      .find((l) => l.trim())
+      ?.trim() ?? ''
+  );
+}
+
+/** Fewer words than this and the first words already are the title. */
+export const TITLE_MIN_WORDS = 4;
+
+/**
+ * Whether a write should get a Claude title (Eric, 2026-10-06): the note
+ * was just settled (its `settledAt` moved), it is long enough to need
+ * one, and the title is not Eric's own. Times are epoch milliseconds.
+ */
+export function wantsClaudeTitle(
+  before: { settledAt?: number } | undefined,
+  after: { body: string; titleSource?: string; settledAt?: number },
+): boolean {
+  if (after.titleSource === 'user' || after.settledAt === undefined) return false;
+  if (before?.settledAt === after.settledAt) return false;
+  return after.body.split(/\s+/).filter(Boolean).length >= TITLE_MIN_WORDS;
+}
+
+/** A model's reply made into a title: one line, no quotes, bounded. */
+export function cleanTitle(reply: string): string {
+  let title = firstLine(reply);
+  title = title
+    .replace(/^title:\s*/i, '')
+    .replace(/^["'“”‘’*_#]+|["'“”‘’*_.]+$/g, '')
+    .trim();
+  if (title.length > MAX_CHARS) title = title.slice(0, MAX_CHARS - 1).trimEnd() + '…';
+  return title;
+}

@@ -98,6 +98,16 @@ describe('client-written collections: notes, reminders, devices', () => {
     await assertSucceeds(ref.set({ ...note(), conceptType: 'person', synonyms: ['vik'] }));
   });
 
+  it('lets the app settle a note with a merged server timestamp, and nothing else in it', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertSucceeds(ref.set(note()));
+    await assertSucceeds(
+      ref.set({ settledAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }),
+    );
+    await assertFails(ref.set({ settledAt: 'just now' }, { merge: true }));
+  });
+
   it('accepts a server timestamp, as the app writes updatedAt', async () => {
     const note = valid['users/owner/notes/n1'];
     await assertSucceeds(

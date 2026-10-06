@@ -34,6 +34,11 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Notes' })).toBeVisible();
   await expectNoSeriousViolations(page);
 
+  await page.getByRole('list', { name: 'Notes' }).getByRole('link').first().click();
+  await page.getByRole('link', { name: 'History' }).click();
+  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
+  await expectNoSeriousViolations(page);
+
   await page.goto('/right-now');
   await page.getByRole('button', { name: 'Add a reminder' }).click();
   await expectNoSeriousViolations(page);
