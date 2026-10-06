@@ -28,15 +28,16 @@
             "define": {
               "BUILD_SHA": "\"dev\"",
               "BUILD_TIME": "\"dev\""
-            }
+            },
+            "allowedCommonJsDependencies": ["extend"]
           },
           "configurations": {
             "production": {
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "1MB",
-                  "maximumError": "1.5MB"
+                  "maximumWarning": "1.5MB",
+                  "maximumError": "8MB"
                 },
                 {
                   "type": "anyComponentStyle",

@@ -19,6 +19,12 @@
     --warn: #e6a640;
   }
 }
+:root {
+  --gm-ink: var(--ink);
+  --gm-quiet: var(--quiet);
+  --gm-rule: var(--rule);
+  --gm-accent: var(--accent);
+}
 html,
 body {
   margin: 0;

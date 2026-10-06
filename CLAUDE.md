@@ -55,7 +55,7 @@ for anything else.
 
 - `npm run gate` must pass before every commit: typechecks (spec files
   included), `prettier --check`, the frontend build, unit tests (vitest
-  for schema, functions and worker; `ng test` for the frontend), the
+  for schema, editor, functions and worker; `ng test` for the frontend), the
   functions deploy dry run (staged `npm install --omit=dev` and import),
   and the Worker deploy dry run. No ESLint (house style).
 - `npm run e2e` must pass before pushing or opening a PR: it builds the

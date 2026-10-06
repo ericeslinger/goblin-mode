@@ -11,7 +11,9 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "paths": {
-      "@goblin/schema": ["./packages/schema/src/index.ts"]
+      "@goblin/schema": ["./packages/schema/src/index.ts"],
+      "@goblin/editor": ["./packages/editor/src/index.ts"],
+      "@goblin/editor/grammar": ["./packages/editor/src/grammar/index.ts"]
     }
   }
 }

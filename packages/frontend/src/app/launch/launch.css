@@ -32,15 +32,8 @@
 }
 .editor {
   flex: 1;
-  border: 0;
-  padding: 16px;
-  resize: none;
-  font: inherit;
-  font-size: 17px;
-  line-height: 1.5;
-  color: var(--ink);
-  background: transparent;
-  outline: none;
+  min-height: 0;
+  overflow: auto;
 }
 .right-now {
   border-top: 1px solid var(--rule);
