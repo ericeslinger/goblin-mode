@@ -22,20 +22,6 @@ Still owed:
   extend the base note schema once real use shows what is needed.
 - **Feelings template.** Designed together once journaling is in use.
 
-## Editor
-
-Open from the 2026-10-06 editor decision (DESIGN.md, Editor):
-
-- **Default mode on the phone.** Live preview, with source one tap
-  away? Remembered per note or app-wide?
-- **GFM task lists** (`- [ ]`). goblin turned GFM off only because of its
-  75-column re-wrap, which Goblin Mode does not do.
-- **Directives on day one?** goblin's `:::aside` and `::embed{#id}`
-  syntax, or later when a first custom block is needed.
-- **Bundle cost.** CodeMirror plus remark adds roughly 150 to 250 kB to
-  the first load (estimate, not measured); the service worker caches it
-  after that. Measure before building, or accept?
-
 ## Technical
 
 - **Google sign-in for the hand-made account.** Sign-up is disabled

@@ -194,7 +194,21 @@ one renderer; the editor widget reuses that renderer.
 - images inline as `![caption](attachment:<id>)`, so a note embeds
   images without a block envelope. Reserved syntax for now: attachments
   arrive in Phase 2, and until then the renderer shows the caption;
-- more to be settled (see QUESTIONS.md, Editor).
+- GFM task lists (`- [ ]`), with checkboxes tickable in live preview
+  (Eric, 2026-10-06).
+
+goblin's directive syntax (`:::aside`, `::embed{#id}`) waits until a
+first custom block is needed (Eric, 2026-10-06).
+
+**Modes (Eric, 2026-10-06).** Live preview is the default everywhere,
+with source one tap away; the choice is remembered app-wide on the
+device, not per note.
+
+**Bundle size (Eric, 2026-10-06).** Not a constraint: one user, who is
+not sensitive to load time or bandwidth. The editor ships in the
+initial bundle (no lazy loading, so launch never waits on a chunk), and
+the Angular budgets are raised to fit; the service worker caches it all
+after the first visit.
 
 **Built to be extracted.** The editor may later move into goblin (rich
 authoring) and overstory (a simpler pipeline), or become a library for
