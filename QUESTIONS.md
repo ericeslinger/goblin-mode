@@ -12,7 +12,14 @@ the GitHub secrets and variables. The first deploy succeeded on
 
 Still owed:
 
-1. **Anthropic API key** for titles: a Functions secret
+1. **Web Push key** for notifications (step 5). In the Firebase
+   console: Project settings, Cloud Messaging, Web Push certificates,
+   Generate key pair. Send me the public key (the long string shown);
+   it is public and goes in `firebase-config.ts`. Until then Settings
+   says notifications are not set up yet. The first deploy of
+   `sendDuePush` may also ask to enable the Cloud Scheduler API for
+   the project, as earlier deploys did for other APIs.
+2. **Anthropic API key** for titles: a Functions secret
    `ANTHROPIC_API_KEY` (`firebase functions:secrets:set`). Needed at
    build order step 6, not before.
 

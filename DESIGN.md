@@ -378,6 +378,37 @@ web push each, and advances `nextFireAt` (next occurrence for recurring
 reminders, cleared otherwise). Tapping a notification opens the
 reminder's note, or a new note from its template.
 
+**As built (2026-10-06).**
+
+- **Registering.** Settings has Turn on / Turn off notifications. On
+  asks the browser, gets an FCM token with the project's Web Push key
+  and writes `devices/{deviceId}` (the same device id notes carry).
+  Once on, every sign-in refreshes the token, since FCM rotates them.
+  Off deletes the device record and the token. On localhost there is
+  no FCM emulator, so the device registers a stand-in token and the
+  flow still runs end to end.
+- **One service worker.** The app keeps Angular's `ngsw-worker.js`
+  and FCM subscribes through its registration, so there is no
+  `firebase-messaging-sw.js`. Angular's worker shows any push whose
+  JSON has `notification.title`, and a tap follows
+  `notification.data.onActionClick` (`navigateLastFocusedOrOpen`).
+  Not testable without real FCM: check on the phone after deploy.
+- **Sending.** `sendDuePush` (every minute, no retries) reads up to
+  100 due reminders with a collection-group query (its index is in
+  `firestore.indexes.json`), then for each one claims it in a
+  transaction (moves `nextFireAt` only if it is unchanged, so a done or
+  snooze from the app, or an overlapping run, wins) and only then
+  sends. A failed send loses one nudge; nothing is ever sent twice.
+  Tokens FCM reports gone are deleted with their device.
+- **What is sent.** Title: the reminder's text. Tap: its note, else
+  Right Now. One notification per reminder (`tag` is its id).
+- **Repeats** keep nudging: after a push a repeat's `nextFireAt` moves
+  to its next occurrence while `dueAt` stays, so an ignored reminder
+  sits in Overdue and still pushes the next day (`nextPushAfter` in
+  `packages/schema/src/reminders.ts`). One-offs push once.
+- Templates (the feelings note) wait for Phase 2: until then a tap on
+  a template reminder opens Right Now.
+
 ## Security
 
 **Only one account exists (2026-10-05).** End-user sign-up is disabled
@@ -430,6 +461,7 @@ Each step is one or more PRs, each with a journey.
 4. Reminders: Right Now panel and full list, add, done, snooze,
    recurring. Done 2026-10-06.
 5. Push: device registration, `sendDuePush`, notification taps.
+   Built 2026-10-06; live once the Web Push key is set (QUESTIONS.md).
 6. History and titles: `noteHistory`, `noteTitle`.
 7. MCP: OAuth, tools, connector set up in claude.ai.
 

@@ -4,6 +4,7 @@ import {
   firstOccurrence,
   markDone,
   nextOccurrence,
+  nextPushAfter,
   sectionOf,
   snoozeChoices,
   snoozeUntil,
@@ -134,5 +135,39 @@ describe('snooze', () => {
     ]);
     const late = at('2026-10-06T23:30:00Z'); // 19:30 NY
     expect(snoozeChoices(late, NY).map((c) => c.label)).toEqual(['In an hour', 'Tomorrow']);
+  });
+});
+
+describe('nextPushAfter', () => {
+  const now = at('2026-10-06T13:00:00Z'); // Tue 09:00 NY, just pushed
+
+  it('stops after a one-off', () => {
+    expect(nextPushAfter({ status: 'open', dueAt: now }, now)).toBeUndefined();
+  });
+
+  it('moves a repeat to its next occurrence, leaving dueAt alone', () => {
+    const r = { status: 'open' as const, dueAt: now, recurrence: daily('09:00') };
+    expect(nextPushAfter(r, now)).toBe(at('2026-10-07T13:00:00Z'));
+  });
+
+  it('counts a later time today after a snoozed push', () => {
+    // Snoozed to 08:00, pushed then; today's 21:00 is still ahead.
+    const r = {
+      status: 'snoozed' as const,
+      dueAt: at('2026-10-06T01:00:00Z'),
+      snoozedUntil: at('2026-10-06T12:00:00Z'),
+      recurrence: daily('21:00'),
+    };
+    expect(nextPushAfter(r, at('2026-10-06T12:00:00Z'))).toBe(at('2026-10-07T01:00:00Z'));
+  });
+
+  it('keeps the weekday for weekly, and catches up past missed weeks', () => {
+    const tuesday = at('2026-09-22T13:00:00Z');
+    const r = {
+      status: 'open' as const,
+      dueAt: tuesday,
+      recurrence: { freq: 'weekly' as const, time: '09:00', tz: NY },
+    };
+    expect(nextPushAfter(r, now)).toBe(at('2026-10-13T13:00:00Z'));
   });
 });

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the app for e2e, starts the e2e emulator suite, serves the app,
-# runs the rules tests and the Playwright journeys, and tears it all down.
+# runs the rules tests, the functions' Firestore tests and the
+# Playwright journeys, and tears it all down.
 # Playwright arguments pass through: npm run e2e -- --grep sign-in
 #
 # A script rather than Playwright webServer config, because readiness,
@@ -67,5 +68,5 @@ wait_for_port 5101 "functions emulator"
 wait_for_port 9198 "storage emulator"
 wait_for_port "$APP_PORT" "static server"
 
-npx vitest run --project rules
+npx vitest run --project rules --project functions-emulator
 npx playwright test -c packages/e2e/playwright.config.ts "$@"

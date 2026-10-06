@@ -8,3 +8,4 @@ initializeApp();
 configureFunctions();
 
 export { health } from './health/health';
+export { sendDuePush } from './push/send-due-push';
