@@ -36,6 +36,7 @@ const PARAMS = [
             <strong>{{ c.clientName }}</strong> wants to read and change your notes and reminders.
           </p>
           <p class="muted">You will go back to {{ c.redirectOrigin }}.</p>
+          <p class="muted">Allow this only if you just asked claude.ai to connect.</p>
           <div class="actions">
             <button type="button" class="primary" [disabled]="busy()" (click)="allow()">
               Allow

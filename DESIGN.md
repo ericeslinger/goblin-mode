@@ -443,10 +443,21 @@ is slow.
   uid but `OWNER_UID`; without `OWNER_UID`, nobody can connect.
 - **Codes and tokens** are 32 random bytes, stored only as SHA-256
   hashes under `oauth/` (denied to clients by the rules). Codes live
-  five minutes and work once, with PKCE S256 required. Access tokens
-  live an hour; refresh tokens 90 days, rotating on every use. Settings,
-  Disconnect Claude, deletes every token, and claude.ai must connect
-  again. Expired codes and tokens are not swept yet; there are few.
+  five minutes and work once, with PKCE S256 required; a `resource`, if
+  sent, must be this server's `/mcp`. Access tokens live an hour;
+  refresh tokens 90 days, rotating on every use. Everything from one
+  approval is a family: a refresh deletes the family's old access
+  token, and a replayed code or refresh token (spent ones are kept a
+  day to spot this) revokes the whole family. Expired codes and tokens
+  are swept whenever tokens are issued, so a connection that refreshes
+  hourly stays a few dozen documents. Settings, Disconnect Claude,
+  deletes every token and code, in chunks under the 500-write batch
+  limit, and claude.ai must connect again.
+- **Registration is open** (dynamic registration needs it), but codes
+  only ever go to a claude.ai or claude.com callback, and only Eric
+  can approve. The consent page shows the name a client registered
+  with, which anyone can choose, so it also says to allow only a
+  request he just started.
 - **MCP** is stateless Streamable HTTP (POST only, JSON responses): each
   request checks the bearer token belongs to the owner, then builds a
   server with the eight MVP tools. Writes are validated against the zod

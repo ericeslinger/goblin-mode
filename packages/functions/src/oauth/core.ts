@@ -20,34 +20,55 @@ export interface Client {
   createdAt: number;
 }
 
+/** A spent code or refresh token is kept this long to spot a replay. */
+export const SPENT_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Every code and token from one approval shares a `family`. A refresh
+ * replaces the family's access token; a replayed code or refresh token
+ * (someone else has a copy) revokes the whole family.
+ */
 export interface CodeGrant {
   clientId: string;
   redirectUri: string;
   codeChallenge: string;
   uid: string;
-  resource?: string;
+  family: string;
   expiresAt: number;
+  spent?: boolean;
 }
 
 export interface TokenGrant {
   kind: 'access' | 'refresh';
   clientId: string;
   uid: string;
+  family: string;
   expiresAt: number;
+  spent?: boolean;
 }
+
+/** What spending a one-time secret found; `reused` means it was spent before. */
+export type Spent<T> = { grant: T; reused: boolean } | undefined;
 
 export interface OAuthStore {
   saveClient(client: Client): Promise<void>;
   client(clientId: string): Promise<Client | undefined>;
   saveCode(hash: string, grant: CodeGrant): Promise<void>;
-  /** Reads and deletes in one step, so a code works once. */
-  takeCode(hash: string): Promise<CodeGrant | undefined>;
+  /**
+   * Marks a code spent in one step (kept until `keepUntil`, to spot a
+   * replay) and returns it as it was, or says it was already spent.
+   */
+  spendCode(hash: string, keepUntil: number): Promise<Spent<CodeGrant>>;
   saveToken(hash: string, grant: TokenGrant): Promise<void>;
   token(hash: string): Promise<TokenGrant | undefined>;
-  /** Reads and deletes in one step: a refresh token rotates. */
-  takeToken(hash: string): Promise<TokenGrant | undefined>;
-  /** Removes every token of this uid (Disconnect Claude). */
+  /** As spendCode, for refresh tokens only: anything else is left alone. */
+  spendRefresh(hash: string, keepUntil: number): Promise<Spent<TokenGrant>>;
+  /** Deletes a family's tokens, or only its access tokens. */
+  deleteFamily(family: string, kind?: TokenGrant['kind']): Promise<number>;
+  /** Deletes every code and token of this uid (Disconnect Claude). */
   revokeAll(uid: string): Promise<number>;
+  /** Deletes this uid's codes and tokens that have expired. */
+  sweep(uid: string, now: number): Promise<void>;
 }
 
 /** An OAuth error response: `error` per RFC 6749, with its HTTP status. */
@@ -136,8 +157,21 @@ export interface AuthorizeRequest {
   resource?: string;
 }
 
-/** Checks an authorize request before anyone is asked to approve it. */
-export async function checkAuthorize(store: OAuthStore, req: AuthorizeRequest): Promise<Client> {
+const trimSlash = (u: string) => u.replace(/\/+$/, '');
+
+/**
+ * Checks an authorize request before anyone is asked to approve it. A
+ * `resource` (RFC 8707) must be this server's MCP endpoint, the only
+ * thing its tokens are good for.
+ */
+export async function checkAuthorize(
+  store: OAuthStore,
+  req: AuthorizeRequest,
+  resource: string,
+): Promise<Client> {
+  if (req.resource && trimSlash(req.resource) !== trimSlash(resource)) {
+    throw new OAuthError('invalid_target', `this server only grants access to ${resource}`);
+  }
   const client = await store.client(req.clientId);
   if (!client) throw new OAuthError('invalid_client', 'unknown client');
   if (!client.redirectUris.includes(req.redirectUri)) {
@@ -156,11 +190,12 @@ export async function checkAuthorize(store: OAuthStore, req: AuthorizeRequest): 
 export async function approve(
   store: OAuthStore,
   req: AuthorizeRequest,
+  resource: string,
   uid: string,
   ownerUid: string | undefined,
   now: number,
 ): Promise<string> {
-  await checkAuthorize(store, req);
+  await checkAuthorize(store, req, resource);
   if (!ownerUid || uid !== ownerUid) {
     throw new OAuthError('access_denied', 'only the owner can connect Claude', 403);
   }
@@ -170,7 +205,7 @@ export async function approve(
     redirectUri: req.redirectUri,
     codeChallenge: req.codeChallenge,
     uid,
-    ...(req.resource ? { resource: req.resource } : {}),
+    family: newSecret(),
     expiresAt: now + CODE_TTL_MS,
   });
   const url = new URL(req.redirectUri);
@@ -187,24 +222,29 @@ export interface TokenResponse {
   scope: string;
 }
 
+/** A new access and refresh token in `family`; expired ones are swept first. */
 async function issueTokens(
   store: OAuthStore,
   clientId: string,
   uid: string,
+  family: string,
   now: number,
 ): Promise<TokenResponse> {
+  await store.sweep(uid, now);
   const access = newSecret();
   const refresh = newSecret();
   await store.saveToken(hash(access), {
     kind: 'access',
     clientId,
     uid,
+    family,
     expiresAt: now + ACCESS_TTL_MS,
   });
   await store.saveToken(hash(refresh), {
     kind: 'refresh',
     clientId,
     uid,
+    family,
     expiresAt: now + REFRESH_TTL_MS,
   });
   return {
@@ -214,6 +254,12 @@ async function issueTokens(
     refresh_token: refresh,
     scope: SCOPE,
   };
+}
+
+/** A replay: someone else has a copy, so nothing from this approval stands. */
+async function replayed(store: OAuthStore, family: string): Promise<never> {
+  await store.deleteFamily(family);
+  throw new OAuthError('invalid_grant', 'already used; every token from it is revoked');
 }
 
 /** The token endpoint: authorization_code (with PKCE) or refresh_token. */
@@ -226,9 +272,12 @@ export async function token(
   if (!clientId || !(await store.client(clientId))) {
     throw new OAuthError('invalid_client', 'unknown client', 401);
   }
+  const keepUntil = now + SPENT_RETENTION_MS;
   if (form['grant_type'] === 'authorization_code') {
     const code = form['code'];
-    const grant = code ? await store.takeCode(hash(code)) : undefined;
+    const spent = code ? await store.spendCode(hash(code), keepUntil) : undefined;
+    if (spent?.reused) return replayed(store, spent.grant.family);
+    const grant = spent?.grant;
     if (
       !grant ||
       grant.expiresAt <= now ||
@@ -237,25 +286,21 @@ export async function token(
       !form['code_verifier'] ||
       !pkceMatches(form['code_verifier'], grant.codeChallenge)
     ) {
-      throw new OAuthError('invalid_grant', 'the code is invalid, used, expired or unverified');
+      throw new OAuthError('invalid_grant', 'the code is invalid, expired or unverified');
     }
-    return issueTokens(store, clientId, grant.uid, now);
+    return issueTokens(store, clientId, grant.uid, grant.family, now);
   }
   if (form['grant_type'] === 'refresh_token') {
     const refresh = form['refresh_token'];
-    // Check the kind before consuming it: an access token sent here must
-    // be refused, not spent.
-    const seen = refresh ? await store.token(hash(refresh)) : undefined;
-    const grant = seen?.kind === 'refresh' ? await store.takeToken(hash(refresh!)) : undefined;
-    if (
-      !grant ||
-      grant.kind !== 'refresh' ||
-      grant.expiresAt <= now ||
-      grant.clientId !== clientId
-    ) {
+    const spent = refresh ? await store.spendRefresh(hash(refresh), keepUntil) : undefined;
+    if (spent?.reused) return replayed(store, spent.grant.family);
+    const grant = spent?.grant;
+    if (!grant || grant.expiresAt <= now || grant.clientId !== clientId) {
       throw new OAuthError('invalid_grant', 'the refresh token is invalid or expired');
     }
-    return issueTokens(store, clientId, grant.uid, now);
+    // The old access token goes with the refresh token it came with.
+    await store.deleteFamily(grant.family, 'access');
+    return issueTokens(store, clientId, grant.uid, grant.family, now);
   }
   throw new OAuthError('unsupported_grant_type', 'use authorization_code or refresh_token');
 }
@@ -269,6 +314,6 @@ export async function authenticate(
   const match = /^Bearer\s+(\S+)$/i.exec(header ?? '');
   if (!match) return undefined;
   const grant = await store.token(hash(match[1]));
-  if (!grant || grant.kind !== 'access' || grant.expiresAt <= now) return undefined;
+  if (!grant || grant.kind !== 'access' || grant.spent || grant.expiresAt <= now) return undefined;
   return grant.uid;
 }

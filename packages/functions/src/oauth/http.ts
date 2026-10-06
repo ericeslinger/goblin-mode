@@ -116,7 +116,11 @@ export async function handleOAuth(deps: OAuthDeps, req: HttpRequest, res: HttpRe
       }
       case 'GET /oauth/approve': {
         // The consent page asks who is asking before Eric approves.
-        const client = await checkAuthorize(deps.store, authorizeRequest(req.query));
+        const client = await checkAuthorize(
+          deps.store,
+          authorizeRequest(req.query),
+          `${origin}/mcp`,
+        );
         return res.json({
           client_name: client.clientName,
           redirect_origin: new URL(authorizeRequest(req.query).redirectUri).origin,
@@ -128,6 +132,7 @@ export async function handleOAuth(deps: OAuthDeps, req: HttpRequest, res: HttpRe
         const redirect = await approve(
           deps.store,
           authorizeRequest(body),
+          `${origin}/mcp`,
           uid,
           deps.ownerUid,
           deps.now(),

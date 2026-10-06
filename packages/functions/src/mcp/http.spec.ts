@@ -34,12 +34,14 @@ async function call(authorization: string | undefined, method = 'POST') {
     kind: 'access',
     clientId: 'c',
     uid: 'owner',
+    family: 'f',
     expiresAt: T + 1,
   });
   await store.saveToken(hash('other-token'), {
     kind: 'access',
     clientId: 'c',
     uid: 'someone',
+    family: 'g',
     expiresAt: T + 1,
   });
   const out = res();
