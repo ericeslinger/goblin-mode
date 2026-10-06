@@ -13,7 +13,7 @@ export const reloadPage = { run: () => location.reload() };
  */
 @Component({
   selector: 'app-unknown-route',
-  template: `<p class="page muted" role="status">Looking under the moss…</p>`,
+  template: `<p class="page muted" role="status">Loading…</p>`,
 })
 export class UnknownRoute {
   private readonly router = inject(Router);
