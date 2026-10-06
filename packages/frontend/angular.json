@@ -27,7 +27,9 @@
             "serviceWorker": "ngsw-config.json",
             "define": {
               "BUILD_SHA": "\"dev\"",
-              "BUILD_TIME": "\"dev\""
+              "BUILD_TIME": "\"dev\"",
+              "DEPLOY_FIREBASE_CONFIG": "null",
+              "DEPLOY_WEB_PUSH_KEY": "null"
             },
             "allowedCommonJsDependencies": ["extend"]
           },

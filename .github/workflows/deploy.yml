@@ -17,7 +17,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      # Everything about this deployment; README, Run your own.
       FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      FIREBASE_WEB_CONFIG: ${{ vars.FIREBASE_WEB_CONFIG }}
+      APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+      WEB_PUSH_PUBLIC_KEY: ${{ vars.WEB_PUSH_PUBLIC_KEY }}
+      OWNER_UID: ${{ vars.OWNER_UID }}
+      ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+      ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+      ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+      ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       HAS_FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
@@ -25,8 +34,9 @@ jobs:
       - name: Skip until deploy settings exist
         id: ready
         run: |
-          if [ -z "$FIREBASE_PROJECT_ID" ] || [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$HAS_FIREBASE_SA" != "true" ]; then
-            echo "::notice::Deploy settings are not configured yet (see QUESTIONS.md); skipping."
+          if [ -z "$FIREBASE_PROJECT_ID" ] || [ -z "$FIREBASE_WEB_CONFIG" ] || [ -z "$APP_DOMAIN" ] \
+            || [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$HAS_FIREBASE_SA" != "true" ]; then
+            echo "::notice::Deploy settings are not configured yet (README.md, Run your own); skipping."
             echo "go=false" >> "$GITHUB_OUTPUT"
           else
             echo "go=true" >> "$GITHUB_OUTPUT"

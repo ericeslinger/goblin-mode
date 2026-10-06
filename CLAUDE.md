@@ -40,6 +40,12 @@ stack playbook and the `house-style` plugin (enabled in
 - **The functions package declares no devDependencies.** The deploy runs
   `npm install --omit=dev` there and npm crashes on devDependency peers
   (`reading 'edgesOut'`). Build tools go in the root package.json.
+- **No deployment in the code.** Code and config files name no
+  deployment: project ids, the web config, domains, uids and federation
+  ids are GitHub variables passed in by `scripts/deploy.sh` (README, Run
+  your own), so a fork deploys by setting variables. Prose may describe
+  Eric's deployment; values committed before 2026-10-06 remain in git
+  history.
 - **Ids are derived or generated client-side**, never typed by hand, so
   a note exists the moment it is created offline.
 

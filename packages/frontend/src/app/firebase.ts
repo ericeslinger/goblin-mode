@@ -29,15 +29,21 @@ export function isLocalHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
-/** The Firebase config for the host the page was served from. */
-export function configFor(hostname: string): FirebaseOptions {
+/**
+ * The Firebase config for the host the page was served from: the
+ * emulators on localhost, else the config the deploy built in.
+ */
+export function configFor(
+  hostname: string,
+  production: FirebaseOptions | null = PRODUCTION_FIREBASE_CONFIG,
+): FirebaseOptions {
   if (isLocalHost(hostname)) {
     return { projectId: EMULATOR_PROJECT_ID, apiKey: 'emulator-api-key', authDomain: hostname };
   }
-  if (!PRODUCTION_FIREBASE_CONFIG) {
-    throw new Error('No production Firebase config is set; see QUESTIONS.md.');
+  if (!production) {
+    throw new Error('This build has no Firebase config; deploy it with scripts/deploy.sh.');
   }
-  return PRODUCTION_FIREBASE_CONFIG;
+  return production;
 }
 
 export function initFirebase(hostname: string): FirebaseHandles {

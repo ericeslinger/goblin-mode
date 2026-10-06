@@ -1,6 +1,5 @@
 {
   "projects": {
-    "default": "demo-goblin-mode",
-    "prod": "mossgoblin-garden"
+    "default": "demo-goblin-mode"
   }
 }

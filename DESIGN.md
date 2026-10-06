@@ -179,7 +179,7 @@ credential, or an error, leaves the first-words title.
 **Claude credentials: workload identity federation, no API key (Eric,
 2026-10-06; replaces the `ANTHROPIC_API_KEY` secret planned on
 2026-10-05).** `noteTitle` runs as its own Google service account,
-`goblin-titles@mossgoblin-garden.iam.gserviceaccount.com`. The
+`goblin-titles@<project>.iam.gserviceaccount.com`. The
 Anthropic SDK asks the metadata server for that account's
 Google-signed identity token (audience `https://api.anthropic.com`,
 `format=full`, so it carries `email`) and exchanges it at
@@ -187,13 +187,10 @@ Google-signed identity token (audience `https://api.anthropic.com`,
 before expiry. Anthropic trusts the token through a federation rule
 pinned to the account's exact `sub` (numeric unique id) and `email`
 and to the audience. The rule, organization, service account and
-workspace ids are not secrets and live in the functions source:
-rule `fdrl_01MjmMK7yGFSp3ivqfd4jkYK`, organization
-`209c75a9-c50e-414e-bae8-f5108cbc8539`, service account
-`svac_01RDiHUJYybRA2XnBq8JGV4G`, workspace Default
-(`wrkspc_013xVKKXeD7LJGwcGU1saUDe`; the rule covers only that one, so
-the exchange needs no workspace id). The Google account's `sub` is
-`112304203132315148893`. Set up and tested 2026-10-06. There
+workspace ids are not secrets, but like everything specific to one
+deployment they are GitHub variables, not committed (Deploy
+configuration below); a rule that covers one workspace needs no
+workspace id. Set up and tested on Eric's deployment 2026-10-06. There
 is no secret to store, rotate or leak; billing stays on Eric's
 Anthropic account. The emulator has no metadata server, so locally
 titles fall back to first words and specs use a fake. Claude on
@@ -380,9 +377,8 @@ Firebase Google sign-in:
 4. `/oauth/token` exchanges the code for an access token and refresh
    token. Tokens are random, stored hashed under `oauth/`, revocable.
 
-The owner uid is a function parameter (`OWNER_UID`,
-`DjudV1dnNxdpn7XP1VTluVJMLNb2` in `mossgoblin-garden`); any other
-account is refused. MVP tools:
+The owner uid is a function parameter (`OWNER_UID`, a GitHub
+variable; Deploy configuration); any other account is refused. MVP tools:
 
 | Tool | Does |
 | --- | --- |
@@ -446,6 +442,28 @@ reminder's note, or a new note from its template.
   `packages/schema/src/reminders.ts`). One-offs push once.
 - Templates (the feelings note) wait for Phase 2: until then a tap on
   a template reminder opens Right Now.
+
+## Deploy configuration (Eric, 2026-10-06)
+
+Nothing specific to one deployment is committed, so a fork runs its
+own copy by setting variables, not by editing code. GitHub repository
+variables and secrets feed `.github/workflows/deploy.yml`, which hands
+them to `scripts/deploy.sh`:
+
+- The web build gets `FIREBASE_WEB_CONFIG` and `WEB_PUSH_PUBLIC_KEY`
+  through `ng build --define`; local and e2e builds leave them null,
+  and localhost always uses the emulators.
+- Functions get `OWNER_UID` and the `ANTHROPIC_*` federation ids from
+  a `.env.<project>` file the script writes for the deploy and deletes.
+- The Worker gets its custom domain from `APP_DOMAIN` (`--domain`) and
+  `FUNCTIONS_ORIGIN` from `FIREBASE_PROJECT_ID`.
+
+The deploy fails before building when a required variable is missing
+or the web config names another project. Optional ones leave their
+feature off (no push key: notifications are not set up; no federation
+ids: first-words titles). The full list is in README.md, Run your own.
+Values committed before this change remain in git history; none is a
+secret.
 
 ## Security
 

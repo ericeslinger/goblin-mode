@@ -11,12 +11,16 @@ the GitHub secrets and variables. The first deploy succeeded on
 2026-10-06. The Web Push key pair was generated on 2026-10-06; its
 public key is in `firebase-config.ts`. Claude access for titles by
 workload identity federation was set up and tested on 2026-10-06 (a
-token exchange from `goblin-titles` succeeded); the ids are in
-DESIGN.md, Titles.
+token exchange from `goblin-titles` succeeded); its ids are GitHub
+variables (README.md, Run your own).
 
 Still owed:
 
-1. **Cloud Scheduler API**, if the first deploy of `sendDuePush` asks
+1. **New GitHub variables, before PR #12 merges** (deploy configuration,
+   2026-10-06). The deploy now reads them instead of committed values,
+   and stops before building without the required ones. The list is
+   in README.md, Run your own.
+2. **Cloud Scheduler API**, if the first deploy of `sendDuePush` asks
    for it, as earlier deploys did for other APIs.
 
 ## Product
