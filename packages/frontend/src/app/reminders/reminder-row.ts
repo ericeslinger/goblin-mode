@@ -221,7 +221,10 @@ export class ReminderRow {
     const dx = this.dx();
     this.cancel();
     if (dx === 0) return;
+    // Only the click a mouse fires right after this pointerup is the
+    // swipe's; touch fires none, so the flag must not outlive this task.
     this.swiped = true;
+    setTimeout(() => (this.swiped = false));
     if (dx >= SWIPE_PX) this.done();
     else if (dx <= -SWIPE_PX) this.menuOpen.set(true);
   }

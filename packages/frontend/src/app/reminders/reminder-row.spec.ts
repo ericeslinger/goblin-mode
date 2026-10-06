@@ -85,6 +85,17 @@ describe('ReminderRow', () => {
     );
   });
 
+  it('swallows the click a mouse fires at the end of a swipe', async () => {
+    const { el, reminders } = await renderRow({ text: 'stretch', dueAt: NOW });
+    const done = vi.spyOn(reminders, 'done');
+    const row = el.querySelector('.row')!;
+    pointer(row, 'pointerdown', 100);
+    pointer(row, 'pointermove', 120);
+    pointer(row, 'pointerup', 120);
+    buttonNamed(el, 'Done: stretch')!.click();
+    expect(done).not.toHaveBeenCalled();
+  });
+
   it('swipes right for done and left for snooze, but not for a short or vertical drag', async () => {
     const { el, reminders, fixture } = await renderRow({ text: 'stretch', dueAt: NOW });
     const done = vi.spyOn(reminders, 'done');
@@ -108,6 +119,12 @@ describe('ReminderRow', () => {
     pointer(row, 'pointerup', 200 - SWIPE_PX);
     await fixture.whenStable();
     expect(el.querySelector('.snooze')).toBeTruthy();
+
+    // On touch no click follows a swipe; the next tap must still work.
+    const snooze = vi.spyOn(reminders, 'snooze');
+    await new Promise((r) => setTimeout(r));
+    buttonNamed(el, 'In an hour')!.click();
+    expect(snooze).toHaveBeenCalled();
     TestBed.resetTestingModule();
   });
 });
