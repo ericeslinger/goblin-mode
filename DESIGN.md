@@ -33,7 +33,7 @@ server routes below to Cloud Functions under the same origin.
 ```
 packages/
   schema/      the zod contract and pure logic; client and functions import it
-  editor/      the note grammar and CodeMirror editor; no Angular (see Editor)
+  editor/      note grammar and CodeMirror editor; no Angular (see Editor)
   frontend/    Angular PWA
   functions/   Cloud Functions (esbuild bundle, no devDependencies)
   e2e/         Playwright journeys against the emulator suite
@@ -75,7 +75,7 @@ are owner-only and nothing is derived from them by rules.
 `notes/history`, `activity` and `oauth` are function-only
 (`allow write: if false`). Direct-write collections get rules shape
 validators generated from the schemas, with a drift check in the gate,
-starting with step 2. Claude's MCP writes go through functions and are
+starting with step 3. Claude's MCP writes go through functions and are
 parsed against the same schemas.
 
 ### Note
@@ -125,14 +125,15 @@ interface Reminder {
 **Launch.** The service worker serves the app shell from cache, so the
 editor renders and takes focus before Firestore or auth have finished.
 Auth state is restored from IndexedDB; until it resolves, typing goes
-into an in-memory draft that is written once the uid is known.
+into a pending draft kept in localStorage (so a reload cannot lose it)
+and written to Firestore once the uid is known.
 
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
 remembers that it has been signed in: with that mark set, the editor
 shows at once while Firebase restores the session, and if the session
-turns out to be gone the app switches to sign-in and keeps whatever
-was typed in the meantime.
+turns out to be gone the app switches to sign-in; the pending draft
+stays in localStorage and becomes the first note after sign-in.
 
 **New or resume.** On `visibilitychange` to hidden, and on `pagehide`,
 the app stores the time and the open note id in localStorage. On
@@ -190,8 +191,9 @@ one renderer; the editor widget reuses that renderer.
 **The flavour.** CommonMark plus:
 
 - `[[Note title]]` and `[[Note title|shown text]]` wiki links;
-- images inline as `![caption](attachment:<id>)`, resolved through the
-  attachment record, so a note embeds images without a block envelope;
+- images inline as `![caption](attachment:<id>)`, so a note embeds
+  images without a block envelope. Reserved syntax for now: attachments
+  arrive in Phase 2, and until then the renderer shows the caption;
 - more to be settled (see QUESTIONS.md, Editor).
 
 **Built to be extracted.** The editor may later move into goblin (rich
@@ -318,7 +320,8 @@ Each step is one or more PRs, each with a journey.
    autosave, offline, new-or-resume, Previous note, Recent list and
    search, two-pane layout; the rules shape-validator generator for
    `notes`.
-4. Reminders: Right Now panel and full list, add, done, snooze, recurring.
+4. Reminders: Right Now panel and full list, add, done, snooze,
+   recurring.
 5. Push: device registration, `sendDuePush`, notification taps.
 6. History and titles: `noteHistory`, `noteTitle`.
 7. MCP: OAuth, tools, connector set up in claude.ai.
