@@ -431,7 +431,11 @@ is slow.
   for the Worker and for the e2e static server alike: `/mcp` to `mcp`;
   the two `/.well-known/oauth-*` documents and `/oauth/register`,
   `/oauth/token`, `/oauth/approve` and `/oauth/revoke` to `oauth`.
-  `/oauth/authorize` is the app's consent page. The issuer and every
+  `/oauth/authorize` is the app's consent page; the service worker
+  leaves `/oauth/` to the network, so it always comes from the deployed
+  version (an older cached app sent claude.ai's first sign-in to the
+  home screen, 2026-10-06). Any path a version has no route for checks
+  for a newer version and reloads into it before going home. The issuer and every
   endpoint are named from the forwarded host, so no domain is
   configured.
 - **Registration** accepts public clients whose redirect URIs are on

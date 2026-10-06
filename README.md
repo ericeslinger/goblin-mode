@@ -49,6 +49,21 @@ account act as it (`roles/iam.serviceAccountUser` on it): `noteTitle`
 always runs as that account, even with titles off. DESIGN.md, Titles,
 covers the Claude side.
 
+The deploy account cannot change project IAM, so the first deploy of
+the Firestore-triggered functions stops and asks a project owner to
+grant, once (with `<number>` your project number):
+
+- `roles/iam.serviceAccountTokenCreator` to
+  `service-<number>@gcp-sa-pubsub.iam.gserviceaccount.com`;
+- `roles/run.invoker` and `roles/eventarc.eventReceiver` to
+  `<number>-compute@developer.gserviceaccount.com` and to
+  `goblin-titles@<project>.iam.gserviceaccount.com`.
+
+If the next deploy then reports "Permission denied while using the
+Eventarc Service Agent", wait a few minutes and re-run it; if it
+persists, grant `roles/eventarc.serviceAgent` to
+`service-<number>@gcp-sa-eventarc.iam.gserviceaccount.com`.
+
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
 `OWNER_UID` can approve it.
