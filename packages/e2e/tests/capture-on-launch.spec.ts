@@ -11,7 +11,7 @@ test('signed in, the cursor is in a new note, with Right Now below', async ({ pa
   await signInAs(page, OWNER);
   const note = page.getByRole('textbox', { name: 'New note' });
   await expect(note).toBeFocused();
-  await expect(page.getByRole('region', { name: 'Right Now' })).toContainText('Nothing due.');
+  await expect(page.getByRole('region', { name: 'Right Now' })).toContainText('Nothing to tend.');
 
   await page.keyboard.type('buy a card for my nephew');
   await expect(note).toHaveText('buy a card for my nephew');

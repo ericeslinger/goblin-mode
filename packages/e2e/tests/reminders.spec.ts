@@ -41,7 +41,7 @@ test('add a reminder, see it in Right Now, then done and undo', async ({ page })
   await expect(rightNow(page)).not.toContainText('Learn the banjo');
 
   await rightNow(page).getByRole('button', { name: 'Done: Call the bank' }).click();
-  await expect(rightNow(page)).toContainText('Nothing due.');
+  await expect(rightNow(page)).toContainText('Nothing to tend.');
   await rightNow(page).getByRole('button', { name: 'Undo' }).click();
   await expect(rightNow(page)).toContainText('Call the bank');
 

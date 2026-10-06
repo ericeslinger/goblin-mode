@@ -6,7 +6,7 @@ describe('RightNowPanel', () => {
   it('says nothing is due when nothing is', async () => {
     const { el, push } = await renderWithReminders(RightNowPanel);
     await push([reminderDoc('s', { text: 'learn the banjo' })]);
-    expect(el.textContent).toContain('Nothing due.');
+    expect(el.textContent).toContain('Nothing to tend.');
     expect(el.querySelector('a[href="/right-now"]')?.textContent).toBe('Right Now');
   });
 
