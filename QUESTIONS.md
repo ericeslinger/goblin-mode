@@ -29,5 +29,9 @@ Still owed:
   "Sign in with Google" on mossgoblin.garden signs into that same uid
   (it should when the emails match) rather than being refused as a new
   account.
+- **Remote images in notes.** A note can show an http(s) image from
+  any host, which means opening the note fetches it (and tells that
+  host). Keep, or limit images to attachments? Until decided, they
+  load (raised in review of PR #6, 2026-10-06).
 - **Region.** Functions default to `us-central1`. Move closer if latency
   to the MCP endpoint matters.

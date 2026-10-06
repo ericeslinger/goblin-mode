@@ -1,4 +1,5 @@
-import { expect, test } from '../src/fixtures';
+import { expect, signInAs, test } from '../src/fixtures';
+import { OWNER } from '../src/personas';
 
 // Live preview draws tasks and wiki links as widgets off the line being
 // edited, and source mode shows the exact text that is stored.
@@ -8,7 +9,7 @@ import { expect, test } from '../src/fixtures';
 // can a screen reader: the keyboard path is Mod-Enter on the line). They
 // are found by their aria-label within the note instead.
 test('writing a task list in live preview, then checking it in source', async ({ page }) => {
-  await page.goto('/');
+  await signInAs(page, OWNER);
   // Start from the default mode, whatever an earlier run left behind.
   await page.evaluate(() => localStorage.removeItem('goblin.editorMode'));
   await page.reload();
@@ -49,7 +50,7 @@ test('writing a task list in live preview, then checking it in source', async ({
 });
 
 test('lists continue on Enter and show bullets off the edited line', async ({ page }) => {
-  await page.goto('/');
+  await signInAs(page, OWNER);
   await page.evaluate(() => localStorage.removeItem('goblin.editorMode'));
   await page.reload();
   const note = page.getByRole('textbox', { name: 'New note' });
@@ -62,8 +63,10 @@ test('lists continue on Enter and show bullets off the edited line', async ({ pa
   await page.keyboard.type('two');
   await page.keyboard.press('Enter');
   await expect(lines).toHaveCount(3);
-  // Enter on the empty third item ends the list.
+  // Enter on the empty third item ends the list. The line count does not
+  // change, so wait for the marker to go before typing on (Android Enter).
   await page.keyboard.press('Enter');
+  await expect(lines.nth(2)).toHaveText('');
   await page.keyboard.type('after the list');
 
   await expect(note.locator('.gm-bullet')).toHaveCount(2);
@@ -73,7 +76,7 @@ test('lists continue on Enter and show bullets off the edited line', async ({ pa
 });
 
 test('dragging the handle resizes Right Now, and it stays that size', async ({ page }) => {
-  await page.goto('/');
+  await signInAs(page, OWNER);
   await page.evaluate(() => localStorage.removeItem('goblin.rightNowShare'));
   await page.reload();
   const handle = page.getByRole('separator', { name: 'Resize Right Now' });
@@ -95,7 +98,7 @@ test('dragging the handle resizes Right Now, and it stays that size', async ({ p
 });
 
 test('the formatting bar stays hidden without an on-screen keyboard', async ({ page }) => {
-  await page.goto('/');
+  await signInAs(page, OWNER);
   await expect(page.getByRole('textbox', { name: 'New note' })).toBeFocused();
   await expect(page.getByRole('toolbar', { name: 'Formatting' })).toBeHidden();
 });

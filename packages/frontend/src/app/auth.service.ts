@@ -9,6 +9,9 @@ import {
   signOut,
 } from 'firebase/auth';
 import { FIREBASE } from './firebase';
+import { LocalStore } from './platform/local-store';
+
+export const SIGNED_IN_KEY = 'goblin.signedIn';
 
 /** The Firebase Auth calls the service makes, as a seam for unit specs. */
 export interface AuthApi {
@@ -27,13 +30,24 @@ export const AUTH_API = new InjectionToken<AuthApi>('auth-api', {
 export class AuthService {
   private readonly fb = inject(FIREBASE);
   private readonly api = inject(AUTH_API);
+  private readonly store = inject(LocalStore);
 
   /** undefined while the persisted session is still being restored. */
   readonly user = signal<User | null | undefined>(undefined);
   readonly usingEmulators = this.fb.usingEmulators;
+  /**
+   * This device has been signed in before, so while the session restores
+   * the editor can show at once (DESIGN.md, Signed out).
+   */
+  readonly signedInBefore = signal(this.store.get<boolean>(SIGNED_IN_KEY) === true);
 
   constructor() {
-    this.api.onAuthStateChanged(this.fb.auth, (u) => this.user.set(u));
+    this.api.onAuthStateChanged(this.fb.auth, (u) => {
+      this.user.set(u);
+      this.signedInBefore.set(u !== null);
+      if (u) this.store.set(SIGNED_IN_KEY, true);
+      else this.store.remove(SIGNED_IN_KEY);
+    });
   }
 
   signInWithGoogle(): Promise<unknown> {

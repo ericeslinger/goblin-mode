@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Must pass before every commit: typechecks (specs included), prettier,
-# the frontend build, unit tests, and the functions and Worker deploy dry
-# runs. See CLAUDE.md, Gates.
+# the rules-validator drift check, the frontend build, unit tests, and
+# the functions and Worker deploy dry runs. See CLAUDE.md, Gates.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,6 +11,8 @@ step typecheck
 npm run typecheck
 step format
 npm run format:check
+step "rules validators up to date"
+npm run rules:gen -- --check
 step "build frontend"
 npm run build -w packages/frontend
 step "unit tests"

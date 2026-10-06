@@ -1,49 +1,87 @@
-<div class="launch">
-  <header class="bar">
-    <span class="muted">Browse</span>
-    <span class="spacer"></span>
-    @if (auth.user() === null) {
-      <button type="button" class="link" (click)="signIn()">Sign in</button>
-    }
-    <!-- The label names the mode a tap switches to; no aria-pressed,
-         which would make it read as a toggle with a changing name. -->
-    <button type="button" class="link" (click)="modes.toggle()">
-      {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
-    </button>
-    <span class="sync" [class.offline]="!online()" role="status">
-      {{ online() ? 'synced' : 'offline' }}
-    </span>
-    <a routerLink="/settings" class="muted" aria-label="Settings">Settings</a>
-  </header>
+@if (showSignIn()) {
+  <app-sign-in />
+} @else {
+  <div class="launch">
+    <header class="bar">
+      <a routerLink="/browse" class="muted browse-link">Browse</a>
+      <button type="button" class="link" (click)="newNote()">New</button>
+      <span class="spacer"></span>
+      <!-- The label names the mode a tap switches to; no aria-pressed,
+           which would make it read as a toggle with a changing name. -->
+      <button type="button" class="link" (click)="modes.toggle()">
+        {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
+      </button>
+      <span class="sync" [class.offline]="!online()" role="status">
+        {{ online() ? 'synced' : 'offline' }}
+      </span>
+      <a routerLink="/settings" class="muted" aria-label="Settings">Settings</a>
+    </header>
 
-  <section class="capture">
-    <app-note-editor class="editor" label="New note" placeholder="Start typing" autofocus />
-  </section>
+    <aside class="list-pane" aria-label="All notes">
+      <app-note-list [current]="capture.open().id" />
+    </aside>
 
-  <section
-    class="right-now"
-    aria-labelledby="right-now-title"
-    [style.height.dvh]="split.rightNowShare()"
-  >
-    <div
-      class="handle"
-      role="separator"
-      tabindex="0"
-      aria-orientation="horizontal"
-      aria-label="Resize Right Now"
-      [attr.aria-valuemin]="minShare"
-      [attr.aria-valuemax]="maxShare"
-      [attr.aria-valuenow]="split.rightNowShare()"
-      [attr.aria-valuetext]="split.rightNowShare() + '% of the screen'"
-      (pointerdown)="startDrag($event)"
-      (pointermove)="drag($event)"
-      (pointerup)="endDrag($event)"
-      (pointercancel)="endDrag($event)"
-      (keydown)="nudge($event)"
+    <section class="capture">
+      <app-note-editor
+        class="editor"
+        label="New note"
+        placeholder="Start typing"
+        autofocus
+        [noteId]="capture.open().id"
+        [text]="capture.open().text"
+        (textChange)="capture.onText($event)"
+      />
+      @if (previous().length > 0) {
+        <div class="previous">
+          <button
+            type="button"
+            class="pill"
+            aria-controls="previous-notes"
+            [attr.aria-expanded]="previousOpen()"
+            (click)="previousOpen.set(!previousOpen())"
+          >
+            Previous note
+          </button>
+          @if (previousOpen()) {
+            <ul id="previous-notes" aria-label="Previous notes">
+              @for (note of previous(); track note.id) {
+                <li>
+                  <button type="button" (click)="openPrevious(note.id)">
+                    {{ note.title || 'Untitled' }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      }
+    </section>
+
+    <section
+      class="right-now"
+      aria-labelledby="right-now-title"
+      [style.height.dvh]="split.rightNowShare()"
     >
-      <span class="grip" aria-hidden="true"></span>
-    </div>
-    <h2 id="right-now-title">Right Now</h2>
-    <p class="muted">Nothing due.</p>
-  </section>
-</div>
+      <div
+        class="handle"
+        role="separator"
+        tabindex="0"
+        aria-orientation="horizontal"
+        aria-label="Resize Right Now"
+        [attr.aria-valuemin]="minShare"
+        [attr.aria-valuemax]="maxShare"
+        [attr.aria-valuenow]="split.rightNowShare()"
+        [attr.aria-valuetext]="split.rightNowShare() + '% of the screen'"
+        (pointerdown)="startDrag($event)"
+        (pointermove)="drag($event)"
+        (pointerup)="endDrag($event)"
+        (pointercancel)="endDrag($event)"
+        (keydown)="nudge($event)"
+      >
+        <span class="grip" aria-hidden="true"></span>
+      </div>
+      <h2 id="right-now-title">Right Now</h2>
+      <p class="muted">Nothing due.</p>
+    </section>
+  </div>
+}

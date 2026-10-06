@@ -1,7 +1,14 @@
-import { expect, test } from '../src/fixtures';
+import { expect, signInAs, test } from '../src/fixtures';
+import { OWNER } from '../src/personas';
 
-test('opening the app puts the cursor in a new note, with Right Now below', async ({ page }) => {
+test('signed out, the app shows only a way to sign in', async ({ page }) => {
   await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'New note' })).toHaveCount(0);
+});
+
+test('signed in, the cursor is in a new note, with Right Now below', async ({ page }) => {
+  await signInAs(page, OWNER);
   const note = page.getByRole('textbox', { name: 'New note' });
   await expect(note).toBeFocused();
   await expect(page.getByRole('region', { name: 'Right Now' })).toContainText('Nothing due.');
