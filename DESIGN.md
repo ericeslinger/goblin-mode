@@ -161,8 +161,9 @@ error, leaves the first-words title.
 **Layout.** One column on the phone (capture on top, Right Now below);
 two panes from 900 px (list left, note right). The handle between note
 and Right Now is a separator: drag it, or use the arrow keys, to give
-Right Now between 15% and 80% of the screen, remembered on the device
-(Eric, 2026-10-06). Tapping to expand Right Now comes with reminders.
+Right Now between 15% and 80% of the screen (Home and End jump to the
+limits), saved on the device when the drag ends (Eric, 2026-10-06).
+Tapping to expand Right Now comes with reminders.
 
 ## Editor (2026-10-06)
 
@@ -226,21 +227,22 @@ through small interfaces rather than imports.
 own (`@goblin/editor/grammar`: `parseNote`, `renderNoteHtml`,
 `wikiLinkTargets`, `tasks`, `attachmentIds`; no CodeMirror or DOM, so
 Cloud Functions can import it) and the editor (`createNoteEditor`,
-`createAccessoryBar`). Wiki links are an mdast transform over text
-nodes rather than a micromark extension: CommonMark already leaves
-`[[x]]` as literal text, and the transform keeps exact source offsets.
-Inside a GFM table, an aliased link must escape its pipe
-(`[[Vikas\|vik]]`), or the pipe splits the cell.
-Live preview re-parses on every change and decorates per line: a
-construct shows as typed while the selection is on one of its lines.
-Keyboard: Mod-Enter toggles the task on the cursor line, Mod-K inserts a
-wiki link. Enter in a list item starts the next one (same bullet, next
-number, an unticked box after a task); Enter on an empty item ends the
-list. Off the edited line, `-`, `*` and `+` markers draw as bullets
-(Eric, 2026-10-06). A note opens with the caret at its end. The launch route is
-eager, so the editor is in the initial bundle (1.24 MB raw, about
-330 kB over the wire). Budgets: warn at 1.5 MB raw, fail at 8 MB, so
-growth is noticed without blocking.
+`createAccessoryBar`). Wiki links are an mdast transform over text nodes
+rather than a micromark extension: CommonMark already leaves `[[x]]` as
+literal text, and the transform keeps exact source offsets. Inside a GFM
+table, an aliased link must escape its pipe (`[[Vikas\|vik]]`), or the
+pipe splits the cell. Live preview re-parses on every change and
+decorates per line: a construct shows as typed while the selection is on
+one of its lines. Keyboard: Mod-Enter toggles the task on the cursor
+line, Mod-K inserts a wiki link. Enter in a list item starts the next one
+(same bullet, next number, an unticked box after a task); Enter on an
+empty item ends the list, or moves a nested one out a level. The
+grammar decides what is a list item, so Enter is plain inside code and
+on `- - -`. Off the edited line, `-`, `*` and `+` markers
+draw as bullets (Eric, 2026-10-06). A note opens with the caret at its
+end. The launch route is eager, so the editor is in the initial bundle
+(1.24 MB raw, about 330 kB over the wire). Budgets: warn at 1.5 MB raw,
+fail at 8 MB, so growth is noticed without blocking.
 
 Two things learned building it:
 

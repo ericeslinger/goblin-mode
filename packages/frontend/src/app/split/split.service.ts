@@ -19,11 +19,16 @@ export function clampShare(share: number): number {
 export class SplitService {
   readonly rightNowShare = signal(this.read());
 
+  /** Changes the share for now, without saving (during a drag). */
+  preview(share: number): void {
+    this.rightNowShare.set(clampShare(share));
+  }
+
+  /** Changes the share and remembers it on this device. */
   set(share: number): void {
-    const value = clampShare(share);
-    this.rightNowShare.set(value);
+    this.preview(share);
     try {
-      localStorage.setItem(KEY, String(value));
+      localStorage.setItem(KEY, String(this.rightNowShare()));
     } catch {
       // Not persisted; fine.
     }

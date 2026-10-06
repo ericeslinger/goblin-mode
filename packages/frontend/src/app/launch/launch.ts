@@ -3,7 +3,7 @@ import { RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { EditorModeService } from '../note-editor/editor-mode.service';
 import { NoteEditorComponent } from '../note-editor/note-editor';
-import { SplitService } from '../split/split.service';
+import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
 
 /**
  * The launch screen: a cursor in a new note on top, Right Now below.
@@ -20,7 +20,10 @@ export class Launch {
   protected readonly modes = inject(EditorModeService);
   protected readonly online = signal(navigator.onLine);
   protected readonly split = inject(SplitService);
-  private dragging = false;
+  protected readonly minShare = MIN_SHARE;
+  protected readonly maxShare = MAX_SHARE;
+  /** Pointer distance below the panel's top edge at grab; null when idle. */
+  private grabOffset: number | null = null;
 
   constructor() {
     const update = () => this.online.set(navigator.onLine);
@@ -34,27 +37,39 @@ export class Launch {
 
   /** Dragging the handle sets Right Now's share of the screen height. */
   protected startDrag(event: PointerEvent): void {
-    this.dragging = true;
+    const top = innerHeight * (1 - this.split.rightNowShare() / 100);
+    // Keep the grip under the finger: no jump on the first move.
+    this.grabOffset = event.clientY - top;
     (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
     event.preventDefault();
   }
 
   protected drag(event: PointerEvent): void {
-    if (!this.dragging) return;
-    this.split.set(((innerHeight - event.clientY) / innerHeight) * 100);
+    if (this.grabOffset === null) return;
+    const top = event.clientY - this.grabOffset;
+    this.split.preview(((innerHeight - top) / innerHeight) * 100);
   }
 
+  /** Saved once, when the drag ends, not on every move. */
   protected endDrag(event: PointerEvent): void {
-    this.dragging = false;
+    if (this.grabOffset === null) return;
+    this.grabOffset = null;
+    this.split.set(this.split.rightNowShare());
     (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
   }
 
-  /** Arrow keys move the handle too, for keyboard and switch users. */
+  /** Arrow, Home and End keys move the handle too, as for any separator. */
   protected nudge(event: KeyboardEvent): void {
-    const step = { ArrowUp: 5, ArrowDown: -5 }[event.key];
-    if (step === undefined) return;
+    const share = this.split.rightNowShare();
+    const next = {
+      ArrowUp: share + 5,
+      ArrowDown: share - 5,
+      Home: MAX_SHARE,
+      End: MIN_SHARE,
+    }[event.key];
+    if (next === undefined) return;
     event.preventDefault();
-    this.split.set(this.split.rightNowShare() + step);
+    this.split.set(next);
   }
 
   protected signIn(): void {

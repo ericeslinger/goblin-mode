@@ -52,23 +52,41 @@ describe('Launch', () => {
     expect(button()).toBeUndefined();
   });
 
-  it('resizes Right Now from its handle, by drag or arrow keys', async () => {
+  it('resizes Right Now from its handle, by drag or keys', async () => {
     localStorage.clear();
     const { el, fixture } = await render();
     const handle = el.querySelector('[role="separator"]') as HTMLElement;
     const panel = el.querySelector('.right-now') as HTMLElement;
+    const key = async (k: string) => {
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: k }));
+      await fixture.whenStable();
+    };
     expect(handle.getAttribute('aria-valuenow')).toBe('35');
+    expect(handle.getAttribute('aria-valuemin')).toBe('15');
+    expect(handle.getAttribute('aria-valuemax')).toBe('80');
+    expect(handle.getAttribute('aria-valuetext')).toBe('35% of the screen');
 
-    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
-    await fixture.whenStable();
+    await key('ArrowUp');
     expect(handle.getAttribute('aria-valuenow')).toBe('40');
+    await key('Home');
+    expect(handle.getAttribute('aria-valuenow')).toBe('80');
+    await key('End');
+    expect(handle.getAttribute('aria-valuenow')).toBe('15');
+    await key('ArrowUp');
 
-    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 0 }));
-    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: innerHeight * 0.5 }));
-    handle.dispatchEvent(new PointerEvent('pointerup'));
+    // Grabbed 10px below the panel's top edge: no jump, and the edge
+    // follows the pointer from there.
+    const top = innerHeight * 0.8;
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: top + 10 }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: top + 10 }));
     await fixture.whenStable();
-    expect(handle.getAttribute('aria-valuenow')).toBe('50');
+    expect(handle.getAttribute('aria-valuenow')).toBe('20');
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: innerHeight * 0.5 + 10 }));
+    await fixture.whenStable();
     expect(panel.style.height).toBe('50dvh');
+    expect(localStorage.getItem('goblin.rightNowShare')).toBe('20');
+    handle.dispatchEvent(new PointerEvent('pointerup'));
+    expect(localStorage.getItem('goblin.rightNowShare')).toBe('50');
 
     // Moves after release do nothing.
     handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 0 }));

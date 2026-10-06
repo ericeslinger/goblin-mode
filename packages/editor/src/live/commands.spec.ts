@@ -99,6 +99,18 @@ describe('continueList', () => {
     expect(enter('- one two', 5)?.doc).toBe('- one\n-  two');
   });
 
+  it('moves an empty nested item out to its parent level', () => {
+    expect(enter('- a\n  - b\n  - ')?.doc).toBe('- a\n  - b\n- ');
+    expect(enter('1. a\n   - b\n   - ')?.doc).toBe('1. a\n   - b\n- ');
+  });
+
+  it('leaves Enter alone inside code and on lines that only look like lists', () => {
+    expect(enter('```\n- a')).toBeNull();
+    expect(enter('```\n- a\n```', 7)).toBeNull();
+    expect(enter('- - -')).toBeNull();
+    expect(enter('* * *')).toBeNull();
+  });
+
   it('leaves Enter alone outside lists and inside the marker', () => {
     expect(enter('plain text')).toBeNull();
     expect(enter('- one', 1)).toBeNull();

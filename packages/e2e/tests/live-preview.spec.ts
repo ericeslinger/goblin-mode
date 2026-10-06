@@ -79,11 +79,14 @@ test('dragging the handle resizes Right Now, and it stays that size', async ({ p
   const handle = page.getByRole('separator', { name: 'Resize Right Now' });
   await expect(handle).toHaveAttribute('aria-valuenow', '35');
 
+  // Grab the grip and lift it by a quarter of the screen: 35% to 60%.
   const box = (await handle.boundingBox())!;
   const viewport = page.viewportSize()!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, viewport.height * 0.4, { steps: 5 });
+  await page.mouse.move(x, y - viewport.height * 0.25, { steps: 5 });
   await page.mouse.up();
   await expect(handle).toHaveAttribute('aria-valuenow', '60');
 

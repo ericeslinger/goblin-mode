@@ -21,6 +21,13 @@ describe('SplitService', () => {
     expect(TestBed.inject(SplitService).rightNowShare()).toBe(50);
   });
 
+  it('previews without saving', () => {
+    const split = TestBed.inject(SplitService);
+    split.preview(70);
+    expect(split.rightNowShare()).toBe(70);
+    expect(localStorage.getItem('goblin.rightNowShare')).toBeNull();
+  });
+
   it('ignores a corrupt stored value', () => {
     localStorage.setItem('goblin.rightNowShare', 'banana');
     expect(TestBed.inject(SplitService).rightNowShare()).toBe(DEFAULT_SHARE);
