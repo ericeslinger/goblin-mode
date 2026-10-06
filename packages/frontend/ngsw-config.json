@@ -16,5 +16,5 @@
       "resources": { "files": ["/icons/**", "/**/*.(svg|png|webp|woff2)"] }
     }
   ],
-  "navigationUrls": ["/**", "!/**/*.*", "!/mcp", "!/.well-known/**"]
+  "navigationUrls": ["/**", "!/**/*.*", "!/mcp", "!/.well-known/**", "!/oauth/**"]
 }

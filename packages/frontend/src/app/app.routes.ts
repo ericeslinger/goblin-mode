@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { Launch } from './launch/launch';
+import { UnknownRoute } from './unknown-route';
 
 export const routes: Routes = [
   // Eager, not lazy: launch must never wait on a chunk (DESIGN.md, Editor).
@@ -19,5 +20,6 @@ export const routes: Routes = [
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),
   },
-  { path: '**', redirectTo: '' },
+  // A path this version does not know may be one a newer version does.
+  { path: '**', component: UnknownRoute },
 ];
