@@ -1,0 +1,88 @@
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  afterNextRender,
+  booleanAttribute,
+  effect,
+  inject,
+  input,
+  output,
+  untracked,
+  viewChild,
+} from '@angular/core';
+import {
+  type AccessoryBar,
+  createAccessoryBar,
+  createNoteEditor,
+  type NoteEditor,
+} from '@goblin/editor';
+import { EditorModeService } from './editor-mode.service';
+
+/** Touch screens get the keyboard accessory bar instead of shortcuts. */
+function isTouch(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+}
+
+/**
+ * The Angular face of @goblin/editor: text in, changes out, mode from
+ * EditorModeService. All editing behaviour lives in the package.
+ */
+@Component({
+  selector: 'app-note-editor',
+  template: '<div #host class="host"></div>',
+  styles: ':host { display: block; min-height: 0; } .host { height: 100%; }',
+})
+export class NoteEditorComponent {
+  readonly text = input('');
+  readonly label = input('Note');
+  readonly placeholder = input('');
+  readonly autofocus = input(false, { transform: booleanAttribute });
+  readonly textChange = output<string>();
+
+  private readonly modes = inject(EditorModeService);
+  private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
+  private editor?: NoteEditor;
+  private bar?: AccessoryBar;
+
+  constructor() {
+    afterNextRender(() => {
+      this.editor = createNoteEditor({
+        parent: this.host().nativeElement,
+        text: untracked(this.text),
+        label: untracked(this.label),
+        placeholder: untracked(this.placeholder),
+        mode: untracked(this.modes.mode),
+        onChange: (text) => this.textChange.emit(text),
+      });
+      if (isTouch()) {
+        const editor = this.editor;
+        this.bar = createAccessoryBar(editor, [
+          { label: '[[', name: 'Insert link', run: () => editor.insertWikiLink() },
+          { label: '☐', name: 'Toggle task', run: () => editor.toggleTask() },
+          { label: 'Done', run: () => editor.view.contentDOM.blur() },
+        ]);
+      }
+      if (untracked(this.autofocus)) this.editor.focus();
+    });
+
+    effect(() => {
+      const mode = this.modes.mode();
+      if (this.editor && this.editor.getMode() !== mode) this.editor.setMode(mode);
+    });
+
+    effect(() => {
+      const text = this.text();
+      if (this.editor && this.editor.getText() !== text) this.editor.setText(text);
+    });
+
+    inject(DestroyRef).onDestroy(() => {
+      this.bar?.destroy();
+      this.editor?.destroy();
+    });
+  }
+
+  focus(): void {
+    this.editor?.focus();
+  }
+}

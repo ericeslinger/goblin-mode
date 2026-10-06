@@ -1,14 +1,8 @@
-import {
-  AfterViewInit,
-  Component,
-  DestroyRef,
-  ElementRef,
-  inject,
-  signal,
-  viewChild,
-} from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
+import { EditorModeService } from '../note-editor/editor-mode.service';
+import { NoteEditorComponent } from '../note-editor/note-editor';
 
 /**
  * The launch screen: a cursor in a new note on top, Right Now below.
@@ -16,14 +10,14 @@ import { AuthService } from '../auth.service';
  */
 @Component({
   selector: 'app-launch',
-  imports: [RouterLink],
+  imports: [RouterLink, NoteEditorComponent],
   templateUrl: './launch.html',
   styleUrl: './launch.css',
 })
-export class Launch implements AfterViewInit {
+export class Launch {
   protected readonly auth = inject(AuthService);
+  protected readonly modes = inject(EditorModeService);
   protected readonly online = signal(navigator.onLine);
-  private readonly editor = viewChild.required<ElementRef<HTMLTextAreaElement>>('editor');
 
   constructor() {
     const update = () => this.online.set(navigator.onLine);
@@ -33,10 +27,6 @@ export class Launch implements AfterViewInit {
       removeEventListener('online', update);
       removeEventListener('offline', update);
     });
-  }
-
-  ngAfterViewInit(): void {
-    this.editor().nativeElement.focus();
   }
 
   protected signIn(): void {

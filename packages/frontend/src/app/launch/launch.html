@@ -5,6 +5,14 @@
     @if (auth.user() === null) {
       <button type="button" class="link" (click)="signIn()">Sign in</button>
     }
+    <button
+      type="button"
+      class="link"
+      [attr.aria-pressed]="modes.mode() === 'source'"
+      (click)="modes.toggle()"
+    >
+      {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
+    </button>
     <span class="sync" [class.offline]="!online()" role="status">
       {{ online() ? 'synced' : 'offline' }}
     </span>
@@ -12,7 +20,7 @@
   </header>
 
   <section class="capture">
-    <textarea #editor class="editor" placeholder="Start typing" aria-label="New note"></textarea>
+    <app-note-editor class="editor" label="New note" placeholder="Start typing" autofocus />
   </section>
 
   <section class="right-now" aria-labelledby="right-now-title">

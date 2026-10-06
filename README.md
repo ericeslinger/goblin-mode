@@ -32,6 +32,7 @@ npm run e2e    # before every PR
 
 ```
 packages/schema       zod contract and pure logic
+packages/editor       note grammar and CodeMirror editor (no Angular)
 packages/frontend     Angular PWA
 packages/functions    Cloud Functions
 packages/e2e          Playwright journeys

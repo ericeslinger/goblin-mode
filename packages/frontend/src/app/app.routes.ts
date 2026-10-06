@@ -1,7 +1,9 @@
 import { Routes } from '@angular/router';
+import { Launch } from './launch/launch';
 
 export const routes: Routes = [
-  { path: '', loadComponent: () => import('./launch/launch').then((m) => m.Launch) },
+  // Eager, not lazy: launch must never wait on a chunk (DESIGN.md, Editor).
+  { path: '', component: Launch },
   { path: 'settings', loadComponent: () => import('./settings/settings').then((m) => m.Settings) },
   {
     path: 'dev-sign-in',

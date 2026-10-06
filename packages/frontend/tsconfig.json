@@ -13,7 +13,9 @@
     "module": "preserve",
     "strict": true,
     "paths": {
-      "@goblin/schema": ["../schema/src/index.ts"]
+      "@goblin/schema": ["../schema/src/index.ts"],
+      "@goblin/editor": ["../editor/src/index.ts"],
+      "@goblin/editor/grammar": ["../editor/src/grammar/index.ts"]
     }
   },
   "angularCompilerOptions": {

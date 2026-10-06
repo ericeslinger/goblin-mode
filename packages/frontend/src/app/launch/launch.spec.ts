@@ -20,7 +20,20 @@ describe('Launch', () => {
 
   it('puts the cursor in the editor', async () => {
     const { el } = await render();
-    expect(document.activeElement).toBe(el.querySelector('textarea[aria-label="New note"]'));
+    expect(document.activeElement).toBe(el.querySelector('.cm-content[aria-label="New note"]'));
+  });
+
+  it('switches between live preview and source', async () => {
+    localStorage.clear();
+    const { el, fixture } = await render();
+    const toggle = () =>
+      [...el.querySelectorAll('button')].find((b) => /Source|Preview/.test(b.textContent ?? ''))!;
+    expect(toggle().textContent?.trim()).toBe('Source');
+    toggle().click();
+    await fixture.whenStable();
+    expect(toggle().textContent?.trim()).toBe('Preview');
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    toggle().click();
   });
 
   it('shows an empty Right Now', async () => {
