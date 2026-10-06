@@ -26,3 +26,9 @@ export const STORAGE = new InjectionToken<Storage | null>('storage', {
     }
   },
 });
+
+/** The device's IANA time zone, for "today" and for new repeats. */
+export const TIME_ZONE = new InjectionToken<string>('time-zone', {
+  providedIn: 'root',
+  factory: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+});

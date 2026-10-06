@@ -8,15 +8,17 @@ import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
 import { EditorModeService } from '../note-editor/editor-mode.service';
 import { NoteEditorComponent } from '../note-editor/note-editor';
+import { RightNowPanel } from '../reminders/right-now-panel';
 import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
 
 /**
  * The launch screen: a cursor in a note on top, Right Now below, and
- * the notes list beside it on wide screens. Signed out, only sign-in.
+ * on wide screens the notes list beside it, with Right Now on top of
+ * the list. Signed out, only sign-in.
  */
 @Component({
   selector: 'app-launch',
-  imports: [RouterLink, NoteEditorComponent, NoteList, SignIn],
+  imports: [RouterLink, NoteEditorComponent, NoteList, RightNowPanel, SignIn],
   templateUrl: './launch.html',
   styleUrl: './launch.css',
 })

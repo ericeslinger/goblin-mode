@@ -5,6 +5,10 @@ export const routes: Routes = [
   // Eager, not lazy: launch must never wait on a chunk (DESIGN.md, Editor).
   { path: '', component: Launch },
   { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse) },
+  {
+    path: 'right-now',
+    loadComponent: () => import('./reminders/right-now').then((m) => m.RightNow),
+  },
   { path: 'settings', loadComponent: () => import('./settings/settings').then((m) => m.Settings) },
   {
     path: 'dev-sign-in',

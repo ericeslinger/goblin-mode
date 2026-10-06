@@ -182,7 +182,44 @@ two panes from 900 px (list left, note right). The handle between note
 and Right Now is a separator: drag it, or use the arrow keys, to give
 Right Now between 15% and 80% of the screen (Home and End jump to the
 limits), saved on the device when the drag ends (Eric, 2026-10-06).
-Tapping to expand Right Now comes with reminders.
+Tapping the Right Now heading opens the full list (`/right-now`). On
+wide screens Right Now sits above the notes list, as the UX spec has
+it, sized by its content (2026-10-06).
+
+**Right Now (as built, 2026-10-06).** One live listener on open and
+snoozed reminders (`status in ['open', 'snoozed']`; done ones are never
+read). A reminder's time is its snooze while snoozed, else `dueAt`;
+before now is Overdue, later today (the device's time zone) is Today,
+after that Soon, and no time at all is Someday. The launch panel shows
+up to three Overdue and Today items, soonest first, with "N more"
+linking to the full list. The sort re-runs every 30 seconds, so items
+slide into Overdue while the app is open.
+
+- **Done** finishes a one-off (`status: 'done'`, times removed). A
+  repeat stays open and moves `dueAt` to its next occurrence after both
+  now and its current due time, so finishing early does not repeat the
+  same day.
+- **Snooze** keeps `dueAt` and sets `snoozedUntil`: in an hour, tonight
+  (8 pm, offered until 7 pm), tomorrow (9 am), or a picked time.
+- **Undo** is offered for six seconds after either, and writes the old
+  times back.
+- **Swipe** right is done, left opens snooze; the Done and Snooze
+  buttons on every row do the same for keyboards and screen readers.
+- **Add** takes text, an optional time and an optional repeat (daily,
+  weekdays, weekly). A repeat stores the local time and the device's
+  IANA zone; weekly keeps the weekday of its first time, and a repeat
+  with no time starts at 9 am. Add waits until the user is known.
+- `nextFireAt` is the time a push should go out: `dueAt` on add, the
+  snooze when snoozed, the next occurrence after done, removed when
+  finished. Step 5's `sendDuePush` reads it.
+- The rules live in `packages/schema/src/reminders.ts` (pure, epoch
+  milliseconds), so the app and `sendDuePush` agree. A wall time skipped
+  by a clock change fires just after the gap; a repeated one fires the
+  first time.
+
+Not yet: tapping a reminder opens its note only when it has `noteId`
+(Claude sets it; the app has no way to link one yet), templates wait
+for the feelings template, and calendar events are Phase 2.
 
 ## Editor (2026-10-06)
 
@@ -391,7 +428,7 @@ Each step is one or more PRs, each with a journey.
    search, two-pane layout; the rules shape-validator generator.
    Done 2026-10-06 (wiki links do not open notes yet).
 4. Reminders: Right Now panel and full list, add, done, snooze,
-   recurring.
+   recurring. Done 2026-10-06.
 5. Push: device registration, `sendDuePush`, notification taps.
 6. History and titles: `noteHistory`, `noteTitle`.
 7. MCP: OAuth, tools, connector set up in claude.ai.

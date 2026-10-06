@@ -34,6 +34,17 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Notes' })).toBeVisible();
   await expectNoSeriousViolations(page);
 
+  await page.goto('/right-now');
+  await page.getByRole('button', { name: 'Add a reminder' }).click();
+  await expectNoSeriousViolations(page);
+  await page.getByRole('textbox', { name: 'Reminder', exact: true }).fill('Water the plants');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: 'Snooze: Water the plants' }).click();
+  await expectNoSeriousViolations(page);
+  await page.getByRole('button', { name: 'Done: Water the plants' }).click();
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
+  await expectNoSeriousViolations(page);
+
   await page.goto('/');
   await page.setViewportSize({ width: 1200, height: 800 });
   await expect(page.getByRole('complementary', { name: 'All notes' })).toBeVisible();
