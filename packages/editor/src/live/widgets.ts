@@ -116,3 +116,17 @@ export class ImageWidget extends WidgetType {
     return img;
   }
 }
+
+/** A list item's `-`, `*` or `+`, drawn as a bullet off the edited line. */
+export class BulletWidget extends WidgetType {
+  override eq(): boolean {
+    return true;
+  }
+
+  toDOM(): HTMLElement {
+    const bullet = document.createElement('span');
+    bullet.className = 'gm-bullet';
+    bullet.textContent = '\u2022';
+    return bullet;
+  }
+}

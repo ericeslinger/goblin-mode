@@ -52,6 +52,30 @@ describe('Launch', () => {
     expect(button()).toBeUndefined();
   });
 
+  it('resizes Right Now from its handle, by drag or arrow keys', async () => {
+    localStorage.clear();
+    const { el, fixture } = await render();
+    const handle = el.querySelector('[role="separator"]') as HTMLElement;
+    const panel = el.querySelector('.right-now') as HTMLElement;
+    expect(handle.getAttribute('aria-valuenow')).toBe('35');
+
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+    await fixture.whenStable();
+    expect(handle.getAttribute('aria-valuenow')).toBe('40');
+
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: 0 }));
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: innerHeight * 0.5 }));
+    handle.dispatchEvent(new PointerEvent('pointerup'));
+    await fixture.whenStable();
+    expect(handle.getAttribute('aria-valuenow')).toBe('50');
+    expect(panel.style.height).toBe('50dvh');
+
+    // Moves after release do nothing.
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientY: 0 }));
+    await fixture.whenStable();
+    expect(handle.getAttribute('aria-valuenow')).toBe('50');
+  });
+
   it('shows offline when the network drops', async () => {
     const { el, fixture } = await render();
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);

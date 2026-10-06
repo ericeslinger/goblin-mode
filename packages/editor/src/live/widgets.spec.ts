@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CheckboxWidget, ImageWidget, safeImageSrc, WikiLinkWidget } from './widgets';
+import { BulletWidget, CheckboxWidget, ImageWidget, safeImageSrc, WikiLinkWidget } from './widgets';
 
 describe('safeImageSrc', () => {
   it('allows http, https and blob sources only', () => {
@@ -59,5 +59,11 @@ describe('CheckboxWidget', () => {
     expect(widget.ignoreEvent()).toBe(true);
     expect(widget.eq(new CheckboxWidget(false, 3))).toBe(true);
     expect(widget.eq(new CheckboxWidget(true, 3))).toBe(false);
+  });
+});
+
+describe('BulletWidget', () => {
+  it('draws a bullet', () => {
+    expect(new BulletWidget().toDOM().textContent).toBe('\u2022');
   });
 });

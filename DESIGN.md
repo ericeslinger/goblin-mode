@@ -159,7 +159,10 @@ one server-side API key (secret `ANTHROPIC_API_KEY`). No key, or an
 error, leaves the first-words title.
 
 **Layout.** One column on the phone (capture on top, Right Now below);
-two panes from 900 px (list left, note right).
+two panes from 900 px (list left, note right). The handle between note
+and Right Now is a separator: drag it, or use the arrow keys, to give
+Right Now between 15% and 80% of the screen, remembered on the device
+(Eric, 2026-10-06). Tapping to expand Right Now comes with reminders.
 
 ## Editor (2026-10-06)
 
@@ -231,7 +234,10 @@ Inside a GFM table, an aliased link must escape its pipe
 Live preview re-parses on every change and decorates per line: a
 construct shows as typed while the selection is on one of its lines.
 Keyboard: Mod-Enter toggles the task on the cursor line, Mod-K inserts a
-wiki link. A note opens with the caret at its end. The launch route is
+wiki link. Enter in a list item starts the next one (same bullet, next
+number, an unticked box after a task); Enter on an empty item ends the
+list. Off the edited line, `-`, `*` and `+` markers draw as bullets
+(Eric, 2026-10-06). A note opens with the caret at its end. The launch route is
 eager, so the editor is in the initial bundle (1.24 MB raw, about
 330 kB over the wire). Budgets: warn at 1.5 MB raw, fail at 8 MB, so
 growth is noticed without blocking.

@@ -47,6 +47,8 @@ export const noteTheme = EditorView.theme({
     verticalAlign: '-0.15em',
     accentColor: 'var(--gm-accent, #2f6f4f)',
   },
+  '.gm-bullet': { color: 'var(--gm-quiet, inherit)', fontWeight: '700' },
+  '.gm-list-number, .gm-list-marker': { color: 'var(--gm-quiet, inherit)' },
   '.gm-image': { maxWidth: '100%', display: 'block', margin: '4px 0' },
   '.gm-attachment-placeholder': {
     fontStyle: 'italic',

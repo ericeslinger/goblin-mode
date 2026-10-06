@@ -44,6 +44,45 @@ export const toggleTaskLine: Command = ({ state, dispatch }) => {
   return true;
 };
 
+const ITEM = /^([-*+]|(\d+)([.)]))([ \t]+)(\[[ xX]\][ \t]?)?/;
+
+/**
+ * Enter inside a list item starts the next item: the same bullet, the
+ * next number, and an unticked box for tasks, after the same indent and
+ * quote markers. Enter on an item with nothing typed after its marker
+ * ends the list by removing that marker. Elsewhere, falls through to the
+ * default Enter.
+ */
+export const continueList: Command = ({ state, dispatch }) => {
+  const sel = state.selection.main;
+  if (!sel.empty || state.selection.ranges.length > 1) return false;
+  const line = state.doc.lineAt(sel.head);
+  const prefix = PREFIX.exec(line.text)![0];
+  const item = ITEM.exec(line.text.slice(prefix.length));
+  if (!item) return false;
+  const markerEnd = line.from + prefix.length + item[0].length;
+  if (sel.head < markerEnd) return false;
+
+  if (line.text.slice(prefix.length + item[0].length).trim() === '') {
+    // An empty item: end the list, keeping any quote markers.
+    dispatch({
+      changes: { from: line.from + prefix.length, to: line.to, insert: '' },
+      userEvent: 'input.end-list',
+    });
+    return true;
+  }
+
+  const bullet = item[2] ? `${Number(item[2]) + 1}${item[3]}` : item[1];
+  const next = `\n${prefix}${bullet}${item[4]}${item[5] ? '[ ] ' : ''}`;
+  dispatch({
+    changes: { from: sel.head, insert: next },
+    selection: EditorSelection.cursor(sel.head + next.length),
+    scrollIntoView: true,
+    userEvent: 'input.continue-list',
+  });
+  return true;
+};
+
 /** Wraps the selection in `[[…]]`, leaving the cursor before `]]`. */
 export const insertWikiLink: Command = ({ state, dispatch }) => {
   dispatch(
