@@ -1,7 +1,9 @@
 // Spec-support helpers; never imported from production code.
 import { signal } from '@angular/core';
 import type { User } from 'firebase/auth';
-import type { FirebaseHandles } from '../firebase';
+import { FIREBASE, type FirebaseHandles } from '../firebase';
+import { NOW, TIME_ZONE } from '../platform/platform';
+import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import type { NoteRecord } from '../notes/notes.service';
 
 export function fakeFirebase(usingEmulators: boolean): FirebaseHandles {
@@ -45,4 +47,54 @@ export class FakeNotes {
 
 export function noteRecord(id: string, body: string): NoteRecord {
   return { id, body, title: body.split('\n')[0], titleSource: 'words', archived: false };
+}
+
+/** A stand-in Firestore seam for RemindersService; `push` is a snapshot. */
+export class FakeRemindersApi implements RemindersApi {
+  private next: (docs: { id: string; data: Record<string, unknown> }[]) => void = () => undefined;
+  listen = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    ) => {
+      this.next = next;
+      return vi.fn();
+    },
+  );
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
+    Promise.resolve(),
+  );
+  remove = () => 'DELETE';
+  timestamp = (ms: number) => ({ toMillis: () => ms });
+
+  push(docs: { id: string; data: Record<string, unknown> }[]): void {
+    this.next(docs);
+  }
+}
+
+/** A stored reminder as a snapshot doc; times in milliseconds. */
+export function reminderDoc(
+  id: string,
+  fields: { text: string; dueAt?: number; snoozedUntil?: number; [k: string]: unknown },
+): { id: string; data: Record<string, unknown> } {
+  const stamp = (ms?: number) => (ms === undefined ? undefined : { toMillis: () => ms });
+  const { dueAt, snoozedUntil, ...rest } = fields;
+  const data: Record<string, unknown> = { status: 'open', createdBy: 'user', ...rest };
+  if (dueAt !== undefined) data['dueAt'] = stamp(dueAt);
+  if (snoozedUntil !== undefined) data['snoozedUntil'] = stamp(snoozedUntil);
+  return { id, data };
+}
+
+/**
+ * Providers for the real RemindersService over a fake seam, with the
+ * clock and time zone fixed. Auth is provided by each spec.
+ */
+export function remindersTestProviders(api: FakeRemindersApi, now: () => number) {
+  return [
+    { provide: FIREBASE, useValue: fakeFirebase(true) },
+    { provide: REMINDERS_API, useValue: api },
+    { provide: NOW, useValue: now },
+    { provide: TIME_ZONE, useValue: 'America/New_York' },
+  ];
 }

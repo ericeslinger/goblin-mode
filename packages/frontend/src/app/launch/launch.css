@@ -16,11 +16,25 @@
 .list-pane {
   display: none;
 }
-/* Two panes on wide screens: all notes on the left (DESIGN.md, Layout). */
+/* Two panes on wide screens: Right Now over all notes on the left, the
+   note on the right (DESIGN.md, Layout). */
 @media (min-width: 900px) {
   .launch {
     grid-template-columns: 320px 1fr;
-    grid-template-areas: 'bar bar' 'list capture' 'list right-now';
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas: 'bar bar' 'right-now capture' 'list capture';
+  }
+  .launch .right-now {
+    /* Sized by its content here, not by the phone's drag handle. */
+    height: auto !important;
+    max-height: 40dvh;
+    border-top: 0;
+    border-right: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding-top: 4px;
+  }
+  .right-now .handle {
+    display: none;
   }
   .list-pane {
     display: block;
@@ -118,10 +132,6 @@
   height: 4px;
   border-radius: 2px;
   background: var(--rule);
-}
-h2 {
-  margin: 8px 0;
-  font-size: 15px;
 }
 .muted {
   color: var(--quiet);

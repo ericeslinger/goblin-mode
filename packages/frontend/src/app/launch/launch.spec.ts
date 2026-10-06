@@ -3,7 +3,13 @@ import { Router, provideRouter } from '@angular/router';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { NotesService } from '../notes/notes.service';
-import { FakeAuthService, FakeNotes, noteRecord } from '../testing/fakes';
+import {
+  FakeAuthService,
+  FakeNotes,
+  FakeRemindersApi,
+  noteRecord,
+  remindersTestProviders,
+} from '../testing/fakes';
 import { Launch } from './launch';
 
 async function render(options: { signedIn?: boolean; notes?: FakeNotes } = {}) {
@@ -17,6 +23,7 @@ async function render(options: { signedIn?: boolean; notes?: FakeNotes } = {}) {
       provideRouter([{ path: '**', component: Launch }]),
       { provide: AuthService, useValue: auth },
       { provide: NotesService, useValue: notes },
+      ...remindersTestProviders(new FakeRemindersApi(), () => Date.now()),
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Launch);
@@ -48,6 +55,7 @@ describe('Launch', () => {
         provideRouter([]),
         { provide: AuthService, useValue: auth },
         { provide: NotesService, useValue: new FakeNotes() },
+        ...remindersTestProviders(new FakeRemindersApi(), () => Date.now()),
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(Launch);
