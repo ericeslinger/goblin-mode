@@ -9,15 +9,15 @@ point-in-time recovery, weekly backups, sign-up disabled, owner account
 created by hand), the deploy service account, the Cloudflare token, and
 the GitHub secrets and variables. The first deploy succeeded on
 2026-10-06. The Web Push key pair was generated on 2026-10-06; its
-public key is in `firebase-config.ts`.
+public key is in `firebase-config.ts`. Claude access for titles by
+workload identity federation was set up and tested on 2026-10-06 (a
+token exchange from `goblin-titles` succeeded); the ids are in
+DESIGN.md, Titles.
 
 Still owed:
 
 1. **Cloud Scheduler API**, if the first deploy of `sendDuePush` asks
    for it, as earlier deploys did for other APIs.
-2. **Anthropic API key** for titles: a Functions secret
-   `ANTHROPIC_API_KEY` (`firebase functions:secrets:set`). Needed at
-   build order step 6, not before.
 
 ## Product
 

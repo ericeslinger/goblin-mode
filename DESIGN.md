@@ -173,9 +173,32 @@ overwritten edit can be recovered from the note's History.
 
 **Titles.** The client shows the first words until a better title
 arrives. A trigger on note writes asks a small Claude model for a title
-when the first paragraph changes and `titleSource` is not `user`, using
-one server-side API key (secret `ANTHROPIC_API_KEY`). No key, or an
-error, leaves the first-words title.
+when the first paragraph changes and `titleSource` is not `user`. No
+credential, or an error, leaves the first-words title.
+
+**Claude credentials: workload identity federation, no API key (Eric,
+2026-10-06; replaces the `ANTHROPIC_API_KEY` secret planned on
+2026-10-05).** `noteTitle` runs as its own Google service account,
+`goblin-titles@mossgoblin-garden.iam.gserviceaccount.com`. The
+Anthropic SDK asks the metadata server for that account's
+Google-signed identity token (audience `https://api.anthropic.com`,
+`format=full`, so it carries `email`) and exchanges it at
+`/v1/oauth/token` for a short-lived Claude API token, refreshing it
+before expiry. Anthropic trusts the token through a federation rule
+pinned to the account's exact `sub` (numeric unique id) and `email`
+and to the audience. The rule, organization, service account and
+workspace ids are not secrets and live in the functions source:
+rule `fdrl_01MjmMK7yGFSp3ivqfd4jkYK`, organization
+`209c75a9-c50e-414e-bae8-f5108cbc8539`, service account
+`svac_01RDiHUJYybRA2XnBq8JGV4G`, workspace Default
+(`wrkspc_013xVKKXeD7LJGwcGU1saUDe`; the rule covers only that one, so
+the exchange needs no workspace id). The Google account's `sub` is
+`112304203132315148893`. Set up and tested 2026-10-06. There
+is no secret to store, rotate or leak; billing stays on Eric's
+Anthropic account. The emulator has no metadata server, so locally
+titles fall back to first words and specs use a fake. Claude on
+Vertex AI (keyless through ADC) was the alternative, rejected because
+it moves billing and quotas to GCP.
 
 **Layout.** One column on the phone (capture on top, Right Now below);
 two panes from 900 px (list left, note right). The handle between note
@@ -477,7 +500,8 @@ Each step is one or more PRs, each with a journey.
    recurring. Done 2026-10-06.
 5. Push: device registration, `sendDuePush`, notification taps.
    Built 2026-10-06, with the Web Push key set the same day.
-6. History and titles: `noteHistory`, `noteTitle`.
+6. History and titles: `noteHistory`, `noteTitle` (Claude through
+   workload identity federation, set up 2026-10-06).
 7. MCP: OAuth, tools, connector set up in claude.ai.
 
 First deploy to mossgoblin.garden: done 2026-10-06.
