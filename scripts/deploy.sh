@@ -64,9 +64,12 @@ npx wrangler deploy --config infra/worker/wrangler.toml --domain "$APP_DOMAIN" \
 
 # Until the rename to Mossgoblin (#25, 2026-10-06) the Worker was named
 # goblin-mode. Run without a terminal, the deploy above moves the custom
-# domain to the new Worker; the old one, if any, is then removed.
-if npx wrangler delete --name goblin-mode --force > /dev/null 2>&1; then
-  echo "removed the old goblin-mode Worker"
+# domain to the new Worker; the old one, if it still exists, is then
+# deleted, loudly, so a failure shows in the deploy log. Remove this
+# block once production has deployed past #60.
+if npx wrangler deployments list --name goblin-mode > /dev/null 2>&1; then
+  echo "deleting the old goblin-mode Worker"
+  npx wrangler delete goblin-mode --force
 fi
 
 echo "deployed $sha"

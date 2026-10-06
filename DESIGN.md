@@ -578,7 +578,8 @@ the npm scope (`@mossgoblin/*`), the editor's CSS prefix (`--mg-*`,
 `.mg-*`), the emulator project (`demo-mossgoblin`) and the Worker
 (`mossgoblin`) took the new name. Run without a terminal, `wrangler
 deploy` moves the custom domain from the old Worker to the new one,
-and `scripts/deploy.sh` then deletes `goblin-mode` if it still exists.
+and `scripts/deploy.sh` then deletes `goblin-mode` if it still exists,
+loudly; that block goes once production has deployed past #60.
 Kept on purpose: the GitHub repo name (Eric, 2026-10-06), the Firebase
 project, Firestore paths, the connector URL, the `goblin-titles`
 service account (renaming it means new IAM grants), and the
