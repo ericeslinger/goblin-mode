@@ -41,6 +41,7 @@ describe('NotesService', () => {
     const { notes, api, signIn, push } = setup();
     expect(notes.ready).toBe(false);
     signIn('u1');
+    expect(notes.ready).toBe(false);
     expect(api.listen).toHaveBeenCalledWith(
       expect.anything(),
       'users/u1/notes',

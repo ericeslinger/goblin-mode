@@ -32,8 +32,9 @@ export const SAVE_DELAY_MS = 300;
  * - Away 5 minutes or more (or first run): a fresh note. Otherwise the
  *   note that was open.
  * - Typing is saved 300 ms after it pauses, and at once when the app is
- *   hidden. Before sign-in it is kept as a pending draft on the device
- *   and written once the user is known, so nothing is lost.
+ *   hidden. Until the user is known and their notes have loaded, it is
+ *   kept as a pending draft on the device and written after, so nothing
+ *   is lost and an unseen note is never overwritten.
  * - A note left empty is deleted when you leave it.
  */
 @Injectable({ providedIn: 'root' })
@@ -120,6 +121,9 @@ export class CaptureService {
       else this.store.remove(PENDING_DRAFT_KEY);
       return;
     }
+    // This text is newer than any pending draft, which must not land
+    // on top of it later.
+    this.store.remove(PENDING_DRAFT_KEY);
     if (this.body.trim()) this.notes.save(id, this.body);
     else if (this.notes.exists(id)) this.notes.remove(id);
   }

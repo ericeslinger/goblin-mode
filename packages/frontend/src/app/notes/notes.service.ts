@@ -122,9 +122,14 @@ export class NotesService {
     inject(DestroyRef).onDestroy(() => this.stop?.());
   }
 
-  /** Whether writes can happen yet (the user is known). */
+  /**
+   * Whether writes can happen yet: the user is known and their notes
+   * have loaded, so `save` can tell a new note from an existing one.
+   * Before that, a full write could overwrite a note this device has
+   * not seen yet.
+   */
   get ready(): boolean {
-    return this.uid !== undefined;
+    return this.uid !== undefined && this.loaded();
   }
 
   newId(): string {

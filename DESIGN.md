@@ -127,9 +127,13 @@ interface Reminder {
 
 **Launch.** The service worker serves the app shell from cache, so the
 editor renders and takes focus before Firestore or auth have finished.
-Auth state is restored from IndexedDB; until it resolves, typing goes
-into a pending draft kept in localStorage (so a reload cannot lose it)
-and written to Firestore once the uid is known.
+Auth state is restored from IndexedDB; until it resolves and the
+first notes snapshot arrives, typing goes into a pending draft kept in
+localStorage (so a reload cannot lose it) and is written to Firestore
+after. Waiting for the snapshot means a write can tell a new note from
+one this device has not seen yet, and never overwrites it. Any later
+direct save clears the draft, so an older draft never lands on newer
+text.
 
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device

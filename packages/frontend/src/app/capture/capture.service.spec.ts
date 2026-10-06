@@ -76,6 +76,28 @@ describe('CaptureService', () => {
     expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
   });
 
+  it('keeps typing as a draft until the notes have loaded', () => {
+    const { capture, notes } = setup({ [LAST_SEEN_KEY]: { hiddenAt: clock, noteId: 'n1' } });
+    // Signed in, but the first snapshot has not arrived.
+    capture.onText('more');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(PENDING_DRAFT_KEY)!)).toEqual({
+      id: 'n1',
+      body: 'more',
+    });
+  });
+
+  it('never writes a pending draft over newer text', () => {
+    const { capture, notes } = setup({ [PENDING_DRAFT_KEY]: { id: 'd1', body: 'old' } });
+    notes.signIn();
+    capture.onText('old and newer');
+    capture.flush();
+    TestBed.tick();
+    expect(notes.save).toHaveBeenCalledExactlyOnceWith('d1', 'old and newer');
+    expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+  });
+
   it('reopens a pending draft on launch rather than lose it', () => {
     const { capture } = setup({
       [PENDING_DRAFT_KEY]: { id: 'd1', body: 'unsaved' },
@@ -114,7 +136,7 @@ describe('CaptureService', () => {
 
   it('never deletes a resumed note whose text has not loaded yet', () => {
     const { capture, notes } = setup({ [LAST_SEEN_KEY]: { hiddenAt: clock, noteId: 'n1' } });
-    notes.ready = true;
+    notes.loaded.set(true);
     notes.written.add('n1');
     capture.newNote();
     expect(notes.remove).not.toHaveBeenCalled();

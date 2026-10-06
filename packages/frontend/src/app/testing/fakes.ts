@@ -26,7 +26,9 @@ export class FakeAuthService {
 export class FakeNotes {
   readonly notes = signal<NoteRecord[]>([]);
   readonly loaded = signal(false);
-  ready = false;
+  get ready(): boolean {
+    return this.loaded();
+  }
   private n = 0;
   readonly written = new Set<string>();
   save = vi.fn((id: string, _body: string) => void this.written.add(id));
@@ -36,7 +38,6 @@ export class FakeNotes {
   exists = (id: string) => this.written.has(id) || !!this.find(id);
 
   signIn(list: NoteRecord[] = []): void {
-    this.ready = true;
     this.notes.set(list);
     this.loaded.set(true);
   }
