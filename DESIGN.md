@@ -187,7 +187,13 @@ Google-signed identity token (audience `https://api.anthropic.com`,
 before expiry. Anthropic trusts the token through a federation rule
 pinned to the account's exact `sub` (numeric unique id) and `email`
 and to the audience. The rule, organization, service account and
-workspace ids are not secrets and live in the functions source. There
+workspace ids are not secrets and live in the functions source:
+rule `fdrl_01MjmMK7yGFSp3ivqfd4jkYK`, organization
+`209c75a9-c50e-414e-bae8-f5108cbc8539`, service account
+`svac_01RDiHUJYybRA2XnBq8JGV4G`, workspace Default
+(`wrkspc_013xVKKXeD7LJGwcGU1saUDe`; the rule covers only that one, so
+the exchange needs no workspace id). The Google account's `sub` is
+`112304203132315148893`. Set up and tested 2026-10-06. There
 is no secret to store, rotate or leak; billing stays on Eric's
 Anthropic account. The emulator has no metadata server, so locally
 titles fall back to first words and specs use a fake. Claude on
@@ -495,7 +501,7 @@ Each step is one or more PRs, each with a journey.
 5. Push: device registration, `sendDuePush`, notification taps.
    Built 2026-10-06, with the Web Push key set the same day.
 6. History and titles: `noteHistory`, `noteTitle` (Claude through
-   workload identity federation; setup in QUESTIONS.md).
+   workload identity federation, set up 2026-10-06).
 7. MCP: OAuth, tools, connector set up in claude.ai.
 
 First deploy to mossgoblin.garden: done 2026-10-06.
