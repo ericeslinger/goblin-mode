@@ -2,32 +2,39 @@
 
 Answered ones move into DESIGN.md with their date.
 
-## Setup Eric owes before the first deploy
+## Setup Eric owes
 
-1. **Firebase project** `mossgoblin-garden` (created 2026-10-05; its web
-   config is in `packages/frontend/src/environments/firebase-config.ts`,
-   `.firebaserc` alias `prod`). Done by Eric (2026-10-05): Blaze plan,
-   point-in-time recovery, weekly Firestore backups. Still to check or
-   do: Google sign-in enabled, Firestore and Storage created in
-   `us-central1`. Then:
-   - set the repository variable `FIREBASE_PROJECT_ID` to
-     `mossgoblin-garden`;
-   - add the repository secret `FIREBASE_SERVICE_ACCOUNT` (a service
-     account JSON key with Firebase Admin, Cloud Functions Admin, Service
-     Account User and Cloud Scheduler Admin);
-   - add `mossgoblin.garden` to Auth's authorized domains.
-2. **Cloudflare.** Repository secret `CLOUDFLARE_API_TOKEN` (Workers
-   Scripts edit, Workers Routes edit, and DNS edit for
-   mossgoblin.garden) and repository variable `CLOUDFLARE_ACCOUNT_ID`.
-3. **Anthropic API key** for titles: a Functions secret
+Done 2026-10-05/06: the Firebase project `mossgoblin-garden` (Blaze,
+point-in-time recovery, weekly backups, sign-up disabled, owner account
+created by hand), the deploy service account, the Cloudflare token, and
+the GitHub secrets and variables. The first deploy succeeded on
+2026-10-06.
+
+Still owed:
+
+1. **Anthropic API key** for titles: a Functions secret
    `ANTHROPIC_API_KEY` (`firebase functions:secrets:set`). Needed at
-   build order step 5, not before.
+   build order step 6, not before.
 
 ## Product
 
 - **People and project fields** (2026-10-05: left open on purpose). They
   extend the base note schema once real use shows what is needed.
 - **Feelings template.** Designed together once journaling is in use.
+
+## Editor
+
+Open from the 2026-10-06 editor decision (DESIGN.md, Editor):
+
+- **Default mode on the phone.** Live preview, with source one tap
+  away? Remembered per note or app-wide?
+- **GFM task lists** (`- [ ]`). goblin turned GFM off only because of its
+  75-column re-wrap, which Goblin Mode does not do.
+- **Directives on day one?** goblin's `:::aside` and `::embed{#id}`
+  syntax, or later when a first custom block is needed.
+- **Bundle cost.** CodeMirror plus remark adds roughly 150 to 250 kB to
+  the first load (estimate, not measured); the service worker caches it
+  after that. Measure before building, or accept?
 
 ## Technical
 

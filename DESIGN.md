@@ -33,6 +33,7 @@ server routes below to Cloud Functions under the same origin.
 ```
 packages/
   schema/      the zod contract and pure logic; client and functions import it
+  editor/      the note grammar and CodeMirror editor; no Angular (see Editor)
   frontend/    Angular PWA
   functions/   Cloud Functions (esbuild bundle, no devDependencies)
   e2e/         Playwright journeys against the emulator suite
@@ -126,6 +127,13 @@ editor renders and takes focus before Firestore or auth have finished.
 Auth state is restored from IndexedDB; until it resolves, typing goes
 into an in-memory draft that is written once the uid is known.
 
+**Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
+sign-in screen, never the editor. To keep launch instant, the device
+remembers that it has been signed in: with that mark set, the editor
+shows at once while Firebase restores the session, and if the session
+turns out to be gone the app switches to sign-in and keeps whatever
+was typed in the meantime.
+
 **New or resume.** On `visibilitychange` to hidden, and on `pagehide`,
 the app stores the time and the open note id in localStorage. On
 visible or cold start, more than 5 minutes since that stamp opens a
@@ -151,6 +159,55 @@ error, leaves the first-words title.
 
 **Layout.** One column on the phone (capture on top, Right Now below);
 two panes from 900 px (list left, note right).
+
+## Editor (2026-10-06)
+
+**Decision.** Notes are edited with CodeMirror 6 in the style of
+Obsidian, with two modes over the same text: **live preview** (markdown
+syntax hidden except on the line being edited; links, images and
+checkboxes drawn as widgets) and **source** (plain markdown). The note
+body is one markdown string, stored exactly as typed. Switching modes
+only changes the display, so it can never rewrite or lose text.
+
+**Why not TipTap/ProseMirror** (as overstory uses). A rich-text model
+means converting markdown to the editor's document and back. Every
+custom block would need a parse rule, an editor node, a serializer and
+an HTML renderer that all agree, plus a passthrough node so unknown
+syntax is not dropped, and the serializer would still normalise Eric's
+text (`*x*` becoming `_x_`), against the verbatim-prose invariant.
+overstory's editor shows those failure modes. The cost accepted here is
+that live preview is not full WYSIWYG (syntax shows on the line being
+edited) and its polish is ours to build.
+
+**One grammar.** remark (unified), as in goblin, is the only markdown
+parser. It drives the renderer, link and image extraction, the MCP
+server, and the live-preview decorations, which follow the character
+offsets remark records for each node. CodeMirror's own Lezer markdown
+parser is not used for structure, so there are never two grammars to
+keep in step. A custom syntax is added once (a remark extension) plus
+one renderer; the editor widget reuses that renderer.
+
+**The flavour.** CommonMark plus:
+
+- `[[Note title]]` and `[[Note title|shown text]]` wiki links;
+- images inline as `![caption](attachment:<id>)`, resolved through the
+  attachment record, so a note embeds images without a block envelope;
+- more to be settled (see QUESTIONS.md, Editor).
+
+**Built to be extracted.** The editor may later move into goblin (rich
+authoring) and overstory (a simpler pipeline), or become a library for
+all three. So it lives in `packages/editor` with no Angular and no
+Firebase: the remark grammar, the renderer and the CodeMirror
+extensions, each with unit specs. The app's Angular component is a thin
+wrapper that passes text in and out. Things only Goblin Mode needs
+(resolving `attachment:` ids, looking up wiki link targets) come in
+through small interfaces rather than imports.
+
+**Reused from the other repos.** goblin: the remark pipeline and its
+directive syntax, if custom blocks are wanted. overstory: the touch
+accessory bar that docks above the keyboard using `visualViewport`,
+shown only while the keyboard is open because Android's back button
+closes the keyboard without blurring the editor.
 
 ## Server routes
 
@@ -253,12 +310,17 @@ checked against the deploy.
 Each step is one or more PRs, each with a journey.
 
 1. Scaffold: workspaces, gates, emulators, hook, review agent, deploy
-   workflow, an app shell that signs in.
-2. Capture: launch screen editor, autosave, offline, new-or-resume,
-   Previous note, Recent list and search, two-pane layout; the rules
-   shape-validator generator for `notes`.
-3. Reminders: Right Now panel and full list, add, done, snooze, recurring.
-4. Push: device registration, `sendDuePush`, notification taps.
-5. History and titles: `noteHistory`, `noteTitle`.
-6. MCP: OAuth, tools, connector set up in claude.ai.
-7. First deploy to mossgoblin.garden (can move earlier once secrets exist).
+   workflow, an app shell that signs in. Done 2026-10-05.
+2. Editor: `packages/editor` with the remark grammar, renderer, live
+   preview and source modes, the touch accessory bar, and the Angular
+   wrapper.
+3. Capture: launch screen on the new editor, signed-out screen,
+   autosave, offline, new-or-resume, Previous note, Recent list and
+   search, two-pane layout; the rules shape-validator generator for
+   `notes`.
+4. Reminders: Right Now panel and full list, add, done, snooze, recurring.
+5. Push: device registration, `sendDuePush`, notification taps.
+6. History and titles: `noteHistory`, `noteTitle`.
+7. MCP: OAuth, tools, connector set up in claude.ai.
+
+First deploy to mossgoblin.garden: done 2026-10-06.
