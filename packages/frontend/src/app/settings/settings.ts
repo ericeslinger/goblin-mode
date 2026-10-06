@@ -1,7 +1,8 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
+import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
 
 @Component({
@@ -35,6 +36,20 @@ import { type PushState, PushService } from '../push/push.service';
           }
         }
       }
+      @if (auth.user()) {
+        <h2>Claude</h2>
+        <p>
+          To let Claude read and change your notes, add a custom connector in claude.ai (Settings,
+          Connectors) with this URL:
+        </p>
+        <p>
+          <code>{{ mcpUrl }}</code>
+        </p>
+        <button type="button" (click)="disconnect()">Disconnect Claude</button>
+        @if (claudeStatus()) {
+          <p role="status">{{ claudeStatus() }}</p>
+        }
+      }
       <h2>Version</h2>
       <p>{{ build.sha }} &middot; {{ build.time }}</p>
     </main>
@@ -55,6 +70,22 @@ export class Settings {
     error: 'Could not change notifications.',
   };
   protected readonly build = buildInfo;
+
+  protected readonly mcpUrl = `${location.origin}/mcp`;
+  protected readonly claudeStatus = signal('');
+  private readonly claude = inject(CLAUDE_ACCESS_API);
+
+  /** Drops every token Claude holds; claude.ai must connect again. */
+  protected async disconnect(): Promise<void> {
+    const user = this.auth.user();
+    if (!user) return;
+    try {
+      const n = await this.claude.revoke(await user.getIdToken());
+      this.claudeStatus.set(n ? 'Claude is disconnected.' : 'Claude was not connected.');
+    } catch (err) {
+      this.claudeStatus.set(`Could not disconnect: ${(err as Error).message}`);
+    }
+  }
 
   protected async signOut(): Promise<void> {
     await this.push.beforeSignOut();

@@ -18,11 +18,17 @@ APP_PORT=4300
 LOG_DIR="${TMPDIR:-/tmp}/goblin-e2e"
 mkdir -p "$LOG_DIR"
 
+# The functions emulator reads .env.local over any other .env file: the
+# journeys' owner (packages/e2e/src/personas.ts) is the MCP owner here.
+functions_env=packages/functions/.env.local
+printf 'OWNER_UID=e2e-owner\n' > "$functions_env"
+
 pids=()
 cleanup() {
   for pid in "${pids[@]}"; do
     kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
   done
+  rm -f "$functions_env"
 }
 trap cleanup EXIT
 

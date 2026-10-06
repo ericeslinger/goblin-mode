@@ -14,7 +14,7 @@ directory = "../../packages/frontend/dist/frontend/browser"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 # Only the proxied server routes reach the script; see src/index.ts.
-run_worker_first = ["/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/oauth/register", "/oauth/token", "/oauth/approve"]
+run_worker_first = ["/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/oauth/register", "/oauth/token", "/oauth/approve", "/oauth/revoke"]
 
 # FUNCTIONS_ORIGIN is passed by scripts/deploy.sh with --var, from
 # FIREBASE_PROJECT_ID.

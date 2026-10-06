@@ -49,6 +49,10 @@ account act as it (`roles/iam.serviceAccountUser` on it): `noteTitle`
 always runs as that account, even with titles off. DESIGN.md, Titles,
 covers the Claude side.
 
+To connect Claude, add a custom connector in claude.ai with the URL
+your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
+`OWNER_UID` can approve it.
+
 A push to `main` deploys. The deploy stops before building when a
 required value is missing; an optional one left out turns its feature
 off. DESIGN.md, Deploy configuration, has the details.

@@ -16,7 +16,14 @@ variables (README.md, Run your own).
 
 Also done 2026-10-06: the GitHub variables for deploy configuration
 (PR #13), and the Cloud Scheduler API (the first `sendDuePush` deploy
-enabled it). Nothing is owed right now.
+enabled it).
+
+Still owed:
+
+1. **Add the Claude connector** once step 7 deploys: in claude.ai,
+   Settings, Connectors, Add custom connector, with the URL Settings
+   shows in the app (`https://<your domain>/mcp`). claude.ai then
+   opens the app's consent page; allow it.
 
 ## Product
 

@@ -151,5 +151,16 @@ describe('everything else is denied', () => {
     await seed('oauth/clients');
     await assertFails(owner().doc('oauth/clients').get());
     await assertFails(owner().doc('oauth/clients').set({ x: 1 }));
+    // Where the oauth function keeps clients, codes and token hashes.
+    for (const path of ['oauth/clients/items/c1', 'oauth/codes/items/h', 'oauth/tokens/items/h']) {
+      await seed(path);
+      await assertFails(owner().doc(path).get());
+      await assertFails(owner().doc(path).set({ x: 1 }));
+      await assertFails(
+        owner()
+          .collection(path.slice(0, path.lastIndexOf('/')))
+          .get(),
+      );
+    }
   });
 });

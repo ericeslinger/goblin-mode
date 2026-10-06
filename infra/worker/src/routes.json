@@ -1,0 +1,10 @@
+[
+  ["/api/health", "health"],
+  ["/mcp", "mcp"],
+  ["/.well-known/oauth-protected-resource", "oauth"],
+  ["/.well-known/oauth-authorization-server", "oauth"],
+  ["/oauth/register", "oauth"],
+  ["/oauth/token", "oauth"],
+  ["/oauth/approve", "oauth"],
+  ["/oauth/revoke", "oauth"]
+]

@@ -1,5 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { matchesSearch } from '@goblin/schema';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
 /** The text shown under a note's title: its body after the title line. */
@@ -13,12 +14,7 @@ export function snippet(note: NoteRecord, length = 90): string {
 
 /** Case-insensitive match on title and body, every word must appear. */
 export function matches(note: NoteRecord, search: string): boolean {
-  const haystack = `${note.title}\n${note.body}`.toLowerCase();
-  return search
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => haystack.includes(word));
+  return matchesSearch(note, search);
 }
 
 /**

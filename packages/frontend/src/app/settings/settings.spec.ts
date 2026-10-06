@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { FakeAuthService } from '../testing/fakes';
+import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
 import { Settings } from './settings';
 
@@ -16,6 +17,8 @@ function fakePush(state: PushState = 'off') {
   };
 }
 
+const claude = { consent: vi.fn(), approve: vi.fn(), revoke: vi.fn(async () => 2), go: vi.fn() };
+
 async function render(auth: FakeAuthService, push = fakePush()) {
   await TestBed.configureTestingModule({
     imports: [Settings],
@@ -23,6 +26,7 @@ async function render(auth: FakeAuthService, push = fakePush()) {
       provideRouter([]),
       { provide: AuthService, useValue: auth },
       { provide: PushService, useValue: push },
+      { provide: CLAUDE_ACCESS_API, useValue: claude },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Settings);
@@ -87,5 +91,19 @@ describe('Settings', () => {
   it('shows no notification controls when signed out', async () => {
     const el = await render(new FakeAuthService());
     expect(el.textContent).not.toContain('Notifications');
+  });
+
+  it('shows the connector URL and disconnects Claude', async () => {
+    const auth = new FakeAuthService();
+    auth.user.set({ email: 'e@x.test', getIdToken: async () => 'id-token' } as never);
+    const el = await render(auth);
+    expect(el.querySelector('code')?.textContent).toBe(`${location.origin}/mcp`);
+    button(el, 'Disconnect Claude')!.click();
+    await vi.waitFor(() => expect(claude.revoke).toHaveBeenCalledWith('id-token'));
+    TestBed.tick();
+    await vi.waitFor(() => {
+      TestBed.tick();
+      expect(el.textContent).toContain('Claude is disconnected.');
+    });
   });
 });

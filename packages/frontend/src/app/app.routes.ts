@@ -10,6 +10,10 @@ export const routes: Routes = [
     loadComponent: () => import('./reminders/right-now').then((m) => m.RightNow),
   },
   { path: 'history', loadComponent: () => import('./history/history').then((m) => m.History) },
+  {
+    path: 'oauth/authorize',
+    loadComponent: () => import('./claude/authorize').then((m) => m.Authorize),
+  },
   { path: 'settings', loadComponent: () => import('./settings/settings').then((m) => m.Settings) },
   {
     path: 'dev-sign-in',
