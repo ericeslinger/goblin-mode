@@ -82,8 +82,8 @@
   font: inherit;
   font-size: 14px;
   padding: 4px 12px;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius-pill);
   color: var(--ink);
   background: transparent;
   cursor: pointer;

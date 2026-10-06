@@ -175,15 +175,16 @@ export function reasonLabel(v: VersionRecord): string {
       padding: 12px;
       white-space: pre-wrap;
       font: inherit;
-      border: 1px solid var(--rule);
-      border-radius: 6px;
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      background: var(--surface);
     }
     .primary {
       font: inherit;
       padding: 6px 16px;
       border: 0;
-      border-radius: 999px;
-      color: var(--bg);
+      border-radius: var(--radius-pill);
+      color: var(--on-accent);
       background: var(--accent);
       cursor: pointer;
     }

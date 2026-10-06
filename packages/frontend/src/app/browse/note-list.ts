@@ -63,10 +63,10 @@ export function matches(note: NoteRecord, search: string): boolean {
       width: 100%;
       font: inherit;
       padding: 10px 12px;
-      border: 1px solid var(--rule);
-      border-radius: 8px;
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
       color: var(--ink);
-      background: transparent;
+      background: var(--surface);
     }
     ul {
       list-style: none;

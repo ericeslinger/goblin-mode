@@ -62,8 +62,8 @@ const PARAMS = [
       font: inherit;
       padding: 8px 20px;
       border: 0;
-      border-radius: 999px;
-      color: var(--bg);
+      border-radius: var(--radius-pill);
+      color: var(--on-accent);
       background: var(--accent);
       cursor: pointer;
     }

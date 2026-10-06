@@ -10,6 +10,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { FIREBASE, initFirebase } from './firebase';
 import { PushService } from './push/push.service';
+import { ThemeService } from './theme/theme.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -20,6 +21,8 @@ export const appConfig: ApplicationConfig = {
       enabled: !isDevMode(),
       registrationStrategy: 'registerWhenStable:30000',
     }),
+    // Paints the chosen theme before the first render.
+    provideEnvironmentInitializer(() => void inject(ThemeService)),
     // Refreshes this device's push token after each sign-in; never awaited.
     provideEnvironmentInitializer(() => void inject(PushService)),
   ],

@@ -61,9 +61,9 @@ import { RemindersService } from './reminders.service';
       padding: 8px;
       font: inherit;
       color: var(--ink);
-      background: var(--bg);
-      border: 1px solid var(--rule);
-      border-radius: 6px;
+      background: var(--surface);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
     }
     .hint {
       color: var(--quiet);
@@ -79,8 +79,8 @@ import { RemindersService } from './reminders.service';
       font: inherit;
       padding: 6px 16px;
       border: 0;
-      border-radius: 999px;
-      color: var(--bg);
+      border-radius: var(--radius-pill);
+      color: var(--on-accent);
       background: var(--accent);
       cursor: pointer;
     }

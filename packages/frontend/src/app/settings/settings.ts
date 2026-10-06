@@ -4,10 +4,11 @@ import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
+import { ThemePicker } from '../theme/theme-picker';
 
 @Component({
   selector: 'app-settings',
-  imports: [RouterLink],
+  imports: [RouterLink, ThemePicker],
   template: `
     <main class="page">
       <a routerLink="/">Back</a>
@@ -18,6 +19,8 @@ import { type PushState, PushService } from '../push/push.service';
       } @else {
         <p>Not signed in.</p>
       }
+      <h2>Appearance</h2>
+      <app-theme-picker />
       @if (auth.user()) {
         <h2>Notifications</h2>
         <p role="status">{{ pushMessage[push.state()] }}</p>
