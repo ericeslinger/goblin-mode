@@ -1,7 +1,9 @@
 /* Colors, fonts and shapes are tokens that ThemeService sets on <html>
-   from app/theme/themes.ts, the only file that names them. Nothing
-   renders before the app boots, so no fallback values are needed. */
+   from app/theme/themes.ts, the only file that names them. Before it
+   runs the tokens are unset, so the page falls back to the browser's
+   own canvas, which color-scheme keeps dark for dark-mode users. */
 :root {
+  color-scheme: light dark;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 16px;

@@ -175,8 +175,9 @@ export function reasonLabel(v: VersionRecord): string {
       padding: 12px;
       white-space: pre-wrap;
       font: inherit;
-      border: 1px solid var(--rule);
+      border: var(--border) solid var(--rule);
       border-radius: var(--radius-control);
+      background: var(--surface);
     }
     .primary {
       font: inherit;

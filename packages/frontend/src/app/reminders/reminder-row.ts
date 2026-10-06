@@ -114,7 +114,7 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
       font: inherit;
       font-size: 14px;
       padding: 6px 10px;
-      border: 1px solid var(--rule);
+      border: var(--border) solid var(--rule);
       border-radius: var(--radius-pill);
       color: var(--ink);
       background: transparent;
