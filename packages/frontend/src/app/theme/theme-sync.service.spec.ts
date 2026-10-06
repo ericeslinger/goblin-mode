@@ -6,21 +6,21 @@ import { FakeAuthService, fakeFirebase } from '../testing/fakes';
 import { SETTINGS_API, type SettingsApi, ThemeSync } from './theme-sync.service';
 import { PREFERS_DARK, THEME_KEY, ThemeService } from './theme.service';
 
+type Next = (data: Record<string, unknown> | undefined, fromCache: boolean) => void;
+
 /** A stand-in settings doc: `push` delivers a snapshot. */
 class FakeSettingsApi implements SettingsApi {
-  private next: (data: Record<string, unknown> | undefined) => void = () => undefined;
+  private next: Next = () => undefined;
   readonly stop = vi.fn();
-  listen = vi.fn(
-    (_db: unknown, _path: string, next: (data: Record<string, unknown> | undefined) => void) => {
-      this.next = next;
-      return this.stop;
-    },
-  );
+  listen = vi.fn((_db: unknown, _path: string, next: Next) => {
+    this.next = next;
+    return this.stop;
+  });
   set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
   now = () => 'SERVER_TIME';
 
-  push(data: Record<string, unknown> | undefined): void {
-    this.next(data);
+  push(data: Record<string, unknown> | undefined, fromCache = false): void {
+    this.next(data, fromCache);
   }
 }
 
@@ -95,6 +95,29 @@ describe('ThemeSync', () => {
       mode: 'dark',
       updatedAt: 'SERVER_TIME',
     });
+  });
+
+  it('waits for the server before taking a missing doc as missing', () => {
+    const { api, signIn } = setup({ theme: 'night', mode: 'dark' });
+    signIn();
+    api.push(undefined, true);
+    expect(api.set).not.toHaveBeenCalled();
+    api.push({ theme: 'pixel', mode: 'light', updatedAt: 'x' });
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
+  it('drops a choice held from sign-in restore when restore ends signed out', () => {
+    const { api, theme, auth, signIn } = setup();
+    auth.user.set(undefined);
+    TestBed.tick();
+    theme.set('moss', 'light');
+    TestBed.tick();
+    auth.user.set(null);
+    TestBed.tick();
+    signIn('u2');
+    api.push({ theme: 'pixel', mode: 'dark', updatedAt: 'x' });
+    expect(api.set).not.toHaveBeenCalled();
+    expect(theme.theme()).toBe('pixel');
   });
 
   it('writes nothing when neither the doc nor this device has a choice', () => {

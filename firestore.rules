@@ -2,12 +2,12 @@ rules_version = '2';
 
 // Single owner. Everything lives under users/{uid}, and only that user
 // can read it. Writes follow the write path recorded per collection in
-// packages/schema/src/model.ts: the client writes notes, reminders and
-// devices and settings directly (offline-first), and those writes must match the
-// shape the zod contract defines (the generated isValid* functions);
-// history and activity are written only by functions. Anything not
-// listed here is denied, and oauth/ is server-only (the admin SDK
-// bypasses rules).
+// packages/schema/src/model.ts: the client writes notes, reminders,
+// devices and settings directly (offline-first), and those writes must
+// match the shape the zod contract defines (the generated isValid*
+// functions); history and activity are written only by functions.
+// Anything not listed here is denied, and oauth/ is server-only (the
+// admin SDK bypasses rules).
 service cloud.firestore {
   match /databases/{database}/documents {
     function isOwner(uid) {

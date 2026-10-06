@@ -7,11 +7,14 @@ import { ThemeService } from './theme.service';
 
 /** The Firestore calls ThemeSync makes, as a seam for unit specs. */
 export interface SettingsApi {
-  /** The settings doc as it stands, or undefined when there is none yet. */
+  /**
+   * The settings doc as it stands, or undefined when there is none yet;
+   * `fromCache` says the answer has not been confirmed by the server.
+   */
   listen(
     db: Firestore,
     path: string,
-    next: (data: Record<string, unknown> | undefined) => void,
+    next: (data: Record<string, unknown> | undefined, fromCache: boolean) => void,
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>): Promise<void>;
@@ -23,7 +26,14 @@ export const SETTINGS_API = new InjectionToken<SettingsApi>('settings-api', {
   providedIn: 'root',
   factory: () => ({
     listen: (db, path, next, error) =>
-      onSnapshot(doc(db, path), (snap) => next(snap.exists() ? snap.data() : undefined), error),
+      onSnapshot(
+        doc(db, path),
+        // Metadata changes too, so a cached "no doc" is followed by the
+        // server's answer.
+        { includeMetadataChanges: true },
+        (snap) => next(snap.exists() ? snap.data() : undefined, snap.metadata.fromCache),
+        error,
+      ),
     set: (db, path, data) => setDoc(doc(db, path), data),
     now: () => serverTimestamp(),
   }),
@@ -53,19 +63,19 @@ export class ThemeSync {
 
   constructor() {
     effect(() => {
-      const uid = this.auth.user()?.uid;
+      const user = this.auth.user();
+      // Signed out: a choice held from sign-in restore is no longer anyone's.
+      if (user === null) this.pending = false;
+      const uid = user?.uid;
       if (uid === this.uid) return;
       this.stop?.();
       this.stop = undefined;
       this.uid = uid;
-      if (!uid) {
-        if (this.auth.user() === null) this.pending = false;
-        return;
-      }
+      if (!uid) return;
       this.stop = this.api.listen(
         this.fb.db,
         paths.settings(uid),
-        (data) => this.received(data),
+        (data, fromCache) => this.received(data, fromCache),
         (err) => console.error('settings listener', err),
       );
     });
@@ -78,14 +88,16 @@ export class ThemeSync {
     inject(DestroyRef).onDestroy(() => this.stop?.());
   }
 
-  private received(data: Record<string, unknown> | undefined): void {
+  private received(data: Record<string, unknown> | undefined, fromCache: boolean): void {
     if (this.pending) {
       this.pending = false;
       this.write();
       return;
     }
     if (data === undefined) {
-      if (this.theme.hasStoredChoice()) this.write();
+      // Only the server can say there is no doc: an empty cache (a new
+      // device, offline) must not overwrite another device's choice.
+      if (!fromCache && this.theme.hasStoredChoice()) this.write();
       return;
     }
     const parsed = Settings.pick({ theme: true, mode: true }).safeParse(data);
