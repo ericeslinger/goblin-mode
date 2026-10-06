@@ -23,6 +23,7 @@ interface PendingDraft {
 
 export const LAST_SEEN_KEY = 'goblin.lastSeen';
 export const PENDING_DRAFT_KEY = 'goblin.pendingDraft';
+export const PENDING_SETTLE_KEY = 'goblin.pendingSettle';
 export const SAVE_DELAY_MS = 300;
 
 /**
@@ -60,11 +61,11 @@ export class CaptureService {
       this.untouched = false;
     } else {
       const seen = this.store.get<LastSeen>(LAST_SEEN_KEY);
-      this.show(
-        shouldStartFreshNote(seen?.hiddenAt, this.now()) || !seen?.noteId
-          ? { id: this.notes.newId(), text: '' }
-          : { id: seen.noteId, text: '' },
-      );
+      const fresh = shouldStartFreshNote(seen?.hiddenAt, this.now()) || !seen?.noteId;
+      // A fresh note after five minutes away settles the one left then.
+      if (fresh && seen?.noteId) this.store.set(PENDING_SETTLE_KEY, seen.noteId);
+      const resume = fresh ? undefined : seen?.noteId;
+      this.show({ id: resume ?? this.notes.newId(), text: '' });
     }
 
     // A resumed note's text arrives with the first snapshot; load it
@@ -78,10 +79,15 @@ export class CaptureService {
       });
     });
 
-    // Once the user is known, write any pending draft.
+    // Once the user is known, write any pending settle and draft.
     effect(() => {
       if (!this.notes.loaded()) return;
       untracked(() => {
+        const settle = this.store.get<string>(PENDING_SETTLE_KEY);
+        if (settle) {
+          this.notes.settle(settle);
+          this.store.remove(PENDING_SETTLE_KEY);
+        }
         const pending = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
         if (!pending) return;
         if (pending.body.trim()) this.notes.save(pending.id, pending.body);
@@ -135,6 +141,19 @@ export class CaptureService {
     this.show({ id, text: this.notes.find(id)?.body ?? '' });
   }
 
+  /**
+   * Puts an earlier version back (History). Unsaved typing is saved
+   * first, so history keeps it too; the note opens with the old text.
+   */
+  restore(id: string, body: string): void {
+    if (!this.notes.ready) return;
+    if (id === this.open().id) this.flush();
+    else this.closeCurrent();
+    this.store.remove(PENDING_DRAFT_KEY);
+    this.notes.save(id, body, { restore: true });
+    this.show({ id, text: body });
+  }
+
   /** Starts a fresh, empty note. */
   newNote(): void {
     this.closeCurrent();
@@ -158,7 +177,13 @@ export class CaptureService {
     const { id } = this.open();
     // Only a note emptied by typing here is deleted: an untouched one may
     // simply not have loaded yet, and must never be removed.
-    if (!this.untouched && !this.body.trim() && this.notes.exists(id)) this.notes.remove(id);
+    if (!this.untouched && !this.body.trim()) {
+      if (this.notes.exists(id)) this.notes.remove(id);
+      return;
+    }
+    // Leaving a note settles it (Eric, 2026-10-06): New, another note,
+    // a restore elsewhere, or a fresh note after five minutes away.
+    if (this.notes.ready) this.notes.settle(id, { edited: !this.untouched });
   }
 
   private show(note: OpenNote): void {

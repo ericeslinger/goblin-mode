@@ -9,6 +9,7 @@ export const routes: Routes = [
     path: 'right-now',
     loadComponent: () => import('./reminders/right-now').then((m) => m.RightNow),
   },
+  { path: 'history', loadComponent: () => import('./history/history').then((m) => m.History) },
   { path: 'settings', loadComponent: () => import('./settings/settings').then((m) => m.Settings) },
   {
     path: 'dev-sign-in',

@@ -44,6 +44,12 @@ export class Launch {
     return user === null || (user === undefined && !this.auth.signedInBefore());
   });
 
+  /** History is for notes that exist; a fresh one has none yet. */
+  protected readonly hasHistory = computed(() => {
+    this.notes.notes();
+    return this.notes.exists(this.capture.open().id);
+  });
+
   protected readonly previousOpen = signal(false);
   /** The few most recent other notes, for "Previous note". */
   protected readonly previous = computed(() =>

@@ -11,6 +11,11 @@
       <button type="button" class="link" (click)="modes.toggle()">
         {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
       </button>
+      @if (hasHistory()) {
+        <a routerLink="/history" [queryParams]="{ note: capture.open().id }" class="muted"
+          >History</a
+        >
+      }
       <span class="sync" [class.offline]="!online()" role="status">
         {{ online() ? 'synced' : 'offline' }}
       </span>

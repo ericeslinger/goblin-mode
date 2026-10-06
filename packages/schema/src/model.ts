@@ -58,6 +58,12 @@ export const Note = z.object({
   /** Merged away by Claude; kept so a merge can be undone. */
   archived: z.boolean(),
   mergedInto: z.string().optional(),
+  /**
+   * When Eric last left the note after changing it (a fresh note after
+   * five minutes, New, or opening another note). Asks noteTitle for a
+   * Claude title.
+   */
+  settledAt: Timestamp.optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
   updatedBy: Author,
@@ -65,6 +71,27 @@ export const Note = z.object({
   deviceId: z.string(),
 });
 export type Note = z.infer<typeof Note>;
+
+/** Why history kept a version (packages/schema/src/history.ts). */
+export const KeepReason = z.enum(['device', 'author', 'interval', 'deleted']);
+export type KeepReason = z.infer<typeof KeepReason>;
+
+/**
+ * A note as it stood before a later write replaced it, kept under
+ * notes/{id}/history by the noteHistory trigger (function-only).
+ */
+export const NoteVersion = z.object({
+  body: z.string(),
+  title: z.string(),
+  /** When this version was written, and by whom, from where. */
+  updatedAt: Timestamp,
+  updatedBy: Author,
+  deviceId: z.string(),
+  /** When history kept it. */
+  savedAt: Timestamp,
+  reason: KeepReason,
+});
+export type NoteVersion = z.infer<typeof NoteVersion>;
 
 export const Recurrence = z.object({
   freq: z.enum(['daily', 'weekdays', 'weekly']),

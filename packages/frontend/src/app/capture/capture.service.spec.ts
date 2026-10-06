@@ -2,7 +2,13 @@ import { TestBed } from '@angular/core/testing';
 import { NotesService } from '../notes/notes.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
 import { NOW } from '../platform/platform';
-import { CaptureService, LAST_SEEN_KEY, PENDING_DRAFT_KEY, SAVE_DELAY_MS } from './capture.service';
+import {
+  CaptureService,
+  LAST_SEEN_KEY,
+  PENDING_DRAFT_KEY,
+  PENDING_SETTLE_KEY,
+  SAVE_DELAY_MS,
+} from './capture.service';
 
 const MIN = 60_000;
 let clock = 1_000_000;
@@ -140,6 +146,62 @@ describe('CaptureService', () => {
     notes.written.add('n1');
     capture.newNote();
     expect(notes.remove).not.toHaveBeenCalled();
+  });
+
+  it('restores an earlier version: saves typing first, writes it as a restore, opens it', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'current')]);
+    capture.openNote('n1');
+    capture.onText('current, edited');
+    capture.restore('n1', 'older words');
+    expect(notes.save.mock.calls).toEqual([
+      ['n1', 'current, edited'],
+      ['n1', 'older words', { restore: true }],
+    ]);
+    expect(capture.open()).toEqual({ id: 'n1', text: 'older words' });
+  });
+
+  it('settles the note it leaves: New, or another note', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'old note'), note('n2', 'other note')]);
+    capture.onText('typed here');
+    capture.newNote();
+    expect(notes.settle).toHaveBeenLastCalledWith('new1', { edited: true });
+    capture.openNote('n1');
+    expect(notes.settle).toHaveBeenLastCalledWith('new2', { edited: false });
+    capture.openNote('n2');
+    expect(notes.settle).toHaveBeenLastCalledWith('n1', { edited: false });
+  });
+
+  it('does not settle a note emptied by typing; it deletes it', () => {
+    const { capture, notes } = setup();
+    notes.signIn();
+    capture.onText('oops');
+    capture.flush();
+    capture.onText('');
+    capture.newNote();
+    expect(notes.remove).toHaveBeenCalledWith('new1');
+    expect(notes.settle).not.toHaveBeenCalled();
+  });
+
+  it('after five minutes away, settles the note left then, once notes load', () => {
+    const { notes } = setup({ [LAST_SEEN_KEY]: { hiddenAt: clock - 5 * MIN, noteId: 'n1' } });
+    expect(notes.settle).not.toHaveBeenCalled();
+    notes.signIn([note('n1', 'left five minutes ago')]);
+    TestBed.tick();
+    expect(notes.settle).toHaveBeenCalledExactlyOnceWith('n1');
+    expect(localStorage.getItem(PENDING_SETTLE_KEY)).toBeNull();
+  });
+
+  it('settles on returning after five minutes, through New', () => {
+    const { capture, notes } = setup();
+    notes.signIn();
+    capture.onText('written before lunch');
+    capture.leave();
+    clock += 5 * MIN;
+    capture.returned();
+    expect(notes.settle).toHaveBeenCalledWith('new1', { edited: true });
+    expect(capture.open().id).toBe('new2');
   });
 
   it('opens another note with its text', () => {

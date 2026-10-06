@@ -1,5 +1,5 @@
 import { DestroyRef, Injectable, InjectionToken, effect, inject, signal } from '@angular/core';
-import { autoId, firstWordsTitle, paths, type TitleSource } from '@goblin/schema';
+import { RESTORE_SUFFIX, autoId, firstWordsTitle, paths, type TitleSource } from '@goblin/schema';
 import {
   type Firestore,
   collection,
@@ -25,6 +25,8 @@ export interface NoteRecord {
   archived: boolean;
   /** Milliseconds; undefined while a new note's server time is pending. */
   updatedAt?: number;
+  /** When the note was last settled (left after a change); milliseconds. */
+  settledAt?: number;
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -72,6 +74,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     titleSource: (data['titleSource'] as TitleSource) ?? 'words',
     archived: data['archived'] === true,
     updatedAt: stamp?.toMillis?.(),
+    settledAt: (data['settledAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
   };
 }
 
@@ -144,17 +147,22 @@ export class NotesService {
     return this.written.has(id) || this.find(id) !== undefined;
   }
 
-  /** Writes a note's text: a full document first, then merged updates. */
-  save(id: string, body: string): void {
+  /**
+   * Writes a note's text: a full document first, then merged updates.
+   * A restore writes as its own writer (`RESTORE_SUFFIX`), so noteHistory
+   * keeps the text it replaces.
+   */
+  save(id: string, body: string, { restore = false }: { restore?: boolean } = {}): void {
     if (!this.uid) throw new Error('save before sign-in');
     const path = paths.note(this.uid, id);
     const existing = this.find(id);
     const now = this.api.serverTime();
-    const title =
-      existing?.titleSource === 'user'
-        ? {}
-        : { title: firstWordsTitle(body), titleSource: 'words' };
-    const update = { body, ...title, updatedAt: now, updatedBy: 'user', deviceId: this.deviceId() };
+    // Eric's own title stays, and so does Claude's: noteTitle replaces it
+    // the next time the note is settled.
+    const keepTitle = existing?.titleSource === 'user' || existing?.titleSource === 'llm';
+    const title = keepTitle ? {} : { title: firstWordsTitle(body), titleSource: 'words' };
+    const deviceId = this.deviceId() + (restore ? RESTORE_SUFFIX : '');
+    const update = { body, ...title, updatedAt: now, updatedBy: 'user', deviceId };
     // A known note gets a merged update, keeping fields this device did
     // not set (Claude's links, tags, a title). A new one gets the full
     // shape the rules require.
@@ -164,6 +172,28 @@ export class NotesService {
       : { kind: 'text', links: [], tags: [], archived: false, createdAt: now, ...update };
     this.written.add(id);
     this.api.set(this.fb.db, path, data, known).catch(report);
+  }
+
+  /**
+   * Marks a note settled (Eric left it), which asks noteTitle for a
+   * Claude title. `edited`: the caller saw it typed in and saved, with
+   * text. Otherwise only a note with text written since its last settle
+   * is settled, so reading an old note never calls Claude. The body and
+   * updatedAt are left alone.
+   */
+  settle(id: string, { edited = false }: { edited?: boolean } = {}): void {
+    if (!this.uid) return;
+    if (!edited) {
+      const note = this.find(id);
+      if (!note?.body.trim()) return;
+      const changedSince =
+        note.settledAt === undefined ||
+        (note.updatedAt !== undefined && note.updatedAt > note.settledAt);
+      if (!changedSince) return;
+    }
+    this.api
+      .set(this.fb.db, paths.note(this.uid, id), { settledAt: this.api.serverTime() }, true)
+      .catch(report);
   }
 
   remove(id: string): void {
