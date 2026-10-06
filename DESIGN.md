@@ -230,6 +230,14 @@ checkboxes drawn as widgets) and **source** (plain markdown). The note
 body is one markdown string, stored exactly as typed. Switching modes
 only changes the display, so it can never rewrite or lose text.
 
+**Emphasis (Eric, 2026-10-06).** `*text*` is bold and `_text_` is
+italic; `**text**` and `__text__` stay bold. Every star means bold,
+so `***text***` is bold only; bold italic is `*_text_*`. The grammar reads
+single-star emphasis as strong (`grammar/emphasis.ts`), so the editor
+and the HTML renderer agree. The stored text is unchanged, so tools
+outside Goblin Mode still show `*text*` as italic; the MCP tools (step
+7) tell Claude about the convention, so its own writing follows it.
+
 **Why not TipTap/ProseMirror** (as overstory uses). A rich-text model
 means converting markdown to the editor's document and back. Every
 custom block would need a parse rule, an editor node, a serializer and

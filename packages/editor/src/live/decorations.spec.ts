@@ -27,6 +27,14 @@ describe('computeDecorations in live mode', () => {
     expect(list).toContainEqual({ kind: 'line', from: 0, className: 'gm-h2' });
   });
 
+  it('draws one-star text bold and underscored text italic, hiding one delimiter', () => {
+    const text = 'a *bold* and _it_';
+    const list = specs(text, 'live');
+    expect(list).toContainEqual({ kind: 'mark', from: 2, to: 8, className: 'gm-strong' });
+    expect(list).toContainEqual({ kind: 'mark', from: 13, to: 17, className: 'gm-em' });
+    expect(covered(text, list, 'hide')).toEqual(['*', '*', '_', '_']);
+  });
+
   it('shows syntax as typed on lines the selection touches', () => {
     const text = '## Plan\n\nsome **bold**';
     expect(covered(text, specs(text, 'live', [3]), 'hide')).toEqual(['## ']);

@@ -1,4 +1,4 @@
-import { expect, signInAs, test } from '../src/fixtures';
+import { expect, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Live preview draws tasks and wiki links as widgets off the line being
@@ -101,4 +101,20 @@ test('the formatting bar stays hidden without an on-screen keyboard', async ({ p
   await signInAs(page, OWNER);
   await expect(page.getByRole('textbox', { name: 'New note' })).toBeFocused();
   await expect(page.getByRole('toolbar', { name: 'Formatting' })).toBeHidden();
+});
+
+test('one star is bold and underscores are italic, stored as typed', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await page.evaluate(() => localStorage.removeItem('goblin.editorMode'));
+  await page.reload();
+  const note = page.getByRole('textbox', { name: 'New note' });
+  await expect(note).toBeFocused();
+  await typeLines(page, ['buy *milk* and _maybe_ eggs', '']);
+
+  await expect(note.locator('.gm-strong')).toHaveText('milk');
+  await expect(note.locator('.gm-em')).toHaveText('maybe');
+  await expect(note.locator('.cm-line').first()).toHaveText('buy milk and maybe eggs');
+
+  await page.getByRole('button', { name: 'Source' }).click();
+  await expect(note.locator('.cm-line').first()).toHaveText('buy *milk* and _maybe_ eggs');
 });
