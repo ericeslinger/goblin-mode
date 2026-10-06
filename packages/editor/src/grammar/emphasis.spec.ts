@@ -35,6 +35,14 @@ describe('emphasis', () => {
     ]);
   });
 
+  it('reads three stars as bold only, since every star means bold; *_x_* is both', () => {
+    expect(marks('***x***').map(([type]) => type)).toEqual(['strong', 'strong']);
+    expect(marks('*_x_*')).toEqual([
+      ['strong', '*_x_*'],
+      ['emphasis', '_x_'],
+    ]);
+  });
+
   it('leaves list bullets, literal stars and code alone', () => {
     expect(marks('* item\n* item')).toEqual([]);
     expect(marks('2 * 3 * 4')).toEqual([]);
