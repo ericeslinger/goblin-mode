@@ -384,7 +384,10 @@ reminder's note, or a new note from its template.
   asks the browser, gets an FCM token with the project's Web Push key
   and writes `devices/{deviceId}` (the same device id notes carry).
   Once on, every sign-in refreshes the token, since FCM rotates them.
-  Off deletes the device record and the token. On localhost there is
+  Off deletes the device record and the token, and signing out turns
+  the device off first, so a signed-out or shared browser stops getting
+  reminder text (deleting the token is the guarantee; the record also
+  goes once FCM reports the token gone). On localhost there is
   no FCM emulator, so the device registers a stand-in token and the
   flow still runs end to end.
 - **One service worker.** The app keeps Angular's `ngsw-worker.js`
@@ -399,7 +402,11 @@ reminder's note, or a new note from its template.
   transaction (moves `nextFireAt` only if it is unchanged, so a done or
   snooze from the app, or an overlapping run, wins) and only then
   sends. A failed send loses one nudge; nothing is ever sent twice.
-  Tokens FCM reports gone are deleted with their device.
+  Tokens FCM reports gone are deleted with their device. A push goes
+  to the devices registered when it falls due: with none, the reminder
+  is still claimed (and still shows in Right Now) rather than held for
+  a device that may come later, which would deliver a burst of stale
+  nudges and re-read every held reminder each minute (2026-10-06).
 - **What is sent.** Title: the reminder's text. Tap: its note, else
   Right Now. One notification per reminder (`tag` is its id).
 - **Repeats** keep nudging: after a push a repeat's `nextFireAt` moves

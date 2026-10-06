@@ -154,6 +154,18 @@ export class PushService {
     this.state.set('off');
   }
 
+  /**
+   * Before sign-out: a signed-out (or shared) browser must stop getting
+   * reminder text, so a device that was on is turned off. Deleting the
+   * FCM token is what guarantees it; the device record is removed too,
+   * and sendDuePush drops it anyway once FCM calls the token gone.
+   */
+  async beforeSignOut(): Promise<void> {
+    if (this.store.get<boolean>(PUSH_KEY) === true || this.state() === 'on') {
+      await this.disable();
+    }
+  }
+
   private async refresh(): Promise<void> {
     try {
       if (!(await this.api.supported())) return this.state.set('unsupported');

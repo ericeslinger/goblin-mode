@@ -139,6 +139,18 @@ describe('PushService', () => {
     expect(s.push.error()).toBe('the app is not installed yet');
   });
 
+  it('turns a device that was on off before sign-out, and leaves others alone', async () => {
+    const { push, signIn, api } = await setup();
+    await signIn();
+    await push.beforeSignOut();
+    expect(api.remove).not.toHaveBeenCalled();
+    await push.enable();
+    await push.beforeSignOut();
+    expect(api.remove).toHaveBeenCalledWith(expect.anything(), 'users/u1/devices/dev1');
+    expect(api.deleteToken).toHaveBeenCalled();
+    expect(push.state()).toBe('off');
+  });
+
   it('goes back to checking on sign-out', async () => {
     const { push, signIn, user } = await setup();
     await signIn();

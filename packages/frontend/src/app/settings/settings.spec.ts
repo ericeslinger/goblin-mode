@@ -12,6 +12,7 @@ function fakePush(state: PushState = 'off') {
     error: signal(''),
     enable: vi.fn(async () => undefined),
     disable: vi.fn(async () => undefined),
+    beforeSignOut: vi.fn(async () => undefined),
   };
 }
 
@@ -61,6 +62,18 @@ describe('Settings', () => {
     expect(el.textContent).toContain('Reminders are sent to this device.');
     button(el, 'Turn off notifications')!.click();
     expect(push.disable).toHaveBeenCalled();
+  });
+
+  it('turns this device off before signing out', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const push = fakePush('on');
+    const order: string[] = [];
+    push.beforeSignOut.mockImplementation(async () => void order.push('push'));
+    auth.signOut.mockImplementation(async () => void order.push('auth'));
+    const el = await render(auth, push);
+    button(el, 'Sign out')!.click();
+    await vi.waitFor(() => expect(order).toEqual(['push', 'auth']));
   });
 
   it('explains when notifications cannot be turned on', async () => {

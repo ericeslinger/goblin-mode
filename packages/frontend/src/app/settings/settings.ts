@@ -13,7 +13,7 @@ import { type PushState, PushService } from '../push/push.service';
       <h1>Settings</h1>
       @if (auth.user(); as user) {
         <p>Signed in as {{ user.email }}</p>
-        <button type="button" (click)="auth.signOut()">Sign out</button>
+        <button type="button" (click)="signOut()">Sign out</button>
       } @else {
         <p>Not signed in.</p>
       }
@@ -55,4 +55,9 @@ export class Settings {
     error: 'Could not change notifications.',
   };
   protected readonly build = buildInfo;
+
+  protected async signOut(): Promise<void> {
+    await this.push.beforeSignOut();
+    await this.auth.signOut();
+  }
 }
