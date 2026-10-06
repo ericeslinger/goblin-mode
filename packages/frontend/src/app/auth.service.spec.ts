@@ -31,6 +31,20 @@ describe('AuthService', () => {
     expect(service.user()).toBeNull();
   });
 
+  it('remembers on the device that it has been signed in', () => {
+    localStorage.clear();
+    const { service, emit } = setup(false);
+    expect(service.signedInBefore()).toBe(false);
+    emit({ uid: 'u1' } as User);
+    expect(localStorage.getItem('goblin.signedIn')).toBe('true');
+    TestBed.resetTestingModule();
+    const again = setup(false);
+    expect(again.service.signedInBefore()).toBe(true);
+    again.emit(null);
+    expect(again.service.signedInBefore()).toBe(false);
+    expect(localStorage.getItem('goblin.signedIn')).toBeNull();
+  });
+
   it('signs in with the Google popup', async () => {
     const { service, api } = setup(false);
     await service.signInWithGoogle();

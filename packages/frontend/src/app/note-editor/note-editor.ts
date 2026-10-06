@@ -35,6 +35,11 @@ function isTouch(): boolean {
 })
 export class NoteEditorComponent {
   readonly text = input('');
+  /**
+   * Which note `text` belongs to. Opening another note reloads the editor
+   * even when the text is unchanged (two empty notes in a row).
+   */
+  readonly noteId = input<string | undefined>(undefined);
   readonly label = input('Note');
   readonly placeholder = input('');
   readonly autofocus = input(false, { transform: booleanAttribute });
@@ -72,6 +77,7 @@ export class NoteEditorComponent {
     });
 
     effect(() => {
+      this.noteId();
       const text = this.text();
       if (this.editor && this.editor.getText() !== text) this.editor.setText(text);
     });

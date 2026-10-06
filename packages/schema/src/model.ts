@@ -94,6 +94,14 @@ export const Reminder = z.object({
 });
 export type Reminder = z.infer<typeof Reminder>;
 
+/** A device that can receive web push: one per installed app. */
+export const Device = z.object({
+  /** The Firebase Cloud Messaging token for this device. */
+  token: z.string().min(1),
+  updatedAt: Timestamp,
+});
+export type Device = z.infer<typeof Device>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,

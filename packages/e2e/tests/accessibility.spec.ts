@@ -15,14 +15,30 @@ async function expectNoSeriousViolations(page: Page): Promise<void> {
 
 test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible();
   await expectNoSeriousViolations(page);
 
   await page.goto('/dev-sign-in');
   await expectNoSeriousViolations(page);
 
   await signInAs(page, OWNER);
+  await page.keyboard.type('A note for the lists');
+  await page.waitForTimeout(800);
   await expectNoSeriousViolations(page);
+
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByRole('button', { name: 'Previous note' }).click();
+  await expectNoSeriousViolations(page);
+
+  await page.goto('/browse');
+  await expect(page.getByRole('list', { name: 'Notes' })).toBeVisible();
+  await expectNoSeriousViolations(page);
+
+  await page.goto('/');
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await expect(page.getByRole('complementary', { name: 'All notes' })).toBeVisible();
+  await expectNoSeriousViolations(page);
+  await page.setViewportSize({ width: 412, height: 839 });
 
   await page.getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();

@@ -4,6 +4,8 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/firestore';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
@@ -35,28 +37,75 @@ async function seed(path: string, data: object = { x: 1 }): Promise<void> {
   await env.withSecurityRulesDisabled((ctx) => ctx.firestore().doc(path).set(data));
 }
 
+const now = () => firebase.firestore.Timestamp.now();
+
+/** Shapes the generated validators accept, one per client-written path. */
+const valid: Record<string, () => object> = {
+  'users/owner/notes/n1': () => ({
+    kind: 'text',
+    body: 'buy eggs',
+    title: 'buy eggs',
+    titleSource: 'words',
+    links: [],
+    tags: [],
+    archived: false,
+    createdAt: now(),
+    updatedAt: now(),
+    updatedBy: 'user',
+    deviceId: 'phone',
+  }),
+  'users/owner/reminders/r1': () => ({ text: 'call mum', status: 'open', createdBy: 'user' }),
+  'users/owner/devices/d1': () => ({ token: 'fcm-token', updatedAt: now() }),
+};
+
 describe('client-written collections: notes, reminders, devices', () => {
-  for (const path of [
-    'users/owner/notes/n1',
-    'users/owner/reminders/r1',
-    'users/owner/devices/d1',
-  ]) {
+  for (const [path, shape] of Object.entries(valid)) {
     it(`${path}: the owner can create, read, update and delete`, async () => {
-      await assertSucceeds(owner().doc(path).set({ x: 1 }));
+      await assertSucceeds(owner().doc(path).set(shape()));
       await assertSucceeds(owner().doc(path).get());
-      await assertSucceeds(owner().doc(path).update({ x: 2 }));
+      await assertSucceeds(owner().doc(path).set(shape(), { merge: true }));
       await assertSucceeds(owner().doc(path).delete());
     });
 
     it(`${path}: another user and a signed-out client can do nothing`, async () => {
-      await seed(path);
+      await seed(path, shape());
       for (const db of [intruder(), anonymous()]) {
         await assertFails(db.doc(path).get());
-        await assertFails(db.doc(path).set({ x: 3 }));
+        await assertFails(db.doc(path).set(shape()));
         await assertFails(db.doc(path).delete());
       }
     });
+
+    it(`${path}: the owner cannot write a malformed document`, async () => {
+      await assertFails(owner().doc(path).set({ x: 1 }));
+      await assertFails(
+        owner()
+          .doc(path)
+          .set({ ...shape(), surprise: true }),
+      );
+    });
   }
+
+  it('checks each note field against the contract', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertFails(ref.set({ ...note(), kind: 'folder' }));
+    await assertFails(ref.set({ ...note(), body: 42 }));
+    await assertFails(ref.set({ ...note(), updatedAt: 'yesterday' }));
+    await assertFails(ref.set({ ...note(), archived: 'no' }));
+    const { deviceId: _dropped, ...missing } = note() as Record<string, unknown>;
+    await assertFails(ref.set(missing));
+    await assertSucceeds(ref.set({ ...note(), conceptType: 'person', synonyms: ['vik'] }));
+  });
+
+  it('accepts a server timestamp, as the app writes updatedAt', async () => {
+    const note = valid['users/owner/notes/n1'];
+    await assertSucceeds(
+      owner()
+        .doc('users/owner/notes/n1')
+        .set({ ...note(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }),
+    );
+  });
 });
 
 describe('function-only collections: notes/history, activity', () => {

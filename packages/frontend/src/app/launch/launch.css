@@ -1,7 +1,37 @@
 .launch {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  grid-template-areas: 'bar' 'capture' 'right-now';
   height: 100dvh;
+}
+.bar {
+  grid-area: bar;
+}
+.capture {
+  grid-area: capture;
+}
+.right-now {
+  grid-area: right-now;
+}
+.list-pane {
+  display: none;
+}
+/* Two panes on wide screens: all notes on the left (DESIGN.md, Layout). */
+@media (min-width: 900px) {
+  .launch {
+    grid-template-columns: 320px 1fr;
+    grid-template-areas: 'bar bar' 'list capture' 'list right-now';
+  }
+  .list-pane {
+    display: block;
+    grid-area: list;
+    overflow: auto;
+    padding: 12px 16px;
+    border-right: 1px solid var(--rule);
+  }
+  .browse-link {
+    display: none;
+  }
 }
 .bar {
   display: flex;
@@ -28,7 +58,37 @@
 }
 .capture {
   display: flex;
+  flex-direction: column;
   min-height: 0;
+}
+.previous {
+  padding: 0 16px 8px;
+}
+.pill {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+.previous ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.previous li button {
+  font: inherit;
+  width: 100%;
+  text-align: left;
+  padding: 8px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
 }
 .editor {
   flex: 1;

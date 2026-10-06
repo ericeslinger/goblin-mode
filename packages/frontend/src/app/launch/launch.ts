@@ -1,22 +1,30 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
+import { NoteList } from '../browse/note-list';
+import { CaptureService } from '../capture/capture.service';
+import { NotesService } from '../notes/notes.service';
+import { SignIn } from '../sign-in/sign-in';
 import { EditorModeService } from '../note-editor/editor-mode.service';
 import { NoteEditorComponent } from '../note-editor/note-editor';
 import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
 
 /**
- * The launch screen: a cursor in a new note on top, Right Now below.
- * Scaffold only: the editor does not save yet (build order step 3).
+ * The launch screen: a cursor in a note on top, Right Now below, and
+ * the notes list beside it on wide screens. Signed out, only sign-in.
  */
 @Component({
   selector: 'app-launch',
-  imports: [RouterLink, NoteEditorComponent],
+  imports: [RouterLink, NoteEditorComponent, NoteList, SignIn],
   templateUrl: './launch.html',
   styleUrl: './launch.css',
 })
 export class Launch {
   protected readonly auth = inject(AuthService);
+  protected readonly capture = inject(CaptureService);
+  private readonly notes = inject(NotesService);
+  private readonly router = inject(Router);
   protected readonly modes = inject(EditorModeService);
   protected readonly online = signal(navigator.onLine);
   protected readonly split = inject(SplitService);
@@ -25,7 +33,35 @@ export class Launch {
   /** Pointer distance below the panel's top edge at grab; null when idle. */
   private grabOffset: number | null = null;
 
+  /**
+   * Signed out: sign-in only. While the session is still restoring, a
+   * device that has been signed in before gets the editor at once.
+   */
+  protected readonly showSignIn = computed(() => {
+    const user = this.auth.user();
+    return user === null || (user === undefined && !this.auth.signedInBefore());
+  });
+
+  protected readonly previousOpen = signal(false);
+  /** The few most recent other notes, for "Previous note". */
+  protected readonly previous = computed(() =>
+    this.notes
+      .notes()
+      .filter((n) => !n.archived && n.body.trim() && n.id !== this.capture.open().id)
+      .slice(0, 5),
+  );
+
   constructor() {
+    // A link to /?note=<id> (the notes list) opens that note here.
+    inject(ActivatedRoute)
+      .queryParamMap.pipe(takeUntilDestroyed())
+      .subscribe((params) => {
+        const id = params.get('note');
+        if (!id) return;
+        this.capture.openNote(id);
+        void this.router.navigate([], { queryParams: {}, replaceUrl: true });
+      });
+
     const update = () => this.online.set(navigator.onLine);
     addEventListener('online', update);
     addEventListener('offline', update);
@@ -72,7 +108,13 @@ export class Launch {
     this.split.set(next);
   }
 
-  protected signIn(): void {
-    this.auth.signInWithGoogle().catch((err) => console.error(err));
+  protected newNote(): void {
+    this.previousOpen.set(false);
+    this.capture.newNote();
+  }
+
+  protected openPrevious(id: string): void {
+    this.previousOpen.set(false);
+    this.capture.openNote(id);
   }
 }

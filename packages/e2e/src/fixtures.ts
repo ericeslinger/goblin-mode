@@ -36,15 +36,42 @@ export async function resetAccount(email: string, password: string): Promise<voi
 
 /**
  * Signs in through the emulator-only /dev-sign-in page and waits for the
- * launch screen. Resets the account first, so it is retry-safe.
+ * launch screen. Resets the account first, so it is retry-safe; pass
+ * `{ reset: false }` to sign a second device into the same account.
  */
-export async function signInAs(page: Page, persona: Persona): Promise<void> {
-  await resetAccount(persona.email, persona.password);
+export async function signInAs(
+  page: Page,
+  persona: Persona,
+  { reset = true }: { reset?: boolean } = {},
+): Promise<void> {
+  if (reset) await resetAccount(persona.email, persona.password);
   await page.goto('/dev-sign-in');
   await page.getByLabel('Email').fill(persona.email);
   await page.getByLabel('Password').fill(persona.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible();
+}
+
+/**
+ * Types lines into the focused editor, waiting for each Enter to land:
+ * the phone profile's Android user agent makes CodeMirror apply Enter
+ * only after the browser's own DOM change (see DESIGN.md, Editor).
+ */
+export async function typeLines(page: Page, lines: string[]): Promise<void> {
+  const editor = page.getByRole('textbox', { name: 'New note' });
+  for (const [i, line] of lines.entries()) {
+    if (i > 0) {
+      const before = await editor.locator('.cm-line').count();
+      await page.keyboard.press('Enter');
+      await expect(editor.locator('.cm-line')).toHaveCount(before + 1);
+    }
+    await page.keyboard.type(line);
+  }
+}
+
+/** Waits out the 300 ms save debounce, with margin. */
+export async function letItSave(page: Page): Promise<void> {
+  await page.waitForTimeout(800);
 }
 
 export const test = base.extend({

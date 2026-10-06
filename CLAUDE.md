@@ -24,7 +24,10 @@ stack playbook and the `house-style` plugin (enabled in
   waiting on an emulator.
 - **Owner-only data.** Everything lives under `users/{uid}` and the rules
   allow only that uid. `oauth/` is server-only. A rules change needs a
-  rules test in `packages/rules-tests`.
+  rules test in `packages/rules-tests`. The `isValid*` shape
+  validators in `firestore.rules` are generated from the zod schemas:
+  change the schema and run `npm run rules:gen`, never edit them by
+  hand.
 - **Never lose a keystroke.** Note writes go through the Firestore
   persistent cache, never a network-only path, and nothing in the
   capture flow waits on the network or on auth before accepting input.
@@ -54,7 +57,8 @@ which deploys `main` after merge; there are not enough Actions minutes
 for anything else.
 
 - `npm run gate` must pass before every commit: typechecks (spec files
-  included), `prettier --check`, the frontend build, unit tests (vitest
+  included), `prettier --check`, the rules-validator drift check
+  (`npm run rules:gen -- --check`), the frontend build, unit tests (vitest
   for schema, editor, functions and worker; `ng test` for the frontend), the
   functions deploy dry run (staged `npm install --omit=dev` and import),
   and the Worker deploy dry run. No ESLint (house style).
@@ -74,10 +78,6 @@ Dated, and deliberate; everything else follows the plugin.
   backend package is `packages/functions` (stack playbook, 2026-10-04).
 - **No CI** (2026-10-05). Rules tests need the emulator, so they run in
   `npm run e2e` rather than in a CI job.
-- **Rules shape validators are not generated yet.** `notes`,
-  `reminders` and `devices` are direct client writes (see
-  `packages/schema/src/model.ts`), so the generator and its drift check
-  arrive with the first real client write (build order step 3).
 
 ## PRs, review and merging
 

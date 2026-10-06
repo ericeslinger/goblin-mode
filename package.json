@@ -19,7 +19,8 @@
     "build": "npm run build -w packages/frontend && npm run build:functions",
     "build:functions": "node scripts/build-functions.mjs",
     "deploy:functions:dry": "bash scripts/deploy-functions.sh --dry-run",
-    "emulators": "bash scripts/emulators.sh"
+    "emulators": "bash scripts/emulators.sh",
+    "rules:gen": "node scripts/rules-gen.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

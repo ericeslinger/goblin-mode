@@ -74,9 +74,12 @@ by the client, because capture, done and snooze must work offline; they
 are owner-only and nothing is derived from them by rules.
 `notes/history`, `activity` and `oauth` are function-only
 (`allow write: if false`). Direct-write collections get rules shape
-validators generated from the schemas, with a drift check in the gate,
-starting with step 3. Claude's MCP writes go through functions and are
-parsed against the same schemas.
+validators generated from the schemas (`npm run rules:gen`, from
+`packages/schema/src/rules`), and `npm run gate` fails when the
+committed rules are stale (built 2026-10-06). Refinements (regex, min
+length) and list or map contents are not checked by the rules, only
+their types. Claude's MCP writes go through functions and are parsed
+against the same schemas.
 
 ### Note
 
@@ -139,13 +142,25 @@ stays in localStorage and becomes the first note after sign-in.
 the app stores the time and the open note id in localStorage. On
 visible or cold start, more than 5 minutes since that stamp opens a
 fresh note; otherwise the stored note reopens. "Previous note" opens a
-short list of recent notes.
+short list of recent notes. A note is only written once something is
+typed, so a fresh note left untouched never exists.
 
-**Saving.** Each keystroke updates a signal; a 300 ms debounced write
-sends the note to Firestore. With the persistent local cache that write
-lands in IndexedDB at once and syncs when online, so there is no Save
-button and nothing is lost offline. A note whose body is still empty
-when you leave is deleted.
+**Saving (as built, 2026-10-06).** `CaptureService` writes 300 ms after
+typing pauses, and at once when the app is hidden. `NotesService`
+writes a new note's full shape (what the rules require), then merged
+updates of body, title, `updatedAt` (server time), `updatedBy` and
+`deviceId`, so fields set elsewhere (Claude's links, a title Eric
+chose) survive. Writes land in the persistent cache at once and sync
+later; the UI never waits on them. A note emptied by typing is deleted
+when you leave it; an untouched note never is, since its text may not
+have loaded yet. Bodies are stored with `\n` line endings (CodeMirror
+normalises `\r\n`; accepted 2026-10-06).
+
+**Lists and search.** One live listener on the user's whole `notes`
+collection, newest first, feeds Recent, Previous note and search; one
+person's notes are small enough, and the cache answers it offline.
+Search is every typed word, case-insensitive, in title or body. A real
+index waits until this is slow.
 
 **Conflicts.** Last write wins (2026-10-05). A Firestore trigger copies
 the previous version into `history` when the writer's `deviceId`
@@ -241,8 +256,9 @@ grammar decides what is a list item, so Enter is plain inside code and
 on `- - -`. Off the edited line, `-`, `*` and `+` markers
 draw as bullets (Eric, 2026-10-06). A note opens with the caret at its
 end. The launch route is eager, so the editor is in the initial bundle
-(1.24 MB raw, about 330 kB over the wire). Budgets: warn at 1.5 MB raw,
-fail at 8 MB, so growth is noticed without blocking.
+(1.24 MB raw, about 330 kB over the wire; 1.74 MB raw once capture
+added Firestore's live queries). Budgets: warn at 2 MB raw, fail at
+8 MB, so growth is noticed without blocking.
 
 Two things learned building it:
 
@@ -368,8 +384,8 @@ Each step is one or more PRs, each with a journey.
    wrapper.
 3. Capture: launch screen on the new editor, signed-out screen,
    autosave, offline, new-or-resume, Previous note, Recent list and
-   search, two-pane layout; the rules shape-validator generator for
-   `notes`.
+   search, two-pane layout; the rules shape-validator generator.
+   Done 2026-10-06 (wiki links do not open notes yet).
 4. Reminders: Right Now panel and full list, add, done, snooze,
    recurring.
 5. Push: device registration, `sendDuePush`, notification taps.
