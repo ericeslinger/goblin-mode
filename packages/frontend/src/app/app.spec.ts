@@ -17,8 +17,8 @@ describe('isLocalHost', () => {
   it('treats only loopback hosts as local', () => {
     expect(isLocalHost('localhost')).toBe(true);
     expect(isLocalHost('127.0.0.1')).toBe(true);
-    expect(isLocalHost('mossgoblin.garden')).toBe(false);
-    expect(isLocalHost('localhost.mossgoblin.garden')).toBe(false);
+    expect(isLocalHost('notes.example.com')).toBe(false);
+    expect(isLocalHost('localhost.example.com')).toBe(false);
   });
 });
 
@@ -29,6 +29,11 @@ describe('configFor', () => {
   });
 
   it('uses the real project everywhere else', () => {
-    expect(configFor('mossgoblin.garden').projectId).toBe('mossgoblin-garden');
+    const deployed = { projectId: 'someones-goblin', apiKey: 'k' };
+    expect(configFor('notes.example.com', deployed)).toBe(deployed);
+  });
+
+  it('refuses to start a build with no deployed config off localhost', () => {
+    expect(() => configFor('notes.example.com', null)).toThrow(/no Firebase config/);
   });
 });

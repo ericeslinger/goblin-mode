@@ -6,7 +6,8 @@ workers_dev = false
 preview_urls = false
 send_metrics = false
 
-routes = [{ pattern = "mossgoblin.garden", custom_domain = true }]
+# The custom domain comes from APP_DOMAIN: scripts/deploy.sh passes it
+# with --domain, so no deployment's domain is committed here.
 
 [assets]
 directory = "../../packages/frontend/dist/frontend/browser"
@@ -15,6 +16,5 @@ not_found_handling = "single-page-application"
 # Only the proxied server routes reach the script; see src/index.ts.
 run_worker_first = ["/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/oauth/register", "/oauth/token", "/oauth/approve"]
 
-[vars]
-# scripts/deploy.sh also passes this with --var, from FIREBASE_PROJECT_ID.
-FUNCTIONS_ORIGIN = "https://us-central1-mossgoblin-garden.cloudfunctions.net"
+# FUNCTIONS_ORIGIN is passed by scripts/deploy.sh with --var, from
+# FIREBASE_PROJECT_ID.
