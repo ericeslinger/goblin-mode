@@ -15,9 +15,19 @@ Still owed:
 
 1. **Cloud Scheduler API**, if the first deploy of `sendDuePush` asks
    for it, as earlier deploys did for other APIs.
-2. **Anthropic API key** for titles: a Functions secret
-   `ANTHROPIC_API_KEY` (`firebase functions:secrets:set`). Needed at
-   build order step 6, not before.
+2. **Claude access for titles, by workload identity federation**
+   (replaces the API key, 2026-10-06; DESIGN.md, Titles). Needed for
+   the titles half of step 6; history does not wait on it.
+   a. A Google service account `goblin-titles` in `mossgoblin-garden`
+      with `roles/datastore.user`, which the deploy account
+      `github-deploy` may act as (`roles/iam.serviceAccountUser` on it).
+   b. In the Claude Console (Settings, Workload identity, Connect
+      workload, Google Cloud): issuer `https://accounts.google.com`
+      (discovery), a rule matching audience `https://api.anthropic.com`
+      and exactly the account's `sub` and `email`, scope
+      `workspace:developer`, targeting a new Anthropic service account.
+   c. Send me the rule id (`fdrl_...`), organization id, service
+      account id (`svac_...`) and workspace id. Not secrets.
 
 ## Product
 
