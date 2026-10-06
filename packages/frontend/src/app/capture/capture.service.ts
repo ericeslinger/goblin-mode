@@ -154,6 +154,9 @@ export class CaptureService {
     this.store.remove(PENDING_DRAFT_KEY);
     this.notes.save(id, body, { restore: true });
     this.show({ id, text: body });
+    // The restored text is the note now: a snapshot still carrying the
+    // newer text must not load over it.
+    this.untouched = false;
   }
 
   /** Starts a fresh, empty note. */

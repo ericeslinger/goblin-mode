@@ -159,6 +159,10 @@ describe('CaptureService', () => {
       ['n1', 'older words', { restore: true }],
     ]);
     expect(capture.open()).toEqual({ id: 'n1', text: 'older words' });
+    // A snapshot that still has the newer text does not load over it.
+    notes.notes.set([note('n1', 'current, edited')]);
+    TestBed.tick();
+    expect(capture.open().text).toBe('older words');
   });
 
   it('settles the note it leaves: New, or another note', () => {
