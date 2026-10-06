@@ -20,6 +20,6 @@ npm run test:unit
 step "functions deploy dry run"
 bash scripts/deploy-functions.sh --dry-run
 step "worker dry run"
-npx wrangler deploy --dry-run --config infra/worker/wrangler.toml --outdir "${TMPDIR:-/tmp}/goblin-worker-dry"
+npx wrangler deploy --dry-run --config infra/worker/wrangler.toml --outdir "${TMPDIR:-/tmp}/mossgoblin-worker-dry"
 
 printf '\ngate: green\n'

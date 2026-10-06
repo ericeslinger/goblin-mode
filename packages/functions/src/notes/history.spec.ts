@@ -1,4 +1,4 @@
-import { HISTORY_INTERVAL_MS } from '@goblin/schema';
+import { HISTORY_INTERVAL_MS } from '@mossgoblin/schema';
 import { describe, expect, it, vi } from 'vitest';
 import { type HistoryStore, type NoteState, recordHistory } from './history';
 

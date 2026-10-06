@@ -8,10 +8,12 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
-      '@goblin/schema': new URL('./packages/schema/src/index.ts', import.meta.url).pathname,
-      '@goblin/editor/grammar': new URL('./packages/editor/src/grammar/index.ts', import.meta.url)
-        .pathname,
-      '@goblin/editor': new URL('./packages/editor/src/index.ts', import.meta.url).pathname,
+      '@mossgoblin/schema': new URL('./packages/schema/src/index.ts', import.meta.url).pathname,
+      '@mossgoblin/editor/grammar': new URL(
+        './packages/editor/src/grammar/index.ts',
+        import.meta.url,
+      ).pathname,
+      '@mossgoblin/editor': new URL('./packages/editor/src/index.ts', import.meta.url).pathname,
     },
   },
   test: {

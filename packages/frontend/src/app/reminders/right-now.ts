@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { SECTIONS } from '@goblin/schema';
+import { SECTIONS } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { SignIn } from '../sign-in/sign-in';
 import { AddReminder } from './add-reminder';

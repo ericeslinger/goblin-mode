@@ -1,6 +1,6 @@
 {
-  "name": "Goblin Mode",
-  "short_name": "Goblin",
+  "name": "Mossgoblin",
+  "short_name": "Mossgoblin",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

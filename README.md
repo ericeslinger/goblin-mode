@@ -1,4 +1,4 @@
-# Goblin Mode
+# Mossgoblin
 
 A goblin in the woods who keeps the notes you leave in his garden. A
 single-user, offline-first notes PWA with Claude as an editor through

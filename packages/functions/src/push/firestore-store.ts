@@ -1,4 +1,4 @@
-import { paths } from '@goblin/schema';
+import { paths } from '@mossgoblin/schema';
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
 import type { Device, DueReminder, PushStore } from './send-due';
 

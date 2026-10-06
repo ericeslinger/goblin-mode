@@ -7,7 +7,7 @@ export interface Persona {
 
 /** Eric, the one owner. Journeys sign in as him through /dev-sign-in. */
 export const OWNER: Persona = {
-  email: 'owner@goblin.test',
-  password: 'goblin-e2e-pass',
+  email: 'owner@mossgoblin.test',
+  password: 'mossgoblin-e2e-pass',
   uid: 'e2e-owner',
 };

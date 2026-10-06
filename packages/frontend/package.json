@@ -1,5 +1,5 @@
 {
-  "name": "@goblin/frontend",
+  "name": "@mossgoblin/frontend",
   "scripts": {
     "ng": "ng",
     "start": "ng serve",

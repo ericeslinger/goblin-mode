@@ -1,5 +1,5 @@
 import { Component, inject, output, signal } from '@angular/core';
-import type { Recurrence } from '@goblin/schema';
+import type { Recurrence } from '@mossgoblin/schema';
 import { RemindersService } from './reminders.service';
 
 /** The + form: text, an optional time, and an optional repeat. */

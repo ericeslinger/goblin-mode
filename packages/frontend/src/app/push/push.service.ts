@@ -1,5 +1,5 @@
 import { Injectable, InjectionToken, effect, inject, signal, untracked } from '@angular/core';
-import { paths } from '@goblin/schema';
+import { paths } from '@mossgoblin/schema';
 import { type Firestore, deleteDoc, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { PRODUCTION_VAPID_KEY } from '../../environments/firebase-config';
 import { AuthService } from '../auth.service';

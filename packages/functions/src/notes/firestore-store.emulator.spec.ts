@@ -5,7 +5,7 @@ import { firestoreNotesStore } from './firestore-store';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id so it never touches journey or rules-test data.
-const PROJECT = 'demo-goblin-mode-notes';
+const PROJECT = 'demo-mossgoblin-notes';
 const HOST = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 const app = initializeApp({ projectId: PROJECT }, 'notes-store-spec');
 let db: Firestore;

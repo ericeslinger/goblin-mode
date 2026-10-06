@@ -62,4 +62,11 @@ bash scripts/deploy-functions.sh --project "$FIREBASE_PROJECT_ID"
 npx wrangler deploy --config infra/worker/wrangler.toml --domain "$APP_DOMAIN" \
   --var "FUNCTIONS_ORIGIN:https://$region-$FIREBASE_PROJECT_ID.cloudfunctions.net"
 
+# Until the rename to Mossgoblin (#25, 2026-10-06) the Worker was named
+# goblin-mode. Run without a terminal, the deploy above moves the custom
+# domain to the new Worker; the old one, if any, is then removed.
+if npx wrangler delete --name goblin-mode --force > /dev/null 2>&1; then
+  echo "removed the old goblin-mode Worker"
+fi
+
 echo "deployed $sha"

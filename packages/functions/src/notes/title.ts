@@ -1,7 +1,7 @@
 // The core of noteTitle: when Eric settles a note (leaves it after
 // changing it), ask Claude for a title and write it back, unless he set
 // his own (DESIGN.md, Titles).
-import { cleanTitle, wantsClaudeTitle } from '@goblin/schema';
+import { cleanTitle, wantsClaudeTitle } from '@mossgoblin/schema';
 import type { NoteState } from './history';
 
 /** Asks a model for a title; resolves to its raw reply. */

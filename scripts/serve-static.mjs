@@ -8,7 +8,7 @@ import { extname, join, normalize } from 'node:path';
 
 const [root, port] = [process.argv[2], Number(process.argv[3] ?? 4300)];
 const functionsBase =
-  process.env.FUNCTIONS_EMULATOR_BASE ?? 'http://127.0.0.1:5101/demo-goblin-mode/us-central1';
+  process.env.FUNCTIONS_EMULATOR_BASE ?? 'http://127.0.0.1:5101/demo-mossgoblin/us-central1';
 const routes = JSON.parse(
   readFileSync(new URL('../infra/worker/src/routes.json', import.meta.url), 'utf8'),
 );

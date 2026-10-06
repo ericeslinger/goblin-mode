@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Reviews one Goblin Mode pull request against CLAUDE.md and posts findings on the PR. Spawn with the PR number after opening a PR, and again (via SendMessage) after each push.
+description: Reviews one Mossgoblin pull request against CLAUDE.md and posts findings on the PR. Spawn with the PR number after opening a PR, and again (via SendMessage) after each push.
 model: sonnet
 ---
 

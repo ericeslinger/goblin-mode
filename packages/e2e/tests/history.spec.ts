@@ -55,7 +55,7 @@ const FIRESTORE = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 /** Every note in the emulator with its body and settledAt, read as admin. */
 async function storedNotes(): Promise<{ body: string; settled: boolean }[]> {
   const res = await fetch(
-    `http://${FIRESTORE}/v1/projects/demo-goblin-mode/databases/(default)/documents:runQuery`,
+    `http://${FIRESTORE}/v1/projects/demo-mossgoblin/databases/(default)/documents:runQuery`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
@@ -81,7 +81,7 @@ async function storedNotes(): Promise<{ body: string; settled: boolean }[]> {
 
 test('leaving a note settles it, which is what asks for a Claude title', async ({ page }) => {
   await fetch(
-    `http://${FIRESTORE}/emulator/v1/projects/demo-goblin-mode/databases/(default)/documents`,
+    `http://${FIRESTORE}/emulator/v1/projects/demo-mossgoblin/databases/(default)/documents`,
     { method: 'DELETE' },
   );
   await signInAs(page, OWNER);

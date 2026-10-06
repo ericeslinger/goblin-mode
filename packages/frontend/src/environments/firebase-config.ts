@@ -1,7 +1,7 @@
 import type { FirebaseOptions } from 'firebase/app';
 
 /** Project id the emulator suite runs as; `demo-` means no real resources. */
-export const EMULATOR_PROJECT_ID = 'demo-goblin-mode';
+export const EMULATOR_PROJECT_ID = 'demo-mossgoblin';
 
 // Supplied by the deploy, never committed: scripts/deploy.sh passes them
 // with `ng build --define` from the GitHub variables FIREBASE_WEB_CONFIG

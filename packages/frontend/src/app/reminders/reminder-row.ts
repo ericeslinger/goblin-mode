@@ -1,6 +1,6 @@
 import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { sameDay, snoozeChoices } from '@goblin/schema';
+import { sameDay, snoozeChoices } from '@mossgoblin/schema';
 import { TIME_ZONE } from '../platform/platform';
 import { type PlacedReminder, RemindersService } from './reminders.service';
 

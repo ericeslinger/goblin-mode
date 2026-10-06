@@ -24,14 +24,14 @@ describe('computeDecorations in live mode', () => {
     const text = '## Plan\n\nsome **bold** and _it_ and `code`';
     const list = specs(text, 'live');
     expect(covered(text, list, 'hide')).toEqual(['## ', '**', '**', '_', '_', '`', '`']);
-    expect(list).toContainEqual({ kind: 'line', from: 0, className: 'gm-h2' });
+    expect(list).toContainEqual({ kind: 'line', from: 0, className: 'mg-h2' });
   });
 
   it('draws one-star text bold and underscored text italic, hiding one delimiter', () => {
     const text = 'a *bold* and _it_';
     const list = specs(text, 'live');
-    expect(list).toContainEqual({ kind: 'mark', from: 2, to: 8, className: 'gm-strong' });
-    expect(list).toContainEqual({ kind: 'mark', from: 13, to: 17, className: 'gm-em' });
+    expect(list).toContainEqual({ kind: 'mark', from: 2, to: 8, className: 'mg-strong' });
+    expect(list).toContainEqual({ kind: 'mark', from: 13, to: 17, className: 'mg-em' });
     expect(covered(text, list, 'hide')).toEqual(['*', '*', '_', '_']);
   });
 
@@ -60,7 +60,7 @@ describe('computeDecorations in live mode', () => {
     const open = list.find((s) => s.kind === 'checkbox' && !s.checked);
     expect(open && 'toggleAt' in open && text[open.toggleAt]).toBe(' ');
     expect(covered(text, list, 'image')).toEqual(['![page](attachment:abc)']);
-    expect(list).toContainEqual({ kind: 'line', from: 25, className: 'gm-done' });
+    expect(list).toContainEqual({ kind: 'line', from: 25, className: 'mg-done' });
   });
 
   it('keeps a task line as typed while the cursor is on it', () => {
@@ -85,7 +85,7 @@ describe('list markers', () => {
     const text = '1. eight\n2. nine';
     const list = specs(text, 'live');
     expect(covered(text, list, 'bullet')).toEqual([]);
-    expect(list).toContainEqual({ kind: 'mark', from: 0, to: 2, className: 'gm-list-number' });
+    expect(list).toContainEqual({ kind: 'mark', from: 0, to: 2, className: 'mg-list-number' });
   });
 });
 
@@ -94,6 +94,6 @@ describe('computeDecorations in source mode', () => {
     const text = '# T\n\n- [ ] **x** [[Vikas]] ![a](attachment:b)';
     const list = specs(text, 'source');
     expect(list.some((s) => s.kind !== 'line' && s.kind !== 'mark')).toBe(false);
-    expect(list).toContainEqual({ kind: 'line', from: 0, className: 'gm-h1' });
+    expect(list).toContainEqual({ kind: 'line', from: 0, className: 'mg-h1' });
   });
 });
