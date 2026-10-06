@@ -1,5 +1,11 @@
 import { DestroyRef, Injectable, InjectionToken, effect, inject, signal } from '@angular/core';
-import { RESTORE_SUFFIX, autoId, firstWordsTitle, paths, type TitleSource } from '@goblin/schema';
+import {
+  RESTORE_SUFFIX,
+  autoId,
+  firstWordsTitle,
+  paths,
+  type TitleSource,
+} from '@mossgoblin/schema';
 import {
   type Firestore,
   collection,

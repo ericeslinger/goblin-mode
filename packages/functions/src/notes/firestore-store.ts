@@ -1,4 +1,4 @@
-import { paths } from '@goblin/schema';
+import { paths } from '@mossgoblin/schema';
 import {
   type DocumentSnapshot,
   FieldValue,

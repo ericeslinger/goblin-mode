@@ -69,7 +69,7 @@ test('lists continue on Enter and show bullets off the edited line', async ({ pa
   await expect(lines.nth(2)).toHaveText('');
   await page.keyboard.type('after the list');
 
-  await expect(note.locator('.gm-bullet')).toHaveCount(2);
+  await expect(note.locator('.mg-bullet')).toHaveCount(2);
   await page.getByRole('button', { name: 'Source' }).click();
   await expect(lines).toHaveText(['- one', '- two', 'after the list']);
   await page.getByRole('button', { name: 'Preview' }).click();
@@ -111,8 +111,8 @@ test('one star is bold and underscores are italic, stored as typed', async ({ pa
   await expect(note).toBeFocused();
   await typeLines(page, ['buy *milk* and _maybe_ eggs', '']);
 
-  await expect(note.locator('.gm-strong')).toHaveText('milk');
-  await expect(note.locator('.gm-em')).toHaveText('maybe');
+  await expect(note.locator('.mg-strong')).toHaveText('milk');
+  await expect(note.locator('.mg-em')).toHaveText('maybe');
   await expect(note.locator('.cm-line').first()).toHaveText('buy milk and maybe eggs');
 
   await page.getByRole('button', { name: 'Source' }).click();

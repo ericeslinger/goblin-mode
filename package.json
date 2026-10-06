@@ -1,5 +1,5 @@
 {
-  "name": "goblin-mode",
+  "name": "mossgoblin",
   "private": true,
   "workspaces": [
     "packages/schema",

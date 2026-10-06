@@ -1,5 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
-import { FRESH_NOTE_AFTER_MS } from '@goblin/schema';
+import { FRESH_NOTE_AFTER_MS } from '@mossgoblin/schema';
 
 /** The liveness body; `revision` is Cloud Run's K_REVISION when deployed. */
 export function healthBody(revision: string | undefined) {

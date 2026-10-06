@@ -8,7 +8,7 @@ import { AuthService } from '../auth.service';
   imports: [RouterLink],
   template: `
     <main class="page sign-in">
-      <h1>Goblin Mode</h1>
+      <h1>Mossgoblin</h1>
       <p class="muted">Notes kept by a goblin in a mossy garden.</p>
       <button type="button" class="primary" (click)="signIn()">Sign in with Google</button>
       @if (auth.usingEmulators) {

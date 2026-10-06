@@ -41,7 +41,7 @@ describe('NoteEditorComponent', () => {
 
   it('emits the full text when a widget edits it', async () => {
     const { fixture } = await render();
-    const box = fixture.nativeElement.querySelector('input.gm-checkbox') as HTMLInputElement;
+    const box = fixture.nativeElement.querySelector('input.mg-checkbox') as HTMLInputElement;
     expect(box).toBeTruthy();
     box.click();
     expect(fixture.componentInstance.changes.at(-1)).toBe('- [x] eggs\n');
@@ -70,6 +70,6 @@ describe('NoteEditorComponent', () => {
     const { fixture } = await render();
     TestBed.inject(EditorModeService).set('source');
     await fixture.whenStable();
-    expect(fixture.nativeElement.querySelector('input.gm-checkbox')).toBeNull();
+    expect(fixture.nativeElement.querySelector('input.mg-checkbox')).toBeNull();
   });
 });

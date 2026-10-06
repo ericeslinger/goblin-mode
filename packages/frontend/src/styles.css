@@ -12,15 +12,15 @@
   --chip-bg: color-mix(in srgb, var(--accent) 12%, transparent);
   --code-bg: color-mix(in srgb, var(--ink) 7%, transparent);
   /* The editor package reads these names. */
-  --gm-ink: var(--ink);
-  --gm-quiet: var(--quiet);
-  --gm-rule: var(--rule);
-  --gm-accent: var(--accent);
-  --gm-chip-bg: var(--chip-bg);
-  --gm-code-bg: var(--code-bg);
-  --gm-font-mono: var(--font-mono);
-  --gm-font-heading: var(--font-heading);
-  --gm-radius-chip: var(--radius-pill);
+  --mg-ink: var(--ink);
+  --mg-quiet: var(--quiet);
+  --mg-rule: var(--rule);
+  --mg-accent: var(--accent);
+  --mg-chip-bg: var(--chip-bg);
+  --mg-code-bg: var(--code-bg);
+  --mg-font-mono: var(--font-mono);
+  --mg-font-heading: var(--font-heading);
+  --mg-radius-chip: var(--radius-pill);
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

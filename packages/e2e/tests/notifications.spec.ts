@@ -6,7 +6,7 @@ const FIRESTORE = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 /** Every device record in the emulator, read past the rules as admin. */
 async function deviceTokens(): Promise<string[]> {
   const res = await fetch(
-    `http://${FIRESTORE}/v1/projects/demo-goblin-mode/databases/(default)/documents:runQuery`,
+    `http://${FIRESTORE}/v1/projects/demo-mossgoblin/databases/(default)/documents:runQuery`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
@@ -27,7 +27,7 @@ test('turning notifications on registers this device, and off removes it', async
 }) => {
   // Journeys run one at a time; start from no devices at all.
   await fetch(
-    `http://${FIRESTORE}/emulator/v1/projects/demo-goblin-mode/databases/(default)/documents`,
+    `http://${FIRESTORE}/emulator/v1/projects/demo-mossgoblin/databases/(default)/documents`,
     {
       method: 'DELETE',
     },

@@ -15,7 +15,7 @@ export FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9199
 export FIRESTORE_EMULATOR_HOST=127.0.0.1:8180
 export FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9198
 APP_PORT=4300
-LOG_DIR="${TMPDIR:-/tmp}/goblin-e2e"
+LOG_DIR="${TMPDIR:-/tmp}/mossgoblin-e2e"
 mkdir -p "$LOG_DIR"
 
 # The functions emulator reads .env.local over any other .env file: the

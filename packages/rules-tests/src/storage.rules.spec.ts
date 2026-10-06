@@ -14,7 +14,7 @@ beforeAll(async () => {
     ':',
   );
   env = await initializeTestEnvironment({
-    projectId: 'demo-goblin-mode-rules',
+    projectId: 'demo-mossgoblin-rules',
     storage: {
       rules: readFileSync(new URL('../../../storage.rules', import.meta.url), 'utf8'),
       host,

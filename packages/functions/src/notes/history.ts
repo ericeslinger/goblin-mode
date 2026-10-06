@@ -1,6 +1,6 @@
 // The core of noteHistory: decide whether a note write replaced a
 // version worth keeping, and keep it (DESIGN.md, Conflicts).
-import { type Author, type KeepReason, keepReason } from '@goblin/schema';
+import { type Author, type KeepReason, keepReason } from '@mossgoblin/schema';
 
 /** A note's fields as a trigger sees them; times in milliseconds. */
 export interface NoteState {

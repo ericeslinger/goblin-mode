@@ -24,8 +24,8 @@ describe('isLocalHost', () => {
 
 describe('configFor', () => {
   it('uses the demo emulator project on localhost', () => {
-    expect(configFor('localhost').projectId).toBe('demo-goblin-mode');
-    expect(configFor('127.0.0.1').projectId).toBe('demo-goblin-mode');
+    expect(configFor('localhost').projectId).toBe('demo-mossgoblin');
+    expect(configFor('127.0.0.1').projectId).toBe('demo-mossgoblin');
   });
 
   it('uses the real project everywhere else', () => {

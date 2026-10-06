@@ -15,7 +15,7 @@ import {
   matchesSearch,
   paths,
   snoozeUntil,
-} from '@goblin/schema';
+} from '@mossgoblin/schema';
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { randomFillSync } from 'node:crypto';
 

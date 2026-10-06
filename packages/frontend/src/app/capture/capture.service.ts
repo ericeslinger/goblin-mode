@@ -1,6 +1,6 @@
 import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, effect, inject, signal, untracked } from '@angular/core';
-import { shouldStartFreshNote } from '@goblin/schema';
+import { shouldStartFreshNote } from '@mossgoblin/schema';
 import { NotesService } from '../notes/notes.service';
 import { LocalStore } from '../platform/local-store';
 import { NOW } from '../platform/platform';

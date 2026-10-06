@@ -19,7 +19,7 @@ import {
   paths,
   sectionOf,
   snoozeUntil,
-} from '@goblin/schema';
+} from '@mossgoblin/schema';
 import {
   type Firestore,
   Timestamp,

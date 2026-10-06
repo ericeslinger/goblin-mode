@@ -55,7 +55,7 @@ describe('createNoteEditor', () => {
   it('draws a checkbox in live mode that ticks the task in the text', () => {
     const e = make('- [ ] eggs\nmore');
     e.view.dispatch({ selection: EditorSelection.cursor(e.getText().length) });
-    const box = e.view.dom.querySelector<HTMLInputElement>('input.gm-checkbox');
+    const box = e.view.dom.querySelector<HTMLInputElement>('input.mg-checkbox');
     expect(box?.getAttribute('aria-label')).toBe('Mark done');
     box!.click();
     expect(e.getText()).toBe('- [x] eggs\nmore');
@@ -65,7 +65,7 @@ describe('createNoteEditor', () => {
     const openLink = vi.fn();
     const e = make('see [[Vikas]]\n', { openLink });
     e.view.dispatch({ selection: EditorSelection.cursor(e.getText().length) });
-    const chip = e.view.dom.querySelector<HTMLElement>('.gm-wikilink');
+    const chip = e.view.dom.querySelector<HTMLElement>('.mg-wikilink');
     expect(chip?.textContent).toBe('Vikas');
     chip!.click();
     expect(openLink).toHaveBeenCalledWith('Vikas');
@@ -74,7 +74,7 @@ describe('createNoteEditor', () => {
   it('shows no widgets in source mode', () => {
     const e = make('- [ ] eggs [[Vikas]]\n', { mode: 'source' });
     e.view.dispatch({ selection: EditorSelection.cursor(e.getText().length) });
-    expect(e.view.dom.querySelector('.gm-checkbox, .gm-wikilink')).toBeNull();
+    expect(e.view.dom.querySelector('.mg-checkbox, .mg-wikilink')).toBeNull();
   });
 
   it('runs the toolbar commands on the cursor line', () => {

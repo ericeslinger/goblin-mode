@@ -2,7 +2,7 @@ import { type Page, test as base, expect } from '@playwright/test';
 import type { Persona } from './personas';
 
 export const AUTH_EMULATOR = process.env['FIREBASE_AUTH_EMULATOR_HOST'] ?? '127.0.0.1:9199';
-const PROJECT = 'demo-goblin-mode';
+const PROJECT = 'demo-mossgoblin';
 
 /**
  * Keeps journeys off the network. Off-box requests are aborted, not

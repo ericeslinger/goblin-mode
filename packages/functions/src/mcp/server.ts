@@ -4,7 +4,7 @@ import { type NotesTools, ToolError } from './tools';
 
 /** What every Claude conversation using the connector is told. */
 export const INSTRUCTIONS = [
-  "Goblin Mode is Eric's notes app: quick notes, and reminders shown in Right Now.",
+  "Mossgoblin is Eric's notes app: quick notes, and reminders shown in Right Now.",
   "Keep Eric's paragraphs word for word. You may add your own text, re-file, tag, link, " +
     'split, merge and archive, but never reword what he wrote unless he asks you to.',
   'Prefer archiving to deleting; there is no delete tool.',
@@ -43,7 +43,7 @@ export type ToolsApi = {
 /** One MCP server for one request, acting for the signed-in owner. */
 export function buildServer(tools: ToolsApi): McpServer {
   const server = new McpServer(
-    { name: 'goblin-mode', version: '1.0.0' },
+    { name: 'mossgoblin', version: '1.0.0' },
     { instructions: INSTRUCTIONS },
   );
 

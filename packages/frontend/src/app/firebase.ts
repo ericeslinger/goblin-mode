@@ -50,7 +50,7 @@ export function initFirebase(hostname: string): FirebaseHandles {
   const usingEmulators = isLocalHost(hostname);
   const app = initializeApp(configFor(hostname));
   const auth = getAuth(app);
-  // The persistent cache is what makes Goblin Mode offline-first: writes
+  // The persistent cache is what makes Mossgoblin offline-first: writes
   // land in IndexedDB at once and sync when the network is back.
   const db = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),

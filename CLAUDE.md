@@ -1,4 +1,4 @@
-# Goblin Mode
+# Mossgoblin
 
 A single-user, offline-first notes PWA at mossgoblin.garden, with Claude
 as an editor through MCP. Built on the Angular + Firebase + Cloudflare
@@ -12,8 +12,8 @@ stack playbook and the `house-style` plugin (enabled in
 | README.md | Running it locally |
 | DESIGN.md | The technical design and build order; decisions dated in place |
 | QUESTIONS.md | Open questions and setup Eric still owes; read before proposing architecture |
-| UX spec (Claude Docs, "Goblin Mode UX Spec") | Product and UX: screens, flows, MVP cut |
-| Working notes (Claude Docs, "Goblin Mode Working Notes") | Eric's requirements and the Decisions table |
+| UX spec (Claude Docs, "Mossgoblin UX Spec") | Product and UX: screens, flows, MVP cut |
+| Working notes (Claude Docs, "Mossgoblin Working Notes") | Eric's requirements and the Decisions table |
 
 ## Invariants
 

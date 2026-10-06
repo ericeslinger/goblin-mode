@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import type { Mode } from '@goblin/editor';
+import type { Mode } from '@mossgoblin/editor';
 
 const KEY = 'goblin.editorMode';
 

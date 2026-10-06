@@ -1,15 +1,15 @@
-# Goblin Mode: technical design
+# Mossgoblin: technical design
 
-Goblin Mode is a single-user, offline-first notes PWA at
+Mossgoblin is a single-user, offline-first notes PWA at
 mossgoblin.garden, with Claude as a first-class editor through an MCP
 server. The product and UX are specified in the UX spec (Claude Docs,
-"Goblin Mode UX Spec"); this file is how we build it. Decisions are
+"Mossgoblin UX Spec"); this file is how we build it. Decisions are
 dated in place. Open ones live in QUESTIONS.md.
 
 ## Stack (2026-10-05)
 
 The Angular + Firebase + Cloudflare stack playbook is the baseline. Where
-Goblin Mode differs, the reason is written here.
+Mossgoblin differs, the reason is written here.
 
 | Layer | Choice | Notes |
 | --- | --- | --- |
@@ -282,7 +282,7 @@ Bog Goblin and Pixel Mossling, each light and dark.
   `--on-accent`, `--second`, `--good`, `--warn`, `--font-*`,
   `--radius-*`, `--border`), sets `data-theme` and `data-mode`, and keeps
   `theme-color` in step. Components and the editor read only tokens;
-  `styles.css` maps them onto the editor's `--gm-*` names.
+  `styles.css` maps them onto the editor's `--mg-*` names.
 - Mode is light, dark, or follow the system (live, via
   `prefers-color-scheme`). The choice is kept on the device under
   `goblin.theme` until #24 saves it per user.
@@ -311,7 +311,7 @@ italic; `**text**` and `__text__` stay bold. Every star means bold,
 so `***text***` is bold only; bold italic is `*_text_*`. The grammar reads
 single-star emphasis as strong (`grammar/emphasis.ts`), so the editor
 and the HTML renderer agree. The stored text is unchanged, so tools
-outside Goblin Mode still show `*text*` as italic; the MCP tools (step
+outside Mossgoblin still show `*text*` as italic; the MCP tools (step
 7) tell Claude about the convention, so its own writing follows it.
 
 **Why not TipTap/ProseMirror** (as overstory uses). A rich-text model
@@ -359,12 +359,12 @@ authoring) and overstory (a simpler pipeline), or become a library for
 all three. So it lives in `packages/editor` with no Angular and no
 Firebase: the remark grammar, the renderer and the CodeMirror
 extensions, each with unit specs. The app's Angular component is a thin
-wrapper that passes text in and out. Things only Goblin Mode needs
+wrapper that passes text in and out. Things only Mossgoblin needs
 (resolving `attachment:` ids, looking up wiki link targets) come in
 through small interfaces rather than imports.
 
-**As built (2026-10-06).** `@goblin/editor` exports the grammar on its
-own (`@goblin/editor/grammar`: `parseNote`, `renderNoteHtml`,
+**As built (2026-10-06).** `@mossgoblin/editor` exports the grammar on its
+own (`@mossgoblin/editor/grammar`: `parseNote`, `renderNoteHtml`,
 `wikiLinkTargets`, `tasks`, `attachmentIds`; no CodeMirror or DOM, so
 Cloud Functions can import it) and the editor (`createNoteEditor`,
 `createAccessoryBar`). Wiki links are an mdast transform over text nodes
@@ -573,6 +573,19 @@ ids: first-words titles). The full list is in README.md, Run your own.
 Values committed before this change remain in git history; none is a
 secret.
 
+**Rename to Mossgoblin (#25, 2026-10-06).** The app, the MCP server,
+the npm scope (`@mossgoblin/*`), the editor's CSS prefix (`--mg-*`,
+`.mg-*`), the emulator project (`demo-mossgoblin`) and the Worker
+(`mossgoblin`) took the new name. Run without a terminal, `wrangler
+deploy` moves the custom domain from the old Worker to the new one,
+and `scripts/deploy.sh` then deletes `goblin-mode` if it still exists,
+loudly; that block goes once production has deployed past #60.
+Kept on purpose: the GitHub repo name (Eric, 2026-10-06), the Firebase
+project, Firestore paths, the connector URL, the `goblin-titles`
+service account (renaming it means new IAM grants), and the
+device-local `goblin.*` keys, so no pending draft is stranded; M5
+re-keys those by uid (#53).
+
 ## Security
 
 **Only one account exists (2026-10-05).** End-user sign-up is disabled
@@ -600,7 +613,7 @@ merges when review approves, both gates are green on the head, and the
 change touches no schema. Schema or data migrations wait for Eric.
 
 **Deploy-only workflow (2026-10-05).** The playbook has no GitHub
-Actions at all. Goblin Mode adds one workflow, `deploy.yml`, that runs
+Actions at all. Mossgoblin adds one workflow, `deploy.yml`, that runs
 on push to `main` and only builds and deploys (rules, functions,
 Worker). Gates stay local because there are not enough Actions minutes
 for CI. It needs two repository secrets: `CLOUDFLARE_API_TOKEN` and

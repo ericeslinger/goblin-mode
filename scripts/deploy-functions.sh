@@ -7,7 +7,7 @@
 # It is a script rather than config because the dry run must reproduce
 # what the cloud builder does: stage the bundle with only its manifest,
 # `npm install --omit=dev`, then import it and check the exports. That
-# proves workspace code (@goblin/schema) was inlined and every runtime
+# proves workspace code (@mossgoblin/schema) was inlined and every runtime
 # dependency is declared, which the repo's hoisted node_modules would
 # otherwise hide.
 set -euo pipefail

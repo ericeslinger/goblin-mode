@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { matchesSearch } from '@goblin/schema';
+import { matchesSearch } from '@mossgoblin/schema';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
 /** The text shown under a note's title: its body after the title line. */

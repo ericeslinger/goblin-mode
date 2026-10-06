@@ -16,7 +16,7 @@ import {
   createAccessoryBar,
   createNoteEditor,
   type NoteEditor,
-} from '@goblin/editor';
+} from '@mossgoblin/editor';
 import { EditorModeService } from './editor-mode.service';
 
 /** Touch screens get the keyboard accessory bar instead of shortcuts. */
@@ -25,7 +25,7 @@ function isTouch(): boolean {
 }
 
 /**
- * The Angular face of @goblin/editor: text in, changes out, mode from
+ * The Angular face of @mossgoblin/editor: text in, changes out, mode from
  * EditorModeService. All editing behaviour lives in the package.
  */
 @Component({

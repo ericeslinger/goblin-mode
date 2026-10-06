@@ -8,7 +8,7 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
 fi
 
 NODE_VERSION="22.22.3"
-CACHE_DIR="$HOME/.cache/goblin-mode"
+CACHE_DIR="$HOME/.cache/mossgoblin"
 NODE_DIR="$CACHE_DIR/node-v$NODE_VERSION"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 CA_BUNDLE="/root/.ccr/ca-bundle.crt"

@@ -5,7 +5,7 @@ import { NotesTools, ToolError } from './tools';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id so it never touches journey or rules-test data.
-const PROJECT = 'demo-goblin-mode-mcp';
+const PROJECT = 'demo-mossgoblin-mcp';
 const HOST = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 const app = initializeApp({ projectId: PROJECT }, 'mcp-tools-spec');
 let db: Firestore;

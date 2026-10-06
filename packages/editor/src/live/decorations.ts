@@ -79,7 +79,7 @@ export function computeDecorations(
         specs.push({
           kind: 'line',
           from: starts[node.position.start.line - 1],
-          className: `gm-h${node.depth}`,
+          className: `mg-h${node.depth}`,
         });
         if (live && !isActive(node) && text[from] === '#') {
           const first = (node.children as Nodes[]).find(positioned);
@@ -90,13 +90,13 @@ export function computeDecorations(
       case 'strong':
       case 'emphasis':
       case 'delete': {
-        const cls = { strong: 'gm-strong', emphasis: 'gm-em', delete: 'gm-del' }[node.type];
+        const cls = { strong: 'mg-strong', emphasis: 'mg-em', delete: 'mg-del' }[node.type];
         specs.push({ kind: 'mark', from, to, className: cls });
         if (live && !isActive(node)) hideAroundChildren(node);
         break;
       }
       case 'inlineCode': {
-        specs.push({ kind: 'mark', from, to, className: 'gm-code' });
+        specs.push({ kind: 'mark', from, to, className: 'mg-code' });
         if (live && !isActive(node)) {
           let n = 0;
           while (text[from + n] === '`') n++;
@@ -106,7 +106,7 @@ export function computeDecorations(
         break;
       }
       case 'link': {
-        specs.push({ kind: 'mark', from, to, className: 'gm-link' });
+        specs.push({ kind: 'mark', from, to, className: 'mg-link' });
         // Only bracketed links have syntax to hide; autolinks do not.
         if (live && !isActive(node) && text[from] === '[') hideAroundChildren(node);
         break;
@@ -121,7 +121,7 @@ export function computeDecorations(
             ...(node.alias ? { alias: node.alias } : {}),
           });
         } else {
-          specs.push({ kind: 'mark', from, to, className: 'gm-wikilink-source' });
+          specs.push({ kind: 'mark', from, to, className: 'mg-wikilink-source' });
         }
         return;
       }
@@ -129,7 +129,7 @@ export function computeDecorations(
         if (live && !isActive(node)) {
           specs.push({ kind: 'image', from, to, url: node.url, alt: node.alt ?? '' });
         } else {
-          specs.push({ kind: 'mark', from, to, className: 'gm-image-source' });
+          specs.push({ kind: 'mark', from, to, className: 'mg-image-source' });
         }
         return;
       }
@@ -140,7 +140,7 @@ export function computeDecorations(
         if (task) {
           const boxEnd = from + task[0].length;
           if (node.checked)
-            specs.push({ kind: 'line', from: starts[line - 1], className: 'gm-done' });
+            specs.push({ kind: 'line', from: starts[line - 1], className: 'mg-done' });
           if (live && !editing) {
             specs.push({
               kind: 'checkbox',
@@ -155,24 +155,24 @@ export function computeDecorations(
           if (marker) {
             const markerEnd = from + marker[1].length;
             if (/^\d/.test(marker[1])) {
-              specs.push({ kind: 'mark', from, to: markerEnd, className: 'gm-list-number' });
+              specs.push({ kind: 'mark', from, to: markerEnd, className: 'mg-list-number' });
             } else if (live && !editing) {
               specs.push({ kind: 'bullet', from, to: markerEnd });
             } else {
-              specs.push({ kind: 'mark', from, to: markerEnd, className: 'gm-list-marker' });
+              specs.push({ kind: 'mark', from, to: markerEnd, className: 'mg-list-marker' });
             }
           }
         }
         break;
       }
       case 'blockquote':
-        eachLine(node, 'gm-quote');
+        eachLine(node, 'mg-quote');
         break;
       case 'code':
-        eachLine(node, 'gm-codeblock');
+        eachLine(node, 'mg-codeblock');
         return;
       case 'thematicBreak':
-        eachLine(node, 'gm-hr');
+        eachLine(node, 'mg-hr');
         return;
     }
     if ('children' in node) for (const child of node.children as Nodes[]) walk(child);

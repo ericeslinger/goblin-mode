@@ -31,7 +31,7 @@ export class CheckboxWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const box = document.createElement('input');
     box.type = 'checkbox';
-    box.className = 'gm-checkbox';
+    box.className = 'mg-checkbox';
     box.checked = this.checked;
     box.setAttribute('aria-label', this.checked ? 'Mark not done' : 'Mark done');
     // Keep focus and the caret where they are; the edit is ours to make.
@@ -63,7 +63,7 @@ export class WikiLinkWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const chip = document.createElement('span');
-    chip.className = 'gm-wikilink';
+    chip.className = 'mg-wikilink';
     chip.textContent = this.alias ?? this.target;
     chip.setAttribute('role', 'link');
     chip.setAttribute('tabindex', '0');
@@ -105,12 +105,12 @@ export class ImageWidget extends WidgetType {
     );
     if (!src) {
       const caption = document.createElement('span');
-      caption.className = 'gm-attachment-placeholder';
+      caption.className = 'mg-attachment-placeholder';
       caption.textContent = this.alt || 'image';
       return caption;
     }
     const img = document.createElement('img');
-    img.className = 'gm-image';
+    img.className = 'mg-image';
     img.src = src;
     img.alt = this.alt;
     return img;
@@ -125,7 +125,7 @@ export class BulletWidget extends WidgetType {
 
   toDOM(): HTMLElement {
     const bullet = document.createElement('span');
-    bullet.className = 'gm-bullet';
+    bullet.className = 'mg-bullet';
     bullet.textContent = '\u2022';
     return bullet;
   }

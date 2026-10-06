@@ -1,7 +1,7 @@
 // The core of sendDuePush, over a small store and sender interface so it
 // runs in unit specs without Firestore or FCM (see firestore-store.ts
 // for the real store and send-due-push.ts for the wiring).
-import { type Recurrence, type ReminderStatus, nextPushAfter } from '@goblin/schema';
+import { type Recurrence, type ReminderStatus, nextPushAfter } from '@mossgoblin/schema';
 
 /** A reminder whose push time has come; times in milliseconds. */
 export interface DueReminder {

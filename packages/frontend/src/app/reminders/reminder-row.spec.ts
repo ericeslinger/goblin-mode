@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { sectionOf } from '@goblin/schema';
+import { sectionOf } from '@mossgoblin/schema';
 import { ReminderRow, SWIPE_PX } from './reminder-row';
 import type { PlacedReminder } from './reminders.service';
 import { HOUR, NOW, buttonNamed, renderWithReminders } from '../testing/reminders';

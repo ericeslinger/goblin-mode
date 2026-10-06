@@ -37,7 +37,7 @@ export function createAccessoryBar(
   win: Window = window,
 ): AccessoryBar {
   const bar = win.document.createElement('div');
-  bar.className = 'gm-accessory-bar';
+  bar.className = 'mg-accessory-bar';
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', 'Formatting');
   // Shown and hidden through style.display: an inline `display: flex`
