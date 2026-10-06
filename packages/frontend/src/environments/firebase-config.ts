@@ -16,3 +16,12 @@ export const PRODUCTION_FIREBASE_CONFIG: FirebaseOptions | null = {
   messagingSenderId: '579728131419',
   appId: '1:579728131419:web:a41bc4d18434855bcc067e',
 };
+
+/**
+ * The public key of the project's Web Push certificate (Firebase console:
+ * Project settings, Cloud Messaging, Web Push certificates). Public by
+ * design, like the config above (set 2026-10-06). Without it, Settings
+ * says notifications are not set up yet.
+ */
+export const PRODUCTION_VAPID_KEY: string | null =
+  'BJkXc9JszShs5959cEA7j-2ZuAHPhh5S3huq8hJM0sZyhWwwMM8zJfvfmoep2MidX7UrtlhHYkZMro5P3xBo4nk';

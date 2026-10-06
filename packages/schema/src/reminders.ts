@@ -57,6 +57,24 @@ export function snoozeUntil(r: ReminderTimes, until: number): ReminderTimes {
   return { status: 'snoozed', dueAt: r.dueAt, snoozedUntil: until, nextFireAt: until };
 }
 
+/**
+ * When to push next, once a push has gone out at `now`: the next
+ * occurrence of a repeat (the first one after now, counting today's if
+ * it is still ahead, on the weekday of `dueAt` for weekly), or nothing
+ * for a one-off. `dueAt` is left alone, so an ignored reminder stays
+ * Overdue while a repeat keeps nudging.
+ */
+export function nextPushAfter(
+  r: ReminderTimes & { recurrence?: Recurrence },
+  now: number,
+): number | undefined {
+  if (!r.recurrence || r.status === 'done') return undefined;
+  const anchor = r.dueAt ?? now;
+  const day = 24 * 60 * 60 * 1000;
+  // Step from one period before the anchor, so the anchor's own day counts.
+  return nextOccurrence(r.recurrence, anchor - (r.recurrence.freq === 'weekly' ? 7 : 1) * day, now);
+}
+
 /** The quick snooze choices at `now`; "Tonight" only before 7 pm. */
 export function snoozeChoices(now: number, tz: string): { label: string; at: number }[] {
   const today = wallDate(now, tz);
