@@ -269,6 +269,34 @@ Not yet: tapping a reminder opens its note only when it has `noteId`
 (Claude sets it; the app has no way to link one yet), templates wait
 for the feelings template, and calendar events are Phase 2.
 
+## Themes (#23, 2026-10-06)
+
+Eric chose all five style directions from the UX Spec, switchable
+(2026-10-06): Herbarium (the default), Night Garden, Moss and Lantern,
+Bog Goblin and Pixel Mossling, each light and dark.
+
+- `packages/frontend/src/app/theme/themes.ts` is the only file that
+  names colors, fonts, radii and border widths. `ThemeService` copies
+  the active theme's tokens onto `<html>` as custom properties
+  (`--bg`, `--surface`, `--ink`, `--quiet`, `--rule`, `--accent`,
+  `--on-accent`, `--second`, `--good`, `--warn`, `--font-*`,
+  `--radius-*`, `--border`), sets `data-theme` and `data-mode`, and keeps
+  `theme-color` in step. Components and the editor read only tokens;
+  `styles.css` maps them onto the editor's `--gm-*` names.
+- Mode is light, dark, or follow the system (live, via
+  `prefers-color-scheme`). The choice is kept on the device under
+  `goblin.theme` until #24 saves it per user.
+- Fonts are self-hosted from `@fontsource`, not Google Fonts, so they
+  work offline and make no third-party request. Every `@font-face` is
+  declared, but a browser fetches a font only when text uses it, and
+  the service worker caches woff2 files lazily.
+- `themes.spec.ts` holds every theme and mode to WCAG AA: ink, quiet
+  and accent at 4.5 to 1 on the page and on surfaces, text on accent
+  fills at 4.5, and the sync dots at 3. The `themes` journey runs axe
+  over Settings, Right Now and Browse in all ten pairs.
+- Not yet: the textures the spec describes (paper grain, fireflies,
+  dithering, the sprite), which ride later polish.
+
 ## Editor (2026-10-06)
 
 **Decision.** Notes are edited with CodeMirror 6 in the style of

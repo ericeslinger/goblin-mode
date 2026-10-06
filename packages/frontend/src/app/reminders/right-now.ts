@@ -64,7 +64,7 @@ import { UndoBar } from './undo-bar';
       height: 40px;
       border: 0;
       border-radius: 50%;
-      color: var(--bg);
+      color: var(--on-accent);
       background: var(--accent);
       cursor: pointer;
     }

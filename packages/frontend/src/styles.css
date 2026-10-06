@@ -1,51 +1,63 @@
+/* Colors, fonts and shapes are tokens that ThemeService sets on <html>
+   from app/theme/themes.ts, the only file that names them. Nothing
+   renders before the app boots, so no fallback values are needed. */
 :root {
-  --ink: #1d1d1b;
-  --quiet: #6b6a66;
-  --rule: #dedcd5;
-  --bg: #fbfaf7;
-  --accent: #2f6f4f;
-  --good: #2e9a5b;
-  --warn: #d08a1c;
-  color-scheme: light dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #ecebe6;
-    --quiet: #a3a19a;
-    --rule: #3a3936;
-    --bg: #171716;
-    --accent: #7cc39b;
-    --good: #4cc27c;
-    --warn: #e6a640;
-  }
-}
-:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --motion: 150ms;
+  --chip-bg: color-mix(in srgb, var(--accent) 12%, transparent);
+  --code-bg: color-mix(in srgb, var(--ink) 7%, transparent);
+  /* The editor package reads these names. */
   --gm-ink: var(--ink);
   --gm-quiet: var(--quiet);
   --gm-rule: var(--rule);
   --gm-accent: var(--accent);
+  --gm-chip-bg: var(--chip-bg);
+  --gm-code-bg: var(--code-bg);
+  --gm-font-mono: var(--font-mono);
+  --gm-font-heading: var(--font-heading);
+  --gm-radius-chip: var(--radius-pill);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms;
+  }
 }
 html,
 body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+  accent-color: var(--accent);
+  font-family: var(--font-body);
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading);
+}
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+}
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 .page {
   max-width: 640px;
   margin: 0 auto;
-  padding: 16px;
+  padding: var(--space-3);
 }
 .page a {
   color: var(--accent);
 }
 label {
   display: block;
-  margin: 8px 0;
+  margin: var(--space-2) 0;
 }

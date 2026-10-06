@@ -34,8 +34,8 @@ import { AuthService } from '../auth.service';
       font: inherit;
       padding: 12px 20px;
       border: 0;
-      border-radius: 8px;
-      color: var(--bg);
+      border-radius: var(--radius-control);
+      color: var(--on-accent);
       background: var(--accent);
       cursor: pointer;
     }

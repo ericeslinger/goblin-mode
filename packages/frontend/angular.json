@@ -23,7 +23,20 @@
                 "input": "public"
               }
             ],
-            "styles": ["src/styles.css"],
+            "styles": [
+              "@fontsource-variable/source-serif-4/index.css",
+              "@fontsource/ibm-plex-mono/400.css",
+              "@fontsource-variable/nunito/index.css",
+              "@fontsource-variable/jetbrains-mono/index.css",
+              "@fontsource-variable/fraunces/index.css",
+              "@fontsource-variable/literata/index.css",
+              "@fontsource-variable/bricolage-grotesque/index.css",
+              "@fontsource/atkinson-hyperlegible/400.css",
+              "@fontsource/atkinson-hyperlegible/700.css",
+              "@fontsource-variable/pixelify-sans/index.css",
+              "@fontsource-variable/inter/index.css",
+              "src/styles.css"
+            ],
             "serviceWorker": "ngsw-config.json",
             "define": {
               "BUILD_SHA": "\"dev\"",

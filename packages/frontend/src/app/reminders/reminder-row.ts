@@ -87,7 +87,7 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
       transition: none;
     }
     .row:not(.swiping) {
-      transition: transform 150ms ease-out;
+      transition: transform var(--motion) ease-out;
     }
     .what {
       flex: 1;
@@ -115,7 +115,7 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
       font-size: 14px;
       padding: 6px 10px;
       border: 1px solid var(--rule);
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       color: var(--ink);
       background: transparent;
       cursor: pointer;
