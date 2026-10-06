@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#2f4a2c"/>
+  <g transform="translate(256 288)">
+    <!-- moss mound the goblin peeks out of -->
+    <path d="M-260 224 L-260 170 C-200 90 -100 70 0 78 C100 70 200 90 260 170 L260 224 Z" fill="#5f7f22"/>
+    <!-- ears -->
+    <path d="M-92 -18 L-196 -66 L-118 30 Z" fill="#a8c686"/>
+    <path d="M92 -18 L196 -66 L118 30 Z" fill="#a8c686"/>
+    <!-- head -->
+    <ellipse cx="0" cy="10" rx="122" ry="112" fill="#a8c686"/>
+    <!-- moss cap -->
+    <path d="M-110 -30 C-100 -110 100 -110 110 -30 C80 -50 40 -40 0 -54 C-40 -40 -80 -50 -110 -30 Z" fill="#6f9a3c"/>
+    <!-- sprout -->
+    <path d="M0 -92 C-2 -120 0 -140 4 -156" stroke="#7bd389" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <path d="M4 -150 C30 -186 72 -176 78 -160 C56 -144 26 -140 4 -150 Z" fill="#7bd389"/>
+    <path d="M2 -132 C-22 -160 -60 -152 -64 -138 C-44 -124 -18 -122 2 -132 Z" fill="#7bd389"/>
+    <!-- eyes -->
+    <ellipse cx="-44" cy="8" rx="20" ry="24" fill="#161616"/>
+    <ellipse cx="44" cy="8" rx="20" ry="24" fill="#161616"/>
+    <circle cx="-38" cy="0" r="6" fill="#faf8f2"/>
+    <circle cx="50" cy="0" r="6" fill="#faf8f2"/>
+    <!-- smile -->
+    <path d="M-40 58 Q0 86 40 58" stroke="#161616" stroke-width="12" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

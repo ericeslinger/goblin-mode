@@ -70,7 +70,7 @@ describe('Launch', () => {
 
   it('shows an empty Right Now', async () => {
     const { el } = await render();
-    expect(el.querySelector('.right-now')?.textContent).toContain('Nothing due.');
+    expect(el.querySelector('.right-now')?.textContent).toContain('Nothing to tend.');
   });
 
   it('offers previous notes and opens one', async () => {

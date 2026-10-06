@@ -9,7 +9,7 @@ import { AuthService } from '../auth.service';
   template: `
     <main class="page sign-in">
       <h1>Mossgoblin</h1>
-      <p class="muted">Notes kept by a goblin in a mossy garden.</p>
+      <p class="muted">Plant a thought; the goblin keeps it.</p>
       <button type="button" class="primary" (click)="signIn()">Sign in with Google</button>
       @if (auth.usingEmulators) {
         <p><a routerLink="/dev-sign-in">Dev sign-in</a></p>

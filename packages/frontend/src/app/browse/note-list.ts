@@ -35,7 +35,7 @@ export function matches(note: NoteRecord, search: string): boolean {
       />
     </label>
     @if (shown().length === 0) {
-      <p class="muted">{{ search() ? 'No notes match.' : 'No notes yet.' }}</p>
+      <p class="muted">{{ search() ? 'No notes match.' : 'No notes planted yet.' }}</p>
     }
     <ul aria-label="Notes">
       @for (note of shown(); track note.id) {

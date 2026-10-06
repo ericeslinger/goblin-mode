@@ -45,7 +45,7 @@ import { UndoBar } from './undo-bar';
             </ul>
           </section>
         } @empty {
-          <p class="muted">Nothing to do.</p>
+          <p class="muted">Nothing to tend. The garden is quiet.</p>
         }
       </main>
     }

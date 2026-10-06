@@ -25,7 +25,7 @@ describe('RightNow', () => {
   it('says so when there is nothing at all', async () => {
     const { el, push } = await renderWithReminders(RightNow);
     await push([]);
-    expect(el.textContent).toContain('Nothing to do.');
+    expect(el.textContent).toContain('Nothing to tend. The garden is quiet.');
   });
 
   it('adds a reminder from +, which then closes the form', async () => {

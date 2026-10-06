@@ -20,7 +20,7 @@ export const PANEL_ITEMS = 3;
     </h2>
     <app-undo-bar />
     @if (shown().length === 0) {
-      <p class="muted">Nothing due.</p>
+      <p class="muted">Nothing to tend.</p>
     } @else {
       <ul aria-labelledby="right-now-title">
         @for (r of shown(); track r.id) {

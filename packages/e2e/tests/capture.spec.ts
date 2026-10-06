@@ -7,7 +7,7 @@ const note = (page: import('@playwright/test').Page) =>
 
 /** An empty note shows its placeholder (part of the editor's text). */
 const expectEmpty = (page: import('@playwright/test').Page) =>
-  expect(note(page).getByText('Start typing')).toBeVisible();
+  expect(note(page).getByText('Plant a thought')).toBeVisible();
 
 test('a note saves as it is typed and is there after a reload', async ({ page }) => {
   await signInAs(page, OWNER);

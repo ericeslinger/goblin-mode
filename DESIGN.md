@@ -294,6 +294,12 @@ Bog Goblin and Pixel Mossling, each light and dark.
   and accent at 4.5 to 1 on the page and on surfaces, text on accent
   fills at 4.5, and the sync dots at 3. The `themes` journey runs axe
   over Settings, Right Now and Browse in all ten pairs.
+- **Icons (#26, 2026-10-06).** `public/icons/icon.svg` is the one
+  source of the Mossgoblin mark: a goblin with a sprout, peeking out of
+  a moss mound. `npm run icons` renders the 192, 512 and apple-touch
+  PNGs from it; they are committed. The art sits inside the central 80%
+  circle, so the 512 PNG doubles as the maskable icon. Browsers that
+  take SVG favicons use the SVG.
 - Not yet: the textures the spec describes (paper grain, fireflies,
   dithering, the sprite), which ride later polish.
 
