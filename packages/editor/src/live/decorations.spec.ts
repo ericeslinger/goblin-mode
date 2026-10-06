@@ -62,6 +62,25 @@ describe('computeDecorations in live mode', () => {
   });
 });
 
+describe('list markers', () => {
+  it('draws bullets for -, * and + items off the edited line', () => {
+    const text = '- one\n* two\n+ three';
+    expect(covered(text, specs(text, 'live'), 'bullet')).toEqual(['-', '*', '+']);
+  });
+
+  it('shows the marker as typed on the edited line', () => {
+    const text = '- one\n- two';
+    expect(covered(text, specs(text, 'live', [2]), 'bullet')).toEqual(['-']);
+  });
+
+  it('keeps ordered numbers as text, styled', () => {
+    const text = '1. eight\n2. nine';
+    const list = specs(text, 'live');
+    expect(covered(text, list, 'bullet')).toEqual([]);
+    expect(list).toContainEqual({ kind: 'mark', from: 0, to: 2, className: 'gm-list-number' });
+  });
+});
+
 describe('computeDecorations in source mode', () => {
   it('styles but never hides or replaces anything', () => {
     const text = '# T\n\n- [ ] **x** [[Vikas]] ![a](attachment:b)';

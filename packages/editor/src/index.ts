@@ -11,5 +11,5 @@ export {
   type AccessoryBar,
 } from './accessory-bar';
 export { computeDecorations, type DecorationSpec, type Mode } from './live/decorations';
-export { insertWikiLink, toggleTaskAt, toggleTaskLine } from './live/commands';
+export { continueList, insertWikiLink, toggleTaskAt, toggleTaskLine } from './live/commands';
 export type { NoteEditorHooks } from './live/hooks';

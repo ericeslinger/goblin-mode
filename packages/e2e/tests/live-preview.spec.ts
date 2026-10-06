@@ -48,6 +48,52 @@ test('writing a task list in live preview, then checking it in source', async ({
   await expect(page.getByRole('button', { name: 'Source' })).toBeVisible();
 });
 
+test('lists continue on Enter and show bullets off the edited line', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.removeItem('goblin.editorMode'));
+  await page.reload();
+  const note = page.getByRole('textbox', { name: 'New note' });
+  const lines = note.locator('.cm-line');
+  await expect(note).toBeFocused();
+
+  await page.keyboard.type('- one');
+  await page.keyboard.press('Enter');
+  await expect(lines).toHaveCount(2);
+  await page.keyboard.type('two');
+  await page.keyboard.press('Enter');
+  await expect(lines).toHaveCount(3);
+  // Enter on the empty third item ends the list.
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('after the list');
+
+  await expect(note.locator('.gm-bullet')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Source' }).click();
+  await expect(lines).toHaveText(['- one', '- two', 'after the list']);
+  await page.getByRole('button', { name: 'Preview' }).click();
+});
+
+test('dragging the handle resizes Right Now, and it stays that size', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.removeItem('goblin.rightNowShare'));
+  await page.reload();
+  const handle = page.getByRole('separator', { name: 'Resize Right Now' });
+  await expect(handle).toHaveAttribute('aria-valuenow', '35');
+
+  // Grab the grip and lift it by a quarter of the screen: 35% to 60%.
+  const box = (await handle.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y - viewport.height * 0.25, { steps: 5 });
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute('aria-valuenow', '60');
+
+  await page.reload();
+  await expect(handle).toHaveAttribute('aria-valuenow', '60');
+});
+
 test('the formatting bar stays hidden without an on-screen keyboard', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('textbox', { name: 'New note' })).toBeFocused();

@@ -6,7 +6,7 @@ import { EditorView, keymap, placeholder } from '@codemirror/view';
 import type { Mode } from './live/decorations';
 import { livePreview, modeField, setMode } from './live/extension';
 import { hooksFacet, type NoteEditorHooks } from './live/hooks';
-import { insertWikiLink, toggleTaskLine } from './live/commands';
+import { continueList, insertWikiLink, toggleTaskLine } from './live/commands';
 import { noteTheme } from './live/theme';
 
 export interface NoteEditorOptions extends NoteEditorHooks {
@@ -46,6 +46,7 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
     extensions: [
       history(),
       keymap.of([
+        { key: 'Enter', run: continueList },
         { key: 'Mod-Enter', run: toggleTaskLine },
         { key: 'Mod-k', run: insertWikiLink },
         ...defaultKeymap,

@@ -15,10 +15,12 @@ export type DecorationSpec =
   | { kind: 'mark'; from: number; to: number; className: string }
   | { kind: 'hide'; from: number; to: number }
   | { kind: 'checkbox'; from: number; to: number; checked: boolean; toggleAt: number }
+  | { kind: 'bullet'; from: number; to: number }
   | { kind: 'wikiLink'; from: number; to: number; target: string; alias?: string }
   | { kind: 'image'; from: number; to: number; url: string; alt: string };
 
 const TASK_MARKER = /^([-*+]|\d+[.)])[ \t]+\[([ xX])\]/;
+const LIST_MARKER = /^([-*+]|\d+[.)])/;
 
 type Positioned = Nodes & {
   position: { start: { line: number; offset: number }; end: { line: number; offset: number } };
@@ -132,21 +134,32 @@ export function computeDecorations(
         return;
       }
       case 'listItem': {
-        if (node.checked !== null && node.checked !== undefined) {
-          const m = TASK_MARKER.exec(text.slice(from));
-          if (m) {
-            const boxEnd = from + m[0].length;
-            const line = node.position.start.line;
-            if (node.checked)
-              specs.push({ kind: 'line', from: starts[line - 1], className: 'gm-done' });
-            if (live && !activeLines.has(line)) {
-              specs.push({
-                kind: 'checkbox',
-                from,
-                to: boxEnd,
-                checked: node.checked,
-                toggleAt: boxEnd - 2,
-              });
+        const line = node.position.start.line;
+        const editing = activeLines.has(line);
+        const task = node.checked != null ? TASK_MARKER.exec(text.slice(from)) : null;
+        if (task) {
+          const boxEnd = from + task[0].length;
+          if (node.checked)
+            specs.push({ kind: 'line', from: starts[line - 1], className: 'gm-done' });
+          if (live && !editing) {
+            specs.push({
+              kind: 'checkbox',
+              from,
+              to: boxEnd,
+              checked: node.checked === true,
+              toggleAt: boxEnd - 2,
+            });
+          }
+        } else {
+          const marker = LIST_MARKER.exec(text.slice(from));
+          if (marker) {
+            const markerEnd = from + marker[1].length;
+            if (/^\d/.test(marker[1])) {
+              specs.push({ kind: 'mark', from, to: markerEnd, className: 'gm-list-number' });
+            } else if (live && !editing) {
+              specs.push({ kind: 'bullet', from, to: markerEnd });
+            } else {
+              specs.push({ kind: 'mark', from, to: markerEnd, className: 'gm-list-marker' });
             }
           }
         }

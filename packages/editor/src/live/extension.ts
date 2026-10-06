@@ -6,7 +6,7 @@ import type { Root } from 'mdast';
 import { parseNote } from '../grammar/parse';
 import { computeDecorations, type DecorationSpec, type Mode } from './decorations';
 import { hooksFacet, type NoteEditorHooks } from './hooks';
-import { CheckboxWidget, ImageWidget, WikiLinkWidget } from './widgets';
+import { BulletWidget, CheckboxWidget, ImageWidget, WikiLinkWidget } from './widgets';
 
 export const setMode = StateEffect.define<Mode>();
 
@@ -47,6 +47,8 @@ function toDecoration(spec: DecorationSpec, hooks: NoteEditorHooks): Range<Decor
       return Decoration.replace({
         widget: new CheckboxWidget(spec.checked, spec.toggleAt),
       }).range(spec.from, spec.to);
+    case 'bullet':
+      return Decoration.replace({ widget: new BulletWidget() }).range(spec.from, spec.to);
     case 'wikiLink':
       return Decoration.replace({
         widget: new WikiLinkWidget(spec.target, spec.alias, hooks),
