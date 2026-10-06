@@ -5,12 +5,9 @@
     @if (auth.user() === null) {
       <button type="button" class="link" (click)="signIn()">Sign in</button>
     }
-    <button
-      type="button"
-      class="link"
-      [attr.aria-pressed]="modes.mode() === 'source'"
-      (click)="modes.toggle()"
-    >
+    <!-- The label names the mode a tap switches to; no aria-pressed,
+         which would make it read as a toggle with a changing name. -->
+    <button type="button" class="link" (click)="modes.toggle()">
       {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
     </button>
     <span class="sync" [class.offline]="!online()" role="status">

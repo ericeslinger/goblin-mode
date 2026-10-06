@@ -4,6 +4,18 @@ import { ATTACHMENT_SCHEME } from '../grammar/extract';
 import { toggleTaskAt } from './commands';
 import type { NoteEditorHooks } from './hooks';
 
+/** Image sources a note may load; the same list renderNoteHtml allows. */
+const IMAGE_PROTOCOLS = ['http:', 'https:', 'blob:'];
+
+export function safeImageSrc(src: string | undefined): string | undefined {
+  if (!src) return undefined;
+  try {
+    return IMAGE_PROTOCOLS.includes(new URL(src).protocol) ? src : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class CheckboxWidget extends WidgetType {
   constructor(
     readonly checked: boolean,
@@ -57,6 +69,9 @@ export class WikiLinkWidget extends WidgetType {
     chip.setAttribute('tabindex', '0');
     chip.dataset['target'] = this.target;
     const open = () => this.hooks.openLink?.(this.target);
+    // Without this, mousedown moves the caret onto the line, the line
+    // turns back into source, and the chip is gone before click fires.
+    chip.addEventListener('mousedown', (e) => e.preventDefault());
     chip.addEventListener('click', open);
     chip.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') open();
@@ -65,7 +80,7 @@ export class WikiLinkWidget extends WidgetType {
   }
 
   override ignoreEvent(): boolean {
-    return false;
+    return true;
   }
 }
 
@@ -83,9 +98,11 @@ export class ImageWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const src = this.url.startsWith(ATTACHMENT_SCHEME)
-      ? this.hooks.resolveAttachment?.(this.url.slice(ATTACHMENT_SCHEME.length))
-      : this.url;
+    const src = safeImageSrc(
+      this.url.startsWith(ATTACHMENT_SCHEME)
+        ? this.hooks.resolveAttachment?.(this.url.slice(ATTACHMENT_SCHEME.length))
+        : this.url,
+    );
     if (!src) {
       const caption = document.createElement('span');
       caption.className = 'gm-attachment-placeholder';

@@ -44,8 +44,26 @@ describe('remarkWikiLinks', () => {
     );
   });
 
-  it('leaves text with escapes alone rather than guess offsets', () => {
-    expect(links('\\* [[Vikas]]')).toEqual([]);
+  it('maps offsets past escapes in the same text', () => {
+    const text = '\\* see [[Vikas]]';
+    const [link] = links(text);
+    expect(text.slice(link.position!.start.offset, link.position!.end.offset)).toBe('[[Vikas]]');
+  });
+
+  it('finds links on indented continuation lines', () => {
+    const text = '- first line\n  then [[Vikas]] here';
+    const [link] = links(text);
+    expect(link?.target).toBe('Vikas');
+    expect(text.slice(link.position!.start.offset, link.position!.end.offset)).toBe('[[Vikas]]');
+  });
+
+  it('finds an aliased link in a table cell when its pipe is escaped', () => {
+    const text = '| who |\n| --- |\n| [[Vikas\\|vik]] |';
+    const [link] = links(text);
+    expect(link).toMatchObject({ target: 'Vikas', alias: 'vik' });
+    expect(text.slice(link.position!.start.offset, link.position!.end.offset)).toBe(
+      '[[Vikas\\|vik]]',
+    );
   });
 
   it('does not find links inside code', () => {

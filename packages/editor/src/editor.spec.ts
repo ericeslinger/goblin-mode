@@ -23,6 +23,14 @@ describe('createNoteEditor', () => {
     expect(e.view.state.selection.main.head).toBe(5);
   });
 
+  it('opens and replaces notes with Windows line endings', () => {
+    const e = make('one\r\ntwo\r\n');
+    expect(e.getText()).toBe('one\ntwo\n');
+    expect(e.view.state.selection.main.head).toBe(8);
+    e.setText('a\r\nb');
+    expect(e.view.state.selection.main.head).toBe(3);
+  });
+
   it('labels the editing area for assistive tech', () => {
     const e = make('');
     expect(e.view.contentDOM.getAttribute('aria-label')).toBe('New note');

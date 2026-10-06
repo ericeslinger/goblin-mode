@@ -37,6 +37,14 @@ describe('toggleTaskLine', () => {
   });
 });
 
+describe('toggleTaskLine in blockquotes', () => {
+  it('keeps quote markers in front', () => {
+    expect(run(toggleTaskLine, '> buy', 3).doc.toString()).toBe('> - [ ] buy');
+    expect(run(toggleTaskLine, '> - a', 4).doc.toString()).toBe('> - [ ] a');
+    expect(run(toggleTaskLine, '> > - [x] a', 9).doc.toString()).toBe('> > - a');
+  });
+});
+
 describe('insertWikiLink', () => {
   it('inserts empty brackets with the cursor inside', () => {
     const state = run(insertWikiLink, 'see ', 4);

@@ -36,11 +36,13 @@ export interface NoteEditor {
 
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
   const { openLink, resolveAttachment } = options;
-  const doc = options.text ?? '';
+  const base = EditorState.create({ doc: options.text ?? '' });
   const state = EditorState.create({
-    doc,
+    doc: base.doc,
     // Open with the caret at the end, to carry on where the note left off.
-    selection: EditorSelection.cursor(doc.length),
+    // The length is CodeMirror's: it normalises \r\n, so the string's own
+    // length can point past the end.
+    selection: EditorSelection.cursor(base.doc.length),
     extensions: [
       history(),
       keymap.of([
@@ -70,10 +72,8 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
     view,
     getText: () => view.state.doc.toString(),
     setText(text) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: text },
-        selection: EditorSelection.cursor(text.length),
-      });
+      const changes = view.state.changes({ from: 0, to: view.state.doc.length, insert: text });
+      view.dispatch({ changes, selection: EditorSelection.cursor(changes.newLength) });
     },
     getMode: () => view.state.field(modeField),
     setMode(mode) {

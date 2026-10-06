@@ -57,38 +57,46 @@ export const remarkWikiLinks: Plugin<[], Root> = function () {
       const start = node.position?.start;
       const end = node.position?.end;
       if (!start || !end || start.offset === undefined || end.offset === undefined) return;
-      // Offsets are only exact when the source spells the text literally
-      // (no escapes or entities); otherwise leave the text alone.
-      if (source.slice(start.offset, end.offset) !== node.value) return;
 
+      // The text's value and its source can differ: escapes, entities, and
+      // the indentation of continuation lines are in the source only. So
+      // the links come from the value (their meaning) and their offsets
+      // from the source, paired in order. Links never span lines, so the
+      // two lists line up; if they do not, leave the text alone rather
+      // than guess.
       const links = findWikiLinks(node.value);
       if (links.length === 0) return;
-
       const base = start.offset;
+      const spans = findWikiLinks(source.slice(base, end.offset));
+      if (spans.length !== links.length) return;
+
       const at = (offset: number) => pointAt(source, base + offset);
       const pieces: (Text | WikiLink)[] = [];
-      let cursor = 0;
-      for (const link of links) {
-        if (link.start > cursor) {
+      let valueCursor = 0;
+      let sourceCursor = 0;
+      links.forEach((link, i) => {
+        const span = spans[i];
+        if (link.start > valueCursor) {
           pieces.push({
             type: 'text',
-            value: node.value.slice(cursor, link.start),
-            position: { start: at(cursor), end: at(link.start) },
+            value: node.value.slice(valueCursor, link.start),
+            position: { start: at(sourceCursor), end: at(span.start) },
           });
         }
         pieces.push({
           type: 'wikiLink',
           target: link.target,
           ...(link.alias ? { alias: link.alias } : {}),
-          position: { start: at(link.start), end: at(link.end) },
+          position: { start: at(span.start), end: at(span.end) },
         });
-        cursor = link.end;
-      }
-      if (cursor < node.value.length) {
+        valueCursor = link.end;
+        sourceCursor = span.end;
+      });
+      if (valueCursor < node.value.length) {
         pieces.push({
           type: 'text',
-          value: node.value.slice(cursor),
-          position: { start: at(cursor), end: at(node.value.length) },
+          value: node.value.slice(valueCursor),
+          position: { start: at(sourceCursor), end: at(end.offset - base) },
         });
       }
       parent.children.splice(index, 1, ...(pieces as typeof parent.children));

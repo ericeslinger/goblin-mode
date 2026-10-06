@@ -226,12 +226,15 @@ Cloud Functions can import it) and the editor (`createNoteEditor`,
 `createAccessoryBar`). Wiki links are an mdast transform over text
 nodes rather than a micromark extension: CommonMark already leaves
 `[[x]]` as literal text, and the transform keeps exact source offsets.
+Inside a GFM table, an aliased link must escape its pipe
+(`[[Vikas\|vik]]`), or the pipe splits the cell.
 Live preview re-parses on every change and decorates per line: a
 construct shows as typed while the selection is on one of its lines.
 Keyboard: Mod-Enter toggles the task on the cursor line, Mod-K inserts a
 wiki link. A note opens with the caret at its end. The launch route is
 eager, so the editor is in the initial bundle (1.24 MB raw, about
-330 kB over the wire, against raised budgets).
+330 kB over the wire). Budgets: warn at 1.5 MB raw, fail at 8 MB, so
+growth is noticed without blocking.
 
 Two things learned building it:
 

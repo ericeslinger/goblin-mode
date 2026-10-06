@@ -32,7 +32,7 @@ describe('Launch', () => {
     toggle().click();
     await fixture.whenStable();
     expect(toggle().textContent?.trim()).toBe('Preview');
-    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    expect(toggle().hasAttribute('aria-pressed')).toBe(false);
     toggle().click();
   });
 
