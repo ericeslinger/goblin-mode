@@ -14,7 +14,7 @@
 //
 // Direct-write collections get shape validators generated from these
 // schemas into firestore.rules; that generator lands with the first
-// real client write (build order step 2). Claude's MCP writes go through
+// real client write (build order step 3). Claude's MCP writes go through
 // functions and are validated against the same schemas there.
 import { z } from 'zod';
 

@@ -12,7 +12,7 @@ import { AuthService } from '../auth.service';
 
 /**
  * The launch screen: a cursor in a new note on top, Right Now below.
- * Scaffold only: the editor does not save yet (build order step 2).
+ * Scaffold only: the editor does not save yet (build order step 3).
  */
 @Component({
   selector: 'app-launch',

@@ -77,7 +77,7 @@ Dated, and deliberate; everything else follows the plugin.
 - **Rules shape validators are not generated yet.** `notes`,
   `reminders` and `devices` are direct client writes (see
   `packages/schema/src/model.ts`), so the generator and its drift check
-  arrive with the first real client write (build order step 2).
+  arrive with the first real client write (build order step 3).
 
 ## PRs, review and merging
 
