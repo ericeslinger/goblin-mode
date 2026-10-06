@@ -4,8 +4,11 @@
 // theme's tokens onto <html> as custom properties, and components read
 // only those properties.
 
-export const THEME_IDS = ['herbarium', 'night', 'moss', 'bog', 'pixel'] as const;
-export type ThemeId = (typeof THEME_IDS)[number];
+import { ThemeId } from '@mossgoblin/schema';
+
+export { ThemeId };
+/** The ids live in the schema, so stored settings and the rules agree. */
+export const THEME_IDS = ThemeId.options;
 export type Mode = 'light' | 'dark';
 
 /** Colors as #rrggbb. Text pairs are held to WCAG AA by themes.spec.ts. */

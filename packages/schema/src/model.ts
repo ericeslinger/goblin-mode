@@ -9,6 +9,7 @@
 // | notes/history | function only | written by a trigger on note writes |
 // | reminders | client, direct | swipe to done/snooze must work offline |
 // | devices | client, direct | the device's own push token |
+// | settings | client, direct | theme and mode, changed offline (#24, 2026-10-06) |
 // | activity | function only | Claude's "What Claude changed" records |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 //
@@ -129,6 +130,20 @@ export const Device = z.object({
 });
 export type Device = z.infer<typeof Device>;
 
+/** The five themes (UX Spec, Brand and style; Eric, 2026-10-06). */
+export const ThemeId = z.enum(['herbarium', 'night', 'moss', 'bog', 'pixel']);
+export type ThemeId = z.infer<typeof ThemeId>;
+export const ThemeMode = z.enum(['system', 'light', 'dark']);
+export type ThemeMode = z.infer<typeof ThemeMode>;
+
+/** The gardener's settings, one doc (`settings/app`), shared by devices. */
+export const Settings = z.object({
+  theme: ThemeId,
+  mode: ThemeMode,
+  updatedAt: Timestamp,
+});
+export type Settings = z.infer<typeof Settings>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,
@@ -137,5 +152,6 @@ export const paths = {
   history: (uid: string, id: string) => `users/${uid}/notes/${id}/history`,
   reminders: (uid: string) => `users/${uid}/reminders`,
   devices: (uid: string) => `users/${uid}/devices`,
+  settings: (uid: string) => `users/${uid}/settings/app`,
   activity: (uid: string) => `users/${uid}/activity`,
 };
