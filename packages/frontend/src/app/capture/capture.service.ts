@@ -83,15 +83,17 @@ export class CaptureService {
     effect(() => {
       if (!this.notes.loaded()) return;
       untracked(() => {
+        // The draft first, so the settle's title sees the final text.
+        const pending = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
+        if (pending) {
+          if (pending.body.trim()) this.notes.save(pending.id, pending.body);
+          this.store.remove(PENDING_DRAFT_KEY);
+        }
         const settle = this.store.get<string>(PENDING_SETTLE_KEY);
         if (settle) {
-          this.notes.settle(settle);
+          this.notes.settle(settle, { edited: settle === pending?.id && !!pending.body.trim() });
           this.store.remove(PENDING_SETTLE_KEY);
         }
-        const pending = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
-        if (!pending) return;
-        if (pending.body.trim()) this.notes.save(pending.id, pending.body);
-        this.store.remove(PENDING_DRAFT_KEY);
       });
     });
 
@@ -183,7 +185,9 @@ export class CaptureService {
     }
     // Leaving a note settles it (Eric, 2026-10-06): New, another note,
     // a restore elsewhere, or a fresh note after five minutes away.
+    // Before the notes load, hold it on the device like the launch case.
     if (this.notes.ready) this.notes.settle(id, { edited: !this.untouched });
+    else if (this.notes.exists(id) || !this.untouched) this.store.set(PENDING_SETTLE_KEY, id);
   }
 
   private show(note: OpenNote): void {

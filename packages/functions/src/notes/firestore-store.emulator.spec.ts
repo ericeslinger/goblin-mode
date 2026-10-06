@@ -29,14 +29,19 @@ describe('firestoreNotesStore', () => {
   it('keeps versions and reports when the newest was kept', async () => {
     const store = firestoreNotesStore(db);
     expect(await store.lastKept('u1', 'n1')).toBeUndefined();
-    await store.keep('u1', 'n1', {
+    const version = {
       body: 'first',
       title: 'First',
-      updatedBy: 'user',
+      updatedBy: 'user' as const,
       deviceId: 'd1',
       updatedAt: T,
-      reason: 'device',
-    });
+      reason: 'device' as const,
+    };
+    await store.keep('u1', 'n1', 'event-1', version);
+    // A redelivered trigger event writes the same version, not a second.
+    await store.keep('u1', 'n1', 'event-1', version);
+    const all = (await db.collection('users/u1/notes/n1/history').get()).docs;
+    expect(all.map((d) => d.id)).toEqual(['event-1']);
     const [kept] = (await db.collection('users/u1/notes/n1/history').get()).docs;
     expect(kept.data()).toMatchObject({
       body: 'first',

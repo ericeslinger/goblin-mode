@@ -15,6 +15,7 @@ export const noteHistory = onDocumentWritten(NOTE, async (event) => {
     firestoreNotesStore(getFirestore()),
     uid,
     noteId,
+    event.id,
     noteState(event.data?.before),
     noteState(event.data?.after),
     Date.now(),

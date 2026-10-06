@@ -189,8 +189,23 @@ describe('CaptureService', () => {
     expect(notes.settle).not.toHaveBeenCalled();
     notes.signIn([note('n1', 'left five minutes ago')]);
     TestBed.tick();
-    expect(notes.settle).toHaveBeenCalledExactlyOnceWith('n1');
+    expect(notes.settle).toHaveBeenCalledExactlyOnceWith('n1', { edited: false });
     expect(localStorage.getItem(PENDING_SETTLE_KEY)).toBeNull();
+  });
+
+  it('holds a settle made before the notes load, and writes it once they do', () => {
+    const { capture, notes } = setup({ [LAST_SEEN_KEY]: { hiddenAt: clock, noteId: 'n1' } });
+    capture.onText('typed before sign-in');
+    capture.newNote();
+    expect(notes.settle).not.toHaveBeenCalled();
+    notes.signIn([note('n1', 'typed before sign-in')]);
+    TestBed.tick();
+    expect(notes.save).toHaveBeenCalledWith('n1', 'typed before sign-in');
+    expect(notes.settle).toHaveBeenCalledExactlyOnceWith('n1', { edited: true });
+    // The draft is written before the settle, so the title sees it.
+    expect(notes.save.mock.invocationCallOrder[0]).toBeLessThan(
+      notes.settle.mock.invocationCallOrder[0],
+    );
   });
 
   it('settles on returning after five minutes, through New', () => {

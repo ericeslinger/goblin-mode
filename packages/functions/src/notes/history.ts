@@ -26,23 +26,36 @@ export interface KeptVersion {
 export interface HistoryStore {
   /** When the newest kept version of this note was kept, if any. */
   lastKept(uid: string, noteId: string): Promise<number | undefined>;
-  keep(uid: string, noteId: string, version: KeptVersion): Promise<void>;
+  /**
+   * Keeps a version under `versionId` (the trigger event's id), so a
+   * redelivered event writes the same document again, not a second one.
+   */
+  keep(uid: string, noteId: string, versionId: string, version: KeptVersion): Promise<void>;
 }
 
-/** Runs on every note write; keeps `before` when the rules say so. */
+/**
+ * Runs on every note write; keeps `before` when the rules say so. The
+ * last kept version is looked up only when the interval decides, so
+ * most writes (typing on one device) cost no read.
+ */
 export async function recordHistory(
   store: HistoryStore,
   uid: string,
   noteId: string,
+  versionId: string,
   before: NoteState | undefined,
   after: NoteState | undefined,
   now: number,
 ): Promise<KeepReason | null> {
   if (!before) return null;
-  const since = (await store.lastKept(uid, noteId)) ?? before.createdAt ?? 0;
-  const reason = keepReason(before, after, since, now);
+  // `lastKept = now` rules the interval out: every other reason first.
+  let reason = keepReason(before, after, now, now);
+  if (!reason && after && after.body !== before.body && before.body.trim()) {
+    const since = (await store.lastKept(uid, noteId)) ?? before.createdAt ?? 0;
+    reason = keepReason(before, after, since, now);
+  }
   if (!reason) return null;
-  await store.keep(uid, noteId, {
+  await store.keep(uid, noteId, versionId, {
     body: before.body,
     title: before.title,
     updatedBy: before.updatedBy,

@@ -158,8 +158,10 @@ export class NotesService {
     const existing = this.find(id);
     const now = this.api.serverTime();
     // Eric's own title stays, and so does Claude's: noteTitle replaces it
-    // the next time the note is settled.
-    const keepTitle = existing?.titleSource === 'user' || existing?.titleSource === 'llm';
+    // the next time the note is settled. A restore brings back other
+    // text, so Claude's title for the newer text goes with it.
+    const keepTitle =
+      existing?.titleSource === 'user' || (existing?.titleSource === 'llm' && !restore);
     const title = keepTitle ? {} : { title: firstWordsTitle(body), titleSource: 'words' };
     const deviceId = this.deviceId() + (restore ? RESTORE_SUFFIX : '');
     const update = { body, ...title, updatedAt: now, updatedBy: 'user', deviceId };

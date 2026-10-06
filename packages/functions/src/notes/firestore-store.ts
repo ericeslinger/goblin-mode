@@ -38,10 +38,10 @@ export function firestoreNotesStore(db: Firestore): HistoryStore & TitleStore {
       return millis(snap.docs[0]?.get('savedAt'));
     },
 
-    async keep(uid, noteId, v) {
+    async keep(uid, noteId, versionId, v) {
       const savedAt = FieldValue.serverTimestamp();
       // Every field the NoteVersion schema names, nothing more.
-      await db.collection(paths.history(uid, noteId)).add({
+      await db.doc(`${paths.history(uid, noteId)}/${versionId}`).set({
         body: v.body,
         title: v.title,
         updatedBy: v.updatedBy,

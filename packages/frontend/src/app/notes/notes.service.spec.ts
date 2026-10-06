@@ -142,6 +142,17 @@ describe('NotesService', () => {
     expect(api.set.mock.lastCall![2]['deviceId']).toBe(notes.deviceId() + '~restore');
   });
 
+  it("drops Claude's title for the newer text on a restore", () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'n1', data: { body: 'newer text', title: 'Newer', titleSource: 'llm' } }]);
+    notes.save('n1', 'older words here', { restore: true });
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      title: 'older words here',
+      titleSource: 'words',
+    });
+  });
+
   it('removes a note and drops it from the list at once', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');
