@@ -34,8 +34,9 @@ jobs:
       - name: Skip until deploy settings exist
         id: ready
         run: |
-          if [ -z "$FIREBASE_PROJECT_ID" ] || [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$HAS_FIREBASE_SA" != "true" ]; then
-            echo "::notice::Deploy settings are not configured yet (see QUESTIONS.md); skipping."
+          if [ -z "$FIREBASE_PROJECT_ID" ] || [ -z "$FIREBASE_WEB_CONFIG" ] || [ -z "$APP_DOMAIN" ] \
+            || [ -z "$CLOUDFLARE_API_TOKEN" ] || [ "$HAS_FIREBASE_SA" != "true" ]; then
+            echo "::notice::Deploy settings are not configured yet (README.md, Run your own); skipping."
             echo "go=false" >> "$GITHUB_OUTPUT"
           else
             echo "go=true" >> "$GITHUB_OUTPUT"

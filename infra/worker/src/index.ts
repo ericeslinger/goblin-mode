@@ -1,8 +1,9 @@
-// Serves the app's domain (APP_DOMAIN at deploy). Static assets (the PWA) are served by Workers
-// Static Assets before this runs; anything not found that is a navigation
-// gets index.html (single-page-application mode). This script only sees
-// the server routes below and forwards them to Cloud Functions, so the
-// MCP endpoint and its OAuth live on the app's own origin.
+// Serves the app's domain (APP_DOMAIN at deploy). Static assets (the
+// PWA) are served by Workers Static Assets before this runs; anything
+// not found that is a navigation gets index.html (single-page-application
+// mode). This script only sees the server routes below and forwards them
+// to Cloud Functions, so the MCP endpoint and its OAuth live on the
+// app's own origin.
 
 export interface Env {
   ASSETS: Fetcher;
