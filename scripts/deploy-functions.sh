@@ -62,4 +62,13 @@ if $dry_run; then
   exit 0
 fi
 
+# Keep 7 days of function container images in Artifact Registry. Without
+# a policy, a non-interactive deploy deploys the functions and then exits
+# 1 asking for one. setpolicy --force only creates or updates the policy;
+# it is not `deploy --force`, which would also delete functions that
+# vanished from the code without asking.
+region="us-central1"
+npx firebase functions:artifacts:setpolicy --project "$project" --location "$region" \
+  --days 7 --force
+
 npx firebase deploy --only functions --non-interactive --project "$project"
