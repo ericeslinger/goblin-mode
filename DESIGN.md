@@ -668,6 +668,9 @@ typed. The bar tells the editor where the cover starts
 (`setCoveredFrom`); the editor pads its scroller by as much of its
 visible box as is covered, so the last line can scroll clear, and adds
 that as a bottom scroll margin, so the cursor stays above the ribbon.
+Like the ribbon itself, this is checked against a faked keyboard; on
+a device it is unverified until Eric types in a long note (and pinch
+zooms) with the ribbon up.
 
 **Reused from the other repos.** goblin: the remark pipeline and its
 directive syntax, if custom blocks are wanted. overstory: the touch
@@ -896,12 +899,14 @@ when Eric and Claude (or two devices) edit one note at once:
   Claude's edit), it finds the shared text among the last 20 texts
   writes replaced (server-only, `notes/{id}/replaced/{hash}`, one
   document each in write order, kept by `noteHistory` on every change,
-  texts over 300,000 characters skipped, each removed after 7 days by
+  texts over 300,000 characters skipped, each removed after 2 days by
   a TTL policy on `expireAt` so a deleted note's texts do not stay;
   2026-10-07; changed the same day from 20 kept, trimmed on each save,
   and 30 days: saves arriving together trimmed by the counts they saw
-  and deleted the newest texts too) and the last 20 kept versions,
-  merges,
+  and deleted the newest texts too. Within the 2 days they are not
+  capped: every distinct text a note passes through stays, one write
+  each; an older base falls back to History) and the last 20 kept
+  versions, merges,
   and writes the result as device `merge` in a transaction. The two
   writes can start from different texts (two devices, one of them
   saving twice); the older one, which both descend from, is the base.
