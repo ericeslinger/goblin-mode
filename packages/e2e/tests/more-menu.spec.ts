@@ -36,6 +36,14 @@ test('More holds the rest of the bar, and its dot shows offline', async ({ page 
   await expect(more.locator('.sync')).toHaveClass(/offline/);
   await expect(more).toHaveText(/offline/);
   await expect(await openMore(page)).toContainText('Offline.');
+  const offline = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  expect(
+    offline.violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => `${v.id}: ${v.help}`),
+  ).toEqual([]);
   await page.context().setOffline(false);
   await expect(more.locator('.sync')).not.toHaveClass(/offline/);
 

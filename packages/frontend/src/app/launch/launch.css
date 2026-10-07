@@ -89,11 +89,12 @@
 .sync.offline {
   background: var(--warn);
 }
-/* Offline in words too, not by colour alone. */
+/* Offline in words too, not by colour alone; ink, since --warn is held
+   to 3:1 for the dot, not to text contrast. */
 .offline-word {
   margin-left: 6px;
-  font-size: 12px;
-  color: var(--warn);
+  font-size: 13px;
+  color: var(--ink);
 }
 .more-menu {
   position: absolute;
