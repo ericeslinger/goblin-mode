@@ -889,8 +889,9 @@ when Eric and Claude (or two devices) edit one note at once:
   Claude's edit), it finds the shared text among the last 20 texts
   writes replaced (server-only, `notes/{id}/replaced/{hash}`, one
   document each in write order, kept by `noteHistory` on every change,
-  texts over 300,000 characters skipped; 2026-10-07) and the last 20
-  kept versions, merges,
+  texts over 300,000 characters skipped, each removed after 30 days by
+  a TTL policy on `expireAt` so a deleted note's texts do not stay;
+  2026-10-07) and the last 20 kept versions, merges,
   and writes the result as device `merge` in a transaction. The two
   writes can start from different texts (two devices, one of them
   saving twice); the older one, which both descend from, is the base.

@@ -3,7 +3,7 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { firestoreNotesStore } from './firestore-store';
-import { REPLACED_KEPT } from './merge';
+import { REPLACED_KEPT, REPLACED_TTL_MS } from './merge';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id so it never touches journey or rules-test data.
@@ -38,6 +38,10 @@ describe('firestoreNotesStore', () => {
     await store.rememberReplaced('u1', 'n2', `t${n}`, T + n);
     const bodies = await store.keptBodies('u1', 'n2', 1);
     expect(bodies).toEqual(Array.from({ length: REPLACED_KEPT }, (_, i) => `t${n - i}`));
+    // Each expires after a while, so a deleted note's texts go too.
+    const one = await db.collection('users/u1/notes/n2/replaced').limit(1).get();
+    const expireAt = (one.docs[0].get('expireAt') as Timestamp).toMillis();
+    expect(expireAt - Date.now()).toBeGreaterThan(REPLACED_TTL_MS - 60_000);
   });
 
   it('keeps versions and reports when the newest was kept', async () => {
