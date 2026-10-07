@@ -53,6 +53,8 @@ export interface NoteRecord {
   conceptType?: string;
   /** Ids this note links to (DESIGN.md, Links and concepts). */
   links: string[];
+  /** e.g. 'feelings'. */
+  tags?: string[];
   archived: boolean;
   /** Milliseconds; undefined while a new note's server time is pending. */
   updatedAt?: number;
@@ -116,6 +118,9 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(Array.isArray(data['synonyms']) ? { synonyms: data['synonyms'].map(String) } : {}),
     ...(typeof data['conceptType'] === 'string' ? { conceptType: data['conceptType'] } : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
+    ...(Array.isArray(data['tags']) && data['tags'].length
+      ? { tags: data['tags'].map(String) }
+      : {}),
     archived: data['archived'] === true,
     updatedAt: stamp?.toMillis?.(),
     settledAt: (data['settledAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),

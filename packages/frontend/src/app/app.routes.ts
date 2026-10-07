@@ -19,6 +19,10 @@ export const routes: Routes = [
   { matcher: launchMatcher, component: Launch },
   { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse) },
   {
+    path: 'browse/:lens',
+    loadComponent: () => import('./browse/browse').then((m) => m.Browse),
+  },
+  {
     path: 'right-now',
     loadComponent: () => import('./reminders/right-now').then((m) => m.RightNow),
   },
