@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ListView } from './list-view';
+import { ListView, UNDO_MS } from './list-view';
 
 const LIST = [
   'Shopping list',
@@ -71,5 +71,27 @@ describe('ListView', () => {
     fixture.componentInstance.body.set('Shopping list\n## Produce');
     await fixture.whenStable();
     expect(el.textContent).toContain('No items yet.');
+  });
+
+  it('offers Undo after Done shopping, for a while', async () => {
+    const { el, fixture } = await render();
+    vi.useFakeTimers();
+    try {
+      const button = (text: string) =>
+        [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+      button('Done shopping')!.click();
+      fixture.detectChanges();
+      expect(el.textContent).toContain('List cleared.');
+      button('Undo')!.click();
+      expect(fixture.componentInstance.changes.at(-1)).toEqual({ body: LIST, keep: false });
+      fixture.detectChanges();
+      expect(button('Undo')).toBeUndefined();
+      button('Done shopping')!.click();
+      vi.advanceTimersByTime(UNDO_MS);
+      fixture.detectChanges();
+      expect(el.textContent).not.toContain('List cleared.');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

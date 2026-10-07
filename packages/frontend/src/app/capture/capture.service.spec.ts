@@ -95,6 +95,19 @@ describe('CaptureService', () => {
     });
   });
 
+  it('saves the last tick before a keep, so History keeps the ticked list', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', '- [ ] limes')]);
+    capture.openNote('n1');
+    capture.replace('- [x] limes');
+    // Done shopping within the save delay.
+    capture.replace('List', { keep: true });
+    expect(notes.save.mock.calls).toEqual([
+      ['n1', '- [x] limes', { base: '- [ ] limes' }],
+      ['n1', 'List', { base: '- [x] limes', keep: true }],
+    ]);
+  });
+
   it('shows a change made elsewhere when nothing was typed, without saving it back', () => {
     const { capture, notes } = setup();
     notes.signIn([note('n1', 'one')]);

@@ -166,6 +166,8 @@ export class CaptureService {
    */
   replace(text: string, { keep = false }: { keep?: boolean } = {}): void {
     const { id } = this.open();
+    // What was typed or ticked first is saved first, so a keep keeps it.
+    if (keep && this.dirty) this.flush();
     const before = this.body;
     if (text === before) return;
     this.body = text;

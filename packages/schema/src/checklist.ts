@@ -45,13 +45,30 @@ export function checklist(body: string): ChecklistSection[] {
   return sections.filter((s) => s.items.length > 0);
 }
 
-/** Ticks or unticks the item on `line`; any other line is left alone. */
-export function setDone(body: string, line: number, done: boolean): string {
+/**
+ * Ticks or unticks the item `text` on `line`; any other line is left
+ * alone. If the lines moved (a change merged in since the list was
+ * drawn), the item is found again by its text, first not yet in the
+ * wanted state; if it is gone, nothing changes.
+ */
+export function setDone(body: string, line: number, done: boolean, text?: string): string {
   const lines = body.split('\n');
-  if (!TASK.test(lines[line] ?? '')) return body;
-  lines[line] = lines[line].replace(
+  const matches = (i: number) => {
+    const task = TASK.exec(lines[i] ?? '');
+    return !!task && (text === undefined || task[4] === text);
+  };
+  let at = line;
+  if (!matches(at)) {
+    if (text === undefined) return body;
+    at = lines.findIndex((l, i) => {
+      const task = TASK.exec(l);
+      return matches(i) && !!task && (task[2] !== ' ') !== done;
+    });
+    if (at < 0) return body;
+  }
+  lines[at] = lines[at].replace(
     TASK,
-    (_, open, _mark, close, text) => `${open}${done ? 'x' : ' '}${close}${text}`,
+    (_, open, _mark, close, item) => `${open}${done ? 'x' : ' '}${close}${item}`,
   );
   return lines.join('\n');
 }

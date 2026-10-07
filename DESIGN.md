@@ -270,7 +270,11 @@ heading, skip what is listed, keep his words, and ★ marks a staple.
 - **Done shopping** removes ticked items and unticks ticked staples (a
   ★ in the item), so they come back on the next list (`doneShopping`).
   It saves at once as its own writer (`KEEP_SUFFIX`, as a restore
-  does), so History always keeps the list it cleared.
+  does), so History always keeps the list it cleared; a tick still
+  waiting to save is saved first, so that list includes it. For eight
+  seconds it offers Undo, which writes the list back.
+- A tick names its item by line and text: if a merged change moved the
+  lines since the list was drawn, the item is found again by its text.
 
 ## Client
 

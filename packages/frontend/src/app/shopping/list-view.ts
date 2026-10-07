@@ -1,5 +1,8 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
 import { checklist, doneShopping, setDone } from '@mossgoblin/schema';
+
+/** How long Done shopping offers Undo. */
+export const UNDO_MS = 8_000;
 
 /**
  * A list note to shop from (#39): each section's open items as large
@@ -19,7 +22,7 @@ import { checklist, doneShopping, setDone } from '@mossgoblin/schema';
           @for (item of section.items; track item.line) {
             <li>
               <label>
-                <input type="checkbox" (change)="tick(item.line, true)" />
+                <input type="checkbox" (change)="tick(item.line, item.text, true)" />
                 {{ item.text }}
               </label>
             </li>
@@ -32,13 +35,19 @@ import { checklist, doneShopping, setDone } from '@mossgoblin/schema';
           @for (item of got(); track item.line) {
             <li>
               <label>
-                <input type="checkbox" checked (change)="tick(item.line, false)" />
+                <input type="checkbox" checked (change)="tick(item.line, item.text, false)" />
                 {{ item.text }}
               </label>
             </li>
           }
         </ul>
         <button type="button" class="done" (click)="done()">Done shopping</button>
+      }
+      @if (cleared()) {
+        <p class="cleared" role="status">
+          List cleared.
+          <button type="button" (click)="undo()">Undo</button>
+        </p>
       }
       @if (!open().length && !got().length) {
         <p class="muted">No items yet. Add lines like "- [ ] apples" to the note.</p>
@@ -91,6 +100,21 @@ import { checklist, doneShopping, setDone } from '@mossgoblin/schema';
     .muted {
       color: var(--quiet);
     }
+    .cleared {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-top: var(--space-3);
+    }
+    .cleared button {
+      font: inherit;
+      padding: 4px 12px;
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-pill);
+      color: var(--ink);
+      background: var(--surface);
+      cursor: pointer;
+    }
   `,
 })
 export class ListView {
@@ -108,11 +132,31 @@ export class ListView {
     this.sections().flatMap((s) => s.items.filter((i) => i.done)),
   );
 
-  protected tick(line: number, done: boolean): void {
-    this.edited.emit({ body: setDone(this.body(), line, done), keep: false });
+  /** The list before Done shopping, while Undo is offered. */
+  protected readonly cleared = signal<string | undefined>(undefined);
+  private timer?: ReturnType<typeof setTimeout>;
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => clearTimeout(this.timer));
+  }
+
+  protected tick(line: number, text: string, done: boolean): void {
+    this.edited.emit({ body: setDone(this.body(), line, done, text), keep: false });
   }
 
   protected done(): void {
-    this.edited.emit({ body: doneShopping(this.body()), keep: true });
+    const before = this.body();
+    this.edited.emit({ body: doneShopping(before), keep: true });
+    this.cleared.set(before);
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.cleared.set(undefined), UNDO_MS);
+  }
+
+  /** Puts the list back as it was; History has it either way. */
+  protected undo(): void {
+    const before = this.cleared();
+    if (before === undefined) return;
+    this.edited.emit({ body: before, keep: false });
+    this.cleared.set(undefined);
   }
 }

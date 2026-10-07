@@ -43,6 +43,14 @@ describe('setDone', () => {
     expect(setDone(LIST, 5, false)).toBe(LIST.replace('- [x] onions', '- [ ] onions'));
     expect(setDone(LIST, 2, true)).toBe(LIST);
   });
+
+  it('finds the item again by its text when the lines moved', () => {
+    const moved = LIST.replace('## Produce', '## Produce\n- [ ] leeks');
+    // Drawn before leeks arrived: limes was line 4, now line 5.
+    expect(setDone(moved, 4, true, 'limes')).toBe(moved.replace('- [ ] limes', '- [x] limes'));
+    expect(setDone(moved, 4, true, 'gone')).toBe(moved);
+    expect(setDone(LIST, 4, true, 'limes')).toBe(LIST.replace('- [ ] limes', '- [x] limes'));
+  });
 });
 
 describe('doneShopping', () => {
