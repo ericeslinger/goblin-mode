@@ -143,6 +143,10 @@ export function createAccessoryBar(
     const kb = keyboardGeometry(win.innerHeight, vv, vk?.boundingRect.height ?? 0);
     show(focused && kb.height >= KEYBOARD_MIN_PX);
     if (!bar.hidden) bar.style.top = `${kb.bottom - bar.offsetHeight}px`;
+    // The bar and an overlaid keyboard cover the page from the bar's top
+    // down: the editor keeps the line being typed above it (2026-10-07,
+    // the bar sat on that line in a long note).
+    editor.setCoveredFrom(bar.hidden ? undefined : kb.bottom - bar.offsetHeight);
   };
 
   const vv = win.visualViewport;
@@ -163,6 +167,7 @@ export function createAccessoryBar(
       editor.view.contentDOM.removeEventListener('focus', update);
       editor.view.contentDOM.removeEventListener('blur', update);
       bar.remove();
+      editor.setCoveredFrom(undefined);
     },
   };
 }

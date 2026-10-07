@@ -19,7 +19,7 @@ export const BASE_SEARCH = 20;
  */
 export const REPLACED_KEPT = 20;
 /** How long a replaced text is kept at most (a Firestore TTL policy). */
-export const REPLACED_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const REPLACED_TTL_MS = 2 * 24 * 60 * 60 * 1000;
 /** Longer texts are not kept: one must fit in a document (1 MiB). */
 export const REPLACED_CHARS = 300_000;
 
@@ -38,8 +38,8 @@ export interface MergeStore {
    */
   keptBodies(uid: string, noteId: string, limit: number): Promise<string[]>;
   /**
-   * Keeps a text a write replaced, as of when it was written (ms), and
-   * drops all but the newest `REPLACED_KEPT`.
+   * Keeps a text a write replaced, as of when it was written (ms),
+   * until a TTL policy removes it (`REPLACED_TTL_MS`).
    */
   rememberReplaced(uid: string, noteId: string, body: string, writtenAt?: number): Promise<void>;
   /**
