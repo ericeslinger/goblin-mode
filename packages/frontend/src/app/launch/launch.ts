@@ -242,6 +242,12 @@ export class Launch {
     await this.router.navigate(['/n', note.id]);
   }
 
+  /** After a choice in More that stays here, the cursor goes back to the note. */
+  protected backToNote(): void {
+    this.moreOpen.set(false);
+    this.editor()?.focus();
+  }
+
   /** Escape closes More and returns to its button. */
   protected closeMore(button: HTMLButtonElement): void {
     this.moreOpen.set(false);

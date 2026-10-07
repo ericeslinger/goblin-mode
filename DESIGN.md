@@ -446,8 +446,10 @@ list). Everything else is under More: Browse (not on wide screens,
 where the notes list is beside the note), Source or Preview, Map, Copy
 link and History (for a note with a URL), and Settings. The sync dot
 sits on the More button's corner, green or red, so offline is always
-in sight; the menu says it in words, and a hidden status tells screen
-readers. More is a disclosure: it closes on choosing an item, on
+in sight, and offline the button also says so in words (not by colour
+alone); the menu says it too, and a hidden status tells screen
+readers. After a choice that stays on the note (Source or Preview,
+Copy link) the cursor goes back to the note. More is a disclosure: it closes on choosing an item, on
 Escape (back to its button) and on a tap outside.
 
 **Right Now (as built, 2026-10-06).** One live listener on open and

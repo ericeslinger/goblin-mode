@@ -262,8 +262,9 @@ describe('Launch', () => {
     expect(toggle().textContent?.trim()).toBe('Source');
     toggle().click();
     await fixture.whenStable();
-    // Choosing an item closes More.
+    // Choosing an item closes More, and the cursor is back in the note.
     expect(el.querySelector('#more-menu')).toBeNull();
+    expect(document.activeElement).toBe(el.querySelector('.cm-content'));
     await openMore(el, fixture);
     expect(toggle().textContent?.trim()).toBe('Preview');
     toggle().click();
@@ -305,6 +306,8 @@ describe('Launch', () => {
       'offline',
     );
     expect(el.querySelector('.more-button .sync')?.classList).toContain('offline');
+    // Not by colour alone.
+    expect(el.querySelector('.more-button')?.textContent).toContain('offline');
   });
 
   it('keeps the rest in More, which closes on Escape and returns focus', async () => {

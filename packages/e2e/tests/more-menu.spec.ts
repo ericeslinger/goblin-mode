@@ -34,6 +34,7 @@ test('More holds the rest of the bar, and its dot shows offline', async ({ page 
   await page.context().setOffline(true);
   await expect(page.getByRole('status').filter({ hasText: 'offline' })).toHaveCount(1);
   await expect(more.locator('.sync')).toHaveClass(/offline/);
+  await expect(more).toHaveText(/offline/);
   await expect(await openMore(page)).toContainText('Offline.');
   await page.context().setOffline(false);
   await expect(more.locator('.sync')).not.toHaveClass(/offline/);
@@ -41,4 +42,5 @@ test('More holds the rest of the bar, and its dot shows offline', async ({ page 
   // Choosing an item closes More and does it.
   await (await openMore(page)).getByRole('button', { name: 'Copy link' }).click();
   await expect(page.getByRole('navigation', { name: 'More' })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'New note' })).toBeFocused();
 });

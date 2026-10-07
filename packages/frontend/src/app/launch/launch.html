@@ -33,6 +33,9 @@
           (click)="moreOpen.set(!moreOpen())"
         >
           More
+          @if (!online()) {
+            <span class="offline-word">offline</span>
+          }
           <span class="sync" [class.offline]="!online()" aria-hidden="true"></span>
         </button>
         <span class="visually-hidden" role="status">{{ online() ? 'synced' : 'offline' }}</span>
@@ -45,13 +48,15 @@
               <li class="browse-link"><a routerLink="/browse">Browse</a></li>
               <li>
                 <!-- The label names the mode a tap switches to. -->
-                <button type="button" (click)="modes.toggle()">
+                <button type="button" (click)="modes.toggle(); backToNote()">
                   {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
                 </button>
               </li>
               @if (hasHistory()) {
                 <li><a [routerLink]="['/map/n', capture.open().id]">Map</a></li>
-                <li><button type="button" (click)="copyLink()">Copy link</button></li>
+                <li>
+                  <button type="button" (click)="copyLink(); backToNote()">Copy link</button>
+                </li>
                 <li>
                   <a routerLink="/history" [queryParams]="{ note: capture.open().id }">History</a>
                 </li>
