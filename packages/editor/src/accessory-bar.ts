@@ -16,6 +16,8 @@ export interface AccessoryAction {
   name?: string;
   /** How the label looks, e.g. bold for Bold. */
   style?: Partial<Pick<CSSStyleDeclaration, 'fontWeight' | 'fontStyle'>>;
+  /** Kept in view at the end when the row scrolls (Done). */
+  pinned?: boolean;
   run: () => void;
 }
 
@@ -71,6 +73,14 @@ export function createAccessoryBar(
     if (action.name) button.setAttribute('aria-label', action.name);
     Object.assign(button.style, { minWidth: '48px', minHeight: '48px', flex: '0 0 auto' });
     if (action.style) Object.assign(button.style, action.style);
+    if (action.pinned) {
+      Object.assign(button.style, {
+        position: 'sticky',
+        right: '0',
+        marginLeft: 'auto',
+        background: 'var(--surface, Canvas)',
+      });
+    }
     button.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       later(action.run);

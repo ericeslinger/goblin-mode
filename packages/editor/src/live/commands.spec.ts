@@ -144,6 +144,8 @@ describe('toggleMark', () => {
     toggleMark('*')({ state: bold, dispatch: (tr) => (again = bold.update(tr).state) });
     expect(text(again)).toBe('a word here');
     expect(text(run(toggleMark('_'), 'a _word_ here', 8, 2))).toBe('a word here');
+    // Two emphases selected together are wrapped, not taken apart.
+    expect(text(run(toggleMark('*'), '*a* and *b*', 11, 0))).toBe('**a* and *b**');
   });
 
   it('puts a pair in with the cursor between when nothing is selected', () => {
@@ -184,8 +186,15 @@ describe('setList', () => {
 
 describe('shiftLines', () => {
   it('indents and outdents the selected lines a list level', () => {
-    expect(text(run(shiftLines(1), '- a\n- b\n\nc', 6, 0))).toBe('  - a\n  - b\n\nc');
+    expect(text(run(shiftLines(1), '- a\n- b\n\nc', 9, 0))).toBe('  - a\n  - b\n\nc');
     expect(text(run(shiftLines(-1), '  - a\n\t- b\n- c', 12, 0))).toBe('- a\n- b\n- c');
     expect(run(shiftLines(-1), '- a', 1).doc.toString()).toBe('- a');
+    // Plain text is not indented into a code block.
+    expect(text(run(shiftLines(1), 'plain', 2))).toBe('plain');
+    // Nothing to do still takes the key (Mod-[ is the browser's Back).
+    let dispatched = false;
+    const state = EditorState.create({ doc: 'a' });
+    expect(shiftLines(-1)({ state, dispatch: () => (dispatched = true) })).toBe(true);
+    expect(dispatched).toBe(false);
   });
 });

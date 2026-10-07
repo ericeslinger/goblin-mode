@@ -55,7 +55,10 @@ test('the ribbon formats as you write: checklist, bold, lists and levels', async
     .analyze();
   const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-  await tap('Hide keyboard');
+  // Done stays in view on a narrow phone, though the row scrolls.
+  await page.setViewportSize({ width: 360, height: 780 });
+  await expect(ribbon.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
+  await tap('Done');
   await expect(ribbon).toBeHidden();
   await letItSave(page);
 

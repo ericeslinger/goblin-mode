@@ -177,7 +177,13 @@ export function toggleMark(marker: '*' | '_'): Command {
           };
         }
         const inner = state.sliceDoc(range.from, range.to);
-        if (inner.length >= 2 * n && inner.startsWith(marker) && inner.endsWith(marker)) {
+        // Wrapped as a whole: `*a and b*`, not two emphases `*a* and *b*`.
+        const wrapped =
+          inner.length >= 2 * n &&
+          inner.startsWith(marker) &&
+          inner.endsWith(marker) &&
+          !inner.slice(n, -n).includes(marker);
+        if (wrapped) {
           return {
             changes: { from: range.from, to: range.to, insert: inner.slice(n, -n) },
             range: EditorSelection.range(range.from, range.to - 2 * n),
@@ -261,15 +267,23 @@ export function setList(kind: 'bullet' | 'number'): Command {
   };
 }
 
-/** Indents the selected lines one list level (two spaces), or outdents them. */
+/**
+ * Indents the selected list items one level (two spaces), or outdents
+ * any selected line. Plain lines are not indented: four spaces would
+ * make them a code block. Always takes the key, so Mod-[ on a line with
+ * nothing to outdent is not the browser's Back.
+ */
 export function shiftLines(direction: 1 | -1): Command {
   return ({ state, dispatch }) => {
     const changes = selectedLines(state).flatMap((line): ChangeSpec[] => {
-      if (direction === 1) return line.text.trim() ? [{ from: line.from, insert: '  ' }] : [];
+      if (direction === 1) {
+        const prefix = PREFIX.exec(line.text)![0].length;
+        return LIST.test(line.text.slice(prefix)) ? [{ from: line.from, insert: '  ' }] : [];
+      }
       const lead = /^( {1,2}|\t)/.exec(line.text);
       return lead ? [{ from: line.from, to: line.from + lead[0].length }] : [];
     });
-    if (!changes.length) return false;
+    if (!changes.length) return true;
     const set = state.changes(changes);
     dispatch({
       changes: set,

@@ -103,7 +103,8 @@ export class NoteEditorComponent {
           { label: '1.', name: 'Numbered list', run: () => editor.numberedList() },
           { label: '⇤', name: 'Outdent', run: () => editor.outdent() },
           { label: '⇥', name: 'Indent', run: () => editor.indent() },
-          { label: 'Done', name: 'Hide keyboard', run: () => editor.view.contentDOM.blur() },
+          // Hides the keyboard; pinned so a narrow phone always shows it.
+          { label: 'Done', pinned: true, run: () => editor.view.contentDOM.blur() },
         ]);
       }
       if (untracked(this.autofocus)) this.editor.focus();
