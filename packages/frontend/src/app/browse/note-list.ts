@@ -41,9 +41,10 @@ export function matches(note: NoteRecord, search: string): boolean {
       <p class="muted">{{ search() ? 'No notes match.' : empty[lens()] }}</p>
     }
     @if (lens() === 'tags') {
-      @for (group of tagged(); track group.tag) {
-        <h2 class="tag" [id]="'tag-' + group.tag">#{{ group.tag }} ({{ group.notes.length }})</h2>
-        <ul [attr.aria-labelledby]="'tag-' + group.tag">
+      @for (group of tagged(); track group.tag; let i = $index) {
+        <!-- Ids from the position: a tag may hold spaces. -->
+        <h2 class="tag" [id]="'tag-' + i">#{{ group.tag }} ({{ group.notes.length }})</h2>
+        <ul [attr.aria-labelledby]="'tag-' + i">
           @for (note of group.notes; track note.id) {
             <li>
               <ng-container *ngTemplateOutlet="row; context: { $implicit: note }" />
@@ -138,7 +139,7 @@ export class NoteList {
   /** A concept says how many notes link to it; a note shows its text. */
   protected snippetOf(note: NoteRecord): string {
     if (note.kind !== 'concept') return snippet(note);
-    const n = this.links.backlinksTo(note.id).length;
+    const n = this.links.backlinkCounts().get(note.id) ?? 0;
     const linked = n === 1 ? 'Linked from 1 note' : `Linked from ${n} notes`;
     return note.body.trim() ? `${linked} · ${snippet(note)}` : linked;
   }

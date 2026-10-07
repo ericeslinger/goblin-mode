@@ -68,7 +68,7 @@ describe('NoteList', () => {
     const { el, fixture } = await render([
       noteRecord('n1', 'Studio\nwith [[Kiln]]'),
       { ...noteRecord('c-kiln', ''), title: 'Kiln', kind: 'concept', conceptType: 'project' },
-      { ...noteRecord('t1', 'Calm day'), tags: ['feelings'] },
+      { ...noteRecord('t1', 'Calm day'), tags: ['feelings', 'date night'] },
     ]);
     fixture.componentRef.setInput('lens', 'projects');
     await fixture.whenStable();
@@ -77,7 +77,13 @@ describe('NoteList', () => {
 
     fixture.componentRef.setInput('lens', 'tags');
     await fixture.whenStable();
-    expect(el.querySelector('h2')?.textContent).toBe('#feelings (1)');
+    const headings = [...el.querySelectorAll('h2')];
+    expect(headings.map((h) => h.textContent)).toEqual(['#date night (1)', '#feelings (1)']);
+    // Each group is named by its heading, even for a tag with a space.
+    for (const list of el.querySelectorAll('ul[aria-labelledby]')) {
+      const label = el.querySelector(`#${list.getAttribute('aria-labelledby')}`);
+      expect(label?.tagName).toBe('H2');
+    }
     expect(el.querySelector('ul')!.textContent).toContain('Calm day');
 
     fixture.componentRef.setInput('lens', 'archived');

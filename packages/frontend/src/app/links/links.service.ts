@@ -48,6 +48,18 @@ export class LinksService {
     return graph;
   });
 
+  /** How many live notes link to each id, from one pass over the graph. */
+  readonly backlinkCounts = computed(() => {
+    const counts = new Map<string, number>();
+    for (const n of this.graph()) {
+      if (n.archived) continue;
+      for (const id of new Set(n.links)) {
+        if (id !== n.id) counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+    }
+    return counts;
+  });
+
   /** Notes that link to `id`, newest first, each with its sentence. */
   backlinksTo(id: string): Backlink[] {
     const names = this.notes.names();
