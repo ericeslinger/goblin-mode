@@ -127,7 +127,8 @@ export class NotesTools {
   }
   /** Names to ids across the gardener's notes (schema, concepts.ts). */
   private async names(): Promise<Map<string, string>> {
-    const snap = await this.notes().get();
+    // Names only: no bodies.
+    const snap = await this.notes().select('title', 'kind', 'synonyms', 'archived').get();
     return nameIndex(snap.docs.map((doc) => named(doc.id, doc.data())));
   }
 
@@ -164,7 +165,9 @@ export class NotesTools {
     if (!doc.exists) throw new ToolError(`no note ${args.id}`);
     const d = doc.data()!;
     // Read from bodies, not stored links, so notes written before links
-    // were stored (#28) count too.
+    // were stored (#28) count too. Every body is parsed: fine for one
+    // gardener's notes; once all notes carry links, an array-contains
+    // query on `links` can replace the scan.
     const all = await this.notes().get();
     const index = nameIndex(all.docs.map((n) => named(n.id, n.data())));
     const backlinks = all.docs.filter(

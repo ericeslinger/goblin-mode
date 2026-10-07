@@ -14,12 +14,16 @@ describe('conceptId', () => {
   it('derives the same id from the same name, however it is typed', () => {
     expect(conceptId('Project Hotswap')).toBe('c-project-hotswap');
     expect(conceptId('  project   HOTSWAP')).toBe('c-project-hotswap');
-    expect(conceptId('Café Olé')).toBe('c-cafe-ole');
+    expect(conceptId('陶芸 pottery')).toBe('c-陶芸-pottery');
   });
 
-  it('keeps letters in any script and drops the rest', () => {
-    expect(conceptId('陶芸 (pottery)')).toBe('c-陶芸-pottery');
-    expect(conceptId('a/b.c')).toBe('c-a-b-c');
+  it('adds a hash when the slug does not spell the name, so names stay apart', () => {
+    const ids = ['C', 'C++', 'C#', 'a b', 'a-b', 'a/b', 'Cafe', 'Café'].map(conceptId);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(conceptId('C')).toBe('c-c');
+    expect(conceptId('C++')).toMatch(/^c-c-[0-9a-f]{8}$/);
+    expect(conceptId('Café Olé')).toMatch(/^c-cafe-ole-[0-9a-f]{8}$/);
+    expect(conceptId('x'.repeat(150))).not.toBe(conceptId('x'.repeat(151)));
   });
 
   it('falls back to a hash for a name with no letters or digits', () => {
@@ -29,7 +33,7 @@ describe('conceptId', () => {
 
   it('stays a short, safe document id and never looks like an auto id', () => {
     const id = conceptId('x'.repeat(500));
-    expect(id.length).toBeLessThanOrEqual(102);
+    expect(id.length).toBeLessThanOrEqual(111);
     expect(id).not.toMatch(/[/]/);
     expect(autoId(() => undefined)).not.toContain('-');
   });

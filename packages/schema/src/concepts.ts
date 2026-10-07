@@ -30,19 +30,24 @@ function hash(text: string): string {
 
 /**
  * The id of the concept a name makes: `c-` and a slug of the name
- * (accents dropped, letters and digits in any script kept, the rest
- * folded to single hyphens). Safe as a Firestore document id and in a
- * URL path segment.
+ * (letters and digits in any script, words joined by hyphens). When the
+ * slug does not spell the name exactly (punctuation, accents, a long
+ * name cut short), a hash of the name follows, so `C`, `C++` and `C#`,
+ * or `a b` and `a-b`, stay three and two concepts. Safe as a Firestore
+ * document id and in a URL path segment.
  */
 export function conceptId(name: string): string {
-  const slug = normalizeName(name)
+  const normal = normalizeName(name);
+  const slug = normal
     .normalize('NFKD')
     .replace(/\p{M}+/gu, '')
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, MAX_SLUG)
     .replace(/-+$/, '');
-  return CONCEPT_PREFIX + (slug || hash(normalizeName(name)));
+  if (!slug) return CONCEPT_PREFIX + hash(normal);
+  const exact = slug.replace(/-/g, ' ') === normal;
+  return CONCEPT_PREFIX + (exact ? slug : `${slug}-${hash(normal)}`);
 }
 
 /** What the index needs of a note. */

@@ -116,11 +116,14 @@ were in the contract from the start, so the rules are unchanged.
 - `normalizeName` compares names Unicode-normalized, case-folded and
   with spaces collapsed.
 - A concept's id is derived from its name, `conceptId(name)`: `c-` and a
-  slug (accents dropped, letters and digits in any script kept), or a
-  hash for a name with neither. Two devices linking the same new name
-  offline make one concept. Auto ids never contain `-`, so a concept id
-  never collides with a note id. Renaming keeps the id and adds the old
-  name as a synonym (#29).
+  slug (letters and digits in any script, words joined by hyphens).
+  When the slug does not spell the name exactly (punctuation, accents,
+  a long name cut short) an 8-digit hash of the name follows, so `C`,
+  `C++` and `C#` stay three concepts. Two devices linking the same new
+  name offline make one concept. Auto ids never contain `-`, so a
+  concept id never collides with a note id. Renaming keeps the id and
+  adds the old name as a synonym (#29). The derivation names every
+  concept document, so changing it later is a migration.
 - `nameIndex` maps names to ids: concepts' titles and synonyms first,
   then other notes' titles; archived notes are left out, so a link
   follows a merge.
