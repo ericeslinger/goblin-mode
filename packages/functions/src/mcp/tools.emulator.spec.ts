@@ -312,3 +312,60 @@ describe('organizing tools', () => {
     expect((await runs()).map((r) => r['summary'])).toEqual(['Archived a note', 'Restored a note']);
   });
 });
+
+describe('template tools', () => {
+  const TEMPLATE =
+    'Shopping list\n## Produce\n\n## Instructions for Claude\nStart from the meal plan.';
+
+  it('lists templates with their instructions, skeleton, mode and schedule', async () => {
+    await eric('t1', TEMPLATE, { kind: 'template', templateMode: 'living' });
+    await eric('t2', 'Journal\nMood:', { kind: 'template' });
+    await eric('gone', 'Old', { kind: 'template', archived: true });
+    await eric('n1', 'Not a template');
+    await db.doc('users/u1/reminders/r1').set({
+      text: 'Journal',
+      status: 'open',
+      createdBy: 'user',
+      template: 't2',
+      recurrence: { freq: 'daily', time: '21:00', tz: 'UTC' },
+    });
+    await db.doc('users/u1/reminders/r2').set({ text: 'Plain', status: 'open', createdBy: 'user' });
+    const list = await tools().listTemplates();
+    expect(list.map((t) => [t.id, t.mode])).toEqual([
+      ['t2', 'entry'],
+      ['t1', 'living'],
+    ]);
+    expect(list[1]).toMatchObject({
+      instructions: 'Start from the meal plan.',
+      skeleton: 'Shopping list\n## Produce',
+      schedule: [],
+    });
+    expect(list[0].schedule.map((r) => r.id)).toEqual(['r1']);
+  });
+
+  it('opens a living template’s one note, making it the first time', async () => {
+    await eric('t1', TEMPLATE, { kind: 'template', templateMode: 'living' });
+    const t = ticking();
+    const first = await t.useTemplate({ id: 't1' });
+    expect(first).toMatchObject({
+      template: { id: 't1', title: 'Shopping list', mode: 'living' },
+      instructions: 'Start from the meal plan.',
+      created: true,
+      note: { body: 'Shopping list\n## Produce' },
+    });
+    expect((await body(first.note.id))['fromTemplate']).toBe('t1');
+    const again = await t.useTemplate({ id: 't1' });
+    expect(again).toMatchObject({ created: false, note: { id: first.note.id } });
+    expect((await runs()).map((r) => r['summary'])).toEqual(['Started a note from Shopping list']);
+  });
+
+  it('starts a new entry each time, and refuses what is not a template', async () => {
+    await eric('t2', 'Journal\nMood:', { kind: 'template', templateMode: 'entry' });
+    await eric('n1', 'Not a template');
+    const t = ticking();
+    const a = await t.useTemplate({ id: 't2' });
+    const b = await t.useTemplate({ id: 't2' });
+    expect(a.note.id).not.toBe(b.note.id);
+    await expect(t.useTemplate({ id: 'n1' })).rejects.toThrow('no template n1');
+  });
+});

@@ -66,6 +66,24 @@ describe('NoteEditorComponent', () => {
     expect(content.textContent).toBe('');
   });
 
+  it('shows a note loaded ahead of its inputs, and keeps what is typed before they arrive', async () => {
+    const { fixture, content } = await render();
+    const host = fixture.componentInstance;
+    const editor = fixture.debugElement.query(By.directive(NoteEditorComponent))
+      .componentInstance as unknown as {
+      load: (id: string, text: string) => void;
+      editor: { view: EditorView };
+    };
+    editor.load('b', '');
+    expect(content.textContent).toBe('');
+    // A key lands before the next render brings the inputs for b.
+    editor.editor.view.dispatch({ changes: { from: 0, insert: 'F' } });
+    host.text.set('');
+    host.noteId.set('b');
+    await fixture.whenStable();
+    expect(content.textContent).toBe('F');
+  });
+
   it('follows the app-wide mode', async () => {
     const { fixture } = await render();
     TestBed.inject(EditorModeService).set('source');

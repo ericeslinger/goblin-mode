@@ -1,9 +1,10 @@
 import { Component, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
+import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
 
 @Component({
@@ -40,6 +41,29 @@ import { ThemePicker } from '../theme/theme-picker';
         }
       }
       @if (auth.user()) {
+        <h2 id="templates">Templates</h2>
+        <p>
+          A template is a note to start others from, with an Instructions for Claude section that
+          tells Claude how to fill them in.
+        </p>
+        @if (templates.templates().length) {
+          <ul aria-labelledby="templates" class="templates">
+            @for (t of templates.templates(); track t.id) {
+              <li>
+                <a [routerLink]="['/n', t.id]">{{ t.title || 'Untitled' }}</a>
+                <span class="muted">{{
+                  t.templateMode === 'living' ? 'one note, reused' : 'a new note each time'
+                }}</span>
+              </li>
+            }
+          </ul>
+        }
+        <div class="actions">
+          <button type="button" (click)="newTemplate('entry')">New template</button>
+          <button type="button" (click)="newTemplate('living')">New living template</button>
+        </div>
+      }
+      @if (auth.user()) {
         <h2>Claude</h2>
         <p>
           To let Claude read and change your notes, add a custom connector in claude.ai (Settings,
@@ -58,6 +82,27 @@ import { ThemePicker } from '../theme/theme-picker';
       <p>{{ build.sha }} &middot; {{ build.time }}</p>
     </main>
   `,
+  styles: `
+    .templates {
+      list-style: none;
+      padding: 0;
+    }
+    .templates li {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      padding: 2px 0;
+    }
+    .muted {
+      color: var(--quiet);
+      font-size: 14px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+  `,
 })
 export class Settings {
   protected readonly auth = inject(AuthService);
@@ -74,6 +119,14 @@ export class Settings {
     error: 'Could not change notifications.',
   };
   protected readonly build = buildInfo;
+
+  protected readonly templates = inject(TemplatesService);
+  private readonly router = inject(Router);
+
+  /** Makes a template and opens it to be written. */
+  protected newTemplate(mode: 'living' | 'entry'): void {
+    void this.router.navigate(['/n', this.templates.create(mode)]);
+  }
 
   protected readonly mcpUrl = `${location.origin}/mcp`;
   protected readonly claudeStatus = signal('');

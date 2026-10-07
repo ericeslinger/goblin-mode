@@ -1,8 +1,9 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '../auth.service';
-import { FakeAuthService } from '../testing/fakes';
+import { NotesService } from '../notes/notes.service';
+import { FakeAuthService, FakeNotes, noteRecord } from '../testing/fakes';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
 import { Settings } from './settings';
@@ -19,7 +20,7 @@ function fakePush(state: PushState = 'off') {
 
 const claude = { consent: vi.fn(), approve: vi.fn(), revoke: vi.fn(async () => 2), go: vi.fn() };
 
-async function render(auth: FakeAuthService, push = fakePush()) {
+async function render(auth: FakeAuthService, push = fakePush(), notes = new FakeNotes()) {
   await TestBed.configureTestingModule({
     imports: [Settings],
     providers: [
@@ -27,6 +28,7 @@ async function render(auth: FakeAuthService, push = fakePush()) {
       { provide: AuthService, useValue: auth },
       { provide: PushService, useValue: push },
       { provide: CLAUDE_ACCESS_API, useValue: claude },
+      { provide: NotesService, useValue: notes },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Settings);
@@ -105,5 +107,38 @@ describe('Settings', () => {
       TestBed.tick();
       expect(el.textContent).toContain('Claude is disconnected.');
     });
+  });
+
+  it('lists templates and makes new ones, opening them to write', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const notes = new FakeNotes();
+    notes.signIn([
+      { ...noteRecord('t1', 'Shopping list'), kind: 'template', templateMode: 'living' },
+      { ...noteRecord('t2', 'Journal'), kind: 'template' },
+      noteRecord('n1', 'Not a template'),
+    ]);
+    const el = await render(auth, fakePush(), notes);
+    const list = el.querySelector('[aria-labelledby="templates"]')!;
+    const rows = [...list.querySelectorAll('li')].map((li) => [
+      li.querySelector('a')!.textContent!.trim(),
+      li.querySelector('a')!.getAttribute('href'),
+      li.querySelector('.muted')!.textContent!.trim(),
+    ]);
+    expect(rows).toEqual([
+      ['Journal', '/n/t2', 'a new note each time'],
+      ['Shopping list', '/n/t1', 'one note, reused'],
+    ]);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    button(el, 'New living template')!.click();
+    expect(notes.create).toHaveBeenCalledWith(
+      'new1',
+      expect.stringContaining('## Instructions for Claude'),
+      {
+        kind: 'template',
+        templateMode: 'living',
+      },
+    );
+    expect(navigate).toHaveBeenCalledWith(['/n', 'new1']);
   });
 });

@@ -282,6 +282,41 @@ describe('NotesService', () => {
     expect(api.set.mock.lastCall![1]).toBe('users/u1/notes/read');
   });
 
+  it('never settles a template, so its name stays its first line', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 't1', data: { body: 'Journal', kind: 'template', templateMode: 'entry' } }]);
+    notes.settle('t1', { edited: true });
+    expect(api.set).not.toHaveBeenCalled();
+    expect(notes.find('t1')).toMatchObject({ kind: 'template', templateMode: 'entry' });
+  });
+
+  it('writes a template, or a note from one, whole at once', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([]);
+    notes.create('t1', 'Journal\nMood:', { kind: 'template', templateMode: 'living' });
+    notes.create('e1', 'Journal\nMood:', { fromTemplate: 't1' });
+    expect(api.set.mock.calls.map(([, path, data, merge]) => [path, data, merge])).toEqual([
+      [
+        'users/u1/notes/t1',
+        expect.objectContaining({
+          kind: 'template',
+          templateMode: 'living',
+          title: 'Journal',
+          titleSource: 'words',
+          archived: false,
+        }),
+        false,
+      ],
+      ['users/u1/notes/e1', expect.objectContaining({ kind: 'text', fromTemplate: 't1' }), false],
+    ]);
+    expect(notes.exists('e1')).toBe(true);
+    notes.setTemplateMode('t1', 'entry');
+    // Not a template on this device yet: nothing to change.
+    expect(api.set).toHaveBeenCalledTimes(2);
+  });
+
   it('writes a restore as its own writer, so history keeps what it replaces', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

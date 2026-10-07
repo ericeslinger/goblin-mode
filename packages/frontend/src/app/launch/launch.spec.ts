@@ -217,6 +217,36 @@ describe('Launch', () => {
     expect(capture.open().id).not.toBe(old);
   });
 
+  it('starts a note from a template, and shows a template as one', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([{ ...noteRecord('t1', 'Journal\nMood:'), kind: 'template' }]);
+    const { el, fixture, url } = await render({ notes });
+    const toggle = buttonNamed(el, 'From template')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    await fixture.whenStable();
+    const menu = el.querySelector('[aria-label="Templates"]')!;
+    [...menu.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Journal')!.click();
+    await fixture.whenStable();
+    expect(notes.create).toHaveBeenCalledWith('new2', 'Journal\nMood:', { fromTemplate: 't1' });
+    expect(url()).toBe('/n/new2');
+    expect(el.querySelector('[aria-label="Templates"]')).toBeNull();
+
+    await TestBed.inject(Router).navigateByUrl('/n/t1');
+    await fixture.whenStable();
+    const header = el.querySelector('[aria-label="Template"]')!;
+    expect(header.textContent).toContain('A template.');
+    const mode = header.querySelector('select')!;
+    mode.value = 'living';
+    mode.dispatchEvent(new Event('change'));
+    expect(notes.setTemplateMode).toHaveBeenCalledWith('t1', 'living');
+  });
+
+  it('offers no template menu when there are no templates', async () => {
+    const { el } = await render();
+    expect(buttonNamed(el, 'From template')).toBeUndefined();
+  });
+
   it('switches between live preview and source', async () => {
     const { el, fixture } = await render();
     const toggle = () =>

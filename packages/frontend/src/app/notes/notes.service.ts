@@ -45,8 +45,12 @@ export interface NoteRecord {
   body: string;
   title: string;
   titleSource: TitleSource;
-  /** 'text', 'sketch' or 'concept'. */
+  /** 'text', 'sketch', 'concept' or 'template'. */
   kind: string;
+  /** A template's mode: 'living' or 'entry' (#36); none reads as entry. */
+  templateMode?: string;
+  /** The template a note was made from. */
+  fromTemplate?: string;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project' or 'other'. */
@@ -119,6 +123,8 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     kind: typeof data['kind'] === 'string' ? data['kind'] : 'text',
     ...(Array.isArray(data['synonyms']) ? { synonyms: data['synonyms'].map(String) } : {}),
     ...(typeof data['conceptType'] === 'string' ? { conceptType: data['conceptType'] } : {}),
+    ...(typeof data['templateMode'] === 'string' ? { templateMode: data['templateMode'] } : {}),
+    ...(typeof data['fromTemplate'] === 'string' ? { fromTemplate: data['fromTemplate'] } : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
     ...(Array.isArray(data['tags']) && data['tags'].length
       ? { tags: data['tags'].map(String) }
@@ -239,6 +245,48 @@ export class NotesService {
       : { kind: 'text', tags: [], archived: false, createdAt: now, ...update };
     this.written.add(id);
     this.api.set(this.fb.db, path, data, known).catch(report);
+  }
+
+  /**
+   * Writes a new note in its full shape at once, for a note that must
+   * exist before anyone types in it: a template, or a note made from one
+   * (#38). The id is fresh, so nothing can be overwritten.
+   */
+  create(
+    id: string,
+    body: string,
+    fields: { kind?: 'text' | 'template'; templateMode?: string; fromTemplate?: string } = {},
+  ): void {
+    if (!this.uid) throw new Error('create before sign-in');
+    const now = this.api.serverTime();
+    const data = {
+      kind: 'text',
+      body,
+      title: firstWordsTitle(body),
+      titleSource: 'words',
+      links: resolveLinks(wikiLinkTargets(parseNote(body)), this.names()),
+      tags: [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+      ...fields,
+    };
+    this.written.add(id);
+    this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
+  }
+
+  /** Living or entry, for a template. */
+  setTemplateMode(id: string, mode: 'living' | 'entry'): void {
+    if (!this.uid || this.find(id)?.kind !== 'template') return;
+    const update = {
+      templateMode: mode,
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
 
   /**
@@ -387,6 +435,8 @@ export class NotesService {
    */
   settle(id: string, { edited = false }: { edited?: boolean } = {}): void {
     if (!this.uid) return;
+    // A template keeps the name its first line gives it.
+    if (this.find(id)?.kind === 'template') return;
     if (!edited) {
       const note = this.find(id);
       if (!note?.body.trim()) return;

@@ -24,6 +24,8 @@ function fakeTools() {
     refile: vi.fn(async () => ({})),
     archiveNote: vi.fn(async () => ({})),
     suggestChanges: vi.fn(async () => ({})),
+    listTemplates: vi.fn(async () => []),
+    useTemplate: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -49,6 +51,7 @@ describe('the MCP server', () => {
       'list_concepts',
       'list_notes',
       'list_reminders',
+      'list_templates',
       'merge_notes',
       'refile',
       'search_notes',
@@ -56,6 +59,7 @@ describe('the MCP server', () => {
       'suggest_changes',
       'update_note',
       'update_reminder',
+      'use_template',
     ]);
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
     expect(INSTRUCTIONS).toMatch(/word for word/);

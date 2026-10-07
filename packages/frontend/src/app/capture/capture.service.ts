@@ -142,17 +142,19 @@ export class CaptureService {
     // on top of it later.
     this.store.remove(PENDING_DRAFT_KEY);
     // A concept is never deleted for having no text: its name, type and
-    // other names are what it is (review on #66).
-    if (this.body.trim() || this.isConcept(id)) this.notes.save(id, this.body);
+    // other names are what it is (review on #66). Nor is a template.
+    if (this.body.trim() || this.isKept(id)) this.notes.save(id, this.body);
     else if (this.notes.exists(id)) this.notes.remove(id);
   }
 
-  private isConcept(id: string): boolean {
-    return this.notes.find(id)?.kind === 'concept';
+  /** Kinds that stay when emptied: concepts and templates. */
+  private isKept(id: string): boolean {
+    const kind = this.notes.find(id)?.kind;
+    return kind === 'concept' || kind === 'template';
   }
 
-  /** Opens another note (from Previous notes, Browse or a link). */
-  openNote(id: string): void {
+  /** Opens another note (from Previous notes, Browse, a link or a template). */
+  openNote(id: string, known?: string): void {
     if (id === this.open().id) return;
     this.closeCurrent();
     // Typing held on the device before the notes load is this note's
@@ -163,7 +165,9 @@ export class CaptureService {
       this.untouched = false;
       return;
     }
-    this.show({ id, text: this.notes.find(id)?.body ?? '' });
+    // `known`: the text of a note just made here, which may not be in
+    // the list yet; typing must never start on an empty stand-in.
+    this.show({ id, text: this.notes.find(id)?.body ?? known ?? '' });
   }
 
   /**
@@ -214,7 +218,7 @@ export class CaptureService {
     const { id } = this.open();
     // Only a note emptied by typing here is deleted: an untouched one may
     // simply not have loaded yet, and must never be removed.
-    if (!this.untouched && !this.body.trim() && !this.isConcept(id)) {
+    if (!this.untouched && !this.body.trim() && !this.isKept(id)) {
       if (this.notes.exists(id)) this.notes.remove(id);
       return;
     }

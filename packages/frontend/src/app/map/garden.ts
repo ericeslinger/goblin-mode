@@ -27,7 +27,9 @@ export interface Bed {
 export function beds(notes: readonly MapNote[]): Bed[] {
   const live = notes.filter((n) => !n.archived);
   const concepts = live.filter((n) => n.kind === 'concept');
-  const writings = live.filter((n) => n.kind !== 'concept' && n.body.trim());
+  const writings = live.filter(
+    (n) => n.kind !== 'concept' && n.kind !== 'template' && n.body.trim(),
+  );
   const count = new Map<string, number>();
   for (const n of writings)
     for (const id of new Set(n.links)) count.set(id, (count.get(id) ?? 0) + 1);
@@ -91,7 +93,12 @@ export function lanes(notes: readonly MapNote[], max = 6, only?: string): Lane[]
       .map((b) => ({
         ...b,
         notes: notes.filter(
-          (n) => !n.archived && n.kind !== 'concept' && n.body.trim() && n.links.includes(only),
+          (n) =>
+            !n.archived &&
+            n.kind !== 'concept' &&
+            n.kind !== 'template' &&
+            n.body.trim() &&
+            n.links.includes(only),
         ),
       }));
   if (list.length > max) {

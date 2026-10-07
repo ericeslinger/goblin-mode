@@ -218,14 +218,41 @@ generated like any note's.
 - **Readers are lenient.** A template with no `templateMode` is used
   as `entry`, and `templateMode` on any other kind is ignored; the
   schema and rules do not tie the two together.
-- **For #38.** The empty-note delete guard, Recent, garden beds and
-  the name index treat every kind but `concept` as an ordinary note;
-  #38 extends the guard so an emptied template is kept, and decides
-  where templates show. A heading-like line inside a code block is
-  still read as a heading by `templateParts`.
+- A heading-like line inside a code block is still read as a heading
+  by `templateParts`.
 - The rules accept the two fields through the generated note
-  validator. New from template, the template list, `list_templates`
-  and `use_template` come with #38.
+  validator.
+
+**Using templates (#38, 2026-10-07).**
+
+- **Making one.** Settings, Templates, lists them (name and mode) and
+  makes new ones: New template (entry) or New living template. A new
+  template starts as a name to change and an empty Instructions for
+  Claude section, and opens to be written. On its page a header says
+  what a template is and switches the mode.
+- **From template**, beside New on the launch screen when any exist,
+  opens a menu of them. An entry template makes a new note from the
+  skeleton; a living one reopens its note (the newest live note made
+  from it) or makes it the first time. The note is written whole at
+  once (`NotesService.create`, through the cache, so offline too),
+  then opens at its URL.
+- **Kept apart.** Templates are not in Recent or Tags, Previous note
+  or the garden beds; they are in Archived when archived, and their
+  names still resolve links. An emptied template is never deleted, and
+  a template is never settled, so Claude does not retitle it.
+- **Claude.** `list_templates` returns each template's instructions,
+  skeleton, mode and the reminders naming it; `use_template` returns
+  the living note, or a new entry it makes (recorded in What Claude
+  changed), with the instructions to follow. The server instructions
+  point Claude at them.
+- **Two living notes.** If a second device uses a living template
+  before the first device's living note has synced to it, it makes
+  its own, and the two diverge; nothing is lost, and the organize
+  tools can merge them. A living note's id is not derived from the
+  template's, because an offline device would then write over the
+  other's note.
+- **Not yet.** A reminder naming a template does not open it yet;
+  that comes with the journal's daily reminder (#40).
 
 ## Client
 
