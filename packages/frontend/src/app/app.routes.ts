@@ -27,6 +27,15 @@ export const routes: Routes = [
     loadComponent: () => import('./reminders/right-now').then((m) => m.RightNow),
   },
   {
+    path: 'map',
+    loadComponent: () => import('./map/garden-map').then((m) => m.GardenMap),
+  },
+  {
+    path: 'map/timeline',
+    data: { layout: 'timeline' },
+    loadComponent: () => import('./map/garden-map').then((m) => m.GardenMap),
+  },
+  {
     path: 'map/n/:id',
     loadComponent: () => import('./map/neighborhood-map').then((m) => m.NeighborhoodMap),
   },
