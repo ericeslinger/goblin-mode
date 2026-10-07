@@ -147,6 +147,51 @@ describe('function-only collections: notes/history, activity', () => {
   }
 });
 
+describe('proposals: the owner only accepts or dismisses an open one', () => {
+  const path = 'users/owner/proposals/p1';
+  const proposal = (status = 'open') => ({
+    kind: 'merge',
+    reason: 'Same firing.',
+    notes: [
+      { id: 'a', title: 'Kiln log' },
+      { id: 'b', title: 'Firing notes' },
+    ],
+    key: 'merge:a,b',
+    status,
+    createdAt: now(),
+  });
+
+  it('lets the owner accept or dismiss an open proposal, and read it', async () => {
+    await seed(path, proposal());
+    await assertSucceeds(owner().doc(path).get());
+    await assertSucceeds(owner().doc(path).update({ status: 'accepted', decidedAt: now() }));
+    await seed(path, proposal());
+    await assertSucceeds(owner().doc(path).update({ status: 'dismissed', decidedAt: now() }));
+  });
+
+  it('refuses any other change, a decided proposal, and anyone else', async () => {
+    await seed(path, proposal());
+    await assertFails(owner().doc(path).update({ status: 'applied', decidedAt: now() }));
+    await assertFails(owner().doc(path).update({ status: 'accepted' }));
+    await assertFails(
+      owner()
+        .doc(path)
+        .update({ status: 'accepted', decidedAt: now(), notes: [{ id: 'x', title: 'x' }] }),
+    );
+    await assertFails(intruder().doc(path).get());
+    await assertFails(intruder().doc(path).update({ status: 'accepted', decidedAt: now() }));
+    await assertFails(anonymous().doc(path).get());
+    await seed(path, proposal('dismissed'));
+    await assertFails(owner().doc(path).update({ status: 'accepted', decidedAt: now() }));
+  });
+
+  it('refuses creating or deleting proposals from the app', async () => {
+    await assertFails(owner().doc(path).set(proposal()));
+    await seed(path, proposal());
+    await assertFails(owner().doc(path).delete());
+  });
+});
+
 describe('everything else is denied', () => {
   it('denies unknown collections under the owner', async () => {
     await assertFails(owner().doc('users/owner/secrets/s1').set({ x: 1 }));

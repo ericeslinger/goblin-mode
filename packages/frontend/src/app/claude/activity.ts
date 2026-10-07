@@ -5,6 +5,7 @@ import { type Firestore, collection, limit, onSnapshot, orderBy, query } from 'f
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
+import { ProposalsService } from './proposals.service';
 
 /** A Claude run as What Claude changed lists it; times in milliseconds. */
 export interface RunRecord {
@@ -64,7 +65,8 @@ function toRun(id: string, data: Record<string, unknown>): RunRecord {
 /**
  * What Claude changed (#34): every run of a Claude tool that wrote
  * something, newest first, each linking the notes it touched and their
- * History, so any change can be read and put back.
+ * History, so any change can be read and put back. Above it, the nightly
+ * run's suggestions (#35), to accept or dismiss.
  */
 @Component({
   selector: 'app-activity',
@@ -73,6 +75,79 @@ function toRun(id: string, data: Record<string, unknown>): RunRecord {
     <main class="page">
       <a routerLink="/">Back</a>
       <h1>What Claude changed</h1>
+      @if (proposals.shown().length) {
+        <section aria-labelledby="suggestions">
+          <h2 id="suggestions">Suggestions</h2>
+          <p class="muted">
+            From last night's look through your notes. Nothing changes until you accept.
+          </p>
+          <ul aria-label="Suggestions" class="suggestions">
+            @for (p of proposals.shown(); track p.id) {
+              <li>
+                <p class="what" [id]="'proposal-' + p.id">
+                  @switch (p.kind) {
+                    @case ('link') {
+                      Link <a [routerLink]="['/n', p.notes[0].id]">{{ title(p.notes[0]) }}</a> to
+                      @for (n of p.notes.slice(1); track n.id; let last = $last) {
+                        <a [routerLink]="['/n', n.id]">{{ title(n) }}</a
+                        >{{ last ? '' : ', ' }}
+                      }
+                    }
+                    @case ('merge') {
+                      Merge
+                      @for (n of p.notes; track n.id; let last = $last) {
+                        <a [routerLink]="['/n', n.id]">{{ title(n) }}</a
+                        >{{ last ? '' : ', ' }}
+                      }
+                      into one note{{ p.title ? ' titled ' + p.title : '' }}
+                    }
+                    @case ('refile') {
+                      {{ p.conceptType ? 'File' : 'Give' }}
+                      <a [routerLink]="['/n', p.notes[0].id]">{{ title(p.notes[0]) }}</a>
+                      @if (p.conceptType) {
+                        as {{ p.conceptType === 'other' ? 'a concept' : 'a ' + p.conceptType }}
+                      }
+                      @if (p.synonyms?.length) {
+                        {{ p.conceptType ? 'and call it' : 'the other names' }}
+                        {{ p.synonyms!.join(', ') }}
+                      }
+                    }
+                  }
+                </p>
+                <p class="muted">{{ p.reason }}</p>
+                @switch (p.status) {
+                  @case ('open') {
+                    <div class="actions">
+                      <button
+                        type="button"
+                        class="primary"
+                        [attr.aria-describedby]="'proposal-' + p.id"
+                        (click)="proposals.accept(p.id)"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        [attr.aria-describedby]="'proposal-' + p.id"
+                        (click)="proposals.dismiss(p.id)"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  }
+                  @case ('failed') {
+                    <p role="status">Could not do this: {{ p.outcome }}</p>
+                  }
+                  @default {
+                    <p role="status">Accepted. Claude is on it.</p>
+                  }
+                }
+              </li>
+            }
+          </ul>
+        </section>
+        <h2>Changes</h2>
+      }
       @if (!loaded()) {
         <p class="muted" role="status">Loading…</p>
       } @else if (runs().length === 0) {
@@ -123,6 +198,32 @@ function toRun(id: string, data: Record<string, unknown>): RunRecord {
       margin: 0;
       padding: 0;
     }
+    .suggestions > li {
+      padding: var(--space-2) 0;
+      border-bottom: var(--border) solid var(--rule);
+    }
+    .what,
+    .suggestions p {
+      margin: 0 0 var(--space-1);
+    }
+    .actions {
+      display: flex;
+      gap: var(--space-2);
+    }
+    .actions button {
+      font: inherit;
+      padding: 6px 16px;
+      border-radius: var(--radius-pill);
+      border: var(--border) solid var(--rule);
+      color: var(--ink);
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .actions .primary {
+      border-color: var(--accent);
+      color: var(--on-accent);
+      background: var(--accent);
+    }
     .runs > li {
       padding: var(--space-2) 0;
       border-bottom: var(--border) solid var(--rule);
@@ -151,6 +252,7 @@ export class Activity {
   private readonly fb = inject(FIREBASE);
   private readonly auth = inject(AuthService);
   private readonly notes = inject(NotesService);
+  protected readonly proposals = inject(ProposalsService);
 
   protected readonly runs = signal<RunRecord[]>([]);
   protected readonly loaded = signal(false);

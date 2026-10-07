@@ -11,6 +11,7 @@
 // | devices | client, direct | the device's own push token |
 // | settings | client, direct | theme and mode, changed offline (#24, 2026-10-06) |
 // | activity | function only | Claude's "What Claude changed" records |
+// | proposals | function, plus the owner's accept or dismiss | nightly organize (#35) |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 //
 // Direct-write collections get shape validators generated from these
@@ -166,6 +167,53 @@ export const Activity = z.object({
 });
 export type Activity = z.infer<typeof Activity>;
 
+export const ProposalKind = z.enum(['link', 'merge', 'refile']);
+export type ProposalKind = z.infer<typeof ProposalKind>;
+
+/**
+ * open: waiting for the gardener. accepted and dismissed are the only
+ * changes the app may make; applying, applied and failed are the
+ * trigger's, as it runs the matching organize tool.
+ */
+export const ProposalStatus = z.enum([
+  'open',
+  'accepted',
+  'dismissed',
+  'applying',
+  'applied',
+  'failed',
+]);
+export type ProposalStatus = z.infer<typeof ProposalStatus>;
+
+/**
+ * A change the nightly organize run suggests (#35), under `proposals`.
+ * Nothing changes until the gardener accepts it.
+ */
+export const Proposal = z.object({
+  kind: ProposalKind,
+  /** Why, in a sentence, for the gardener. */
+  reason: z.string().min(1),
+  /**
+   * link: the note, then the notes it would link. merge: the notes, in
+   * order. refile: the concept. Named as they were when proposed.
+   */
+  notes: z.array(Touched).min(1),
+  /** merge: the merged note's title, if not the first note's. */
+  title: z.string().optional(),
+  /** refile: the concept's new type. */
+  conceptType: ConceptType.optional(),
+  /** refile: other names to add. */
+  synonyms: z.array(z.string()).optional(),
+  /** The same change proposed again has the same key, so it is not. */
+  key: z.string().min(1),
+  status: ProposalStatus,
+  /** What applying it did, or why it could not. */
+  outcome: z.string().optional(),
+  createdAt: Timestamp,
+  decidedAt: Timestamp.optional(),
+});
+export type Proposal = z.infer<typeof Proposal>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,
@@ -176,4 +224,5 @@ export const paths = {
   devices: (uid: string) => `users/${uid}/devices`,
   settings: (uid: string) => `users/${uid}/settings/app`,
   activity: (uid: string) => `users/${uid}/activity`,
+  proposals: (uid: string) => `users/${uid}/proposals`,
 };

@@ -692,6 +692,35 @@ itself; `import_url` waits for M4):
   with its notes (current titles, archived ones marked), each note's
   History, and its reminders. Older runs stay stored.
 
+**Nightly suggestions (#35, 2026-10-07).** A scheduled function, not a
+claude.ai routine: it uses the Claude access titles already have
+(workload identity federation, as `goblin-titles`), so nothing has to
+be set up in a claude.ai account, and it is tested like the rest.
+
+- **When.** `nightlyOrganize` runs at 4 am in `ORGANIZE_TIME_ZONE` (a
+  deploy variable, UTC if unset), only for `OWNER_UID`, and only if a
+  note changed in the last 7 days and fewer than 20 suggestions wait.
+  Off without the federation settings.
+- **What Claude sees.** The concepts with their names, the recent
+  notes (30 at most, 1,500 characters each), and every other note by
+  title. It answers through a `propose` tool, forced, with link, merge
+  and refile suggestions and a sentence of reason each.
+- **Checked before stored** (`organize/proposals.ts`): the notes must
+  exist and be live; a link must be new and reach its note by name; a
+  merge takes two or more text notes; a refile must change something
+  and not take a name another note answers to. A suggestion made
+  before, in any state, is not made again (its `key`). At most 10 a
+  night. Survivors go in `users/{uid}/proposals` as open.
+- **Accept or dismiss.** Under What Claude changed, each suggestion
+  says what it would do, why, and offers Accept and Dismiss; Browse's
+  link counts the open ones. The app may only move an open proposal
+  to accepted or dismissed (rules), through the persistent cache, so
+  this works offline. `proposalAccepted` then claims it (applying, so
+  a retry cannot run it twice), runs the matching organize tool
+  (`link_notes`, `merge_notes`, `refile`), which records itself in
+  What Claude changed, and stores the outcome: applied, or failed with
+  why (the garden moved on). A failure stays in view for three days.
+
 ## Push
 
 The app registers an FCM token per device in `devices`. `sendDuePush`

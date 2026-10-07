@@ -96,3 +96,32 @@ export const test = base.extend({
 });
 
 export { expect };
+
+/** A JS value as the Firestore REST API writes it; Dates are timestamps. */
+function restValue(v: unknown): object {
+  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(restValue) } };
+  if (typeof v === 'string') return { stringValue: v };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: v } : { doubleValue: v };
+  if (v && typeof v === 'object') return { mapValue: { fields: restFields(v) } };
+  return { nullValue: null };
+}
+const restFields = (o: object) =>
+  Object.fromEntries(Object.entries(o).map(([k, v]) => [k, restValue(v)]));
+
+/**
+ * Writes a document as a function would, past the rules (Bearer owner),
+ * for what only a function makes, such as the nightly suggestions.
+ */
+export async function seedDoc(path: string, data: object): Promise<void> {
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/${PROJECT}/databases/(default)/documents/${path}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+      body: JSON.stringify({ fields: restFields(data) }),
+    },
+  );
+  if (!res.ok) throw new Error(`could not seed ${path}: ${await res.text()}`);
+}

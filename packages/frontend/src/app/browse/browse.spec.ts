@@ -1,8 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { type ProposalRecord, ProposalsService } from '../claude/proposals.service';
 import { NotesService } from '../notes/notes.service';
-import { FakeNotes, noteRecord } from '../testing/fakes';
+import { FakeNotes, noteRecord, FakeProposals } from '../testing/fakes';
 import { Browse } from './browse';
 
 describe('Browse', () => {
@@ -11,7 +12,11 @@ describe('Browse', () => {
     notes.signIn([noteRecord('n1', 'Groceries')]);
     await TestBed.configureTestingModule({
       imports: [Browse],
-      providers: [provideRouter([]), { provide: NotesService, useValue: notes }],
+      providers: [
+        provideRouter([]),
+        { provide: NotesService, useValue: notes },
+        { provide: ProposalsService, useValue: new FakeProposals() },
+      ],
     }).compileComponents();
     const fixture = TestBed.createComponent(Browse);
     await fixture.whenStable();
@@ -19,6 +24,27 @@ describe('Browse', () => {
     expect(el.querySelector('h1')?.textContent).toBe('Notes');
     expect(el.textContent).toContain('Groceries');
     expect(el.querySelector('a')?.getAttribute('href')).toBe('/');
+  });
+
+  it('says how many suggestions wait in What Claude changed', async () => {
+    const proposals = new FakeProposals();
+    const open = { kind: 'link' as const, reason: 'x', notes: [], status: 'open' as const };
+    proposals.list.set([
+      { ...open, id: 'p1' },
+      { ...open, id: 'p2' },
+    ] satisfies ProposalRecord[]);
+    await TestBed.configureTestingModule({
+      imports: [Browse],
+      providers: [
+        provideRouter([]),
+        { provide: NotesService, useValue: new FakeNotes() },
+        { provide: ProposalsService, useValue: proposals },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(Browse);
+    await fixture.whenStable();
+    const link = (fixture.nativeElement as HTMLElement).querySelector('a[href="/activity"]')!;
+    expect(link.textContent!.replace(/\s+/g, ' ').trim()).toBe('What Claude changed 2 suggestions');
   });
 
   it('offers lenses with counts, each its own URL', async () => {
@@ -34,6 +60,7 @@ describe('Browse', () => {
           { path: 'browse/:lens', component: Browse },
         ]),
         { provide: NotesService, useValue: notes },
+        { provide: ProposalsService, useValue: new FakeProposals() },
       ],
     });
     const harness = await RouterTestingHarness.create();

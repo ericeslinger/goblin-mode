@@ -47,10 +47,11 @@ async function googleIdentityToken(): Promise<string> {
 /**
  * Claude through workload identity federation: no API key. The SDK
  * exchanges the function's Google identity token for a short-lived
- * Claude token and refreshes it before expiry.
+ * Claude token and refreshes it before expiry. The function must run as
+ * the service account the federation rule trusts.
  */
-export function claudeTitler(config: FederationConfig): Titler {
-  const client = new Anthropic({
+export function claudeClient(config: FederationConfig): Anthropic {
+  return new Anthropic({
     credentials: oidcFederationProvider({
       identityTokenProvider: googleIdentityToken,
       ...config,
@@ -58,6 +59,10 @@ export function claudeTitler(config: FederationConfig): Titler {
       fetch,
     }),
   });
+}
+
+export function claudeTitler(config: FederationConfig): Titler {
+  const client = claudeClient(config);
   return async (body) => {
     const message = await client.messages.create({
       model: TITLE_MODEL,
