@@ -185,6 +185,21 @@ describe('Launch', () => {
     expect(document.activeElement).toBe(el.querySelector('.cm-content'));
   });
 
+  it('has the fresh note and its cursor ready the moment New is tapped', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n1', 'Old')]);
+    const { el, fixture, url } = await render({ notes, url: '/n/n1' });
+    const content = () => el.querySelector('.cm-content') as HTMLElement;
+    buttonNamed(el, 'New')!.focus();
+    buttonNamed(el, 'New')!.click();
+    // Before any navigation settles, typing would already land in the editor.
+    expect(document.activeElement).toBe(content());
+    await fixture.whenStable();
+    expect(url()).toBe('/');
+    expect(content().textContent).not.toContain('Old');
+    expect(document.activeElement).toBe(content());
+  });
+
   it('switches between live preview and source', async () => {
     const { el, fixture } = await render();
     const toggle = () =>

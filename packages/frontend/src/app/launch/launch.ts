@@ -99,6 +99,8 @@ export class Launch {
   private readonly editor = viewChild(NoteEditorComponent);
 
   protected readonly previousOpen = signal(false);
+  /** While New rewrites the old history entry, the URL does not open it. */
+  private holdRoute = false;
   /** The few most recent other notes, for "Previous note". */
   protected readonly previous = computed(() =>
     this.notes
@@ -111,6 +113,7 @@ export class Launch {
     // The URL says which note is open: /n/<id> that note, / the capture
     // note. Back and forward move between them.
     this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((params) => {
+      if (this.holdRoute) return;
       this.linkStatus.set('');
       const id = params.get('id');
       if (id) this.capture.openNote(id);
@@ -183,15 +186,22 @@ export class Launch {
    */
   protected async newNote(): Promise<void> {
     this.previousOpen.set(false);
-    this.capture.flush();
     const old = this.capture.open().id;
-    if (!this.routeId() && this.notes.exists(old)) {
-      await this.router.navigate(['/n', old], { replaceUrl: true });
-    }
+    const rewrite = !this.routeId() && this.notes.exists(old);
+    // The fresh note and its cursor come first, before any navigation,
+    // so typing straight after New lands in it (never a keystroke lost).
     this.capture.newNote();
-    await this.router.navigate(['/']);
-    // A cursor in the fresh note, as at launch.
     this.editor()?.focus();
+    if (rewrite) {
+      // Only the history entry changes; the open note stays the new one.
+      this.holdRoute = true;
+      try {
+        await this.router.navigate(['/n', old], { replaceUrl: true });
+      } finally {
+        this.holdRoute = false;
+      }
+    }
+    await this.router.navigate(['/']);
   }
 
   protected openPrevious(id: string): void {
