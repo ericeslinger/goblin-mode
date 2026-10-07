@@ -33,7 +33,7 @@ export interface MergeStore {
   ): Promise<boolean>;
 }
 
-export type MergeOutcome = 'merged' | 'clean' | 'no-base' | 'moved-on';
+export type MergeOutcome = 'merged' | 'kept-both' | 'clean' | 'moved-on';
 
 /**
  * Whether `current` was written knowing `text`: the same writer's later
@@ -64,26 +64,29 @@ export async function mergeConflict(
   // them saving twice): the older one is shared by both, so merge from
   // it; a newer one only one side has seen would read as a deletion.
   const index = Math.max(at(after.baseHash), at(before.baseHash));
-  // Without a shared text a merge would guess; history has `before`.
-  if (index < 0) return 'no-base';
-  const merged = merge3(kept[index], after.body, before.body);
+  // No shared text kept: merge as if neither side had any in common, so
+  // every line of both is kept (an edited line may show twice, a deleted
+  // one come back), rather than one side's text being lost.
+  const base = index < 0 ? '' : kept[index];
+  const merged = merge3(base, after.body, before.body);
   if (merged === after.body) return 'clean';
   let outcome: MergeOutcome = 'moved-on';
   await store.writeMerged(uid, noteId, (current) => {
-    if (current.body === after.body) {
-      outcome = 'merged';
-      return { body: merged, over: after.body };
-    }
+    let body: string;
+    if (current.body === after.body) body = merged;
     // Saved again since, building on this write: carry the merge onto
     // that, or it would be lost to a trigger that sees nothing to merge.
-    if (!builtOn(current, after.body, after.deviceId)) return undefined;
-    const rebased = merge3(after.body, current.body, merged);
-    if (rebased === current.body) {
+    else if (builtOn(current, after.body, after.deviceId))
+      body = merge3(after.body, current.body, merged);
+    // A third writer that had not seen it: merge all three from the text
+    // they share.
+    else body = merge3(base, current.body, merged);
+    if (body === current.body) {
       outcome = 'clean';
       return undefined;
     }
-    outcome = 'merged';
-    return { body: rebased, over: current.body };
+    outcome = index < 0 ? 'kept-both' : 'merged';
+    return { body, over: current.body };
   });
   return outcome;
 }

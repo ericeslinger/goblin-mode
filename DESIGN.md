@@ -820,8 +820,10 @@ when Eric and Claude (or two devices) edit one note at once:
   If the note was saved again since by a write built on the merged one
   (the same device's next save, a write made straight over it, or
   Claude's), the merge is carried onto that write instead of dropped;
-  a write that had not seen it gets its own merge from its own trigger.
-  Without a shared text it does not guess; History has both versions.
+  a third writer that had not seen it is merged in from the shared
+  text too. With no shared text kept, both are merged as if they had
+  none in common: every line of both stays, though an edited line can
+  show in both versions and a deleted one come back.
 - **Limits.** A merge keeps both versions of a line both sides changed
   differently, which can read as a near-duplicate. A rewrite too large
   to compare line by line (`MAX_TABLE` cells) keeps both sides of the

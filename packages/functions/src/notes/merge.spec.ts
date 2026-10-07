@@ -85,7 +85,7 @@ describe('mergeConflict', () => {
       'merged',
     );
     expect(s.current.body).toBe('Plan\nphone one\nphone two\nlaptop');
-    // The laptop's own trigger, late, finds the note moved on with it in.
+    // The laptop's own trigger, late, finds its text already in.
     const late = await mergeConflict(
       s,
       'u1',
@@ -93,7 +93,7 @@ describe('mergeConflict', () => {
       state(S1, { baseHash: textHash(B0) }),
       state(L1, { deviceId: 'laptop', baseHash: textHash(B0) }),
     );
-    expect(late).toBe('moved-on');
+    expect(late).toBe('clean');
     expect(s.current.body).toBe('Plan\nphone one\nphone two\nlaptop');
   });
 
@@ -111,21 +111,32 @@ describe('mergeConflict', () => {
     expect(s.keptBodies).not.toHaveBeenCalled();
   });
 
-  it('does not guess when no shared text is in history', async () => {
-    const s = store(['something else'], now(ERIC));
+  it('keeps every line of both when no shared text is in history', async () => {
+    // The phone wrote B0 and edited it; history never kept B0. The
+    // laptop comes back with an edit of B0.
+    const S1 = 'Plan\nphone';
+    const L1 = 'Plan\nlaptop';
+    const s = store(
+      ['something else'],
+      now(L1, { deviceId: 'laptop', baseHash: textHash('Plan') }),
+    );
     expect(
-      await mergeConflict(s, 'u1', 'n1', state(CLAUDE), state(ERIC, { baseHash: textHash(S) })),
-    ).toBe('no-base');
-    expect(s.writeMerged).not.toHaveBeenCalled();
+      await mergeConflict(
+        s,
+        'u1',
+        'n1',
+        state(S1),
+        state(L1, { deviceId: 'laptop', baseHash: textHash('Plan') }),
+      ),
+    ).toBe('kept-both');
+    expect(s.current.body).toBe('Plan\nlaptop\nphone');
   });
 
-  it('leaves the note to a writer that had not built on this write', async () => {
-    // Another device wrote over it without having seen it: its own
-    // trigger merges.
-    const s = store(
-      [CLAUDE, S],
-      now('List\nlaptop', { deviceId: 'laptop', baseHash: textHash(S) }),
-    );
+  it('merges in a third writer that had not seen this write', async () => {
+    // Claude added oats (B1); the phone ticked apples (W1, over S); the
+    // laptop added bread (L1, over S) before W1's trigger ran.
+    const L1 = 'List\n- [ ] apples\n- [ ] kale\n- [ ] bread';
+    const s = store([CLAUDE, S], now(L1, { deviceId: 'laptop', baseHash: textHash(S) }));
     expect(
       await mergeConflict(
         s,
@@ -134,7 +145,11 @@ describe('mergeConflict', () => {
         state(CLAUDE, { updatedBy: 'claude', deviceId: 'claude' }),
         state(ERIC, { baseHash: textHash(S) }),
       ),
-    ).toBe('moved-on');
-    expect(s.current.body).toBe('List\nlaptop');
+    ).toBe('merged');
+    const body = s.current.body;
+    expect(body).toContain('- [x] apples');
+    expect(body).toContain('- [ ] oats');
+    expect(body).toContain('- [ ] bread');
+    expect(body).not.toContain('- [ ] apples');
   });
 });
