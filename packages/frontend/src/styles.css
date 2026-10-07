@@ -21,6 +21,8 @@
   --mg-font-mono: var(--font-mono);
   --mg-font-heading: var(--font-heading);
   --mg-radius-chip: var(--radius-pill);
+  --mg-surface: var(--surface);
+  --mg-radius-card: var(--radius-card);
 }
 @media (prefers-reduced-motion: reduce) {
   :root {

@@ -4,7 +4,8 @@ import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { fakeFirebase } from '../testing/fakes';
-import { NOTES_API, type NotesApi, NotesService } from './notes.service';
+import { ONLINE } from '../platform/platform';
+import { NOTES_API, type NotesApi, NotesService, PENDING_CONCEPTS_KEY } from './notes.service';
 
 function setup() {
   localStorage.clear();
@@ -18,14 +19,19 @@ function setup() {
     set: vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
       Promise.resolve(),
     ),
+    createIfAbsent: vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) =>
+      Promise.resolve(true),
+    ),
     remove: vi.fn((_db: unknown, _path: string) => Promise.resolve()),
     serverTime: () => 'SERVER_TIME',
   } satisfies NotesApi;
+  const online = signal(true);
   TestBed.configureTestingModule({
     providers: [
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: AuthService, useValue: { user } },
       { provide: NOTES_API, useValue: api },
+      { provide: ONLINE, useValue: () => online() },
     ],
   });
   const notes = TestBed.inject(NotesService);
@@ -33,7 +39,14 @@ function setup() {
     user.set({ uid } as User);
     TestBed.tick();
   };
-  return { notes, api, signIn, push: (docs: Parameters<typeof push>[0]) => push(docs), user };
+  return {
+    notes,
+    api,
+    signIn,
+    push: (docs: Parameters<typeof push>[0]) => push(docs),
+    user,
+    online,
+  };
 }
 
 describe('NotesService', () => {
@@ -113,6 +126,49 @@ describe('NotesService', () => {
     ]);
     notes.save('n1', 'Ask [[vik]] about [[Groceries]] and [[Pottery|the wheel]], not `[[code]]`');
     expect(api.set.mock.lastCall![2]).toMatchObject({ links: ['c-vikas', 'n9', 'c-pottery'] });
+  });
+
+  it('makes stub concepts only if absent, once loaded and online', async () => {
+    const { notes, api, signIn, push, online } = setup();
+    signIn('u1');
+    expect(notes.createConcept('Kiln')).toBe('c-kiln');
+    expect(api.createIfAbsent).not.toHaveBeenCalled();
+    online.set(false);
+    push([{ id: 'c-vikas', data: { body: '', title: 'Vikas', kind: 'concept' } }]);
+    expect(api.createIfAbsent).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(PENDING_CONCEPTS_KEY)!)).toEqual(['Kiln']);
+
+    online.set(true);
+    notes.plantConcepts('Ask [[Vikas]] about the [[Kiln]], the [[kiln]] and [[Glaze]]');
+    expect(api.createIfAbsent.mock.calls.map(([, path]) => path)).toEqual([
+      'users/u1/notes/c-kiln',
+      'users/u1/notes/c-glaze',
+    ]);
+    expect(api.createIfAbsent.mock.calls[0][2]).toMatchObject({
+      kind: 'concept',
+      body: '',
+      title: 'Kiln',
+      titleSource: 'user',
+      conceptType: 'other',
+      links: [],
+      archived: false,
+    });
+    expect(api.set).not.toHaveBeenCalled();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+  });
+
+  it('keeps a name waiting when the server cannot be reached', async () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([]);
+    api.createIfAbsent.mockRejectedValueOnce(new Error('unavailable'));
+    notes.createConcept('Kiln');
+    await new Promise((r) => setTimeout(r));
+    expect(JSON.parse(localStorage.getItem(PENDING_CONCEPTS_KEY)!)).toEqual(['Kiln']);
+    notes.makePendingConcepts();
+    expect(api.createIfAbsent).toHaveBeenCalledTimes(2);
   });
 
   it('keeps a title Eric set himself', () => {

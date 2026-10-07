@@ -33,7 +33,11 @@
       }
       @if (waiting() && notes.loaded()) {
         <p class="note-status" role="status">
-          This note hasn’t reached this device yet. It will appear here when it does.
+          @if (routeIsConcept()) {
+            A new concept. It is made as soon as this device is online.
+          } @else {
+            This note hasn’t reached this device yet. It will appear here when it does.
+          }
         </p>
       }
       <app-note-editor
@@ -44,7 +48,9 @@
         [noteId]="capture.open().id"
         [text]="capture.open().text"
         [readOnly]="waiting()"
+        [suggestLinks]="suggest"
         (textChange)="capture.onText($event)"
+        (linkOpen)="followLink($event)"
       />
       @if (previous().length > 0) {
         <div class="previous">

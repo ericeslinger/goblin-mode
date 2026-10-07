@@ -177,6 +177,17 @@ describe('CaptureService', () => {
     expect(notes.settle).toHaveBeenLastCalledWith('n1', { edited: false });
   });
 
+  it('plants the concepts a typed note links to when it is left', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'read only')]);
+    capture.onText('see [[Pottery]]');
+    capture.newNote();
+    expect(notes.plantConcepts).toHaveBeenCalledExactlyOnceWith('see [[Pottery]]');
+    capture.openNote('n1');
+    capture.openHome();
+    expect(notes.plantConcepts).toHaveBeenCalledOnce();
+  });
+
   it('does not settle a note emptied by typing; it deletes it', () => {
     const { capture, notes } = setup();
     notes.signIn();

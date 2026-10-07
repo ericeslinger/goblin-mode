@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conceptId, nameIndex, normalizeName, resolveLinks } from './concepts';
+import { conceptId, nameIndex, normalizeName, resolveLinks, suggestLinks } from './concepts';
 import { autoId } from './ids';
 
 describe('normalizeName', () => {
@@ -59,5 +59,34 @@ describe('nameIndex and resolveLinks', () => {
 
   it('keeps order and drops repeats', () => {
     expect(resolveLinks(['B', 'a', 'b'], new Map())).toEqual(['c-b', 'c-a']);
+  });
+});
+
+describe('suggestLinks', () => {
+  const notes = [
+    { id: 'n1', title: 'Pottery wheel repair', kind: 'text' },
+    { id: 'c-pottery', title: 'Pottery', kind: 'concept', conceptType: 'project' },
+    { id: 'c-vikas', title: 'Vikas', kind: 'concept', conceptType: 'person', synonyms: ['Vik'] },
+    { id: 'n2', title: 'Notes on Pottery glazes', kind: 'text' },
+    { id: 'n3', title: 'Pottery kiln (old)', kind: 'text', archived: true },
+  ];
+
+  it('ranks prefix matches and concepts first, and offers nothing new for an exact name', () => {
+    expect(suggestLinks('pott', notes)).toEqual([
+      { name: 'Pottery', kind: 'project' },
+      { name: 'Pottery wheel repair', kind: 'note' },
+      { name: 'Notes on Pottery glazes', kind: 'note' },
+      { name: 'pott', kind: 'new' },
+    ]);
+    expect(suggestLinks('Pottery', notes).map((s) => s.kind)).not.toContain('new');
+  });
+
+  it('matches synonyms, and offers a name nothing has as new', () => {
+    expect(suggestLinks('vik', notes)[0]).toEqual({ name: 'Vikas', kind: 'person' });
+    expect(suggestLinks('Kiln', notes)).toEqual([{ name: 'Kiln', kind: 'new' }]);
+  });
+
+  it('lists everything live for an empty query, up to the limit', () => {
+    expect(suggestLinks('', notes, 2)).toHaveLength(2);
   });
 });

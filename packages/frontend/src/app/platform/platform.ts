@@ -32,3 +32,9 @@ export const TIME_ZONE = new InjectionToken<string>('time-zone', {
   providedIn: 'root',
   factory: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
 });
+
+/** Whether the browser thinks it is online (navigator.onLine). */
+export const ONLINE = new InjectionToken<() => boolean>('online', {
+  providedIn: 'root',
+  factory: () => () => typeof navigator === 'undefined' || navigator.onLine,
+});

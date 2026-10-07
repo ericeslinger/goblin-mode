@@ -11,8 +11,10 @@ import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   RESTORE_SUFFIX,
   autoId,
+  conceptId,
   firstWordsTitle,
   nameIndex,
+  normalizeName,
   paths,
   resolveLinks,
   type TitleSource,
@@ -25,13 +27,17 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { LocalStore } from '../platform/local-store';
-import { RANDOM_BYTES } from '../platform/platform';
+import { ONLINE, RANDOM_BYTES } from '../platform/platform';
+
+/** Names linked before their concept could be made (needs the server). */
+export const PENDING_CONCEPTS_KEY = 'goblin.pendingConcepts';
 
 /** A note as the app lists and opens it. */
 export interface NoteRecord {
@@ -43,6 +49,8 @@ export interface NoteRecord {
   kind: string;
   /** A concept's other names. */
   synonyms?: string[];
+  /** A concept's type: 'person', 'project' or 'other'. */
+  conceptType?: string;
   /** Ids this note links to (DESIGN.md, Links and concepts). */
   links: string[];
   archived: boolean;
@@ -61,6 +69,8 @@ export interface NotesApi {
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>, merge: boolean): Promise<void>;
+  /** Writes `data` only if no document is there; needs the server. */
+  createIfAbsent(db: Firestore, path: string, data: Record<string, unknown>): Promise<boolean>;
   remove(db: Firestore, path: string): Promise<void>;
   serverTime(): unknown;
 }
@@ -83,6 +93,13 @@ export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
         error,
       ),
     set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge }),
+    createIfAbsent: (db, path, data) =>
+      runTransaction(db, async (tx) => {
+        const ref = doc(db, path);
+        if ((await tx.get(ref)).exists()) return false;
+        tx.set(ref, data);
+        return true;
+      }),
     remove: (db, path) => deleteDoc(doc(db, path)),
     serverTime: () => serverTimestamp(),
   }),
@@ -97,6 +114,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     titleSource: (data['titleSource'] as TitleSource) ?? 'words',
     kind: typeof data['kind'] === 'string' ? data['kind'] : 'text',
     ...(Array.isArray(data['synonyms']) ? { synonyms: data['synonyms'].map(String) } : {}),
+    ...(typeof data['conceptType'] === 'string' ? { conceptType: data['conceptType'] } : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
     archived: data['archived'] === true,
     updatedAt: stamp?.toMillis?.(),
@@ -128,6 +146,9 @@ export class NotesService {
   private stop?: () => void;
   /** Ids written in this session: known to exist even before a snapshot. */
   private readonly written = new Set<string>();
+  /** Concepts being made right now, so a second ask waits for the first. */
+  private readonly making = new Set<string>();
+  private readonly online = inject(ONLINE);
 
   constructor() {
     effect(() => {
@@ -146,11 +167,18 @@ export class NotesService {
         (docs) => {
           this.notes.set(docs.map((d) => toRecord(d.id, d.data)));
           this.loaded.set(true);
+          this.makePendingConcepts();
         },
         (err) => console.error('notes listener', err),
       );
     });
-    inject(DestroyRef).onDestroy(() => this.stop?.());
+    // Concepts waiting for the server are made when it is back.
+    const back = () => this.makePendingConcepts();
+    globalThis.addEventListener?.('online', back);
+    inject(DestroyRef).onDestroy(() => {
+      this.stop?.();
+      globalThis.removeEventListener?.('online', back);
+    });
   }
 
   /**
@@ -203,6 +231,82 @@ export class NotesService {
       : { kind: 'text', tags: [], archived: false, createdAt: now, ...update };
     this.written.add(id);
     this.api.set(this.fb.db, path, data, known).catch(report);
+  }
+
+  /**
+   * Makes the concepts a body links to by names nothing answers to yet
+   * (stub concepts, #29): kind 'concept', the name as written, no text.
+   */
+  plantConcepts(body: string): void {
+    const names = this.names();
+    for (const target of wikiLinkTargets(parseNote(body))) {
+      if (names.has(normalizeName(target))) continue;
+      this.createConcept(target);
+    }
+  }
+
+  /**
+   * Asks for a stub concept for `name` and returns its id. The stub is
+   * made in a transaction that writes only if the concept does not
+   * exist, so it can never replace a concept another device or Claude
+   * made (review on #65). A transaction needs the server: until the
+   * notes have loaded and the device is online, the name waits on the
+   * device and is made then.
+   */
+  createConcept(name: string): string {
+    const id = conceptId(name);
+    if (this.exists(id)) return id;
+    const pending = this.store.get<string[]>(PENDING_CONCEPTS_KEY) ?? [];
+    if (!pending.some((n) => conceptId(n) === id)) {
+      this.store.set(PENDING_CONCEPTS_KEY, [...pending, name.trim()]);
+    }
+    this.makePendingConcepts();
+    return id;
+  }
+
+  /** Makes the concepts waiting on this device, where it can. */
+  makePendingConcepts(): void {
+    const uid = this.uid;
+    if (!this.ready || !uid || !this.online()) return;
+    for (const name of this.store.get<string[]>(PENDING_CONCEPTS_KEY) ?? []) {
+      const id = conceptId(name);
+      if (this.exists(id)) {
+        this.donePending(id);
+        continue;
+      }
+      if (this.making.has(id)) continue;
+      this.making.add(id);
+      const now = this.api.serverTime();
+      const stub = {
+        kind: 'concept',
+        body: '',
+        title: name,
+        // The name is Eric's: a settle never retitles a concept.
+        titleSource: 'user',
+        conceptType: 'other',
+        synonyms: [],
+        links: [],
+        tags: [],
+        archived: false,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: 'user',
+        deviceId: this.deviceId(),
+      };
+      this.api
+        .createIfAbsent(this.fb.db, paths.note(uid, id), stub)
+        .then(() => this.donePending(id))
+        // Offline after all, or refused: it stays waiting for next time.
+        .catch((err) => console.warn('concept not made yet', err))
+        .finally(() => this.making.delete(id));
+    }
+  }
+
+  private donePending(id: string): void {
+    const pending = this.store.get<string[]>(PENDING_CONCEPTS_KEY) ?? [];
+    const rest = pending.filter((n) => conceptId(n) !== id);
+    if (rest.length) this.store.set(PENDING_CONCEPTS_KEY, rest);
+    else this.store.remove(PENDING_CONCEPTS_KEY);
   }
 
   /**

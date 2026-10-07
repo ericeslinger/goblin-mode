@@ -1,5 +1,6 @@
 // Spec-support helpers; never imported from production code.
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
+import { conceptId, nameIndex } from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { NOW, TIME_ZONE } from '../platform/platform';
@@ -38,6 +39,9 @@ export class FakeNotes {
   );
   remove = vi.fn((id: string) => void this.written.delete(id));
   settle = vi.fn((_id: string, _opts?: { edited?: boolean }) => undefined);
+  readonly names = computed(() => nameIndex(this.notes()));
+  plantConcepts = vi.fn((_body: string) => undefined);
+  createConcept = vi.fn((name: string) => conceptId(name));
   newId = () => `new${++this.n}`;
   find = (id: string) => this.notes().find((x) => x.id === id);
   exists = (id: string) => this.written.has(id) || !!this.find(id);

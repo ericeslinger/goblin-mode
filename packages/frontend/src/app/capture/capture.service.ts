@@ -215,8 +215,11 @@ export class CaptureService {
     // Leaving a note settles it (Eric, 2026-10-06): New, another note,
     // a restore elsewhere, or a fresh note after five minutes away.
     // Before the notes load, hold it on the device like the launch case.
-    if (this.notes.ready) this.notes.settle(id, { edited: !this.untouched });
-    else if (this.notes.exists(id) || !this.untouched) this.store.set(PENDING_SETTLE_KEY, id);
+    if (this.notes.ready) {
+      this.notes.settle(id, { edited: !this.untouched });
+      // New names linked here become concepts (#29).
+      if (!this.untouched) this.notes.plantConcepts(this.body);
+    } else if (this.notes.exists(id) || !this.untouched) this.store.set(PENDING_SETTLE_KEY, id);
   }
 
   private show(note: OpenNote): void {

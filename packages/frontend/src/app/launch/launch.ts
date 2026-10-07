@@ -11,6 +11,7 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { CONCEPT_PREFIX, normalizeName, suggestLinks } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { NoteList } from '../browse/note-list';
 import { CaptureService } from '../capture/capture.service';
@@ -78,6 +79,11 @@ export class Launch {
   });
 
   protected readonly linkStatus = signal('');
+  /** The URL names a concept (its id is derived from its name). */
+  protected readonly routeIsConcept = computed(() => !!this.routeId()?.startsWith(CONCEPT_PREFIX));
+
+  /** Names a `[[` can complete to: concepts, synonyms, note titles. */
+  protected readonly suggest = (query: string) => suggestLinks(query, this.notes.notes());
   private readonly editor = viewChild(NoteEditorComponent);
 
   protected readonly previousOpen = signal(false);
@@ -178,6 +184,16 @@ export class Launch {
 
   protected openPrevious(id: string): void {
     this.previousOpen.set(false);
+    void this.router.navigate(['/n', id]);
+  }
+
+  /**
+   * A tapped `[[link]]` opens its note, pushing history like any other
+   * note. A name nothing answers to becomes a concept first.
+   */
+  protected followLink(target: string): void {
+    this.capture.flush();
+    const id = this.notes.names().get(normalizeName(target)) ?? this.notes.createConcept(target);
     void this.router.navigate(['/n', id]);
   }
 
