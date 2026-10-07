@@ -23,6 +23,8 @@ import { EditorModeService } from '../note-editor/editor-mode.service';
 import { NoteEditorComponent } from '../note-editor/note-editor';
 import { RightNowPanel } from '../reminders/right-now-panel';
 import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
+import { TemplateHeader } from '../templates/template-header';
+import { TemplatesService } from '../templates/templates.service';
 
 /**
  * The launch screen: a cursor in a note on top, Right Now below, and
@@ -39,6 +41,7 @@ import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
     NoteList,
     RightNowPanel,
     SignIn,
+    TemplateHeader,
   ],
   templateUrl: './launch.html',
   styleUrl: './launch.css',
@@ -99,13 +102,18 @@ export class Launch {
   private readonly editor = viewChild(NoteEditorComponent);
 
   protected readonly previousOpen = signal(false);
+  protected readonly templatesOpen = signal(false);
+  protected readonly templates = inject(TemplatesService);
   /** While New rewrites the old note's history entry, its URL does not reopen it. */
   private holdRoute: string | undefined;
   /** The few most recent other notes, for "Previous note". */
   protected readonly previous = computed(() =>
     this.notes
       .notes()
-      .filter((n) => !n.archived && n.body.trim() && n.id !== this.capture.open().id)
+      .filter(
+        (n) =>
+          !n.archived && n.kind !== 'template' && n.body.trim() && n.id !== this.capture.open().id,
+      )
       .slice(0, 5),
   );
 
@@ -204,6 +212,15 @@ export class Launch {
       }
     }
     await this.router.navigate(['/']);
+  }
+
+  /** Opens a template's note: its living note, or a fresh entry (#38). */
+  protected async fromTemplate(templateId: string): Promise<void> {
+    this.templatesOpen.set(false);
+    const id = this.templates.use(templateId);
+    if (!id) return;
+    await this.router.navigate(['/n', id]);
+    this.editor()?.focus();
   }
 
   protected openPrevious(id: string): void {

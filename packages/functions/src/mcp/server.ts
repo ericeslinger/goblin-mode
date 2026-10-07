@@ -14,6 +14,8 @@ export const INSTRUCTIONS = [
   'To organize, use list_concepts, get_backlinks, link_notes, split_note, merge_notes, refile ' +
     'and archive_note: they move his text without rewording it. Every change shows in the app ' +
     'under What Claude changed. To suggest instead of change, use suggest_changes.',
+  'When Eric asks for something a template covers (his shopping list, a journal entry), use ' +
+    'list_templates and use_template, and follow its Instructions for Claude.',
 ].join('\n');
 
 const text = (value: unknown) => ({
@@ -277,6 +279,34 @@ export function buildServer(tools: ToolsApi): McpServer {
       annotations: write,
     },
     run((a) => tools.suggestChanges(a)),
+  );
+
+  server.registerTool(
+    'list_templates',
+    {
+      title: 'List templates',
+      description:
+        "Eric's templates (shopping list, journal and so on), each with its Instructions for " +
+        'Claude, its skeleton, whether it is one living note or a new note each time, and the ' +
+        'reminders that schedule it.',
+      inputSchema: {},
+      annotations: read,
+    },
+    run((a) => tools.listTemplates(a)),
+  );
+
+  server.registerTool(
+    'use_template',
+    {
+      title: 'Use a template',
+      description:
+        "Open the note to work in for a template: a living template's one note (made the first " +
+        'time), or a new note from its skeleton. Returns the note and the Instructions for ' +
+        "Claude: follow them, so the note is done Eric's way, and write with update_note.",
+      inputSchema: { id: z.string().min(1) },
+      annotations: write,
+    },
+    run((a) => tools.useTemplate(a)),
   );
 
   server.registerTool(

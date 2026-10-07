@@ -24,6 +24,7 @@ import {
   resolveLinks,
   sentenceAround,
   snoozeUntil,
+  templateParts,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -667,6 +668,88 @@ export class NotesTools {
       stored: stored.map((p) => ({ id: p.id, kind: p.kind, notes: p.notes, reason: p.reason })),
       dropped,
       waiting: open,
+    };
+  }
+
+  /** The templates, each with its instructions, mode and schedule (#38). */
+  async listTemplates(_args: object = {}) {
+    const snap = await this.notes().where('kind', '==', 'template').get();
+    const schedules = await this.reminders().where('template', '!=', '').get();
+    return snap.docs
+      .filter((d) => d.get('archived') !== true)
+      .map((d) => {
+        const { skeleton, instructions } = templateParts(String(d.get('body') ?? ''));
+        return {
+          id: d.id,
+          title: String(d.get('title') ?? ''),
+          mode: d.get('templateMode') === 'living' ? 'living' : 'entry',
+          instructions,
+          skeleton,
+          schedule: schedules.docs
+            .filter((r) => r.get('template') === d.id)
+            .map((r) => reminderView(r.id, r.data())),
+        };
+      })
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /**
+   * The note to work in for a template, with its instructions (#38): a
+   * living template's one note (made the first time), or a new entry
+   * from the skeleton. Notes made here record the template.
+   */
+  async useTemplate(args: { id: string }) {
+    const doc = await this.notes().doc(args.id).get();
+    if (!doc.exists || doc.get('kind') !== 'template' || doc.get('archived') === true)
+      throw new ToolError(`no template ${args.id}`);
+    const template = doc.data()!;
+    const { skeleton, instructions } = templateParts(String(template['body'] ?? ''));
+    const mode = template['templateMode'] === 'living' ? 'living' : 'entry';
+    const about = { id: doc.id, title: String(template['title'] ?? ''), mode };
+    if (mode === 'living') {
+      const made = await this.notes().where('fromTemplate', '==', doc.id).get();
+      const living = made.docs
+        .filter((d) => d.get('archived') !== true)
+        .sort((a, b) => (millis(b.get('updatedAt')) ?? 0) - (millis(a.get('updatedAt')) ?? 0))[0];
+      if (living) {
+        return {
+          template: about,
+          instructions,
+          created: false,
+          note: { id: living.id, title: living.get('title'), body: living.get('body') },
+        };
+      }
+    }
+    if (!skeleton.trim()) throw new ToolError('the template has no text to start a note from');
+    const now = Timestamp.fromMillis(this.now());
+    const data = Note.parse({
+      kind: 'text',
+      body: skeleton,
+      title: firstWordsTitle(skeleton),
+      titleSource: 'words',
+      links: resolveLinks(targetsOf(skeleton), await this.names()),
+      tags: [],
+      fromTemplate: doc.id,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'claude',
+      deviceId: CLAUDE_DEVICE,
+    });
+    const id = newId();
+    const batch = this.db.batch();
+    batch.set(this.notes().doc(id), data);
+    batch.set(
+      ...this.activity('use_template', `Started a note from ${about.title || 'a template'}`, [
+        touched(id, data),
+      ]),
+    );
+    await batch.commit();
+    return {
+      template: about,
+      instructions,
+      created: true,
+      note: { id, title: data.title, body: skeleton },
     };
   }
 

@@ -47,6 +47,17 @@ export class FakeNotes {
     (_id: string, _change: { title?: string; conceptType?: string; synonyms?: string[] }) =>
       [] as string[],
   );
+  create = vi.fn(
+    (
+      id: string,
+      body: string,
+      fields: { kind?: string; templateMode?: string; fromTemplate?: string } = {},
+    ) => {
+      this.written.add(id);
+      this.notes.update((list) => [{ ...noteRecord(id, body), ...fields }, ...list]);
+    },
+  );
+  setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
   newId = () => `new${++this.n}`;
   find = (id: string) => this.notes().find((x) => x.id === id);
   exists = (id: string) => this.written.has(id) || !!this.find(id);

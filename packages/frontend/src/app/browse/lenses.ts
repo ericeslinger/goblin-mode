@@ -16,6 +16,8 @@ export function lensId(value: string | null | undefined): LensId {
 }
 
 const live = (n: NoteRecord) => !n.archived;
+/** Templates are listed in Settings, not among the notes (#38). */
+const note = (n: NoteRecord) => live(n) && n.kind !== 'template';
 const concept = (n: NoteRecord) => live(n) && n.kind === 'concept';
 
 /** Whether a note shows under a lens. Order is the notes' own (newest first). */
@@ -23,7 +25,7 @@ export function inLens(lens: LensId, n: NoteRecord): boolean {
   switch (lens) {
     case 'recent':
       // Notes with something written; empty stub concepts would be noise.
-      return live(n) && !!n.body.trim();
+      return note(n) && !!n.body.trim();
     case 'concepts':
       return concept(n);
     case 'people':
@@ -31,7 +33,7 @@ export function inLens(lens: LensId, n: NoteRecord): boolean {
     case 'projects':
       return concept(n) && n.conceptType === 'project';
     case 'tags':
-      return live(n) && (n.tags?.length ?? 0) > 0;
+      return note(n) && (n.tags?.length ?? 0) > 0;
     case 'archived':
       return !!n.archived;
   }

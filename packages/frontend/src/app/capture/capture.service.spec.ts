@@ -140,6 +140,16 @@ describe('CaptureService', () => {
     expect(notes.remove).toHaveBeenCalledWith('new1');
   });
 
+  it('keeps a template emptied by typing', () => {
+    const { capture, notes } = setup();
+    notes.signIn([{ ...noteRecord('t1', 'Journal'), kind: 'template' }]);
+    capture.openNote('t1');
+    capture.onText('');
+    capture.newNote();
+    expect(notes.remove).not.toHaveBeenCalled();
+    expect(notes.save).toHaveBeenCalledWith('t1', '');
+  });
+
   it('never deletes a resumed note whose text has not loaded yet', () => {
     const { capture, notes } = setup({ [LAST_SEEN_KEY]: { hiddenAt: clock, noteId: 'n1' } });
     notes.loaded.set(true);

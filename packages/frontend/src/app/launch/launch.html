@@ -5,6 +5,17 @@
     <header class="bar">
       <a routerLink="/browse" class="muted browse-link">Browse</a>
       <button type="button" class="link" (click)="newNote()">New</button>
+      @if (templates.templates().length > 0) {
+        <button
+          type="button"
+          class="link"
+          aria-controls="template-menu"
+          [attr.aria-expanded]="templatesOpen()"
+          (click)="templatesOpen.set(!templatesOpen())"
+        >
+          From template
+        </button>
+      }
       <span class="spacer"></span>
       <!-- The label names the mode a tap switches to; no aria-pressed,
            which would make it read as a toggle with a changing name. -->
@@ -29,9 +40,22 @@
     </aside>
 
     <section class="capture">
+      @if (templatesOpen()) {
+        <ul id="template-menu" class="template-menu" aria-label="Templates">
+          @for (t of templates.templates(); track t.id) {
+            <li>
+              <button type="button" (click)="fromTemplate(t.id)">
+                {{ t.title || 'Untitled' }}
+              </button>
+            </li>
+          }
+        </ul>
+      }
       @if (record(); as note) {
         @if (note.kind === 'concept') {
           <app-concept-header [note]="note" />
+        } @else if (note.kind === 'template') {
+          <app-template-header [note]="note" />
         }
       }
       @if (linkStatus()) {

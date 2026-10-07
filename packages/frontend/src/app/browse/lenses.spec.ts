@@ -16,6 +16,7 @@ describe('lenses', () => {
     n('kiln', { kind: 'concept', conceptType: 'project' }),
     n('tagged', { tags: ['feelings', 'home'] }),
     n('gone', { archived: true, kind: 'concept', conceptType: 'person', tags: ['home'] }),
+    n('template', { kind: 'template', tags: ['home'] }),
   ];
   const ids = (lens: Parameters<typeof inLens>[0]) =>
     notes.filter((x) => inLens(lens, x)).map((x) => x.id);
