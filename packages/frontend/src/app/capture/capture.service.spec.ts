@@ -188,6 +188,21 @@ describe('CaptureService', () => {
     expect(notes.plantConcepts).toHaveBeenCalledOnce();
   });
 
+  it('never deletes a concept for having no text', () => {
+    const { capture, notes } = setup();
+    notes.signIn([{ ...note('c-kiln', ''), title: 'Kiln', kind: 'concept' }, note('n1', 'x')]);
+    capture.openNote('c-kiln');
+    capture.onText('a');
+    capture.flush();
+    capture.onText('');
+    capture.flush();
+    expect(notes.save).toHaveBeenLastCalledWith('c-kiln', '');
+    capture.onText('b');
+    capture.onText('');
+    capture.openNote('n1');
+    expect(notes.remove).not.toHaveBeenCalled();
+  });
+
   it('does not settle a note emptied by typing; it deletes it', () => {
     const { capture, notes } = setup();
     notes.signIn();

@@ -171,6 +171,78 @@ describe('NotesService', () => {
     expect(api.createIfAbsent).toHaveBeenCalledTimes(2);
   });
 
+  it('renames a concept, keeping the old name as another name', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      {
+        id: 'c-kiln',
+        data: { body: '', title: 'Kiln', kind: 'concept', synonyms: ['Oven'], titleSource: 'user' },
+      },
+      { id: 'n1', data: { body: 'not a concept', title: 'n' } },
+    ]);
+    notes.updateConcept('c-kiln', { title: 'The kiln' });
+    expect(api.set).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'users/u1/notes/c-kiln',
+      expect.objectContaining({
+        title: 'The kiln',
+        titleSource: 'user',
+        synonyms: ['Oven', 'Kiln'],
+        updatedBy: 'user',
+      }),
+      true,
+    );
+    notes.updateConcept('c-kiln', {
+      synonyms: ['oven', 'Oven', ' ', 'Kiln'],
+      conceptType: 'project',
+    });
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      synonyms: ['Oven'],
+      conceptType: 'project',
+    });
+    api.set.mockClear();
+    notes.updateConcept('n1', { title: 'Nope' });
+    notes.updateConcept('c-kiln', { title: 'Kiln' });
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
+  it('refuses a name another note already answers to', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'c-guitar', data: { body: '', title: 'Guitar', kind: 'concept' } },
+      { id: 'c-banjo', data: { body: '', title: 'Banjo', kind: 'concept', synonyms: ['Uke'] } },
+    ]);
+    expect(notes.updateConcept('c-guitar', { synonyms: ['banjo', 'UKE', 'Axe'] })).toEqual([
+      'banjo',
+      'UKE',
+    ]);
+    expect(api.set.mock.lastCall![2]).toMatchObject({ synonyms: ['Axe'] });
+    api.set.mockClear();
+    expect(notes.updateConcept('c-guitar', { title: 'Banjo' })).toEqual(['Banjo']);
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
+  it('folds in an empty stub concept that held the name, archiving it', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'c-vikas', data: { body: '', title: 'Vikas', kind: 'concept' } },
+      { id: 'c-vik', data: { body: '', title: 'Vik', kind: 'concept' } },
+    ]);
+    expect(notes.updateConcept('c-vikas', { synonyms: ['Vik'] })).toEqual([]);
+    const calls = api.set.mock.calls.map(([, path, data]) => [path, data]);
+    expect(calls[0]).toEqual([
+      'users/u1/notes/c-vikas',
+      expect.objectContaining({ synonyms: ['Vik'] }),
+    ]);
+    expect(calls[1]).toEqual([
+      'users/u1/notes/c-vik',
+      expect.objectContaining({ archived: true, mergedInto: 'c-vikas' }),
+    ]);
+  });
+
   it('keeps a title Eric set himself', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

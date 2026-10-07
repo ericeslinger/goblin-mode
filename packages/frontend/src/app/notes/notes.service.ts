@@ -310,6 +310,67 @@ export class NotesService {
   }
 
   /**
+   * Changes a concept's name, type or other names. A new name keeps the
+   * id (derived from the first name) and adds the old one as a synonym,
+   * so links written with it still land (#30). A name another note
+   * already answers to is refused, so a concept can never take over
+   * another's links (review on #66); the refused names are returned.
+   * The exception is an empty stub concept (no text, no other names),
+   * made by linking the name before it was known to mean this concept:
+   * it is folded in, archived with `mergedInto`, never deleted.
+   */
+  updateConcept(
+    id: string,
+    change: { title?: string; conceptType?: string; synonyms?: string[] },
+  ): string[] {
+    const concept = this.find(id);
+    if (!this.uid || concept?.kind !== 'concept') return [];
+    const names = this.names();
+    const refused: string[] = [];
+    const folded = new Set<string>();
+    const free = (name: string) => {
+      const owner = names.get(normalizeName(name));
+      if (owner === undefined || owner === id) return true;
+      const stub = this.find(owner);
+      if (stub?.kind === 'concept' && !stub.body.trim() && !stub.synonyms?.length) {
+        folded.add(owner);
+        return true;
+      }
+      refused.push(name.trim());
+      return false;
+    };
+    const update: Record<string, unknown> = {};
+    let synonyms = change.synonyms ?? concept.synonyms ?? [];
+    const title = change.title?.trim();
+    if (title && title !== concept.title && free(title)) {
+      update['title'] = title;
+      update['titleSource'] = 'user';
+      if (!synonyms.some((s) => normalizeName(s) === normalizeName(concept.title))) {
+        synonyms = [...synonyms, concept.title];
+      }
+    }
+    const named = (update['title'] as string | undefined) ?? concept.title;
+    const clean = [...new Map(synonyms.map((s) => [normalizeName(s), s.trim()])).values()].filter(
+      (s) => s && normalizeName(s) !== normalizeName(named) && free(s),
+    );
+    if (change.synonyms || update['title']) update['synonyms'] = clean;
+    if (change.conceptType) update['conceptType'] = change.conceptType;
+    if (Object.keys(update).length === 0) return refused;
+    const path = paths.note(this.uid, id);
+    const stamp = {
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, path, { ...update, ...stamp }, true).catch(report);
+    for (const stub of folded) {
+      const merged = { archived: true, mergedInto: id, ...stamp };
+      this.api.set(this.fb.db, paths.note(this.uid, stub), merged, true).catch(report);
+    }
+    return refused;
+  }
+
+  /**
    * Marks a note settled (Eric left it), which asks noteTitle for a
    * Claude title. `edited`: the caller saw it typed in and saved, with
    * text. Otherwise only a note with text written since its last settle

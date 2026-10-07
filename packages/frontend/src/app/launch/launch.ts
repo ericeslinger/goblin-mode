@@ -14,6 +14,8 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CONCEPT_PREFIX, normalizeName, suggestLinks } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { NoteList } from '../browse/note-list';
+import { ConceptHeader } from '../links/concept-header';
+import { NoteLinks } from '../links/note-links';
 import { CaptureService } from '../capture/capture.service';
 import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
@@ -29,7 +31,15 @@ import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
  */
 @Component({
   selector: 'app-launch',
-  imports: [RouterLink, NoteEditorComponent, NoteList, RightNowPanel, SignIn],
+  imports: [
+    RouterLink,
+    ConceptHeader,
+    NoteEditorComponent,
+    NoteLinks,
+    NoteList,
+    RightNowPanel,
+    SignIn,
+  ],
   templateUrl: './launch.html',
   styleUrl: './launch.css',
 })
@@ -79,6 +89,8 @@ export class Launch {
   });
 
   protected readonly linkStatus = signal('');
+  /** The open note as stored, once it exists (a concept shows its header). */
+  protected readonly record = computed(() => this.notes.find(this.capture.open().id));
   /** The URL names a concept (its id is derived from its name). */
   protected readonly routeIsConcept = computed(() => !!this.routeId()?.startsWith(CONCEPT_PREFIX));
 

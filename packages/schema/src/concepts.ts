@@ -133,3 +133,67 @@ export function suggestLinks(
   if (q && !seen.has(q)) found.push({ name: query.trim(), kind: 'new' });
   return found;
 }
+
+/** What the link graph needs of a note: its id and the ids it links to. */
+export interface LinkedNote {
+  id: string;
+  archived?: boolean;
+  links: readonly string[];
+}
+
+/** Live notes that link to `id`, in the order given (newest first). */
+export function backlinks<T extends LinkedNote>(id: string, notes: readonly T[]): T[] {
+  return notes.filter((n) => !n.archived && n.id !== id && n.links.includes(id));
+}
+
+/**
+ * Concepts that share notes with `id`: every other concept linked from a
+ * note that links to `id`, most shared first (then by id, for a stable
+ * order). Concept ids carry CONCEPT_PREFIX; `isConcept` can widen that
+ * to concepts with other ids.
+ */
+export function oftenTogether(
+  id: string,
+  notes: readonly LinkedNote[],
+  limit = 6,
+  isConcept: (id: string) => boolean = (other) => other.startsWith(CONCEPT_PREFIX),
+): { id: string; shared: number }[] {
+  const counts = new Map<string, number>();
+  for (const n of backlinks(id, notes)) {
+    for (const other of new Set(n.links)) {
+      if (other === id || other === n.id || !isConcept(other)) continue;
+      counts.set(other, (counts.get(other) ?? 0) + 1);
+    }
+  }
+  return [...counts]
+    .map(([other, shared]) => ({ id: other, shared }))
+    .sort((a, b) => b.shared - a.shared || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+/**
+ * The sentence around a span of a note's text (a link), on its line,
+ * trimmed of list and heading marks, at most `max` characters.
+ */
+export function sentenceAround(body: string, start: number, end: number, max = 160): string {
+  const lineStart = body.lastIndexOf('\n', start - 1) + 1;
+  const lineEnd = body.indexOf('\n', end);
+  const line = body.slice(lineStart, lineEnd < 0 ? body.length : lineEnd);
+  const at = start - lineStart;
+  const stop = /[.!?](\s|$)/g;
+  let from = 0;
+  let to = line.length;
+  for (const m of line.matchAll(stop)) {
+    const after = m.index + 1;
+    if (after <= at) from = after;
+    else if (m.index >= at + (end - start) - 1) {
+      to = after;
+      break;
+    }
+  }
+  const text = line
+    .slice(from, to)
+    .replace(/^\s*([-*+]\s+(\[[ xX]\]\s+)?|\d+[.)]\s+|#{1,6}\s+|>\s*)/, '')
+    .trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}

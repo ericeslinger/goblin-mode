@@ -110,6 +110,13 @@
   font-size: 14px;
   color: var(--quiet);
 }
+.links {
+  max-height: 35%;
+  overflow: auto;
+}
+.links:empty {
+  display: none;
+}
 .editor {
   flex: 1;
   min-height: 0;
