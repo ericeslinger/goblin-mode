@@ -60,6 +60,7 @@ users/{uid}
     history/{versionId}
   reminders/{reminderId}
   devices/{deviceId}          push tokens
+  settings/app                theme and mode, shared by devices
   activity/{runId}            "What Claude changed" records
 oauth/...                     MCP auth state, server-only
 ```
@@ -69,8 +70,8 @@ moment it is created offline.
 
 The zod schemas in `packages/schema/src/model.ts` are the contract; the
 interfaces below are their shape. **Write path per collection
-(2026-10-05):** `notes`, `reminders` and `devices` are written directly
-by the client, because capture, done and snooze must work offline; they
+(2026-10-05):** `notes`, `reminders`, `devices` and `settings` (#24,
+2026-10-06) are written directly by the client, because capture, done and snooze must work offline; they
 are owner-only and nothing is derived from them by rules.
 `notes/history`, `activity` and `oauth` are function-only
 (`allow write: if false`). Direct-write collections get rules shape
@@ -284,8 +285,19 @@ Bog Goblin and Pixel Mossling, each light and dark.
   `theme-color` in step. Components and the editor read only tokens;
   `styles.css` maps them onto the editor's `--mg-*` names.
 - Mode is light, dark, or follow the system (live, via
-  `prefers-color-scheme`). The choice is kept on the device under
-  `goblin.theme` until #24 saves it per user.
+  `prefers-color-scheme`).
+- **Per user (#24, 2026-10-06).** The choice lives in
+  `users/{uid}/settings/app` (`Settings` in the schema; the theme ids
+  are the schema's `ThemeId`, so the rules and the app agree).
+  `ThemeSync` listens to it once signed in and adopts what another
+  device chose; a choice made here is written through the persistent
+  cache, never awaited. The device keeps its last choice under
+  `goblin.theme` so the first paint is right before auth and offline.
+  When there is no doc yet, a device that holds a choice uploads it;
+  once there is one, the doc wins over a choice made while signed
+  out. A choice made while sign-in is still being restored is held and
+  written once the gardener is known, so it is not lost to the older
+  doc.
 - Fonts are self-hosted from `@fontsource`, not Google Fonts, so they
   work offline and make no third-party request. Every `@font-face` is
   declared, but a browser fetches a font only when text uses it, and

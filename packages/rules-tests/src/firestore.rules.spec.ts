@@ -56,9 +56,10 @@ const valid: Record<string, () => object> = {
   }),
   'users/owner/reminders/r1': () => ({ text: 'call mum', status: 'open', createdBy: 'user' }),
   'users/owner/devices/d1': () => ({ token: 'fcm-token', updatedAt: now() }),
+  'users/owner/settings/app': () => ({ theme: 'night', mode: 'dark', updatedAt: now() }),
 };
 
-describe('client-written collections: notes, reminders, devices', () => {
+describe('client-written collections: notes, reminders, devices, settings', () => {
   for (const [path, shape] of Object.entries(valid)) {
     it(`${path}: the owner can create, read, update and delete`, async () => {
       await assertSucceeds(owner().doc(path).set(shape()));
@@ -106,6 +107,17 @@ describe('client-written collections: notes, reminders, devices', () => {
       ref.set({ settledAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }),
     );
     await assertFails(ref.set({ settledAt: 'just now' }, { merge: true }));
+  });
+
+  it('keeps settings to one doc, app, holding a known theme and mode', async () => {
+    const settings = valid['users/owner/settings/app'];
+    await assertFails(owner().doc('users/owner/settings/other').set(settings()));
+    const ref = owner().doc('users/owner/settings/app');
+    await assertFails(ref.set({ ...settings(), theme: 'neon' }));
+    await assertFails(ref.set({ ...settings(), mode: 'auto' }));
+    await assertSucceeds(
+      ref.set({ ...settings(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }),
+    );
   });
 
   it('accepts a server timestamp, as the app writes updatedAt', async () => {

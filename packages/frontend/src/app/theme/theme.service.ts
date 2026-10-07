@@ -1,12 +1,17 @@
 import { DOCUMENT } from '@angular/common';
 import { Injectable, InjectionToken, computed, effect, inject, signal } from '@angular/core';
+import type { ThemeMode } from '@mossgoblin/schema';
 import { LocalStore } from '../platform/local-store';
 import { type Mode, type ThemeId, THEME_IDS, themeById, tokensFor } from './themes';
 
-/** Kept on this device until the choice is saved per user (#24). */
+/**
+ * The last choice, kept on this device so the first paint is right
+ * before auth and offline. The gardener's settings doc is the source of
+ * truth once signed in (ThemeSync, #24).
+ */
 export const THEME_KEY = 'goblin.theme';
 
-export type ModeChoice = Mode | 'system';
+export type ModeChoice = ThemeMode;
 
 interface Stored {
   theme?: string;
@@ -56,11 +61,27 @@ export class ThemeService {
     effect(() => this.apply());
   }
 
+  /** Bumped by every choice made here, never by an adopted one. */
+  readonly chosen = signal(0);
+
+  /** Whether this device holds a choice of its own. */
+  hasStoredChoice(): boolean {
+    return this.store.get(THEME_KEY) !== undefined;
+  }
+
+  /** The gardener chose this here: show it, keep it, and say so. */
   set(theme: ThemeId, mode: ModeChoice = this.mode()): void {
-    if (!THEME_IDS.includes(theme)) return;
+    if (!this.adopt(theme, mode)) return;
+    this.chosen.update((n) => n + 1);
+  }
+
+  /** Shows a choice made elsewhere (another device), and keeps it here. */
+  adopt(theme: ThemeId, mode: ModeChoice): boolean {
+    if (!THEME_IDS.includes(theme)) return false;
     this.theme.set(theme);
     this.mode.set(mode);
     this.store.set(THEME_KEY, { theme, mode });
+    return true;
   }
 
   private apply(): void {

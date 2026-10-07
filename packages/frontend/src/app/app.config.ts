@@ -10,6 +10,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { FIREBASE, initFirebase } from './firebase';
 import { PushService } from './push/push.service';
+import { ThemeSync } from './theme/theme-sync.service';
 import { ThemeService } from './theme/theme.service';
 
 export const appConfig: ApplicationConfig = {
@@ -23,6 +24,8 @@ export const appConfig: ApplicationConfig = {
     }),
     // Paints the chosen theme before the first render.
     provideEnvironmentInitializer(() => void inject(ThemeService)),
+    // Keeps it in the gardener's settings, across devices.
+    provideEnvironmentInitializer(() => void inject(ThemeSync)),
     // Refreshes this device's push token after each sign-in; never awaited.
     provideEnvironmentInitializer(() => void inject(PushService)),
   ],

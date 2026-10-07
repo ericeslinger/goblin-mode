@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { Page } from '@playwright/test';
-import { expect, signInAs, test } from '../src/fixtures';
+import { type Page, devices } from '@playwright/test';
+import { expect, prepPage, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const THEMES = ['Herbarium', 'Night Garden', 'Moss and Lantern', 'Bog Goblin', 'Pixel Mossling'];
@@ -32,6 +32,26 @@ test('a theme chosen in Settings applies at once and survives a reload', async (
   await expect(html).toHaveAttribute('data-theme', 'night');
   await expect(page.getByRole('radio', { name: /^Night Garden/ })).toBeChecked();
   await expect(page.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked();
+});
+
+test('a theme chosen on one device follows the gardener to another', async ({ page, browser }) => {
+  await signInAs(page, OWNER);
+  await page.getByRole('link', { name: 'Settings' }).click();
+  await pick(page, 'Pixel Mossling', 'Dark');
+
+  const other = await browser.newContext({ ...devices['Pixel 7'] });
+  const second = await other.newPage();
+  await prepPage(second);
+  await signInAs(second, OWNER, { reset: false });
+  const html = second.locator('html');
+  await expect(html).toHaveAttribute('data-theme', 'pixel');
+  await expect(html).toHaveAttribute('data-mode', 'dark');
+
+  // And back the other way.
+  await second.goto('/settings');
+  await pick(second, 'Moss and Lantern', 'Light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'moss');
+  await other.close();
 });
 
 test('every theme, light and dark, passes axe on the busiest screens', async ({ page }) => {
