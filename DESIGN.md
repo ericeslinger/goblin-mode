@@ -254,6 +254,24 @@ generated like any note's.
 - **Not yet.** A reminder naming a template does not open it yet;
   that comes with the journal's daily reminder (#40).
 
+**Shopping list (#39, 2026-10-07).** A living template, added from
+Settings (Add a shopping list): Meal plan, then Produce, Butcher and
+Dry goods (Eric, 2026-10-06), and Instructions for Claude: read the
+meal plan, add what the meals need with `add_lines` under the right
+heading, skip what is listed, keep his words, and ★ marks a staple.
+
+- **List view.** A note made from a template that has checklist items
+  gets List beside Source: each section's open items as large
+  checkboxes, and everything ticked sunk to Got it at the bottom. Got it
+  is a view, not a heading: a tick changes only that item's mark
+  (`setDone`), so it merges cleanly with Claude's line edits (#37). The
+  view edits through `CaptureService.replace`, which the editor merges
+  with any typing, and reads `current`, the text as typed.
+- **Done shopping** removes ticked items and unticks ticked staples (a
+  ★ in the item), so they come back on the next list (`doneShopping`).
+  It saves at once as its own writer (`KEEP_SUFFIX`, as a restore
+  does), so History always keeps the list it cleared.
+
 ## Client
 
 **Launch.** The service worker serves the app shell from cache, so the

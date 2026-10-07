@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
@@ -61,6 +61,9 @@ import { ThemePicker } from '../theme/theme-picker';
         <div class="actions">
           <button type="button" (click)="newTemplate('entry')">New template</button>
           <button type="button" (click)="newTemplate('living')">New living template</button>
+          @if (!hasShoppingList()) {
+            <button type="button" (click)="newShoppingList()">Add a shopping list</button>
+          }
         </div>
       }
       @if (auth.user()) {
@@ -122,6 +125,15 @@ export class Settings {
 
   protected readonly templates = inject(TemplatesService);
   private readonly router = inject(Router);
+
+  protected readonly hasShoppingList = computed(() =>
+    this.templates.templates().some((t) => t.title === 'Shopping list'),
+  );
+
+  /** The shopping list template, opened to look over. */
+  protected newShoppingList(): void {
+    void this.router.navigate(['/n', this.templates.createShoppingList()]);
+  }
 
   /** Makes a template and opens it to be written. */
   protected newTemplate(mode: 'living' | 'entry'): void {

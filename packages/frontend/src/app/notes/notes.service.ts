@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
+  KEEP_SUFFIX,
   RESTORE_SUFFIX,
   autoId,
   conceptId,
@@ -226,7 +227,11 @@ export class NotesService {
   save(
     id: string,
     body: string,
-    { restore = false, base }: { restore?: boolean; base?: string } = {},
+    {
+      restore = false,
+      keep = false,
+      base,
+    }: { restore?: boolean; keep?: boolean; base?: string } = {},
   ): void {
     if (!this.uid) throw new Error('save before sign-in');
     const path = paths.note(this.uid, id);
@@ -238,7 +243,9 @@ export class NotesService {
     const keepTitle =
       existing?.titleSource === 'user' || (existing?.titleSource === 'llm' && !restore);
     const title = keepTitle ? {} : { title: firstWordsTitle(body), titleSource: 'words' };
-    const deviceId = this.deviceId() + (restore ? RESTORE_SUFFIX : '');
+    // A restore, or a keep (Done shopping), writes as its own writer, so
+    // noteHistory keeps the text it replaces.
+    const deviceId = this.deviceId() + (restore ? RESTORE_SUFFIX : keep ? KEEP_SUFFIX : '');
     const links = resolveLinks(wikiLinkTargets(parseNote(body)), this.names());
     // What this text was written over, so a write over a newer text
     // (Claude's, another device's) is merged on the server (#37).

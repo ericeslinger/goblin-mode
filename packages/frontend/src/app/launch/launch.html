@@ -22,6 +22,11 @@
       <button type="button" class="link" (click)="modes.toggle()">
         {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
       </button>
+      @if (listable()) {
+        <button type="button" class="link" (click)="listMode.set(!listMode())">
+          {{ listMode() ? 'Text' : 'List' }}
+        </button>
+      }
       @if (hasHistory()) {
         <a [routerLink]="['/map/n', capture.open().id]" class="muted">Map</a>
         <button type="button" class="link" (click)="copyLink()">Copy link</button>
@@ -70,8 +75,12 @@
           }
         </p>
       }
+      @if (listable() && listMode()) {
+        <app-list-view class="list-view" [body]="capture.current()" (edited)="listChange($event)" />
+      }
       <app-note-editor
         class="editor"
+        [class.hidden]="listable() && listMode()"
         label="New note"
         placeholder="Plant a thought"
         autofocus

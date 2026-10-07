@@ -73,6 +73,28 @@ describe('CaptureService', () => {
     );
   });
 
+  it('takes a change from the list view: shown in the editor, saved, or kept at once', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', '- [ ] limes\n- [x] rice')]);
+    capture.openNote('n1');
+    capture.replace('- [x] limes\n- [x] rice');
+    expect(capture.open()).toEqual({
+      id: 'n1',
+      text: '- [x] limes\n- [x] rice',
+      base: '- [ ] limes\n- [x] rice',
+    });
+    expect(capture.current()).toBe('- [x] limes\n- [x] rice');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith('n1', '- [x] limes\n- [x] rice', {
+      base: '- [ ] limes\n- [x] rice',
+    });
+    capture.replace('List', { keep: true });
+    expect(notes.save).toHaveBeenLastCalledWith('n1', 'List', {
+      base: '- [x] limes\n- [x] rice',
+      keep: true,
+    });
+  });
+
   it('shows a change made elsewhere when nothing was typed, without saving it back', () => {
     const { capture, notes } = setup();
     notes.signIn([note('n1', 'one')]);
