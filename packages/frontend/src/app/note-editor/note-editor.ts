@@ -85,9 +85,13 @@ export class NoteEditorComponent {
       if (this.editor && this.editor.getMode() !== mode) this.editor.setMode(mode);
     });
 
+    let wasReadOnly = untracked(this.readOnly);
     effect(() => {
       const readOnly = this.readOnly();
       this.editor?.setReadOnly(readOnly);
+      // A note that was waiting and arrived is ready to type in.
+      if (wasReadOnly && !readOnly && untracked(this.autofocus)) this.editor?.focus();
+      wasReadOnly = readOnly;
     });
 
     effect(() => {

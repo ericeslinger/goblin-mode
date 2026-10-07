@@ -2,7 +2,13 @@
 // one markdown string. Framework-free; the host app wraps it.
 import { startCompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
+import {
+  Annotation,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  Transaction,
+} from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import type { Mode } from './live/decorations';
 import { livePreview, modeField, setMode } from './live/extension';
@@ -38,6 +44,9 @@ export interface NoteEditor {
   focus(): void;
   destroy(): void;
 }
+
+/** Marks text the host loaded (setText), which is not the user typing. */
+const loaded = Annotation.define<boolean>();
 
 /** Both halves of read-only: no edits, and no caret or keyboard input. */
 function readOnlyExtension(readOnly: boolean) {
@@ -76,7 +85,10 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
       noteTheme,
       editing.of(readOnlyExtension(options.readOnly ?? false)),
       EditorView.updateListener.of((update) => {
-        if (update.docChanged) options.onChange?.(update.state.doc.toString());
+        // Only the user's edits: text the host loads is not reported back,
+        // or opening a note would read as typing in it.
+        const typed = update.transactions.some((tr) => tr.docChanged && !tr.annotation(loaded));
+        if (typed) options.onChange?.(update.state.doc.toString());
       }),
     ],
   });
@@ -87,7 +99,12 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
     getText: () => view.state.doc.toString(),
     setText(text) {
       const changes = view.state.changes({ from: 0, to: view.state.doc.length, insert: text });
-      view.dispatch({ changes, selection: EditorSelection.cursor(changes.newLength) });
+      view.dispatch({
+        changes,
+        selection: EditorSelection.cursor(changes.newLength),
+        // Not undoable either: undo must never bring back another note.
+        annotations: [loaded.of(true), Transaction.addToHistory.of(false)],
+      });
     },
     getMode: () => view.state.field(modeField),
     setMode(mode) {

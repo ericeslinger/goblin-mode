@@ -127,6 +127,7 @@ describe('Launch', () => {
     expect(el.textContent).not.toContain('reached this device');
     expect(content.getAttribute('contenteditable')).toBe('true');
     expect(content.textContent).toContain('Synced at last');
+    expect(document.activeElement).toBe(content);
   });
 
   it('goes to / when coming back after five minutes starts a fresh note', async () => {

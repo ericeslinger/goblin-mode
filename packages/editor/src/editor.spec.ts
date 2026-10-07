@@ -1,3 +1,4 @@
+import { undo } from '@codemirror/commands';
 import { EditorSelection } from '@codemirror/state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createNoteEditor, type NoteEditor } from './editor';
@@ -52,6 +53,16 @@ describe('createNoteEditor', () => {
     const e = make('a', { onChange });
     e.view.dispatch({ changes: { from: 1, insert: 'b' } });
     expect(onChange).toHaveBeenLastCalledWith('ab');
+  });
+
+  it('does not report text the host loads as a change', () => {
+    const onChange = vi.fn();
+    const e = make('a', { onChange });
+    e.setText('another note');
+    e.setText('');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(undo(e.view)).toBe(false);
+    expect(e.getText()).toBe('');
   });
 
   it('never changes the text when switching modes', () => {

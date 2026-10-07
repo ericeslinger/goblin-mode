@@ -41,19 +41,22 @@ test('[[ suggests a note, and the link opens it; back returns', async ({ page })
   await expect(note(page)).toContainText('Bring clay to');
 });
 
-test('a link to a new name makes a concept, offline too', async ({ page }) => {
+test('a link to a new name makes a concept, waiting offline until it can', async ({ page }) => {
   await signInAs(page, OWNER);
   await page.context().setOffline(true);
   await typeLines(page, ['Plan the [[Kiln repair]]', 'before Friday']);
   await letItSave(page);
 
+  // Made only where it cannot replace one another device made: online.
   await chip(page, 'Kiln repair').click();
   await expect(page).toHaveURL(/\/n\/c-kiln-repair$/);
-  // The concept exists at once: editable, ready for its own text.
+  await expect(page.getByRole('status').filter({ hasText: 'A new concept' })).toBeVisible();
+  await expect(note(page)).toHaveAttribute('contenteditable', 'false');
+
+  await page.context().setOffline(false);
   await expect(note(page)).toHaveAttribute('contenteditable', 'true');
   await typeLines(page, ['Needs a new element']);
   await letItSave(page);
-  await page.context().setOffline(false);
 
   await page.goBack();
   await expect(note(page)).toContainText('Plan the');

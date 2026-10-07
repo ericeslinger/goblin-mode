@@ -42,5 +42,8 @@ export function linkCompletions(context: CompletionContext): CompletionResult | 
 export const linkAutocomplete = autocompletion({
   override: [linkCompletions],
   activateOnTyping: true,
+  // Nothing is picked until chosen (arrow keys or a tap), so Enter
+  // still starts a new line (review on #65).
+  selectOnOpen: false,
   icons: false,
 });

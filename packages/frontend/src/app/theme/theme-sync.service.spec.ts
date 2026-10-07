@@ -6,7 +6,7 @@ import { FakeAuthService, fakeFirebase } from '../testing/fakes';
 import { SETTINGS_API, type SettingsApi, ThemeSync } from './theme-sync.service';
 import { PREFERS_DARK, THEME_KEY, ThemeService } from './theme.service';
 
-type Next = (data: Record<string, unknown> | undefined, fromCache: boolean) => void;
+type Next = (data: Record<string, unknown> | undefined, fromCache: boolean, local: boolean) => void;
 
 /** A stand-in settings doc: `push` delivers a snapshot. */
 class FakeSettingsApi implements SettingsApi {
@@ -19,8 +19,8 @@ class FakeSettingsApi implements SettingsApi {
   set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
   now = () => 'SERVER_TIME';
 
-  push(data: Record<string, unknown> | undefined, fromCache = false): void {
-    this.next(data, fromCache);
+  push(data: Record<string, unknown> | undefined, fromCache = false, local = false): void {
+    this.next(data, fromCache, local);
   }
 }
 
@@ -141,6 +141,18 @@ describe('ThemeSync', () => {
       mode: 'light',
       updatedAt: 'SERVER_TIME',
     });
+  });
+
+  it('never adopts the echo of its own write over a newer choice', () => {
+    const { api, theme, signIn } = setup();
+    signIn();
+    api.push({ theme: 'herbarium', mode: 'system', updatedAt: 'x' });
+    theme.set('night', 'system');
+    TestBed.tick();
+    theme.set('night', 'dark');
+    TestBed.tick();
+    api.push({ theme: 'night', mode: 'system', updatedAt: 'x' }, false, true);
+    expect(theme.mode()).toBe('dark');
   });
 
   it('ignores a malformed doc', () => {

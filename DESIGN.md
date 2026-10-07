@@ -141,13 +141,21 @@ Picking one writes `name]]`. A tapped link chip opens its note at
 concept first. Leaving a note that was typed in also plants stubs for
 its new names (`NotesService.plantConcepts`). A stub is a note with
 kind `concept`, the name as written as its title (`titleSource: 'user'`,
-so a settle never retitles it), type `other` and no text; it is written
-only once the notes have loaded, so a known note is never mistaken for
-a new one. A concept another device made that has not reached this one
-yet can still be written over by a stub; noteHistory keeps the version
-it replaced. MCP writes do not plant stubs; a link from Claude to a new
-name points at the concept id, and the stub appears when the gardener
-follows it or leaves a note linking it.
+so a settle never retitles it), type `other` and no text. It is made in
+a transaction that writes only if the concept does not exist, so it can
+never replace a concept another device or Claude made (review on #65).
+A transaction needs the server, so a name linked offline, or before the
+notes load, waits on the device (`goblin.pendingConcepts`) and is made
+when the notes load or the device comes back online; until then its
+page says so and is read-only. MCP writes do not plant stubs; a link
+from Claude to a new name points at the concept id, and the stub
+appears when the gardener follows it or leaves a note linking it.
+
+The editor reports only the user's edits: text the app loads into it
+(another note opened) is neither reported back as typing nor undoable,
+so opening a note never marks it edited, and undo never brings back
+another note's text (found with #29: an empty concept was deleted as
+"emptied by typing" the moment it opened).
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
@@ -352,7 +360,8 @@ Bog Goblin and Pixel Mossling, each light and dark.
   `users/{uid}/settings/app` (`Settings` in the schema; the theme ids
   are the schema's `ThemeId`, so the rules and the app agree).
   `ThemeSync` listens to it once signed in and adopts what another
-  device chose; a choice made here is written through the persistent
+  device chose (never the echo of its own pending write, which could
+  briefly undo a newer choice); a choice made here is written through the persistent
   cache, never awaited. The device keeps its last choice under
   `goblin.theme` so the first paint is right before auth and offline.
   When there is no doc yet, a device that holds a choice uploads it;

@@ -9,12 +9,13 @@ import { ThemeService } from './theme.service';
 export interface SettingsApi {
   /**
    * The settings doc as it stands, or undefined when there is none yet;
-   * `fromCache` says the answer has not been confirmed by the server.
+   * `fromCache` says the answer has not been confirmed by the server, and
+   * `local` that it carries this device's own writes not yet sent.
    */
   listen(
     db: Firestore,
     path: string,
-    next: (data: Record<string, unknown> | undefined, fromCache: boolean) => void,
+    next: (data: Record<string, unknown> | undefined, fromCache: boolean, local: boolean) => void,
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>): Promise<void>;
@@ -31,7 +32,12 @@ export const SETTINGS_API = new InjectionToken<SettingsApi>('settings-api', {
         // Metadata changes too, so a cached "no doc" is followed by the
         // server's answer.
         { includeMetadataChanges: true },
-        (snap) => next(snap.exists() ? snap.data() : undefined, snap.metadata.fromCache),
+        (snap) =>
+          next(
+            snap.exists() ? snap.data() : undefined,
+            snap.metadata.fromCache,
+            snap.metadata.hasPendingWrites,
+          ),
         error,
       ),
     set: (db, path, data) => setDoc(doc(db, path), data),
@@ -75,7 +81,7 @@ export class ThemeSync {
       this.stop = this.api.listen(
         this.fb.db,
         paths.settings(uid),
-        (data, fromCache) => this.received(data, fromCache),
+        (data, fromCache, local) => this.received(data, fromCache, local),
         (err) => console.error('settings listener', err),
       );
     });
@@ -88,7 +94,14 @@ export class ThemeSync {
     inject(DestroyRef).onDestroy(() => this.stop?.());
   }
 
-  private received(data: Record<string, unknown> | undefined, fromCache: boolean): void {
+  private received(
+    data: Record<string, unknown> | undefined,
+    fromCache: boolean,
+    local = false,
+  ): void {
+    // The echo of this device's own write: a newer choice may already be
+    // showing, and adopting the echo would briefly undo it.
+    if (local) return;
     if (this.pending) {
       this.pending = false;
       this.write();
