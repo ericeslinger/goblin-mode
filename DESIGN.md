@@ -723,10 +723,15 @@ tools and writes only through `suggest_changes`.
   hour is marked failed (its function stopped partway), and applied
   and failed proposals are deleted after 90 days. Dismissed ones stay,
   so a dismissed suggestion never returns; the read of them is keys
-  only.
+  only. A stuck claim therefore shows as in progress until the next
+  routine run, or until the routine is turned back on.
 - **Note text is data.** The routine's prompt says so; the server's
   checks, the accept gate and the tools' own checks bound what a
   steered suggestion could do.
+- **The write ban is the prompt's.** The routine holds the whole
+  connector, so only its prompt keeps it to `suggest_changes`. Any
+  other write would still be recorded under What Claude changed and
+  could be put back from History, since nothing deletes.
 
 ## Push
 
