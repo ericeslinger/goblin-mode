@@ -3,7 +3,6 @@
 } @else {
   <div class="launch">
     <header class="bar">
-      <a routerLink="/browse" class="muted browse-link">Browse</a>
       <button type="button" class="link" (click)="newNote()">New</button>
       @if (templates.templates().length > 0) {
         <button
@@ -16,28 +15,52 @@
           From template
         </button>
       }
-      <span class="spacer"></span>
-      <!-- The label names the mode a tap switches to; no aria-pressed,
-           which would make it read as a toggle with a changing name. -->
-      <button type="button" class="link" (click)="modes.toggle()">
-        {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
-      </button>
       @if (listable()) {
         <button type="button" class="link" (click)="listMode.set(!listMode())">
           {{ listMode() ? 'Text' : 'List' }}
         </button>
       }
-      @if (hasHistory()) {
-        <a [routerLink]="['/map/n', capture.open().id]" class="muted">Map</a>
-        <button type="button" class="link" (click)="copyLink()">Copy link</button>
-        <a routerLink="/history" [queryParams]="{ note: capture.open().id }" class="muted"
-          >History</a
+      <span class="spacer"></span>
+      <!-- The rest is one tap away (#78); the sync dot rides on the button
+           so offline is always in sight. -->
+      <div class="more" (keydown.escape)="closeMore(moreButton)">
+        <button
+          #moreButton
+          type="button"
+          class="more-button"
+          aria-controls="more-menu"
+          [attr.aria-expanded]="moreOpen()"
+          (click)="moreOpen.set(!moreOpen())"
         >
-      }
-      <span class="sync" [class.offline]="!online()" role="status">
-        {{ online() ? 'synced' : 'offline' }}
-      </span>
-      <a routerLink="/settings" class="muted" aria-label="Settings">Settings</a>
+          More
+          <span class="sync" [class.offline]="!online()" aria-hidden="true"></span>
+        </button>
+        <span class="visually-hidden" role="status">{{ online() ? 'synced' : 'offline' }}</span>
+        @if (moreOpen()) {
+          <nav id="more-menu" class="more-menu" aria-label="More" (click)="moreOpen.set(false)">
+            <p class="sync-line" [class.offline]="!online()">
+              {{ online() ? 'Synced' : 'Offline. Changes are kept here and sync when back.' }}
+            </p>
+            <ul>
+              <li class="browse-link"><a routerLink="/browse">Browse</a></li>
+              <li>
+                <!-- The label names the mode a tap switches to. -->
+                <button type="button" (click)="modes.toggle()">
+                  {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
+                </button>
+              </li>
+              @if (hasHistory()) {
+                <li><a [routerLink]="['/map/n', capture.open().id]">Map</a></li>
+                <li><button type="button" (click)="copyLink()">Copy link</button></li>
+                <li>
+                  <a routerLink="/history" [queryParams]="{ note: capture.open().id }">History</a>
+                </li>
+              }
+              <li><a routerLink="/settings">Settings</a></li>
+            </ul>
+          </nav>
+        }
+      </div>
     </header>
 
     <aside class="list-pane" aria-label="All notes">

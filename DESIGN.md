@@ -440,6 +440,16 @@ Tapping the Right Now heading opens the full list (`/right-now`). On
 wide screens Right Now sits above the notes list, as the UX spec has
 it, sized by its content (2026-10-06).
 
+**Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
+New, From template (when there are templates) and List or Text (on a
+list). Everything else is under More: Browse (not on wide screens,
+where the notes list is beside the note), Source or Preview, Map, Copy
+link and History (for a note with a URL), and Settings. The sync dot
+sits on the More button's corner, green or red, so offline is always
+in sight; the menu says it in words, and a hidden status tells screen
+readers. More is a disclosure: it closes on choosing an item, on
+Escape (back to its button) and on a tap outside.
+
 **Right Now (as built, 2026-10-06).** One live listener on open and
 snoozed reminders (`status in ['open', 'snoozed']`; done ones are never
 read). A reminder's time is its snooze while snoozed, else `dueAt`;

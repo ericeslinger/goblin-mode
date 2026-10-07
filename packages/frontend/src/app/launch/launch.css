@@ -62,7 +62,75 @@
 .spacer {
   flex: 1;
 }
-.sync::before {
+.more {
+  position: relative;
+}
+.more-button {
+  position: relative;
+  font: inherit;
+  padding: 4px 12px;
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  background: var(--surface);
+  cursor: pointer;
+}
+/* The sync dot, on the More button's corner: green synced, red offline. */
+.sync {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  background: var(--good);
+}
+.sync.offline {
+  background: var(--warn);
+}
+.more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  min-width: 200px;
+  padding: var(--space-1) 0;
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.15);
+}
+.more-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.more-menu a,
+.more-menu li button {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  text-decoration: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.more-menu a:hover,
+.more-menu li button:hover {
+  background: var(--chip-bg);
+}
+.sync-line {
+  margin: 0;
+  padding: 6px 16px 8px;
+  font-size: 13px;
+  color: var(--quiet);
+  border-bottom: 1px solid var(--rule);
+}
+.sync-line::before {
   content: '';
   display: inline-block;
   width: 8px;
@@ -71,7 +139,7 @@
   border-radius: 50%;
   background: var(--good);
 }
-.sync.offline::before {
+.sync-line.offline::before {
   background: var(--warn);
 }
 .capture {

@@ -1,4 +1,4 @@
-import { expect, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, signInAs, test, typeLines, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Live preview draws tasks and wiki links as widgets off the line being
@@ -38,15 +38,15 @@ test('writing a task list in live preview, then checking it in source', async ({
   await expect(note.locator('input[aria-label="Mark not done"]')).toBeChecked();
 
   // Source mode shows the stored text, with the tick made in it.
-  await page.getByRole('button', { name: 'Source' }).click();
+  await (await openMore(page)).getByRole('button', { name: 'Source' }).click();
   await expect(note).toContainText('# Groceries');
   await expect(note).toContainText('- [x] eggs for [[Vikas]]');
   await expect(note.locator('input[type=checkbox]')).toHaveCount(0);
 
   // The choice is remembered on the device.
   await page.reload();
-  await page.getByRole('button', { name: 'Preview' }).click();
-  await expect(page.getByRole('button', { name: 'Source' })).toBeVisible();
+  await (await openMore(page)).getByRole('button', { name: 'Preview' }).click();
+  await expect((await openMore(page)).getByRole('button', { name: 'Source' })).toBeVisible();
 });
 
 test('lists continue on Enter and show bullets off the edited line', async ({ page }) => {
@@ -70,9 +70,9 @@ test('lists continue on Enter and show bullets off the edited line', async ({ pa
   await page.keyboard.type('after the list');
 
   await expect(note.locator('.mg-bullet')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Source' }).click();
+  await (await openMore(page)).getByRole('button', { name: 'Source' }).click();
   await expect(lines).toHaveText(['- one', '- two', 'after the list']);
-  await page.getByRole('button', { name: 'Preview' }).click();
+  await (await openMore(page)).getByRole('button', { name: 'Preview' }).click();
 });
 
 test('dragging the handle resizes Right Now, and it stays that size', async ({ page }) => {
@@ -115,6 +115,6 @@ test('one star is bold and underscores are italic, stored as typed', async ({ pa
   await expect(note.locator('.mg-em')).toHaveText('maybe');
   await expect(note.locator('.cm-line').first()).toHaveText('buy milk and maybe eggs');
 
-  await page.getByRole('button', { name: 'Source' }).click();
+  await (await openMore(page)).getByRole('button', { name: 'Source' }).click();
   await expect(note.locator('.cm-line').first()).toHaveText('buy *milk* and _maybe_ eggs');
 });

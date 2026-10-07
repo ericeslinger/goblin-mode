@@ -44,6 +44,12 @@ async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: st
 const buttonNamed = (el: HTMLElement, text: string) =>
   [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
 
+/** Opens More and waits for it to show. */
+async function openMore(el: HTMLElement, fixture: { whenStable(): Promise<void> }) {
+  if (!el.querySelector('#more-menu')) buttonNamed(el, 'More')!.click();
+  await fixture.whenStable();
+}
+
 describe('Launch', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -168,6 +174,7 @@ describe('Launch', () => {
     const notes = new FakeNotes();
     notes.signIn([noteRecord('n7', 'Share me')]);
     const { el, fixture } = await render({ notes, url: '/n/n7' });
+    await openMore(el, fixture);
     buttonNamed(el, 'Copy link')!.click();
     await fixture.whenStable();
     expect(writeText).toHaveBeenCalledWith(`${location.origin}/n/n7`);
@@ -251,9 +258,13 @@ describe('Launch', () => {
     const { el, fixture } = await render();
     const toggle = () =>
       [...el.querySelectorAll('button')].find((b) => /Source|Preview/.test(b.textContent ?? ''))!;
+    await openMore(el, fixture);
     expect(toggle().textContent?.trim()).toBe('Source');
     toggle().click();
     await fixture.whenStable();
+    // Choosing an item closes More.
+    expect(el.querySelector('#more-menu')).toBeNull();
+    await openMore(el, fixture);
     expect(toggle().textContent?.trim()).toBe('Preview');
     toggle().click();
   });
@@ -290,6 +301,33 @@ describe('Launch', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     window.dispatchEvent(new Event('offline'));
     await fixture.whenStable();
-    expect(el.querySelector('.sync')?.textContent?.trim()).toBe('offline');
+    expect(el.querySelector('[role="status"].visually-hidden')?.textContent?.trim()).toBe(
+      'offline',
+    );
+    expect(el.querySelector('.more-button .sync')?.classList).toContain('offline');
+  });
+
+  it('keeps the rest in More, which closes on Escape and returns focus', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n7', 'Share me')]);
+    const { el, fixture } = await render({ notes, url: '/n/n7' });
+    const more = buttonNamed(el, 'More')!;
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('a[href="/settings"]')).toBeNull();
+    await openMore(el, fixture);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    const items = [...el.querySelectorAll('#more-menu li')].map((li) => li.textContent?.trim());
+    expect(items).toEqual(['Browse', 'Source', 'Map', 'Copy link', 'History', 'Settings']);
+    expect(el.querySelector('#more-menu')?.textContent).toContain('Synced');
+    el.querySelector('#more-menu')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    await fixture.whenStable();
+    expect(el.querySelector('#more-menu')).toBeNull();
+    expect(document.activeElement).toBe(more);
+    await openMore(el, fixture);
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await fixture.whenStable();
+    expect(el.querySelector('#more-menu')).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
-import { expect, prepPage, signInAs, test } from '../src/fixtures';
+import { expect, prepPage, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const THEMES = ['Herbarium', 'Night Garden', 'Moss and Lantern', 'Bog Goblin', 'Pixel Mossling'];
@@ -20,7 +20,7 @@ async function expectNoSeriousViolations(page: Page, where: string): Promise<voi
 
 test('a theme chosen in Settings applies at once and survives a reload', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('radio', { name: /^Herbarium/ })).toBeChecked();
 
   await pick(page, 'Night Garden', 'Dark');
@@ -36,7 +36,7 @@ test('a theme chosen in Settings applies at once and survives a reload', async (
 
 test('a theme chosen on one device follows the gardener to another', async ({ page, browser }) => {
   await signInAs(page, OWNER);
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await pick(page, 'Pixel Mossling', 'Dark');
 
   const other = await browser.newContext({ ...devices['Pixel 7'] });

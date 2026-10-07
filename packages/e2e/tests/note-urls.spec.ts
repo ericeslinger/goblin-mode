@@ -1,5 +1,5 @@
 import { type Page, devices } from '@playwright/test';
-import { expect, letItSave, prepPage, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, prepPage, signInAs, test, typeLines, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Every note has its own URL, /n/<id> (#27): back and forward move
@@ -21,7 +21,7 @@ test('back and forward move between notes', async ({ page }) => {
   await typeLines(page, ['The second thought']);
   await letItSave(page);
 
-  await page.getByRole('link', { name: 'Browse' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Browse' }).click();
   await page.getByRole('list', { name: 'Notes' }).getByRole('link', { name: /first/ }).click();
   await expect(page).toHaveURL(/\/n\/\w+$/);
   await expect(note(page)).toContainText('The first thought');
@@ -80,7 +80,7 @@ test('note links work offline', async ({ page }) => {
   await page.context().setOffline(true);
   // Followed in the app...
   await page.goto('/');
-  await page.getByRole('link', { name: 'Browse' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Browse' }).click();
   await page.getByRole('list', { name: 'Notes' }).getByRole('link', { name: /train/ }).click();
   await expect(note(page)).toContainText('Read on the train');
   // ...and opened cold from the address bar.

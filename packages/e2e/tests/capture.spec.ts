@@ -1,5 +1,5 @@
 import { devices } from '@playwright/test';
-import { expect, letItSave, prepPage, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, prepPage, signInAs, test, typeLines, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const note = (page: import('@playwright/test').Page) =>
@@ -74,7 +74,7 @@ test('search finds a note and opens it', async ({ page }) => {
   await typeLines(page, ['Something else']);
   await letItSave(page);
 
-  await page.getByRole('link', { name: 'Browse' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Browse' }).click();
   await page.getByRole('searchbox', { name: 'Search notes' }).fill('hotswap vikas');
   const results = page.getByRole('list', { name: 'Notes' }).getByRole('link');
   await expect(results).toHaveCount(1);
@@ -93,5 +93,6 @@ test('wide screens show all notes beside the open one', async ({ page }) => {
     'aria-current',
     'true',
   );
-  await expect(page.getByRole('link', { name: 'Browse' })).toBeHidden();
+  // The notes list is beside the note: Browse is not needed in More.
+  await expect((await openMore(page)).getByRole('link', { name: 'Browse' })).toBeHidden();
 });

@@ -1,5 +1,5 @@
 import { type Page, devices } from '@playwright/test';
-import { expect, letItSave, prepPage, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, prepPage, signInAs, test, typeLines, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
@@ -32,7 +32,7 @@ test('a version another device wrote over can be found in History and restored',
 
   await page.reload();
   await expect(note(page)).toContainText('Groceries: oat milk');
-  await page.getByRole('link', { name: 'History' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'History' }).click();
   const versions = page.getByRole('list', { name: 'Earlier versions' });
   const kept = versions.getByRole('button', { name: /Groceries: milk, eggs/ });
   await expect(kept).toContainText('Written over from another device');
@@ -44,7 +44,7 @@ test('a version another device wrote over can be found in History and restored',
   await page.reload();
   await expect(note(page)).toHaveText('Groceries: milk, eggs');
   // The text the restore replaced is kept in turn.
-  await page.getByRole('link', { name: 'History' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'History' }).click();
   await expect(
     page.getByRole('list', { name: 'Earlier versions' }).getByRole('button', { name: /oat milk/ }),
   ).toBeVisible();

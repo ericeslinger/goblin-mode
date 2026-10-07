@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, typeLines, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The neighborhood map (#32): a note's links and backlinks, two out.
@@ -17,7 +17,7 @@ test('the map shows a note’s neighborhood; a node opens its note; back returns
   await typeLines(page, ['Firing log', 'The [[Glaze]] ran.', 'notes']);
   await letItSave(page);
 
-  await page.getByRole('link', { name: 'Map' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Map' }).click();
   await expect(page).toHaveURL(/\/map\/n\/\w+$/);
   await expect(page.getByRole('heading', { name: 'Around Firing log' })).toBeVisible();
   const direct = page.getByRole('list', { name: 'Linked directly' });
