@@ -11,6 +11,9 @@ export const INSTRUCTIONS = [
   "In Eric's notes *single stars* mean bold and _underscores_ mean italic; " +
     'write emphasis the same way.',
   'Times are ISO 8601 with an offset. Ask Eric for his time zone if you need one and do not know it.',
+  'To organize, use list_concepts, get_backlinks, link_notes, split_note, merge_notes, refile ' +
+    'and archive_note: they move his text without rewording it. Every change shows in the app ' +
+    'under What Claude changed.',
 ].join('\n');
 
 const text = (value: unknown) => ({
@@ -124,6 +127,114 @@ export function buildServer(tools: ToolsApi): McpServer {
       annotations: write,
     },
     run((a) => tools.updateNote(a)),
+  );
+
+  server.registerTool(
+    'list_concepts',
+    {
+      title: 'List concepts',
+      description:
+        'The concepts (people, projects and other named things) with their other names and how ' +
+        'many notes link to each, most linked first.',
+      inputSchema: { type: z.enum(['person', 'project', 'other']).optional() },
+      annotations: read,
+    },
+    run((a) => tools.listConcepts(a)),
+  );
+
+  server.registerTool(
+    'get_backlinks',
+    {
+      title: 'Notes linking here',
+      description:
+        'The notes that link to a note or concept, newest first, each with the sentence around ' +
+        'its link.',
+      inputSchema: { id: z.string().min(1) },
+      annotations: read,
+    },
+    run((a) => tools.getBacklinks(a)),
+  );
+
+  server.registerTool(
+    'link_notes',
+    {
+      title: 'Link notes',
+      description:
+        'Link one note to others by adding a "See also [[...]]" line at its end. ' +
+        "Eric's text is left as it is; notes it already links are skipped.",
+      inputSchema: {
+        from: z.string().min(1),
+        to: z.array(z.string().min(1)).min(1).max(20),
+      },
+      annotations: write,
+    },
+    run((a) => tools.linkNotes(a)),
+  );
+
+  server.registerTool(
+    'split_note',
+    {
+      title: 'Split a note',
+      description:
+        'Cut a note into pieces. parts must be the note itself, word for word and in order, cut ' +
+        'only where there is whitespace; anything reworded is refused. The first part stays in ' +
+        'the note, which links to the new notes made from the rest. History keeps the whole note.',
+      inputSchema: {
+        id: z.string().min(1),
+        parts: z.array(z.string().min(1)).min(2).max(20),
+      },
+      annotations: write,
+    },
+    run((a) => tools.splitNote(a)),
+  );
+
+  server.registerTool(
+    'merge_notes',
+    {
+      title: 'Merge notes',
+      description:
+        'Join notes, in the order given, into one new note, each whole with a blank line ' +
+        'between. The originals are archived (not deleted) and point to it, and links to their ' +
+        'titles follow to the new note. Without a title, the first note decides it.',
+      inputSchema: {
+        ids: z.array(z.string().min(1)).min(2).max(20),
+        title: z.string().optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.mergeNotes(a)),
+  );
+
+  server.registerTool(
+    'refile',
+    {
+      title: 'Refile a note',
+      description:
+        'File a concept as a person, project or other, give it other names links can use, or ' +
+        'add and remove tags on any note. A name another note already answers to is refused.',
+      inputSchema: {
+        id: z.string().min(1),
+        type: z.enum(['person', 'project', 'other']).optional(),
+        addSynonyms: z.array(z.string().min(1)).optional(),
+        addTags: z.array(z.string().min(1)).optional(),
+        removeTags: z.array(z.string().min(1)).optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.refile(a)),
+  );
+
+  server.registerTool(
+    'archive_note',
+    {
+      title: 'Archive a note',
+      description:
+        'Archive a note (archived: false restores it). Archived notes leave lists and links but ' +
+        'are kept; there is no delete.',
+      inputSchema: { id: z.string().min(1), archived: z.boolean().optional() },
+      annotations: write,
+    },
+    run((a) => tools.archiveNote(a)),
   );
 
   server.registerTool(

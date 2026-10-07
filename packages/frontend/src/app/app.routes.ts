@@ -39,6 +39,10 @@ export const routes: Routes = [
     path: 'map/n/:id',
     loadComponent: () => import('./map/neighborhood-map').then((m) => m.NeighborhoodMap),
   },
+  {
+    path: 'activity',
+    loadComponent: () => import('./claude/activity').then((m) => m.Activity),
+  },
   { path: 'history', loadComponent: () => import('./history/history').then((m) => m.History) },
   {
     path: 'oauth/authorize',

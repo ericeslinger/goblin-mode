@@ -139,3 +139,175 @@ describe('NotesTools', () => {
     expect(await t.listReminders({ includeDone: true })).toHaveLength(2);
   });
 });
+
+async function concept(id: string, title: string, over: Record<string, unknown> = {}) {
+  await eric(id, '', { kind: 'concept', title, ...over });
+}
+
+/** Tools whose clock moves a second per call, so runs sort in order. */
+function ticking() {
+  let t = T;
+  return new NotesTools(db, 'u1', () => (t += 1000));
+}
+
+async function runs() {
+  const snap = await db.collection('users/u1/activity').orderBy('at').get();
+  return snap.docs.map((d) => d.data());
+}
+
+const body = async (id: string) => (await db.doc(`users/u1/notes/${id}`).get()).data()!;
+
+describe('organizing tools', () => {
+  it('records every write as a run in activity, in the same commit', async () => {
+    const t = ticking();
+    const { id } = await t.createNote({ body: 'Seed list\nkale' });
+    await t.updateNote({ id, body: 'Seed list\nkale, chard', tags: ['garden'] });
+    await t.createReminder({ text: 'Water seeds' });
+    expect(await runs()).toEqual([
+      expect.objectContaining({
+        tool: 'create_note',
+        summary: 'Wrote a new note',
+        notes: [{ id, title: 'Seed list' }],
+        reminders: [],
+      }),
+      expect.objectContaining({
+        tool: 'update_note',
+        summary: "Changed a note's text and tags",
+        notes: [{ id, title: 'Seed list' }],
+      }),
+      expect.objectContaining({
+        tool: 'create_reminder',
+        reminders: [expect.objectContaining({ title: 'Water seeds' })],
+      }),
+    ]);
+  });
+
+  it('lists concepts by links and finds backlinks with their sentence', async () => {
+    await concept('c-kiln', 'Kiln', { conceptType: 'project', synonyms: ['The kiln'] });
+    await concept('c-vikas', 'Vikas', { conceptType: 'person' });
+    await eric('a', 'Studio day\nFire the [[kiln]]. Then glaze.');
+    await eric('b', 'Ask [[Vikas]] about [[The kiln]].');
+    await eric('gone', 'Old [[Kiln]] plan', { archived: true });
+    const t = ticking();
+    expect(await t.listConcepts({})).toEqual([
+      { id: 'c-kiln', title: 'Kiln', type: 'project', synonyms: ['The kiln'], linkedFrom: 2 },
+      { id: 'c-vikas', title: 'Vikas', type: 'person', synonyms: [], linkedFrom: 1 },
+    ]);
+    expect((await t.listConcepts({ type: 'person' })).map((c) => c.id)).toEqual(['c-vikas']);
+    const back = await t.getBacklinks({ id: 'c-kiln' });
+    expect(back.map((b) => [b.id, b.sentence]).sort()).toEqual([
+      ['a', 'Fire the [[kiln]].'],
+      ['b', 'Ask [[Vikas]] about [[The kiln]].'],
+    ]);
+  });
+
+  it('links a note with a line of its own, leaving the text and existing links alone', async () => {
+    await eric('a', 'Studio day\nFire the kiln.\n');
+    await eric('b', 'Glaze recipes');
+    await eric('c', 'Kiln repair');
+    await eric('dup', 'Glaze recipes');
+    const t = ticking();
+    expect(await t.linkNotes({ from: 'a', to: ['b', 'c'] })).toMatchObject({
+      linked: [{ id: 'b' }, { id: 'c' }],
+    });
+    const a = await body('a');
+    expect(a['body']).toBe(
+      'Studio day\nFire the kiln.\n\nSee also [[Glaze recipes]], [[Kiln repair]]',
+    );
+    expect(a['links']).toEqual(['b', 'c']);
+    // Already linked: nothing to do, and no run recorded.
+    expect(await t.linkNotes({ from: 'a', to: ['c'] })).toEqual({ id: 'a', linked: [] });
+    // "Glaze recipes" reaches b, not dup, so dup cannot be linked by name.
+    await expect(t.linkNotes({ from: 'a', to: ['dup'] })).rejects.toThrow(ToolError);
+    expect((await runs()).map((r) => r['summary'])).toEqual(['Linked a note to 2 others']);
+  });
+
+  it('splits a note only word for word, linking the new notes from what is left', async () => {
+    await eric('a', 'Kiln day\nFire to cone 6.\n\nGlaze notes\nCeladon ran.', { tags: ['clay'] });
+    const t = ticking();
+    await expect(
+      t.splitNote({ id: 'a', parts: ['Kiln day\nFire to cone six.', 'Glaze notes\nCeladon ran.'] }),
+    ).rejects.toThrow('part 1 is not the next piece of the note word for word');
+    const { pieces } = await t.splitNote({
+      id: 'a',
+      parts: ['Kiln day\nFire to cone 6.', 'Glaze notes\nCeladon ran.'],
+    });
+    expect(pieces).toEqual([{ id: expect.any(String), title: 'Glaze notes' }]);
+    const piece = await body(pieces[0].id);
+    expect(piece).toMatchObject({
+      body: 'Glaze notes\nCeladon ran.',
+      title: 'Glaze notes',
+      tags: ['clay'],
+      updatedBy: 'claude',
+    });
+    const a = await body('a');
+    expect(a['body']).toBe('Kiln day\nFire to cone 6.\n\nSplit off: [[Glaze notes]]');
+    expect(a['links']).toEqual([pieces[0].id]);
+    const [run] = await runs();
+    expect(run).toMatchObject({ tool: 'split_note', summary: 'Split a note into 2' });
+    expect(run['notes'].map((n: { id: string }) => n.id)).toEqual(['a', pieces[0].id]);
+  });
+
+  it('merges into a new note, archiving the originals; links to them follow', async () => {
+    await eric('a', 'Kiln log\nCone 6, slow cool.', {
+      tags: ['clay'],
+      createdAt: Timestamp.fromMillis(T - 5000),
+    });
+    await eric('b', 'Firing notes\nShelf 2 cracked.', { tags: ['kiln'] });
+    await eric('c', 'Todo\ncheck the [[Firing notes]]');
+    const t = ticking();
+    const { id } = await t.mergeNotes({ ids: ['a', 'b'] });
+    const merged = await body(id);
+    expect(merged).toMatchObject({
+      body: 'Kiln log\nCone 6, slow cool.\n\nFiring notes\nShelf 2 cracked.',
+      title: 'Kiln log',
+      titleSource: 'words',
+      synonyms: ['Firing notes'],
+      tags: ['clay', 'kiln'],
+      archived: false,
+    });
+    expect((merged['createdAt'] as Timestamp).toMillis()).toBe(T - 5000);
+    expect(await body('a')).toMatchObject({ archived: true, mergedInto: id });
+    expect(await body('b')).toMatchObject({ archived: true, mergedInto: id });
+    expect((await t.getBacklinks({ id })).map((b) => b.id)).toEqual(['c']);
+    await expect(t.mergeNotes({ ids: ['a', 'c'] })).rejects.toThrow('note a is archived');
+    expect((await runs()).map((r) => r['summary'])).toEqual(['Merged 2 notes into one']);
+  });
+
+  it('refiles a concept, refusing names another note answers to', async () => {
+    await concept('c-kiln', 'Kiln');
+    await eric('a', 'Glaze recipes', { tags: ['clay'] });
+    const t = ticking();
+    expect(
+      await t.refile({
+        id: 'c-kiln',
+        type: 'project',
+        addSynonyms: ['The kiln', 'glaze recipes', 'kiln'],
+      }),
+    ).toEqual({
+      id: 'c-kiln',
+      changed: ['filed as a project', 'added another name: The kiln'],
+      refused: ['glaze recipes'],
+    });
+    expect(await body('c-kiln')).toMatchObject({ conceptType: 'project', synonyms: ['The kiln'] });
+    await expect(t.refile({ id: 'a', type: 'person' })).rejects.toThrow(
+      'only a concept has a type and other names',
+    );
+    await t.refile({ id: 'a', addTags: ['pottery'], removeTags: ['clay'] });
+    expect((await body('a'))['tags']).toEqual(['pottery']);
+    expect((await runs()).map((r) => r['summary'])).toEqual([
+      'Refiled Kiln: filed as a project; added another name: The kiln',
+      'Refiled Glaze recipes: tagged pottery; untagged clay',
+    ]);
+  });
+
+  it('archives and restores a note, recording each', async () => {
+    await eric('a', 'Old plan');
+    const t = ticking();
+    await t.archiveNote({ id: 'a' });
+    expect((await body('a'))['archived']).toBe(true);
+    await t.archiveNote({ id: 'a' });
+    await t.archiveNote({ id: 'a', archived: false });
+    expect((await runs()).map((r) => r['summary'])).toEqual(['Archived a note', 'Restored a note']);
+  });
+});

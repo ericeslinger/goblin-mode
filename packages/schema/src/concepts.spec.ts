@@ -55,11 +55,17 @@ describe('nameIndex and resolveLinks', () => {
     { id: 'c-vikas', title: 'Vikas', kind: 'concept', synonyms: ['Vik'] },
     { id: 'n2', title: 'Vikas', kind: 'text' },
     { id: 'n3', title: 'Old plan', kind: 'text', archived: true },
+    { id: 'n4', title: 'Kiln log', kind: 'text', synonyms: ['Firing notes', 'Groceries'] },
   ];
 
   it('resolves concepts by title or synonym before plain notes', () => {
     const index = nameIndex(notes);
     expect(resolveLinks(['vikas', 'VIK', 'groceries'], index)).toEqual(['c-vikas', 'n1']);
+  });
+
+  it('resolves a merged note by its originals’ titles, after every title', () => {
+    const index = nameIndex(notes);
+    expect(resolveLinks(['firing notes', 'groceries'], index)).toEqual(['n4', 'n1']);
   });
 
   it('points an unknown name, or an archived note’s, at the concept it would make', () => {

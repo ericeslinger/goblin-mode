@@ -16,6 +16,13 @@ function fakeTools() {
     listReminders: vi.fn(async () => []),
     createReminder: vi.fn(async () => ({})),
     updateReminder: vi.fn(async () => ({})),
+    listConcepts: vi.fn(async () => []),
+    getBacklinks: vi.fn(async () => []),
+    linkNotes: vi.fn(async () => ({})),
+    splitNote: vi.fn(async () => ({})),
+    mergeNotes: vi.fn(async () => ({})),
+    refile: vi.fn(async () => ({})),
+    archiveNote: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -28,16 +35,23 @@ async function connect(tools = fakeTools()) {
 }
 
 describe('the MCP server', () => {
-  it('offers the MVP tools and tells Claude the rules', async () => {
+  it('offers the tools and tells Claude the rules', async () => {
     const { client } = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual([
+      'archive_note',
       'create_note',
       'create_reminder',
+      'get_backlinks',
       'get_note',
+      'link_notes',
+      'list_concepts',
       'list_notes',
       'list_reminders',
+      'merge_notes',
+      'refile',
       'search_notes',
+      'split_note',
       'update_note',
       'update_reminder',
     ]);
