@@ -17,6 +17,7 @@ import {
   normalizeName,
   paths,
   resolveLinks,
+  textHash,
   type TitleSource,
 } from '@mossgoblin/schema';
 import {
@@ -222,7 +223,11 @@ export class NotesService {
    * A restore writes as its own writer (`RESTORE_SUFFIX`), so noteHistory
    * keeps the text it replaces.
    */
-  save(id: string, body: string, { restore = false }: { restore?: boolean } = {}): void {
+  save(
+    id: string,
+    body: string,
+    { restore = false, base }: { restore?: boolean; base?: string } = {},
+  ): void {
     if (!this.uid) throw new Error('save before sign-in');
     const path = paths.note(this.uid, id);
     const existing = this.find(id);
@@ -235,7 +240,10 @@ export class NotesService {
     const title = keepTitle ? {} : { title: firstWordsTitle(body), titleSource: 'words' };
     const deviceId = this.deviceId() + (restore ? RESTORE_SUFFIX : '');
     const links = resolveLinks(wikiLinkTargets(parseNote(body)), this.names());
-    const update = { body, ...title, links, updatedAt: now, updatedBy: 'user', deviceId };
+    // What this text was written over, so a write over a newer text
+    // (Claude's, another device's) is merged on the server (#37).
+    const baseHash = base === undefined ? '' : textHash(base);
+    const update = { body, ...title, links, baseHash, updatedAt: now, updatedBy: 'user', deviceId };
     // A known note gets a merged update, keeping fields this device did
     // not set (Claude's links, tags, a title). A new one gets the full
     // shape the rules require.

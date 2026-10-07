@@ -1,14 +1,19 @@
 import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, effect, inject, signal, untracked } from '@angular/core';
-import { shouldStartFreshNote } from '@mossgoblin/schema';
+import { merge3, shouldStartFreshNote } from '@mossgoblin/schema';
 import { NotesService } from '../notes/notes.service';
 import { LocalStore } from '../platform/local-store';
 import { NOW } from '../platform/platform';
 
-/** What the editor should show: a note id and the text to load. */
+/**
+ * What the editor should show: a note id and its text. With `base`, the
+ * text is a change merged in from elsewhere into what was typed up to
+ * `base`; the editor keeps anything typed since (#37).
+ */
 export interface OpenNote {
   id: string;
   text: string;
+  base?: string;
 }
 
 interface LastSeen {
@@ -44,7 +49,7 @@ export class CaptureService {
   private readonly store = inject(LocalStore);
   private readonly now = inject(NOW);
 
-  /** The note in the editor; `text` changes only when a note is opened. */
+  /** The note in the editor; `text` changes when a note is opened or merged into. */
   readonly open = signal<OpenNote>({ id: '', text: '' });
   /**
    * The capture note, the one `/` shows: chosen at launch by the
@@ -56,6 +61,13 @@ export class CaptureService {
   readonly renewed = signal(0);
 
   private body = '';
+  /**
+   * The open note's text as the server last had it, from here: what was
+   * loaded, saved, or merged in. Typing since is merged against it.
+   */
+  private synced = '';
+  /** The text a restore just replaced, until a newer snapshot arrives. */
+  private replaced?: { id: string; text: string };
   private dirty = false;
   /** True until the user types in the open note. */
   private untouched = true;
@@ -64,8 +76,10 @@ export class CaptureService {
   constructor() {
     const draft = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
     if (draft?.body) {
-      // Unsaved text from before sign-in always wins: never lose it.
+      // Unsaved text from before sign-in always wins: never lose it. It
+      // was typed against unknown text, so the note merges in whole.
       this.show({ id: draft.id, text: draft.body });
+      this.synced = '';
       this.untouched = false;
     } else {
       const seen = this.store.get<LastSeen>(LAST_SEEN_KEY);
@@ -77,14 +91,15 @@ export class CaptureService {
     }
     this.home.set(this.open().id);
 
-    // A resumed note's text arrives with the first snapshot; load it
-    // unless the user has already started typing.
+    // The open note changed elsewhere (another device, Claude), or a
+    // resumed note's text arrived: merge it with anything typed since
+    // the last sync, so neither side's text is lost (#37).
     effect(() => {
       const list = this.notes.notes();
       untracked(() => {
-        if (!this.untouched) return;
-        const note = list.find((n) => n.id === this.open().id);
-        if (note && note.body !== this.open().text) this.show({ id: note.id, text: note.body });
+        const { id } = this.open();
+        const note = list.find((n) => n.id === id);
+        if (note) this.merge(id, note.body);
       });
     });
 
@@ -118,6 +133,24 @@ export class CaptureService {
     });
   }
 
+  private merge(id: string, remote: string): void {
+    if (remote === this.synced) return;
+    if (this.replaced?.id === id && this.replaced.text === remote) return;
+    this.replaced = undefined;
+    const local = this.body;
+    const merged = local === this.synced ? remote : merge3(this.synced, local, remote);
+    this.synced = remote;
+    this.body = merged;
+    this.open.set({ id, text: merged, base: local });
+    if (merged !== remote) {
+      // Local typing survived the merge: the server needs it too.
+      this.dirty = true;
+      this.untouched = false;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.flush(), SAVE_DELAY_MS);
+    }
+  }
+
   /** The editor reports every change here. */
   onText(text: string): void {
     this.body = text;
@@ -141,9 +174,11 @@ export class CaptureService {
     // This text is newer than any pending draft, which must not land
     // on top of it later.
     this.store.remove(PENDING_DRAFT_KEY);
+    const base = this.synced;
+    this.synced = this.body;
     // A concept is never deleted for having no text: its name, type and
     // other names are what it is (review on #66). Nor is a template.
-    if (this.body.trim() || this.isKept(id)) this.notes.save(id, this.body);
+    if (this.body.trim() || this.isKept(id)) this.notes.save(id, this.body, { base });
     else if (this.notes.exists(id)) this.notes.remove(id);
   }
 
@@ -162,7 +197,10 @@ export class CaptureService {
     const draft = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
     if (draft?.id === id && draft.body) {
       this.show({ id, text: draft.body });
+      this.synced = '';
       this.untouched = false;
+      const note = this.notes.find(id);
+      if (note) this.merge(id, note.body);
       return;
     }
     // `known`: the text of a note just made here, which may not be in
@@ -176,13 +214,18 @@ export class CaptureService {
    */
   restore(id: string, body: string): void {
     if (!this.notes.ready) return;
-    if (id === this.open().id) this.flush();
+    const open = id === this.open().id;
+    if (open) this.flush();
     else this.closeCurrent();
+    // What the note says until the restore lands: the typing just saved,
+    // or the note as this device has it.
+    const replaced = open ? this.body : this.notes.find(id)?.body;
     this.store.remove(PENDING_DRAFT_KEY);
     this.notes.save(id, body, { restore: true });
     this.show({ id, text: body });
     // The restored text is the note now: a snapshot still carrying the
-    // newer text must not load over it.
+    // text it replaced must not merge back over it.
+    this.replaced = replaced === undefined ? undefined : { id, text: replaced };
     this.untouched = false;
   }
 
@@ -235,6 +278,7 @@ export class CaptureService {
   private show(note: OpenNote): void {
     this.open.set(note);
     this.body = note.text;
+    this.synced = note.text;
     this.dirty = false;
     this.untouched = true;
   }

@@ -46,7 +46,64 @@ describe('CaptureService', () => {
     expect(capture.open().id).toBe('n1');
     notes.signIn([note('n1', 'groceries')]);
     TestBed.tick();
-    expect(capture.open()).toEqual({ id: 'n1', text: 'groceries' });
+    expect(capture.open()).toMatchObject({ id: 'n1', text: 'groceries' });
+  });
+
+  it('merges a change made elsewhere into what is being typed, and saves both (#37)', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'List\n- [ ] apples\n- [ ] kale')]);
+    capture.openNote('n1');
+    capture.onText('List\n- [x] apples\n- [ ] kale');
+    // Claude adds an item before the tick is saved.
+    notes.notes.set([note('n1', 'List\n- [ ] apples\n- [ ] kale\n- [ ] oats')]);
+    TestBed.tick();
+    expect(capture.open()).toEqual({
+      id: 'n1',
+      text: 'List\n- [x] apples\n- [ ] kale\n- [ ] oats',
+      base: 'List\n- [x] apples\n- [ ] kale',
+    });
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith(
+      'n1',
+      'List\n- [x] apples\n- [ ] kale\n- [ ] oats',
+      {
+        // Written over the text merged in, which the server has.
+        base: 'List\n- [ ] apples\n- [ ] kale\n- [ ] oats',
+      },
+    );
+  });
+
+  it('shows a change made elsewhere when nothing was typed, without saving it back', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'one')]);
+    capture.openNote('n1');
+    notes.notes.set([note('n1', 'one\ntwo')]);
+    TestBed.tick();
+    expect(capture.open().text).toBe('one\ntwo');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).not.toHaveBeenCalled();
+  });
+
+  it('does not merge its own saved text back in', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'one')]);
+    capture.openNote('n1');
+    capture.onText('one two');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    const shown = capture.open();
+    notes.notes.set([note('n1', 'one two')]);
+    TestBed.tick();
+    expect(capture.open()).toBe(shown);
+  });
+
+  it('keeps typing done before a resumed note arrived, and the note too', () => {
+    const { capture, notes } = setup({
+      [LAST_SEEN_KEY]: { hiddenAt: clock - 4 * MIN, noteId: 'n1' },
+    });
+    capture.onText('call the bank');
+    notes.signIn([note('n1', 'groceries\n- eggs')]);
+    TestBed.tick();
+    expect(capture.open().text).toBe('call the bank\ngroceries\n- eggs');
   });
 
   it('opens a fresh note after five minutes away', () => {
@@ -65,7 +122,7 @@ describe('CaptureService', () => {
     vi.advanceTimersByTime(SAVE_DELAY_MS - 1);
     expect(notes.save).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
-    expect(notes.save).toHaveBeenCalledExactlyOnceWith('new1', 'eggs and milk');
+    expect(notes.save).toHaveBeenCalledExactlyOnceWith('new1', 'eggs and milk', { base: '' });
   });
 
   it('keeps typing before sign-in as a pending draft, then writes it', () => {
@@ -100,7 +157,7 @@ describe('CaptureService', () => {
     capture.onText('old and newer');
     capture.flush();
     TestBed.tick();
-    expect(notes.save).toHaveBeenCalledExactlyOnceWith('d1', 'old and newer');
+    expect(notes.save).toHaveBeenCalledExactlyOnceWith('d1', 'old and newer', { base: '' });
     expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
   });
 
@@ -117,7 +174,7 @@ describe('CaptureService', () => {
     notes.signIn();
     capture.onText('half a thought');
     capture.leave();
-    expect(notes.save).toHaveBeenCalledWith('new1', 'half a thought');
+    expect(notes.save).toHaveBeenCalledWith('new1', 'half a thought', { base: '' });
     expect(JSON.parse(localStorage.getItem(LAST_SEEN_KEY)!)).toEqual({
       hiddenAt: clock,
       noteId: 'new1',
@@ -154,7 +211,7 @@ describe('CaptureService', () => {
     capture.onText('');
     capture.newNote();
     expect(notes.remove).not.toHaveBeenCalled();
-    expect(notes.save).toHaveBeenCalledWith('t1', '');
+    expect(notes.save).toHaveBeenCalledWith('t1', '', { base: 'Journal' });
   });
 
   it('never deletes a resumed note whose text has not loaded yet', () => {
@@ -172,7 +229,7 @@ describe('CaptureService', () => {
     capture.onText('current, edited');
     capture.restore('n1', 'older words');
     expect(notes.save.mock.calls).toEqual([
-      ['n1', 'current, edited'],
+      ['n1', 'current, edited', { base: 'current' }],
       ['n1', 'older words', { restore: true }],
     ]);
     expect(capture.open()).toEqual({ id: 'n1', text: 'older words' });
@@ -213,7 +270,7 @@ describe('CaptureService', () => {
     capture.flush();
     capture.onText('');
     capture.flush();
-    expect(notes.save).toHaveBeenLastCalledWith('c-kiln', '');
+    expect(notes.save).toHaveBeenLastCalledWith('c-kiln', '', { base: 'a' });
     capture.onText('b');
     capture.onText('');
     capture.openNote('n1');

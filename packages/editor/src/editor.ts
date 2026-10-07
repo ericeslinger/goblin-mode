@@ -35,6 +35,12 @@ export interface NoteEditor {
   getText(): string;
   /** Replaces the whole text (e.g. a different note was opened). */
   setText(text: string): void;
+  /**
+   * Changes the text to `text` in place, touching only the span that
+   * differs, so the cursor and selection stay where they were (a change
+   * merged in from elsewhere, #37). Not reported as typing, not undoable.
+   */
+  updateText(text: string): void;
   getMode(): Mode;
   setMode(mode: Mode): void;
   setReadOnly(readOnly: boolean): void;
@@ -103,6 +109,23 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         changes,
         selection: EditorSelection.cursor(changes.newLength),
         // Not undoable either: undo must never bring back another note.
+        annotations: [loaded.of(true), Transaction.addToHistory.of(false)],
+      });
+    },
+    updateText(text) {
+      const doc = view.state.doc.toString();
+      if (doc === text) return;
+      let from = 0;
+      while (from < doc.length && from < text.length && doc[from] === text[from]) from++;
+      let end = 0;
+      while (
+        end < doc.length - from &&
+        end < text.length - from &&
+        doc[doc.length - 1 - end] === text[text.length - 1 - end]
+      )
+        end++;
+      view.dispatch({
+        changes: { from, to: doc.length - end, insert: text.slice(from, text.length - end) },
         annotations: [loaded.of(true), Transaction.addToHistory.of(false)],
       });
     },

@@ -1,3 +1,4 @@
+import { textHash } from '@mossgoblin/schema';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { User } from 'firebase/auth';
@@ -315,6 +316,16 @@ describe('NotesService', () => {
     notes.setTemplateMode('t1', 'entry');
     // Not a template on this device yet: nothing to change.
     expect(api.set).toHaveBeenCalledTimes(2);
+  });
+
+  it('records the text a save was written over, or that it is not known', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'n1', data: { body: 'one', archived: false } }]);
+    notes.save('n1', 'one two', { base: 'one' });
+    expect(api.set.mock.lastCall![2]['baseHash']).toBe(textHash('one'));
+    notes.save('n1', 'one two three');
+    expect(api.set.mock.lastCall![2]['baseHash']).toBe('');
   });
 
   it('writes a restore as its own writer, so history keeps what it replaces', () => {

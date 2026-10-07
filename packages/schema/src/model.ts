@@ -82,6 +82,12 @@ export const Note = z.object({
   updatedBy: Author,
   /** The last device to write, so conflicts land in history. */
   deviceId: z.string(),
+  /**
+   * `textHash` of the text this body was written over, as the writer
+   * last had it; '' when not known. A write over a newer text than that
+   * is merged by noteHistory (#37).
+   */
+  baseHash: z.string().optional(),
 });
 export type Note = z.infer<typeof Note>;
 

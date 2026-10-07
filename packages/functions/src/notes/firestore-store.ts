@@ -1,4 +1,4 @@
-import { paths } from '@mossgoblin/schema';
+import { firstWordsTitle, paths, textHash } from '@mossgoblin/schema';
 import {
   type DocumentSnapshot,
   FieldValue,
@@ -6,6 +6,7 @@ import {
   Timestamp,
 } from 'firebase-admin/firestore';
 import type { HistoryStore, NoteState } from './history';
+import { MERGE_DEVICE, type MergeStore } from './merge';
 import type { TitleStore } from './title';
 
 const millis = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
@@ -23,11 +24,12 @@ export function noteState(snap: DocumentSnapshot | undefined): NoteState | undef
     updatedAt: millis(d['updatedAt']),
     createdAt: millis(d['createdAt']),
     settledAt: millis(d['settledAt']),
+    baseHash: typeof d['baseHash'] === 'string' ? d['baseHash'] : undefined,
   };
 }
 
 /** History and title writes over Firestore, as the admin SDK. */
-export function firestoreNotesStore(db: Firestore): HistoryStore & TitleStore {
+export function firestoreNotesStore(db: Firestore): HistoryStore & TitleStore & MergeStore {
   return {
     async lastKept(uid, noteId) {
       const snap = await db
@@ -49,6 +51,34 @@ export function firestoreNotesStore(db: Firestore): HistoryStore & TitleStore {
         updatedAt: v.updatedAt === undefined ? savedAt : Timestamp.fromMillis(v.updatedAt),
         savedAt,
         reason: v.reason,
+      });
+    },
+
+    async keptBodies(uid, noteId, limit) {
+      const snap = await db
+        .collection(paths.history(uid, noteId))
+        .orderBy('savedAt', 'desc')
+        .limit(limit)
+        .get();
+      return snap.docs.map((d) => String(d.get('body') ?? ''));
+    },
+
+    writeMerged(uid, noteId, over, merged) {
+      const ref = db.doc(paths.note(uid, noteId));
+      return db.runTransaction(async (tx) => {
+        const note = await tx.get(ref);
+        // Written again since: that write's own trigger merges it.
+        if (!note.exists || note.get('body') !== over) return false;
+        const update: Record<string, unknown> = {
+          body: merged,
+          baseHash: textHash(over),
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: note.get('updatedBy') === 'claude' ? 'claude' : 'user',
+          deviceId: MERGE_DEVICE,
+        };
+        if (note.get('titleSource') === 'words') update['title'] = firstWordsTitle(merged);
+        tx.update(ref, update);
+        return true;
       });
     },
 

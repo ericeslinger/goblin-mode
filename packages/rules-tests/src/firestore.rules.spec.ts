@@ -107,6 +107,8 @@ describe('client-written collections: notes, reminders, devices, settings', () =
     await assertFails(ref.set({ ...note(), kind: 'template', templateMode: 'weekly' }));
     await assertSucceeds(ref.set({ ...note(), fromTemplate: 't1' }));
     await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
+    await assertSucceeds(ref.set({ ...note(), baseHash: '5-1a2b3c4d' }));
+    await assertFails(ref.set({ ...note(), baseHash: 5 }));
   });
 
   it('lets the app settle a note with a merged server timestamp, and nothing else in it', async () => {

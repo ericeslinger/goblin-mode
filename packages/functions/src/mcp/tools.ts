@@ -25,6 +25,7 @@ import {
   sentenceAround,
   snoozeUntil,
   templateParts,
+  textHash,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -35,6 +36,7 @@ import {
 import { randomFillSync } from 'node:crypto';
 import type { RawProposal } from '../organize/proposals';
 import { storeSuggestions } from '../organize/store';
+import { addLines, setItem } from './lines';
 import { cutsOf, joined } from './verbatim';
 
 export const CLAUDE_DEVICE = 'claude';
@@ -296,6 +298,7 @@ export class NotesTools {
         if (!args.body.trim())
           throw new ToolError('body must not be empty; archive the note instead');
         update['body'] = args.body;
+        update['baseHash'] = textHash(String(current['body'] ?? ''));
         update['links'] = resolveLinks(targetsOf(args.body), names!);
         if (current['titleSource'] === 'words' && args.title === undefined) {
           update['title'] = firstWordsTitle(args.body);
@@ -417,6 +420,7 @@ export class NotesTools {
       const update: Data = {
         ...this.stamp(),
         body: next,
+        baseHash: textHash(body),
         links: resolveLinks(targetsOf(next), index),
       };
       Note.parse({ ...current, ...update });
@@ -470,7 +474,12 @@ export class NotesTools {
       const body = names.length
         ? `${first}\n\nSplit off: ${names.map((n) => `[[${n}]]`).join(', ')}`
         : first;
-      const update: Data = { ...this.stamp(), body, links: resolveLinks(targetsOf(body), index) };
+      const update: Data = {
+        ...this.stamp(),
+        body,
+        baseHash: textHash(String(current['body'] ?? '')),
+        links: resolveLinks(targetsOf(body), index),
+      };
       if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(body);
       Note.parse({ ...current, ...update });
       tx.update(ref, update);
@@ -751,6 +760,67 @@ export class NotesTools {
       created: true,
       note: { id, title: data.title, body: skeleton },
     };
+  }
+
+  /**
+   * Changes a note's text in a transaction against its current text, so
+   * a write made meanwhile (Eric ticking items) is never replaced (#37).
+   * `edit` returns the new body and the run's summary, or nothing to do.
+   */
+  private async editBody(
+    id: string,
+    tool: string,
+    edit: (body: string, title: string) => { body: string; summary: string } | undefined,
+  ) {
+    const ref = this.notes().doc(id);
+    const names = await this.names();
+    return this.db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      if (!doc.exists) throw new ToolError(`no note ${id}`);
+      const current = doc.data()!;
+      if (current['archived'] === true) throw new ToolError(`note ${id} is archived`);
+      const result = edit(String(current['body'] ?? ''), String(current['title'] ?? ''));
+      if (!result) return { id, changed: false };
+      const update: Data = {
+        ...this.stamp(),
+        body: result.body,
+        baseHash: textHash(String(current['body'] ?? '')),
+        links: resolveLinks(targetsOf(result.body), names),
+      };
+      if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(result.body);
+      Note.parse({ ...current, ...update });
+      tx.update(ref, update);
+      tx.set(...this.activity(tool, result.summary, [touched(id, current)]));
+      return { id, changed: true, body: result.body };
+    });
+  }
+
+  async addLines(args: { id: string; lines: string[]; heading?: string }) {
+    const lines = args.lines.flatMap((l) => l.split('\n'));
+    if (!lines.some((l) => l.trim())) throw new ToolError('lines must have some text');
+    return this.editBody(args.id, 'add_lines', (body, title) => ({
+      body: addLines(body, lines, args.heading),
+      summary: `Added ${plural(lines.length, 'line')} to ${title || 'a note'}${
+        args.heading ? `, under ${args.heading.replace(/^#+\s*/, '')}` : ''
+      }`,
+    }));
+  }
+
+  async checkItem(args: { id: string; item: string }) {
+    return this.setItem(args, true);
+  }
+
+  async uncheckItem(args: { id: string; item: string }) {
+    return this.setItem(args, false);
+  }
+
+  private setItem(args: { id: string; item: string }, done: boolean) {
+    return this.editBody(args.id, done ? 'check_item' : 'uncheck_item', (body) => {
+      const result = setItem(body, args.item, done);
+      if (typeof result === 'string') throw new ToolError(result);
+      if (!result.changed) return undefined;
+      return { body: result.body, summary: `${done ? 'Ticked' : 'Unticked'} ${result.text}` };
+    });
   }
 
   async listReminders(args: { includeDone?: boolean }) {

@@ -10,6 +10,7 @@ import { NoteEditorComponent } from './note-editor';
   template: `<app-note-editor
     [text]="text()"
     [noteId]="noteId()"
+    [base]="base()"
     label="New note"
     autofocus
     (textChange)="changes.push($event)"
@@ -18,6 +19,7 @@ import { NoteEditorComponent } from './note-editor';
 class Host {
   readonly text = signal('- [ ] eggs\n');
   readonly noteId = signal('a');
+  readonly base = signal<string | undefined>(undefined);
   readonly changes: string[] = [];
 }
 
@@ -82,6 +84,25 @@ describe('NoteEditorComponent', () => {
     host.noteId.set('b');
     await fixture.whenStable();
     expect(content.textContent).toBe('F');
+  });
+
+  it('merges a change from elsewhere in place, keeping keys typed since', async () => {
+    const { fixture, content } = await render();
+    const host = fixture.componentInstance;
+    const editor = fixture.debugElement.query(By.directive(NoteEditorComponent))
+      .componentInstance as unknown as { editor: { view: EditorView } };
+    const view = editor.editor.view;
+    // The host merged a remote line into '- [ ] eggs\n', but a key was
+    // typed at the end before the editor heard of it.
+    view.dispatch({ changes: { from: view.state.doc.length, insert: 'm' } });
+    const cursor = view.state.selection.main.head;
+    host.base.set('- [ ] eggs\n');
+    host.text.set('- [ ] bread\n- [ ] eggs\n');
+    await fixture.whenStable();
+    expect(content.textContent).toContain('bread');
+    expect(view.state.doc.toString()).toBe('- [ ] bread\n- [ ] eggs\nm');
+    expect(view.state.selection.main.head).toBe(cursor + '- [ ] bread\n'.length);
+    expect(host.changes.at(-1)).toBe('- [ ] bread\n- [ ] eggs\nm');
   });
 
   it('follows the app-wide mode', async () => {

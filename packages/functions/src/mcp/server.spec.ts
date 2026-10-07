@@ -26,6 +26,9 @@ function fakeTools() {
     suggestChanges: vi.fn(async () => ({})),
     listTemplates: vi.fn(async () => []),
     useTemplate: vi.fn(async () => ({})),
+    addLines: vi.fn(async () => ({})),
+    checkItem: vi.fn(async () => ({})),
+    uncheckItem: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -42,7 +45,9 @@ describe('the MCP server', () => {
     const { client } = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual([
+      'add_lines',
       'archive_note',
+      'check_item',
       'create_note',
       'create_reminder',
       'get_backlinks',
@@ -57,6 +62,7 @@ describe('the MCP server', () => {
       'search_notes',
       'split_note',
       'suggest_changes',
+      'uncheck_item',
       'update_note',
       'update_reminder',
       'use_template',
