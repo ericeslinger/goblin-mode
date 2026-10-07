@@ -28,16 +28,17 @@ afterAll(() => deleteApp(app));
 const T = Date.parse('2026-10-06T13:00:00Z');
 
 describe('firestoreNotesStore', () => {
-  it('keeps the newest replaced texts, from saves arriving all at once', async () => {
+  it('keeps every replaced text from saves arriving all at once, newest read first', async () => {
     const store = firestoreNotesStore(db);
     const n = REPLACED_KEPT + 5;
     await Promise.all(
       Array.from({ length: n }, (_, i) => store.rememberReplaced('u1', 'n2', `t${i}`, T + i)),
     );
-    // One more, alone, trims what the racing ones left.
-    await store.rememberReplaced('u1', 'n2', `t${n}`, T + n);
+    // None lost to a race; a merge reads the newest few.
+    const all = await db.collection('users/u1/notes/n2/replaced').get();
+    expect(all.size).toBe(n);
     const bodies = await store.keptBodies('u1', 'n2', 1);
-    expect(bodies).toEqual(Array.from({ length: REPLACED_KEPT }, (_, i) => `t${n - i}`));
+    expect(bodies).toEqual(Array.from({ length: REPLACED_KEPT }, (_, i) => `t${n - 1 - i}`));
     // Each expires after a while, so a deleted note's texts go too.
     const one = await db.collection('users/u1/notes/n2/replaced').limit(1).get();
     const expireAt = (one.docs[0].get('expireAt') as Timestamp).toMillis();

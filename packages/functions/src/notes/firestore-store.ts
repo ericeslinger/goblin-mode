@@ -77,14 +77,9 @@ export function firestoreNotesStore(db: Firestore): HistoryStore & TitleStore & 
         // so a deleted note's texts do not stay forever.
         expireAt: Timestamp.fromMillis(Date.now() + REPLACED_TTL_MS),
       });
-      // Counting costs one read; the oldest are read only when over.
-      const count = (await col.count().get()).data().count;
-      if (count <= REPLACED_KEPT) return;
-      const old = await col
-        .orderBy('writtenAt', 'asc')
-        .limit(count - REPLACED_KEPT)
-        .get();
-      await Promise.all(old.docs.map((d) => d.ref.delete()));
+      // No trim by count: saves arriving together each trimmed by the
+      // count they saw, and together deleted the newest texts too
+      // (2026-10-07). The TTL removes them; merges read the newest.
     },
 
     writeMerged(uid, noteId, decide) {
