@@ -990,8 +990,11 @@ Google sign-in. Firestore rules allow only `request.auth.uid == uid`
 under `users/{uid}`, and only for the write path each collection has:
 the client writes `notes`, `reminders` and `devices`; `notes/history`
 and `activity` are read-only to the client; anything unlisted, and
-`oauth/`, is denied. Storage is deny-all until attachments (Phase 2)
-decide its write path.
+`oauth/`, is denied. Storage allows only the owner's attachment files
+at `users/{uid}/attachments/{id}/{name}`, up to 25 MB and of the image
+and PDF types the schema lists; the client writes them and their
+`attachments` record directly, so a photo taken offline is kept
+offline. Everything else in Storage is denied (#43, 2026-10-07).
 No end-to-end encryption, so MCP and search can read notes (2026-10-05).
 Firestore point-in-time recovery (7 days) is the backstop for bad edits,
 and a weekly scheduled Firestore backup covers anything older (both set

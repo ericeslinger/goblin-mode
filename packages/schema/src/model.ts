@@ -12,6 +12,7 @@
 // | settings | client, direct | theme and mode, changed offline (#24, 2026-10-06) |
 // | activity | function only | Claude's "What Claude changed" records |
 // | proposals | function, plus the owner's accept or dismiss | nightly organize (#35) |
+// | attachments | client, direct | a photo taken offline must be recorded offline (#43) |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 //
 // Direct-write collections get shape validators generated from these
@@ -236,6 +237,58 @@ export const Proposal = z.object({
 });
 export type Proposal = z.infer<typeof Proposal>;
 
+/** What an attachment is (#43). */
+export const AttachmentKind = z.enum(['image', 'pdf', 'link', 'drive']);
+export type AttachmentKind = z.infer<typeof AttachmentKind>;
+
+/** The largest file the app stores (Eric, 2026-10-06); storage.rules too. */
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** File types the app stores; storage.rules checks the same list. */
+export const ATTACHMENT_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+] as const;
+
+/**
+ * A file or link kept in the garden (#43), under `attachments`. Images
+ * and PDFs live in Storage at `path` (users/{uid}/attachments/{id}/...);
+ * links and Drive files are a URL. A note embeds one as
+ * `![caption](attachment:<id>)`; one saved to read later need not be in
+ * a note.
+ */
+export const Attachment = z.object({
+  kind: AttachmentKind,
+  /** The file's name, or the link's title. */
+  name: z.string(),
+  /** The note it belongs to, if any. */
+  noteId: z.string().optional(),
+  /** Images and PDFs: where the file is in Storage. */
+  path: z.string().optional(),
+  /** Links: the page. Drive files: where they open. */
+  url: z.string().optional(),
+  /** Drive files: the id Claude's Drive connector opens. */
+  driveFileId: z.string().optional(),
+  contentType: z.string().optional(),
+  /** Bytes, for files. */
+  size: z.number().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  /** A smaller image a function makes on upload (#44). */
+  thumbPath: z.string().optional(),
+  /** The reading queue: saved to read later (#48), and whether it was. */
+  toRead: z.boolean(),
+  read: z.boolean(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+  createdBy: Author,
+});
+export type Attachment = z.infer<typeof Attachment>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,
@@ -247,4 +300,7 @@ export const paths = {
   settings: (uid: string) => `users/${uid}/settings/app`,
   activity: (uid: string) => `users/${uid}/activity`,
   proposals: (uid: string) => `users/${uid}/proposals`,
+  attachments: (uid: string) => `users/${uid}/attachments`,
+  /** Storage: an attachment's files, under its id. */
+  attachmentFiles: (uid: string, id: string) => `users/${uid}/attachments/${id}`,
 };

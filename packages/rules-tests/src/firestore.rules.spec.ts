@@ -57,9 +57,22 @@ const valid: Record<string, () => object> = {
   'users/owner/reminders/r1': () => ({ text: 'call mum', status: 'open', createdBy: 'user' }),
   'users/owner/devices/d1': () => ({ token: 'fcm-token', updatedAt: now() }),
   'users/owner/settings/app': () => ({ theme: 'night', mode: 'dark', updatedAt: now() }),
+  'users/owner/attachments/a1': () => ({
+    kind: 'image',
+    name: 'kiln.jpg',
+    noteId: 'n1',
+    path: 'users/owner/attachments/a1/kiln.jpg',
+    contentType: 'image/jpeg',
+    size: 120_000,
+    toRead: false,
+    read: false,
+    createdAt: now(),
+    updatedAt: now(),
+    createdBy: 'user',
+  }),
 };
 
-describe('client-written collections: notes, reminders, devices, settings', () => {
+describe('client-written collections: notes, reminders, devices, settings, attachments', () => {
   for (const [path, shape] of Object.entries(valid)) {
     it(`${path}: the owner can create, read, update and delete`, async () => {
       await assertSucceeds(owner().doc(path).set(shape()));
@@ -119,6 +132,27 @@ describe('client-written collections: notes, reminders, devices, settings', () =
       ref.set({ settledAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }),
     );
     await assertFails(ref.set({ settledAt: 'just now' }, { merge: true }));
+  });
+
+  it('checks attachments: a known kind, and the reading-queue flags', async () => {
+    const attachment = valid['users/owner/attachments/a1'];
+    const ref = owner().doc('users/owner/attachments/a1');
+    await assertFails(ref.set({ ...attachment(), kind: 'video' }));
+    await assertFails(ref.set({ ...attachment(), size: '120k' }));
+    const { read: _read, ...unread } = attachment() as Record<string, unknown>;
+    await assertFails(ref.set(unread));
+    await assertSucceeds(
+      ref.set({
+        kind: 'link',
+        name: 'A paper',
+        url: 'https://example.org/paper',
+        toRead: true,
+        read: false,
+        createdAt: now(),
+        updatedAt: now(),
+        createdBy: 'claude',
+      }),
+    );
   });
 
   it('keeps settings to one doc, app, holding a known theme and mode', async () => {

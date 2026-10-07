@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { Activity, Note, Proposal, Recurrence, Reminder, Timestamp, paths } from './model';
+import {
+  Activity,
+  Attachment,
+  Note,
+  Proposal,
+  Recurrence,
+  Reminder,
+  Timestamp,
+  paths,
+} from './model';
 
 const ts = { seconds: 1_800_000_000, nanoseconds: 0 };
 
@@ -105,6 +114,31 @@ describe('Proposal', () => {
     expect(Proposal.safeParse({ ...merge, status: 'maybe' }).success).toBe(false);
     expect(
       Proposal.safeParse({ ...merge, kind: 'refile', conceptType: 'person', synonyms: ['Vik'] })
+        .success,
+    ).toBe(true);
+  });
+});
+
+describe('Attachment', () => {
+  it('holds an image in a note, or a link to read later', () => {
+    const image = {
+      kind: 'image',
+      name: 'kiln.jpg',
+      noteId: 'n1',
+      path: 'users/u1/attachments/a1/kiln.jpg',
+      contentType: 'image/jpeg',
+      size: 1000,
+      toRead: false,
+      read: false,
+      createdAt: ts,
+      updatedAt: ts,
+      createdBy: 'user',
+    };
+    expect(Attachment.safeParse(image).success).toBe(true);
+    expect(Attachment.safeParse({ ...image, kind: 'video' }).success).toBe(false);
+    const { noteId: _n, path: _p, contentType: _c, size: _s, ...bare } = image;
+    expect(
+      Attachment.safeParse({ ...bare, kind: 'link', url: 'https://example.org', toRead: true })
         .success,
     ).toBe(true);
   });

@@ -1,9 +1,19 @@
 rules_version = '2';
 
-// Deny-all until attachments arrive (build order Phase 2); the write path
-// for files is decided then, with its own rules tests.
+// Attachments (#43): the owner's files, under their uid. A file is at
+// users/{uid}/attachments/{attachmentId}/{name}; its record is the
+// Firestore document of the same id. Size and type match the schema's
+// MAX_ATTACHMENT_BYTES and ATTACHMENT_TYPES (packages/schema). Thumbnails
+// are written there by a function (admin, past these rules). Everything
+// else is denied.
 service firebase.storage {
   match /b/{bucket}/o {
+    match /users/{uid}/attachments/{attachmentId}/{name} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.size <= 25 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif|heic|heif)|application/pdf');
+    }
     match /{allPaths=**} {
       allow read, write: if false;
     }
