@@ -272,7 +272,8 @@ heading, skip what is listed, keep his words, and ★ marks a staple.
   It saves at once as its own writer (`KEEP_SUFFIX`, as a restore
   does), so History always keeps the list it cleared; a tick still
   waiting to save is saved first, so that list includes it. For eight
-  seconds it offers Undo, which writes the list back.
+  seconds it offers Undo, which puts back what it cleared and only
+  that (`merge3`), so an item Claude added meanwhile stays.
 - A tick names its item by line and text: if a merged change moved the
   lines since the list was drawn, the item is found again by its text.
 

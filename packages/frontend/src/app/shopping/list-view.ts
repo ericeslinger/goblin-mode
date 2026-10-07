@@ -1,5 +1,5 @@
 import { Component, DestroyRef, computed, inject, input, output, signal } from '@angular/core';
-import { checklist, doneShopping, setDone } from '@mossgoblin/schema';
+import { checklist, doneShopping, merge3, setDone } from '@mossgoblin/schema';
 
 /** How long Done shopping offers Undo. */
 export const UNDO_MS = 8_000;
@@ -132,8 +132,8 @@ export class ListView {
     this.sections().flatMap((s) => s.items.filter((i) => i.done)),
   );
 
-  /** The list before Done shopping, while Undo is offered. */
-  protected readonly cleared = signal<string | undefined>(undefined);
+  /** The list before Done shopping and just after, while Undo is offered. */
+  protected readonly cleared = signal<{ before: string; after: string } | undefined>(undefined);
   private timer?: ReturnType<typeof setTimeout>;
 
   constructor() {
@@ -146,17 +146,21 @@ export class ListView {
 
   protected done(): void {
     const before = this.body();
-    this.edited.emit({ body: doneShopping(before), keep: true });
-    this.cleared.set(before);
+    const after = doneShopping(before);
+    this.edited.emit({ body: after, keep: true });
+    this.cleared.set({ before, after });
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.cleared.set(undefined), UNDO_MS);
   }
 
-  /** Puts the list back as it was; History has it either way. */
+  /**
+   * Puts back what Done shopping cleared, and only that: anything added
+   * since (Claude, another device, typing) stays (#37's merge).
+   */
   protected undo(): void {
-    const before = this.cleared();
-    if (before === undefined) return;
-    this.edited.emit({ body: before, keep: false });
+    const cleared = this.cleared();
+    if (!cleared) return;
+    this.edited.emit({ body: merge3(cleared.after, this.body(), cleared.before), keep: false });
     this.cleared.set(undefined);
   }
 }

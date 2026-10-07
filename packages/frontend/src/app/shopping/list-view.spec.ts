@@ -82,10 +82,21 @@ describe('ListView', () => {
       button('Done shopping')!.click();
       fixture.detectChanges();
       expect(el.textContent).toContain('List cleared.');
+      // Claude adds bread to the cleared list before Undo.
+      const cleared = fixture.componentInstance.changes.at(-1)!.body;
+      fixture.componentInstance.body.set(
+        cleared.replace('- [ ] limes', '- [ ] limes\n- [ ] bread'),
+      );
+      fixture.detectChanges();
       button('Undo')!.click();
-      expect(fixture.componentInstance.changes.at(-1)).toEqual({ body: LIST, keep: false });
+      expect(fixture.componentInstance.changes.at(-1)).toEqual({
+        body: LIST.replace('- [ ] limes', '- [ ] limes\n- [ ] bread'),
+        keep: false,
+      });
       fixture.detectChanges();
       expect(button('Undo')).toBeUndefined();
+      fixture.componentInstance.body.set(LIST);
+      fixture.detectChanges();
       button('Done shopping')!.click();
       vi.advanceTimersByTime(UNDO_MS);
       fixture.detectChanges();
