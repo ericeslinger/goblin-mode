@@ -13,7 +13,7 @@ export const INSTRUCTIONS = [
   'Times are ISO 8601 with an offset. Ask Eric for his time zone if you need one and do not know it.',
   'To organize, use list_concepts, get_backlinks, link_notes, split_note, merge_notes, refile ' +
     'and archive_note: they move his text without rewording it. Every change shows in the app ' +
-    'under What Claude changed.',
+    'under What Claude changed. To suggest instead of change, use suggest_changes.',
 ].join('\n');
 
 const text = (value: unknown) => ({
@@ -235,6 +235,48 @@ export function buildServer(tools: ToolsApi): McpServer {
       annotations: write,
     },
     run((a) => tools.archiveNote(a)),
+  );
+
+  server.registerTool(
+    'suggest_changes',
+    {
+      title: 'Suggest changes',
+      description:
+        'Suggest links, merges and refiles for Eric to accept or dismiss in the app (under What ' +
+        'Claude changed). Nothing changes until he accepts; accepting runs link_notes, ' +
+        'merge_notes or refile. Each needs a one-sentence reason to Eric. Suggestions the tools ' +
+        'could not carry out, or that were suggested before (even if dismissed), are dropped. ' +
+        'At most 10 are stored per call and 20 wait at once.',
+      inputSchema: {
+        proposals: z
+          .array(
+            z.discriminatedUnion('kind', [
+              z.object({
+                kind: z.literal('link'),
+                from: z.string().min(1).describe('the note to add links to'),
+                to: z.array(z.string().min(1)).min(1).describe('the notes it should link'),
+                reason: z.string().min(1),
+              }),
+              z.object({
+                kind: z.literal('merge'),
+                ids: z.array(z.string().min(1)).min(2).describe('text notes, in order'),
+                title: z.string().optional(),
+                reason: z.string().min(1),
+              }),
+              z.object({
+                kind: z.literal('refile'),
+                id: z.string().min(1).describe('a concept'),
+                type: z.enum(['person', 'project', 'other']).optional(),
+                synonyms: z.array(z.string().min(1)).optional(),
+                reason: z.string().min(1),
+              }),
+            ]),
+          )
+          .max(20),
+      },
+      annotations: write,
+    },
+    run((a) => tools.suggestChanges(a)),
   );
 
   server.registerTool(

@@ -66,7 +66,8 @@ persists, grant `roles/eventarc.serviceAgent` to
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
-`OWNER_UID` can approve it.
+`OWNER_UID` can approve it. For nightly suggestions, add the routine
+in `routines/nightly-suggestions.md` to your claude.ai account.
 
 A push to `main` deploys. The deploy stops before building when a
 required value is missing; an optional one left out turns its feature

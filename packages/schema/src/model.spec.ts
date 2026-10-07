@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Activity, Note, Recurrence, Reminder, Timestamp, paths } from './model';
+import { Activity, Note, Proposal, Recurrence, Reminder, Timestamp, paths } from './model';
 
 const ts = { seconds: 1_800_000_000, nanoseconds: 0 };
 
@@ -71,6 +71,29 @@ describe('Activity', () => {
     expect(Activity.safeParse(run).success).toBe(true);
     expect(Activity.safeParse({ ...run, summary: '' }).success).toBe(false);
     expect(Activity.safeParse({ ...run, notes: [{ id: '', title: 'x' }] }).success).toBe(false);
+  });
+});
+
+describe('Proposal', () => {
+  it('describes one suggested change, waiting for the gardener', () => {
+    const merge = {
+      kind: 'merge',
+      reason: 'Both are about the same firing.',
+      notes: [
+        { id: 'a', title: 'Kiln log' },
+        { id: 'b', title: 'Firing notes' },
+      ],
+      key: 'merge:a,b',
+      status: 'open',
+      createdAt: ts,
+    };
+    expect(Proposal.safeParse(merge).success).toBe(true);
+    expect(Proposal.safeParse({ ...merge, notes: [] }).success).toBe(false);
+    expect(Proposal.safeParse({ ...merge, status: 'maybe' }).success).toBe(false);
+    expect(
+      Proposal.safeParse({ ...merge, kind: 'refile', conceptType: 'person', synonyms: ['Vik'] })
+        .success,
+    ).toBe(true);
   });
 });
 

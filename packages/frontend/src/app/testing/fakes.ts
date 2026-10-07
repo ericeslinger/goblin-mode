@@ -5,6 +5,7 @@ import type { User } from 'firebase/auth';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { NOW, TIME_ZONE } from '../platform/platform';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
+import type { ProposalRecord } from '../claude/proposals.service';
 import type { NoteRecord } from '../notes/notes.service';
 
 export function fakeFirebase(usingEmulators: boolean): FirebaseHandles {
@@ -116,4 +117,14 @@ export function remindersTestProviders(api: FakeRemindersApi, now: () => number)
     { provide: NOW, useValue: now },
     { provide: TIME_ZONE, useValue: 'America/New_York' },
   ];
+}
+
+/** A stand-in for ProposalsService: set `list`, watch accept and dismiss. */
+export class FakeProposals {
+  readonly list = signal<ProposalRecord[]>([]);
+  readonly loaded = signal(true);
+  readonly shown = computed(() => this.list());
+  readonly open = computed(() => this.list().filter((p) => p.status === 'open').length);
+  accept = vi.fn((_id: string) => undefined);
+  dismiss = vi.fn((_id: string) => undefined);
 }

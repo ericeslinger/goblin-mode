@@ -23,6 +23,7 @@ function fakeTools() {
     mergeNotes: vi.fn(async () => ({})),
     refile: vi.fn(async () => ({})),
     archiveNote: vi.fn(async () => ({})),
+    suggestChanges: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -52,6 +53,7 @@ describe('the MCP server', () => {
       'refile',
       'search_notes',
       'split_note',
+      'suggest_changes',
       'update_note',
       'update_reminder',
     ]);

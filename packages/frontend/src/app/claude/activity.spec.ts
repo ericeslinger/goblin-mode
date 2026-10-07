@@ -4,12 +4,19 @@ import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
-import { FakeAuthService, FakeNotes, fakeFirebase, noteRecord } from '../testing/fakes';
+import {
+  FakeAuthService,
+  FakeNotes,
+  FakeProposals,
+  fakeFirebase,
+  noteRecord,
+} from '../testing/fakes';
 import { ACTIVITY_API, Activity, type ActivityApi } from './activity';
+import { type ProposalRecord, ProposalsService } from './proposals.service';
 
 const at = (ms: number) => ({ toMillis: () => ms });
 
-async function render() {
+async function render(suggestions: ProposalRecord[] = []) {
   let push: Parameters<ActivityApi['listen']>[2] = () => undefined;
   const api = {
     listen: vi.fn((_db, _path, next) => {
@@ -24,6 +31,8 @@ async function render() {
     { ...noteRecord('m1', 'Kiln log, merged'), title: 'Kiln log' },
     { ...noteRecord('a', 'Firing notes'), archived: true },
   ]);
+  const proposals = new FakeProposals();
+  proposals.list.set(suggestions);
   await TestBed.configureTestingModule({
     imports: [Activity],
     providers: [
@@ -32,6 +41,7 @@ async function render() {
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: AuthService, useValue: auth },
       { provide: NotesService, useValue: notes },
+      { provide: ProposalsService, useValue: proposals },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Activity);
@@ -42,6 +52,7 @@ async function render() {
     api,
     auth,
     fixture,
+    proposals,
     async push(docs: { id: string; data: Record<string, unknown> }[]) {
       push(docs);
       await fixture.whenStable();
@@ -115,5 +126,65 @@ describe('Activity', () => {
     auth.user.set(null);
     await fixture.whenStable();
     expect(stop).toHaveBeenCalled();
+  });
+
+  it('shows each suggestion in words, with Accept and Dismiss, and what became of it', async () => {
+    const { el, proposals, fixture } = await render([
+      {
+        id: 'p1',
+        kind: 'merge',
+        reason: 'Both are the same firing.',
+        notes: [
+          { id: 'm1', title: 'Kiln' },
+          { id: 'a', title: 'Firing notes' },
+        ],
+        status: 'open',
+      },
+      {
+        id: 'p2',
+        kind: 'refile',
+        reason: 'He is a person.',
+        notes: [{ id: 'c-vikas', title: 'Vikas' }],
+        conceptType: 'person',
+        synonyms: ['Vik'],
+        status: 'failed',
+        outcome: 'no note c-vikas',
+      },
+      {
+        id: 'p3',
+        kind: 'link',
+        reason: 'Same kiln.',
+        notes: [
+          { id: 'm1', title: 'Kiln' },
+          { id: 'a', title: 'Firing notes' },
+        ],
+        status: 'applying',
+      },
+    ]);
+    const list = el.querySelector('[aria-label="Suggestions"]')!;
+    const items = [...list.querySelectorAll(':scope > li')];
+    const flat = (e: Element) => e.textContent!.replace(/\s+/g, ' ').trim();
+    expect(flat(items[0].querySelector('.what')!)).toBe(
+      'Merge Kiln log, Firing notes into one note',
+    );
+    expect(flat(items[0])).toContain('Both are the same firing.');
+    expect(flat(items[1].querySelector('.what')!)).toBe('File Vikas as a person and call it Vik');
+    expect(flat(items[1])).toContain('Could not do this: no note c-vikas');
+    expect(flat(items[2].querySelector('.what')!)).toBe('Link Kiln log to Firing notes');
+    expect(flat(items[2])).toContain('Accepted. Claude is on it.');
+    const buttons = [...items[0].querySelectorAll('button')];
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual(['Accept', 'Dismiss']);
+    expect(buttons[0].getAttribute('aria-describedby')).toBe('proposal-p1');
+    buttons[0].click();
+    buttons[1].click();
+    await fixture.whenStable();
+    expect(proposals.accept).toHaveBeenCalledWith('p1');
+    expect(proposals.dismiss).toHaveBeenCalledWith('p1');
+    expect(items[1].querySelector('button')).toBeNull();
+  });
+
+  it('shows no Suggestions heading when there are none', async () => {
+    const { el } = await render();
+    expect(el.textContent).not.toContain('Suggestions');
   });
 });

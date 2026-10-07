@@ -3,7 +3,15 @@ import { describe, expect, it, vi } from 'vitest';
 // The deployed surface is an API: the Worker routes to these names, so a
 // rename breaks production without a type error. Adding a function means
 // extending this table in the same commit.
-const EXPORTS = ['health', 'mcp', 'noteHistory', 'noteTitle', 'oauth', 'sendDuePush'];
+const EXPORTS = [
+  'health',
+  'mcp',
+  'noteHistory',
+  'noteTitle',
+  'oauth',
+  'proposalAccepted',
+  'sendDuePush',
+];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));
 

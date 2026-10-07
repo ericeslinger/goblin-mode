@@ -99,6 +99,19 @@ service cloud.firestore {
         allow read: if isOwner(uid);
         allow write: if false;
       }
+
+      // Nightly suggestions (#35): made by a function; the owner only
+      // accepts or dismisses an open one, and a trigger applies it.
+      match /proposals/{proposalId} {
+        allow read: if isOwner(uid);
+        allow update: if isOwner(uid)
+          && resource.data.status == 'open'
+          && request.resource.data.status in ['accepted', 'dismissed']
+          && request.resource.data.decidedAt is timestamp
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'decidedAt']);
+        allow create, delete: if false;
+      }
     }
   }
 }

@@ -692,6 +692,47 @@ itself; `import_url` waits for M4):
   with its notes (current titles, archived ones marked), each note's
   History, and its reminders. Older runs stay stored.
 
+**Nightly suggestions (#35, 2026-10-07; a Claude routine, Eric,
+2026-10-07).** A Claude routine on Eric's subscription, not a
+scheduled function calling the API: billing comes from his plan. The
+prompt is `routines/nightly-suggestions.md`; Eric installs it himself
+in claude.ai with the Mossgoblin connector. It reads through the MCP
+tools and writes only through `suggest_changes`.
+
+- **`suggest_changes`** takes link, merge and refile suggestions, each
+  with a sentence of reason, and stores the ones that check out in
+  `users/{uid}/proposals` as open. It changes no notes and records no
+  activity; that comes when a suggestion is accepted.
+- **Checked before stored** (`organize/proposals.ts`): the notes must
+  exist and be live; a link must be new and reach its note by name; a
+  merge takes two or more text notes; a refile must change something
+  and not take a name another note answers to. A suggestion made
+  before, in any state, is not made again (its `key`). At most 10 per
+  call and 20 waiting; the answer says what was stored and dropped.
+- **Accept or dismiss.** Under What Claude changed, each suggestion
+  says what it would do, why, and offers Accept and Dismiss; Browse's
+  link counts the open ones. The app may only move an open proposal
+  to accepted or dismissed (rules), through the persistent cache, so
+  this works offline. `proposalAccepted` then claims it (applying,
+  stamped `claimedAt`, so a retry cannot run it twice), runs the
+  matching organize tool (`link_notes`, `merge_notes`, `refile`),
+  which records itself in What Claude changed, and stores the outcome:
+  applied, or failed with why (the garden moved on). A failure stays
+  in view for three days.
+- **Housekeeping**, at each `suggest_changes`: a claim older than an
+  hour is marked failed (its function stopped partway), and applied
+  and failed proposals are deleted after 90 days. Dismissed ones stay,
+  so a dismissed suggestion never returns; the read of them is keys
+  only. A stuck claim therefore shows as in progress until the next
+  routine run, or until the routine is turned back on.
+- **Note text is data.** The routine's prompt says so; the server's
+  checks, the accept gate and the tools' own checks bound what a
+  steered suggestion could do.
+- **The write ban is the prompt's.** The routine holds the whole
+  connector, so only its prompt keeps it to `suggest_changes`. Any
+  other write would still be recorded under What Claude changed and
+  could be put back from History, since nothing deletes.
+
 ## Push
 
 The app registers an FCM token per device in `devices`. `sendDuePush`

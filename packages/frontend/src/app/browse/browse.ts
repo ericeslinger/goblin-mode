@@ -2,6 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
+import { ProposalsService } from '../claude/proposals.service';
 import { NotesService } from '../notes/notes.service';
 import { LENSES, inLens, lensId } from './lenses';
 import { NoteList } from './note-list';
@@ -20,7 +21,15 @@ import { NoteList } from './note-list';
       <h1>Notes</h1>
       <p class="more">
         <a routerLink="/map">See the whole garden as a map</a>
-        <a routerLink="/activity">What Claude changed</a>
+        <a routerLink="/activity"
+          >What Claude changed
+          @if (proposals.open()) {
+            <span class="count"
+              >{{ proposals.open() }}
+              {{ proposals.open() === 1 ? 'suggestion' : 'suggestions' }}</span
+            >
+          }
+        </a>
       </p>
       <nav aria-label="Lenses">
         @for (l of lenses(); track l.id) {
@@ -65,6 +74,7 @@ import { NoteList } from './note-list';
 })
 export class Browse {
   private readonly notes = inject(NotesService);
+  protected readonly proposals = inject(ProposalsService);
   protected readonly lens = toSignal(
     inject(ActivatedRoute).paramMap.pipe(map((p) => lensId(p.get('lens')))),
     { initialValue: lensId(undefined) },
