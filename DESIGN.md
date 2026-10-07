@@ -655,7 +655,12 @@ ribbon never showed on Eric's phone while it watched `visualViewport`
 alone. The bar now reads `navigator.virtualKeyboard` (setting
 `overlaysContent` so Chromium reports geometry) and still reads the
 visual viewport, which is how Safari shows its keyboard. The ribbon
-journey fakes the Android way.
+journey fakes the Android way, so it proves the bar follows the API as
+modelled, not that Android reports it so: unverified on a device until
+Eric checks his phone (the ribbon shows on focus, hides on the back
+button, follows New). Browsers that resize the layout viewport
+themselves (Firefox Android) give neither signal and get no ribbon;
+not a regression, and left until one of them is in use.
 
 **Reused from the other repos.** goblin: the remark pipeline and its
 directive syntax, if custom blocks are wanted. overstory: the touch

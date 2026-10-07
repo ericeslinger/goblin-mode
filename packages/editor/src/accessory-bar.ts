@@ -133,6 +133,8 @@ export function createAccessoryBar(
   const vk = (win.navigator as Navigator & { virtualKeyboard?: VirtualKeyboard }).virtualKeyboard;
   // What the viewport meta already asks for; Chromium reports geometry
   // only once the page says it handles an overlaid keyboard itself.
+  // Put back on destroy, so no other screen inherits it.
+  const overlaid = vk?.overlaysContent;
   if (vk) vk.overlaysContent = true;
 
   const update = () => {
@@ -157,6 +159,7 @@ export function createAccessoryBar(
       vv?.removeEventListener('resize', update);
       vv?.removeEventListener('scroll', update);
       vk?.removeEventListener('geometrychange', update);
+      if (vk && overlaid !== undefined) vk.overlaysContent = overlaid;
       editor.view.contentDOM.removeEventListener('focus', update);
       editor.view.contentDOM.removeEventListener('blur', update);
       bar.remove();

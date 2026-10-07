@@ -88,6 +88,7 @@ describe('createAccessoryBar', () => {
       vk.dispatchEvent(new Event('geometrychange'));
       expect(bar.element.hidden).toBe(true);
       bar.destroy();
+      expect(vk.overlaysContent).toBe(false);
       editor.destroy();
     } finally {
       delete (navigator as { virtualKeyboard?: unknown }).virtualKeyboard;
