@@ -5,14 +5,30 @@ import { OWNER } from '../src/personas';
 
 // The editor ribbon (#77): on a touch screen, formatting buttons ride on
 // top of the on-screen keyboard. A headless phone has no keyboard, so
-// the visual viewport is made to leave room for one.
+// one is faked the way Android Chrome reports it under
+// interactive-widget=overlays-content: neither viewport shrinks, and
+// only navigator.virtualKeyboard says a keyboard is up (2026-10-07; an
+// earlier fake shrank the visual viewport, which Android never does
+// here, and passed while the ribbon never showed on a real phone).
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
 test('the ribbon formats as you write: checklist, bold, lists and levels', async ({ page }) => {
   await page.addInitScript(() => {
-    const vv = window.visualViewport;
-    if (vv) Object.defineProperty(vv, 'height', { get: () => window.innerHeight - 300 });
+    const vk = Object.defineProperties(new EventTarget(), {
+      overlaysContent: { value: false, writable: true },
+      boundingRect: {
+        get() {
+          const typing = document.activeElement?.getAttribute('contenteditable') === 'true';
+          const h = typing ? 300 : 0;
+          return new DOMRect(0, window.innerHeight - h, window.innerWidth, h);
+        },
+      },
+    });
+    Object.defineProperty(navigator, 'virtualKeyboard', { value: vk });
+    const changed = () => setTimeout(() => vk.dispatchEvent(new Event('geometrychange')));
+    document.addEventListener('focusin', changed);
+    document.addEventListener('focusout', changed);
   });
   await signInAs(page, OWNER);
   await note(page).click();
