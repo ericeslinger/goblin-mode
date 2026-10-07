@@ -106,8 +106,35 @@ interface Note {
 
 A concept is a note with `kind: 'concept'`. People and projects will
 extend it with their own fields once those are known (2026-10-05: left
-open on purpose). Backlinks are a query on `links array-contains id`,
-plus a synonym text match in Phase 2.
+open on purpose).
+
+**Links and concepts (#28, 2026-10-07).** The note shape did not need
+to change: `links`, `kind: 'concept'`, `conceptType` and `synonyms`
+were in the contract from the start, so the rules are unchanged.
+`packages/schema/src/concepts.ts` says how a `[[name]]` becomes an id:
+
+- `normalizeName` compares names Unicode-normalized, case-folded and
+  with spaces collapsed.
+- A concept's id is derived from its name, `conceptId(name)`: `c-` and a
+  slug (accents dropped, letters and digits in any script kept), or a
+  hash for a name with neither. Two devices linking the same new name
+  offline make one concept. Auto ids never contain `-`, so a concept id
+  never collides with a note id. Renaming keeps the id and adds the old
+  name as a synonym (#29).
+- `nameIndex` maps names to ids: concepts' titles and synonyms first,
+  then other notes' titles; archived notes are left out, so a link
+  follows a merge.
+- `resolveLinks` turns a note's link targets into ids, and a name
+  nothing answers to points at the concept it would make (the stub is
+  created on settle, #29).
+
+Every write stores the result: the app's `NotesService.save` and the
+MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
+`[[name]]` inside code is not a link). Notes written before this keep
+`links: []` until their next write; rather than backfill them (a data
+migration), readers derive links from bodies: MCP `get_note` finds
+backlinks by resolving every note's body, and the app's backlinks and
+maps (#30, #32) do the same from the notes it already holds.
 
 ### Reminder
 

@@ -62,7 +62,16 @@ describe('NotesService', () => {
     ]);
     expect(notes.loaded()).toBe(true);
     expect(notes.notes()).toEqual([
-      { id: 'n1', body: 'hi', title: 'hi', titleSource: 'words', archived: false, updatedAt: 5 },
+      {
+        id: 'n1',
+        body: 'hi',
+        title: 'hi',
+        titleSource: 'words',
+        kind: 'text',
+        links: [],
+        archived: false,
+        updatedAt: 5,
+      },
     ]);
   });
 
@@ -93,6 +102,17 @@ describe('NotesService', () => {
     expect(update).not.toHaveProperty('kind');
     expect(update).not.toHaveProperty('createdAt');
     expect(update).toMatchObject({ body: 'Buy a card', title: 'Buy a card' });
+  });
+
+  it('writes the ids a note links to, resolving names it knows', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'c-vikas', data: { body: '', title: 'Vikas', kind: 'concept', synonyms: ['Vik'] } },
+      { id: 'n9', data: { body: 'eggs', title: 'Groceries', kind: 'text' } },
+    ]);
+    notes.save('n1', 'Ask [[vik]] about [[Groceries]] and [[Pottery|the wheel]], not `[[code]]`');
+    expect(api.set.mock.lastCall![2]).toMatchObject({ links: ['c-vikas', 'n9', 'c-pottery'] });
   });
 
   it('keeps a title Eric set himself', () => {
