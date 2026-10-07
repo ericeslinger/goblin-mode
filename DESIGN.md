@@ -788,6 +788,49 @@ tools and writes only through `suggest_changes`.
   other write would still be recorded under What Claude changed and
   could be put back from History, since nothing deletes.
 
+**Safe co-editing (#37, 2026-10-07).** A note save used to replace the
+whole body, last write winning. Now nothing either side writes is lost
+when Eric and Claude (or two devices) edit one note at once:
+
+- **Claude edits lines, not bodies.** `add_lines` (under a heading,
+  matched without case, after its last line of text; a missing heading
+  is added at the end), `check_item` and `uncheck_item` (by item text,
+  exact or the only one containing it) run in a transaction against
+  the current text and change only the lines they name. The server
+  instructions and `add_lines` steer Claude to them over `update_note`
+  for lists. Each records itself in What Claude changed.
+- **The open editor merges.** The capture loop keeps `synced`, the text
+  the server last had from this device's view (loaded, saved or merged
+  in). A snapshot with other text is merged with what was typed since
+  (`merge3`, schema: a line-based three-way merge that keeps both sides
+  where they overlap, and keeps an item added beside an edited line
+  without repeating it), shown in place with the cursor where it was
+  (`updateText`), and saved if typing survived. The editor merges once
+  more against keys typed before it heard of the change.
+- **Writes say what they were written over.** Each body write carries
+  `baseHash`, the `textHash` of the text it replaced as the writer had
+  it ('' when not known, e.g. a draft from before sign-in). When
+  `noteHistory` sees a write whose base is not the text it replaced (a
+  phone coming back online with a queued tick, or a save crossing
+  Claude's edit), it finds the shared text among the last 20 kept
+  versions (history kept it when the newer text replaced it), merges,
+  and writes the result as device `merge` in a transaction. The two
+  writes can start from different texts (two devices, one of them
+  saving twice); the older one, which both descend from, is the base.
+  If the note was saved again since by a write built on the merged one
+  (the same device's next save, a write made straight over it, or
+  Claude's), the merge is carried onto that write instead of dropped;
+  a third writer that had not seen it is merged in from the shared
+  text too. With no shared text kept, both are merged as if they had
+  none in common: every line of both stays, though an edited line can
+  show in both versions and a deleted one come back.
+- **Limits.** A merge keeps both versions of a line both sides changed
+  differently, which can read as a near-duplicate. A rewrite too large
+  to compare line by line (`MAX_TABLE` cells) keeps both sides of the
+  changed middle. Stored `links` on a
+  server merge are not recomputed until the next edit (readers derive
+  links from bodies). Keystrokes never wait on any of this.
+
 ## Push
 
 The app registers an FCM token per device in `devices`. `sendDuePush`

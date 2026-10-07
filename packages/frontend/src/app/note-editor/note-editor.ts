@@ -1,3 +1,4 @@
+import { merge3 } from '@mossgoblin/schema';
 import {
   Component,
   DestroyRef,
@@ -40,6 +41,11 @@ export class NoteEditorComponent {
    * even when the text is unchanged (two empty notes in a row).
    */
   readonly noteId = input<string | undefined>(undefined);
+  /**
+   * Set when `text` is a change merged in from elsewhere: the text it was
+   * merged into. Anything typed since is kept, merged again here (#37).
+   */
+  readonly base = input<string | undefined>(undefined);
   readonly label = input('Note');
   readonly placeholder = input('');
   readonly autofocus = input(false, { transform: booleanAttribute });
@@ -57,9 +63,12 @@ export class NoteEditorComponent {
   private bar?: AccessoryBar;
   /** What `load` showed ahead of the inputs, so they do not show it again. */
   private loaded?: { id: string; text: string };
+  /** The note the editor holds. */
+  private shownId?: string;
 
   constructor() {
     afterNextRender(() => {
+      this.shownId = untracked(this.noteId);
       this.editor = createNoteEditor({
         parent: this.host().nativeElement,
         text: untracked(this.text),
@@ -99,11 +108,23 @@ export class NoteEditorComponent {
     effect(() => {
       const id = this.noteId();
       const text = this.text();
+      const base = this.base();
       // Already shown by `load`; typing since then must not be undone.
       const loaded = this.loaded;
       this.loaded = undefined;
       if (loaded && loaded.id === id && loaded.text === text) return;
-      if (this.editor && this.editor.getText() !== text) this.editor.setText(text);
+      if (!this.editor) return;
+      const shown = this.shownId;
+      this.shownId = id;
+      if (base === undefined || id !== shown) {
+        if (this.editor.getText() !== text) this.editor.setText(text);
+        return;
+      }
+      // The same note, changed elsewhere: keep keys typed since `base`,
+      // in place, the cursor where it was.
+      const merged = merge3(base, this.editor.getText(), text);
+      this.editor.updateText(merged);
+      if (merged !== text) this.textChange.emit(merged);
     });
 
     inject(DestroyRef).onDestroy(() => {
@@ -123,6 +144,7 @@ export class NoteEditorComponent {
   load(noteId: string, text: string): void {
     if (!this.editor) return;
     this.loaded = { id: noteId, text };
+    this.shownId = noteId;
     if (this.editor.getText() !== text) this.editor.setText(text);
   }
 }

@@ -6,10 +6,13 @@ const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 /**
  * Connects Claude as claude.ai does (register, consent, code, token)
  * for the signed-in owner, and returns a way to call its MCP tools.
- * The full flow, step by step, is the claude.spec.ts journey.
+ * The full flow, step by step, is the claude.spec.ts journey. Leaves
+ * the page at claude.ai's callback.
  */
 export async function connectClaude(
   page: Page,
+  /** Where the tool calls go from; Claude's are off the phone (offline journeys). */
+  calls?: APIRequestContext,
 ): Promise<(name: string, args: object) => Promise<unknown>> {
   const api: APIRequestContext = page.request;
   const { client_id } = await (
@@ -49,7 +52,7 @@ export async function connectClaude(
   ).json();
   let id = 0;
   return async (name, args) => {
-    const res = await api.post('/mcp', {
+    const res = await (calls ?? api).post('/mcp', {
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',

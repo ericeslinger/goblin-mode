@@ -310,6 +310,49 @@ export function buildServer(tools: ToolsApi): McpServer {
   );
 
   server.registerTool(
+    'add_lines',
+    {
+      title: 'Add lines to a note',
+      description:
+        'Add lines under a heading (any level, matched without case; added at the end if the ' +
+        'note lacks it), or at the end. Applied to the current text, so nothing Eric wrote ' +
+        'meanwhile is replaced: prefer this to update_note for lists. Lines go in as given; ' +
+        'a checklist item is "- [ ] text".',
+      inputSchema: {
+        id: z.string().min(1),
+        lines: z.array(z.string()).min(1).max(100),
+        heading: z.string().min(1).optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.addLines(a)),
+  );
+
+  server.registerTool(
+    'check_item',
+    {
+      title: 'Tick an item',
+      description:
+        'Tick a checklist item ("- [ ] ...") in a note, named by its text (exact, or the only ' +
+        'item containing it). Changes only that mark.',
+      inputSchema: { id: z.string().min(1), item: z.string().min(1) },
+      annotations: write,
+    },
+    run((a) => tools.checkItem(a)),
+  );
+
+  server.registerTool(
+    'uncheck_item',
+    {
+      title: 'Untick an item',
+      description: 'Untick a checklist item in a note, named as for check_item.',
+      inputSchema: { id: z.string().min(1), item: z.string().min(1) },
+      annotations: write,
+    },
+    run((a) => tools.uncheckItem(a)),
+  );
+
+  server.registerTool(
     'list_reminders',
     {
       title: 'List reminders',

@@ -12,6 +12,8 @@ export interface NoteState {
   createdAt?: number;
   settledAt?: number;
   titleSource?: string;
+  /** `textHash` of the text the writer wrote over; '' when not known. */
+  baseHash?: string;
 }
 
 export interface KeptVersion {

@@ -65,6 +65,21 @@ describe('createNoteEditor', () => {
     expect(e.getText()).toBe('');
   });
 
+  it('updates text in place, keeping the cursor where it was', () => {
+    const onChange = vi.fn();
+    const e = make('- [ ] apples\n- [ ] kale\nbre', { onChange });
+    // Typing at the end; a tick lands earlier in the note.
+    expect(e.view.state.selection.main.head).toBe(27);
+    e.updateText('- [x] apples\n- [ ] kale\nbre');
+    expect(e.getText()).toBe('- [x] apples\n- [ ] kale\nbre');
+    expect(e.view.state.selection.main.head).toBe(27);
+    // A line added before the cursor moves it along with its text.
+    e.updateText('- [ ] leeks\n- [x] apples\n- [ ] kale\nbre');
+    expect(e.view.state.selection.main.head).toBe(39);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(undo(e.view)).toBe(false);
+  });
+
   it('never changes the text when switching modes', () => {
     const text = '## Plan\n\n- [ ] call [[Vikas|vik]] *soon*\n\n![p](attachment:x)';
     const e = make(text);

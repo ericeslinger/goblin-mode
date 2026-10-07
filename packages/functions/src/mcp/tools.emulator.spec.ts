@@ -369,3 +369,42 @@ describe('template tools', () => {
     await expect(t.useTemplate({ id: 'n1' })).rejects.toThrow('no template n1');
   });
 });
+
+describe('line tools', () => {
+  const LIST = 'Shopping list\n## Produce\n- [ ] apples\n\n## Dry goods\n- [ ] rice';
+
+  it('adds under a heading and ticks items, on the current text, recording each', async () => {
+    await eric('s', LIST);
+    const t = ticking();
+    // Eric ticks rice on his phone; Claude's add lands on that text.
+    await db.doc('users/u1/notes/s').update({ body: LIST.replace('- [ ] rice', '- [x] rice') });
+    await t.addLines({ id: 's', heading: 'Produce', lines: ['- [ ] limes'] });
+    await t.checkItem({ id: 's', item: 'apples' });
+    expect((await body('s'))['body']).toBe(
+      'Shopping list\n## Produce\n- [x] apples\n- [ ] limes\n\n## Dry goods\n- [x] rice',
+    );
+    await t.uncheckItem({ id: 's', item: 'rice' });
+    expect((await body('s'))['body']).toContain('- [ ] rice');
+    expect(await t.checkItem({ id: 's', item: 'apples' })).toEqual({ id: 's', changed: false });
+    await expect(t.checkItem({ id: 's', item: 'bread' })).rejects.toThrow(/no item matches/);
+    expect((await runs()).map((r) => r['summary'])).toEqual([
+      'Added 1 line to Shopping list, under Produce',
+      'Ticked apples',
+      'Unticked rice',
+    ]);
+  });
+
+  it('keeps both of two edits made at once', async () => {
+    await eric('s', LIST);
+    const t = ticking();
+    await Promise.all([
+      t.addLines({ id: 's', heading: 'Dry goods', lines: ['- [ ] oats'] }),
+      t.checkItem({ id: 's', item: 'apples' }),
+      t.addLines({ id: 's', heading: 'Butcher', lines: ['- [ ] chicken'] }),
+    ]);
+    const text = String((await body('s'))['body']);
+    expect(text).toContain('- [x] apples');
+    expect(text).toContain('- [ ] rice\n- [ ] oats');
+    expect(text).toContain('## Butcher\n- [ ] chicken');
+  });
+});

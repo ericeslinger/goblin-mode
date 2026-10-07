@@ -1,3 +1,4 @@
+import { textHash } from '@mossgoblin/schema';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -83,5 +84,48 @@ describe('firestoreNotesStore', () => {
     expect(await store.setTitle('u1', 'n1', T + 1000, 'Bank call')).toBe(false);
     expect(await store.setTitle('u1', 'gone', T + 1000, 'Bank call')).toBe(false);
     expect((await ref.get()).get('title')).toBe('Mine');
+  });
+
+  it('reads kept bodies newest first, and writes a merge only over the text it merged', async () => {
+    const store = firestoreNotesStore(db);
+    const v = (body: string) => ({
+      body,
+      title: 'T',
+      updatedBy: 'user' as const,
+      deviceId: 'd1',
+      updatedAt: T,
+      reason: 'device' as const,
+    });
+    await store.keep('u1', 'n1', 'e1', v('one'));
+    await store.keep('u1', 'n1', 'e2', v('two'));
+    expect(await store.keptBodies('u1', 'n1', 5)).toEqual(['two', 'one']);
+
+    await db.doc('users/u1/notes/n1').set({
+      body: 'mine',
+      title: 'mine',
+      titleSource: 'words',
+      updatedBy: 'user',
+      deviceId: 'phone',
+    });
+    const seen: unknown[] = [];
+    expect(
+      await store.writeMerged('u1', 'n1', (current) => {
+        seen.push(current);
+        return undefined;
+      }),
+    ).toBe(false);
+    expect(seen).toEqual([
+      { body: 'mine', deviceId: 'phone', updatedBy: 'user', baseHash: undefined },
+    ]);
+    expect(
+      await store.writeMerged('u1', 'n1', () => ({ body: 'merged\nmine', over: 'mine' })),
+    ).toBe(true);
+    expect((await db.doc('users/u1/notes/n1').get()).data()).toMatchObject({
+      body: 'merged\nmine',
+      title: 'merged',
+      deviceId: 'merge',
+      updatedBy: 'user',
+      baseHash: textHash('mine'),
+    });
   });
 });
