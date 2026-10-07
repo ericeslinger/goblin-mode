@@ -41,8 +41,7 @@ export function matches(note: NoteRecord, search: string): boolean {
       @for (note of shown(); track note.id) {
         <li>
           <a
-            [routerLink]="['/']"
-            [queryParams]="{ note: note.id }"
+            [routerLink]="['/n', note.id]"
             [attr.aria-current]="note.id === current() ? 'true' : null"
           >
             <span class="title">{{ note.title || 'Untitled' }}</span>

@@ -43,6 +43,8 @@ export class NoteEditorComponent {
   readonly label = input('Note');
   readonly placeholder = input('');
   readonly autofocus = input(false, { transform: booleanAttribute });
+  /** Shown but not editable (a linked note that has not arrived yet). */
+  readonly readOnly = input(false);
   readonly textChange = output<string>();
 
   private readonly modes = inject(EditorModeService);
@@ -57,6 +59,7 @@ export class NoteEditorComponent {
         text: untracked(this.text),
         label: untracked(this.label),
         placeholder: untracked(this.placeholder),
+        readOnly: untracked(this.readOnly),
         mode: untracked(this.modes.mode),
         onChange: (text) => this.textChange.emit(text),
       });
@@ -74,6 +77,11 @@ export class NoteEditorComponent {
     effect(() => {
       const mode = this.modes.mode();
       if (this.editor && this.editor.getMode() !== mode) this.editor.setMode(mode);
+    });
+
+    effect(() => {
+      const readOnly = this.readOnly();
+      this.editor?.setReadOnly(readOnly);
     });
 
     effect(() => {

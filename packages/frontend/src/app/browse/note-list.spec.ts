@@ -40,14 +40,14 @@ describe('NoteList', () => {
     return { fixture, el: fixture.nativeElement as HTMLElement };
   }
 
-  it('lists live, non-empty notes linking to /?note=', async () => {
+  it('lists live, non-empty notes linking to /n/<id>', async () => {
     const { el } = await render();
     const links = [...el.querySelectorAll('a')];
     expect(links.map((a) => a.querySelector('.title')?.textContent)).toEqual([
       'Groceries',
       'Call Vikas',
     ]);
-    expect(links[0].getAttribute('href')).toBe('/?note=n1');
+    expect(links[0].getAttribute('href')).toBe('/n/n1');
     expect(links[1].getAttribute('aria-current')).toBe('true');
   });
 

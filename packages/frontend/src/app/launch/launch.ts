@@ -1,5 +1,6 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Component, DestroyRef, computed, inject, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { NoteList } from '../browse/note-list';
@@ -25,8 +26,9 @@ import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
 export class Launch {
   protected readonly auth = inject(AuthService);
   protected readonly capture = inject(CaptureService);
-  private readonly notes = inject(NotesService);
+  protected readonly notes = inject(NotesService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   protected readonly modes = inject(EditorModeService);
   protected readonly online = signal(navigator.onLine);
   protected readonly split = inject(SplitService);
@@ -50,6 +52,25 @@ export class Launch {
     return this.notes.exists(this.capture.open().id);
   });
 
+  /** The note the URL names (`/n/<id>`); undefined on `/`. */
+  protected readonly routeId = toSignal(
+    this.route.paramMap.pipe(map((params) => params.get('id') ?? undefined)),
+  );
+
+  /**
+   * A linked note this device does not have yet (not synced, or opened
+   * before the notes load): shown read-only until it arrives, so typing
+   * can never land on top of it.
+   */
+  protected readonly waiting = computed(() => {
+    this.notes.notes();
+    const id = this.routeId();
+    return !!id && !this.notes.exists(id);
+  });
+
+  protected readonly linkStatus = signal('');
+  private readonly editor = viewChild(NoteEditorComponent);
+
   protected readonly previousOpen = signal(false);
   /** The few most recent other notes, for "Previous note". */
   protected readonly previous = computed(() =>
@@ -60,15 +81,19 @@ export class Launch {
   );
 
   constructor() {
-    // A link to /?note=<id> (the notes list) opens that note here.
-    inject(ActivatedRoute)
-      .queryParamMap.pipe(takeUntilDestroyed())
-      .subscribe((params) => {
-        const id = params.get('note');
-        if (!id) return;
-        this.capture.openNote(id);
-        void this.router.navigate([], { queryParams: {}, replaceUrl: true });
-      });
+    // The URL says which note is open: /n/<id> that note, / the capture
+    // note. Back and forward move between them.
+    this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((params) => {
+      this.linkStatus.set('');
+      const id = params.get('id');
+      if (id) this.capture.openNote(id);
+      else this.capture.openHome();
+    });
+    // Links from before note URLs (/?note=<id>, in pushes already sent).
+    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
+      const id = params.get('note');
+      if (id) void this.router.navigate(['/n', id], { replaceUrl: true });
+    });
 
     const update = () => this.online.set(navigator.onLine);
     addEventListener('online', update);
@@ -116,13 +141,36 @@ export class Launch {
     this.split.set(next);
   }
 
-  protected newNote(): void {
+  /**
+   * A fresh capture note at `/`. When leaving the old capture note, its
+   * history entry becomes that note's own URL, so back returns to it.
+   */
+  protected async newNote(): Promise<void> {
     this.previousOpen.set(false);
+    this.capture.flush();
+    const old = this.capture.open().id;
+    if (!this.routeId() && this.notes.exists(old)) {
+      await this.router.navigate(['/n', old], { replaceUrl: true });
+    }
     this.capture.newNote();
+    await this.router.navigate(['/']);
+    // A cursor in the fresh note, as at launch.
+    this.editor()?.focus();
   }
 
   protected openPrevious(id: string): void {
     this.previousOpen.set(false);
-    this.capture.openNote(id);
+    void this.router.navigate(['/n', id]);
+  }
+
+  /** Copies this note's address, to open it from anywhere. */
+  protected async copyLink(): Promise<void> {
+    const url = `${location.origin}/n/${this.capture.open().id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      this.linkStatus.set('Link copied');
+    } catch {
+      this.linkStatus.set(`Could not copy; the link is ${url}`);
+    }
   }
 }

@@ -44,7 +44,7 @@ describe('ReminderRow', () => {
 
   it('links to its note when it has one', async () => {
     const { el } = await renderRow({ text: 'reply to Vikas', noteId: 'n1' });
-    expect(el.querySelector('a.text')?.getAttribute('href')).toBe('/?note=n1');
+    expect(el.querySelector('a.text')?.getAttribute('href')).toBe('/n/n1');
   });
 
   it('marks done from the button', async () => {

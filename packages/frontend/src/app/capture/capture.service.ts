@@ -46,6 +46,12 @@ export class CaptureService {
 
   /** The note in the editor; `text` changes only when a note is opened. */
   readonly open = signal<OpenNote>({ id: '', text: '' });
+  /**
+   * The capture note, the one `/` shows: chosen at launch by the
+   * five-minute rule, and replaced by New. Other notes have their own
+   * URL, `/n/<id>`.
+   */
+  readonly home = signal('');
 
   private body = '';
   private dirty = false;
@@ -67,6 +73,7 @@ export class CaptureService {
       const resume = fresh ? undefined : seen?.noteId;
       this.show({ id: resume ?? this.notes.newId(), text: '' });
     }
+    this.home.set(this.open().id);
 
     // A resumed note's text arrives with the first snapshot; load it
     // unless the user has already started typing.
@@ -159,10 +166,16 @@ export class CaptureService {
     this.untouched = false;
   }
 
-  /** Starts a fresh, empty note. */
+  /** Starts a fresh, empty note, which becomes the capture note. */
   newNote(): void {
     this.closeCurrent();
     this.show({ id: this.notes.newId(), text: '' });
+    this.home.set(this.open().id);
+  }
+
+  /** Back to the capture note (`/`), from another note. */
+  openHome(): void {
+    this.openNote(this.home());
   }
 
   /** The app is being hidden: save, tidy, and stamp the time. */

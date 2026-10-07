@@ -137,6 +137,20 @@ one this device has not seen yet, and never overwrites it. Any later
 direct save clears the draft, so an older draft never lands on newer
 text.
 
+**Note URLs (#27, 2026-10-07).** Every note lives at `/n/<id>`, with
+no slug (Eric, 2026-10-06); `/` is the capture note, the one the
+five-minute rule picks and New replaces. Both are one route (a URL
+matcher), so the launch screen is reused, and the route decides which
+note is open: opening a note pushes `/n/<id>`, so back returns to the
+note or list it came from. New turns the old capture note's history
+entry into its `/n/<id>` before pushing `/` for the fresh one, so back
+reaches it too. A linked note this device does not have yet (not
+synced) is shown read-only with a status line until it arrives, so
+typing can never land on top of it. Pushes, Browse, reminders and
+History restores link to `/n/<id>`; the old `/?note=<id>` redirects.
+Copy link copies the note's address. The Worker and the service
+worker already serve any extensionless path as the app, offline too.
+
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
 remembers that it has been signed in: with that mark set, the editor

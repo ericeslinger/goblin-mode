@@ -223,6 +223,22 @@ describe('CaptureService', () => {
     expect(capture.open().id).toBe('new2');
   });
 
+  it('keeps the capture note: other notes come and go, New replaces it', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'elsewhere')]);
+    expect(capture.home()).toBe('new1');
+    capture.onText('captured');
+    capture.openNote('n1');
+    expect(capture.home()).toBe('new1');
+    capture.openHome();
+    expect(capture.open().id).toBe('new1');
+    capture.newNote();
+    expect(capture.home()).toBe('new2');
+    capture.openNote('n1');
+    capture.openHome();
+    expect(capture.open().id).toBe('new2');
+  });
+
   it('opens another note with its text', () => {
     const { capture, notes } = setup();
     notes.signIn([note('n9', 'older note')]);

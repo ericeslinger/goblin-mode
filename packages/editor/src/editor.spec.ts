@@ -36,6 +36,17 @@ describe('createNoteEditor', () => {
     expect(e.view.contentDOM.getAttribute('aria-label')).toBe('New note');
   });
 
+  it('can be read-only, and still takes text loaded into it', () => {
+    const e = make('', { readOnly: true });
+    expect(e.view.state.readOnly).toBe(true);
+    expect(e.view.contentDOM.getAttribute('contenteditable')).toBe('false');
+    e.setText('arrived');
+    expect(e.getText()).toBe('arrived');
+    e.setReadOnly(false);
+    expect(e.view.state.readOnly).toBe(false);
+    expect(e.view.contentDOM.getAttribute('contenteditable')).toBe('true');
+  });
+
   it('reports every change with the full text', () => {
     const onChange = vi.fn();
     const e = make('a', { onChange });

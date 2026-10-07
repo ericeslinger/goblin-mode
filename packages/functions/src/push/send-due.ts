@@ -57,7 +57,7 @@ export function messageFor(r: DueReminder): PushMessage {
     tag: r.id,
     title: r.text,
     body: r.recurrence ? 'Right Now · repeats' : 'Right Now',
-    url: r.noteId ? `/?note=${encodeURIComponent(r.noteId)}` : '/right-now',
+    url: r.noteId ? `/n/${encodeURIComponent(r.noteId)}` : '/right-now',
   };
 }
 
