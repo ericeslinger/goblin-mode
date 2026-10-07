@@ -1,3 +1,4 @@
+import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
@@ -5,7 +6,7 @@ import { ConceptHeader } from './concept-header';
 
 async function render(note: NoteRecord) {
   const notes = new FakeNotes();
-  notes.updateConcept = vi.fn();
+  notes.updateConcept = vi.fn(() => [] as string[]);
   TestBed.configureTestingModule({
     imports: [ConceptHeader],
     providers: [{ provide: NotesService, useValue: notes }],
@@ -53,5 +54,23 @@ describe('ConceptHeader', () => {
 
     el.querySelector<HTMLButtonElement>('[aria-label="Remove Oven"]')!.click();
     expect(notes.updateConcept).toHaveBeenLastCalledWith('c-kiln', { synonyms: [] });
+  });
+
+  it('puts the name back when left blank, and says when a name is taken', async () => {
+    const { el, notes } = await render(kiln);
+    const name = el.querySelector<HTMLInputElement>('.name input')!;
+    name.value = '  ';
+    name.dispatchEvent(new Event('change'));
+    expect(name.value).toBe('Kiln');
+    expect(notes.updateConcept).not.toHaveBeenCalled();
+
+    notes.updateConcept.mockReturnValueOnce(['Banjo']);
+    name.value = 'Banjo';
+    name.dispatchEvent(new Event('change'));
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect(name.value).toBe('Kiln');
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+      '“Banjo” already names another note.',
+    );
   });
 });

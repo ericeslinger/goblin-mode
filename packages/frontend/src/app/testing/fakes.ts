@@ -44,7 +44,7 @@ export class FakeNotes {
   createConcept = vi.fn((name: string) => conceptId(name));
   updateConcept = vi.fn(
     (_id: string, _change: { title?: string; conceptType?: string; synonyms?: string[] }) =>
-      undefined,
+      [] as string[],
   );
   newId = () => `new${++this.n}`;
   find = (id: string) => this.notes().find((x) => x.id === id);

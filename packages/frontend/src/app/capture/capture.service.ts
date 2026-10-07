@@ -141,8 +141,14 @@ export class CaptureService {
     // This text is newer than any pending draft, which must not land
     // on top of it later.
     this.store.remove(PENDING_DRAFT_KEY);
-    if (this.body.trim()) this.notes.save(id, this.body);
+    // A concept is never deleted for having no text: its name, type and
+    // other names are what it is (review on #66).
+    if (this.body.trim() || this.isConcept(id)) this.notes.save(id, this.body);
     else if (this.notes.exists(id)) this.notes.remove(id);
+  }
+
+  private isConcept(id: string): boolean {
+    return this.notes.find(id)?.kind === 'concept';
   }
 
   /** Opens another note (from Previous notes, Browse or a link). */
@@ -208,7 +214,7 @@ export class CaptureService {
     const { id } = this.open();
     // Only a note emptied by typing here is deleted: an untouched one may
     // simply not have loaded yet, and must never be removed.
-    if (!this.untouched && !this.body.trim()) {
+    if (!this.untouched && !this.body.trim() && !this.isConcept(id)) {
       if (this.notes.exists(id)) this.notes.remove(id);
       return;
     }

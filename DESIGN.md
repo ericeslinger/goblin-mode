@@ -161,7 +161,11 @@ another note's text (found with #29: an empty concept was deleted as
 any note, with a header above its text: its name (renaming keeps the
 id and adds the old name as another name, so links written with it
 still land), its type (person, project, other) and its other names,
-added and removed as chips (`NotesService.updateConcept`). Under any
+added and removed as chips (`NotesService.updateConcept`). A name
+another note already answers to is refused, so a concept never takes
+over another's links; an empty stub that holds it (made by linking the
+name earlier) is folded in instead, archived with `mergedInto`. A
+concept is never deleted for having no text. Under any
 note, **Linked from** lists the notes that link to it, each with the
 sentence the link sits in, and under a concept **Often together**
 lists the concepts most often linked from the same notes.

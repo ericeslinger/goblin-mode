@@ -60,4 +60,13 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   await chip(page, 'Vikas').click();
   await expect(page).toHaveURL(/\/n\/c-vikas$/);
   await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Vikas S.');
+
+  // A concept emptied of text is still a concept, never deleted.
+  await note(page).click();
+  await page.keyboard.type('x');
+  await page.keyboard.press('Backspace');
+  await letItSave(page);
+  await page.reload();
+  await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Vikas S.');
+  await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('Vik');
 });

@@ -207,6 +207,42 @@ describe('NotesService', () => {
     expect(api.set).not.toHaveBeenCalled();
   });
 
+  it('refuses a name another note already answers to', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'c-guitar', data: { body: '', title: 'Guitar', kind: 'concept' } },
+      { id: 'c-banjo', data: { body: '', title: 'Banjo', kind: 'concept', synonyms: ['Uke'] } },
+    ]);
+    expect(notes.updateConcept('c-guitar', { synonyms: ['banjo', 'UKE', 'Axe'] })).toEqual([
+      'banjo',
+      'UKE',
+    ]);
+    expect(api.set.mock.lastCall![2]).toMatchObject({ synonyms: ['Axe'] });
+    api.set.mockClear();
+    expect(notes.updateConcept('c-guitar', { title: 'Banjo' })).toEqual(['Banjo']);
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
+  it('folds in an empty stub concept that held the name, archiving it', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'c-vikas', data: { body: '', title: 'Vikas', kind: 'concept' } },
+      { id: 'c-vik', data: { body: '', title: 'Vik', kind: 'concept' } },
+    ]);
+    expect(notes.updateConcept('c-vikas', { synonyms: ['Vik'] })).toEqual([]);
+    const calls = api.set.mock.calls.map(([, path, data]) => [path, data]);
+    expect(calls[0]).toEqual([
+      'users/u1/notes/c-vikas',
+      expect.objectContaining({ synonyms: ['Vik'] }),
+    ]);
+    expect(calls[1]).toEqual([
+      'users/u1/notes/c-vik',
+      expect.objectContaining({ archived: true, mergedInto: 'c-vikas' }),
+    ]);
+  });
+
   it('keeps a title Eric set himself', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

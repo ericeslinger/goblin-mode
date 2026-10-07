@@ -1,4 +1,4 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
 const TYPES = [
@@ -21,7 +21,7 @@ const TYPES = [
           <input
             #name
             [value]="note().title"
-            (change)="rename(name.value)"
+            (change)="rename(name)"
             (keydown.enter)="name.blur()"
           />
         </label>
@@ -53,6 +53,9 @@ const TYPES = [
           />
         </label>
       </div>
+      @if (refusal()) {
+        <p class="refusal" role="status">{{ refusal() }}</p>
+      }
     </section>
   `,
   styles: `
@@ -123,6 +126,11 @@ const TYPES = [
       display: inline;
       margin: 0;
     }
+    .refusal {
+      margin: 0 0 var(--space-2);
+      font-size: 14px;
+      color: var(--quiet);
+    }
   `,
 })
 export class ConceptHeader {
@@ -132,18 +140,30 @@ export class ConceptHeader {
   protected readonly kind = computed(() => this.note().conceptType ?? 'other');
   protected readonly synonyms = computed(() => this.note().synonyms ?? []);
 
-  protected rename(title: string): void {
-    if (title.trim()) this.notes.updateConcept(this.note().id, { title });
+  protected readonly refusal = signal('');
+
+  protected rename(input: HTMLInputElement): void {
+    const title = input.value.trim();
+    // A concept always has a name: a blank one puts the old name back.
+    if (!title) {
+      input.value = this.note().title;
+      return;
+    }
+    if (this.update({ title }).length) input.value = this.note().title;
   }
 
   protected add(name: string): void {
     if (!name.trim()) return;
-    this.notes.updateConcept(this.note().id, { synonyms: [...this.synonyms(), name] });
+    this.update({ synonyms: [...this.synonyms(), name] });
   }
 
   protected remove(name: string): void {
-    this.notes.updateConcept(this.note().id, {
-      synonyms: this.synonyms().filter((s) => s !== name),
-    });
+    this.update({ synonyms: this.synonyms().filter((s) => s !== name) });
+  }
+
+  private update(change: { title?: string; synonyms?: string[] }): string[] {
+    const refused = this.notes.updateConcept(this.note().id, change);
+    this.refusal.set(refused.length ? `“${refused.join('”, “')}” already names another note.` : '');
+    return refused;
   }
 }
