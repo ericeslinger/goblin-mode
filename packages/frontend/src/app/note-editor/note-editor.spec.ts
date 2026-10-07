@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import type { EditorView } from '@codemirror/view';
 import { EditorModeService } from './editor-mode.service';
-import { NoteEditorComponent } from './note-editor';
+import { keyLabel, NoteEditorComponent } from './note-editor';
 
 @Component({
   imports: [NoteEditorComponent],
@@ -33,7 +33,31 @@ async function render() {
   return { fixture, content };
 }
 
+describe('keyLabel', () => {
+  it('names the key the way this keyboard shows it', () => {
+    expect(keyLabel('Mod+B', false)).toBe('Ctrl+B');
+    expect(keyLabel('Mod+B', true)).toBe('⌘B');
+  });
+});
+
 describe('NoteEditorComponent', () => {
+  it('gives a mouse a toolbar with one tab stop, moved by arrow keys', async () => {
+    const { fixture } = await render();
+    fixture.detectChanges();
+    const buttons = [
+      ...fixture.nativeElement.querySelectorAll('[role=toolbar] button'),
+    ] as HTMLButtonElement[];
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toContain('Bulleted list');
+    expect(buttons.map((b) => b.tabIndex)).toEqual(buttons.map((_, i) => (i === 0 ? 0 : -1)));
+    buttons[0].focus();
+    buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    fixture.detectChanges();
+    const last = buttons.length - 1;
+    expect(document.activeElement).toBe(buttons[last]);
+    expect(buttons[last].tabIndex).toBe(0);
+    expect(buttons[0].tabIndex).toBe(-1);
+  });
+
   it('shows the text, labelled, with focus', async () => {
     const { content } = await render();
     expect(content.getAttribute('aria-label')).toBe('New note');

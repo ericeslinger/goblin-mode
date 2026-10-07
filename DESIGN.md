@@ -662,6 +662,12 @@ button, follows New). Browsers that resize the layout viewport
 themselves (Firefox Android) give neither signal and get no ribbon;
 not a regression, and left until one of them is in use.
 
+**Desktop toolbar (Eric, 2026-10-07).** With a mouse there is no
+keyboard to ride on, so the same actions (less Done) sit in a toolbar
+over the note; each button's tooltip names its key. Buttons keep focus
+in the note (mousedown is prevented, and a keyboard click returns
+focus), so typing carries on where it was.
+
 **Room above the keyboard (2026-10-07).** The keyboard and the ribbon
 overlay the page, so in a long note the ribbon sat on the line being
 typed. The bar tells the editor where the cover starts
