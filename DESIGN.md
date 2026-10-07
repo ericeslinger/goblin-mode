@@ -648,6 +648,15 @@ first. Image insert joins with attachments (M4). Desktop keys: Mod-b,
 Mod-i, Mod-] and Mod-[, which always take the key (Mod-[ is the
 browser's Back).
 
+**Finding the keyboard (2026-10-07).** The viewport meta asks for
+`interactive-widget=overlays-content`, so on Android Chrome the
+keyboard is drawn over the page and neither viewport shrinks; the
+ribbon never showed on Eric's phone while it watched `visualViewport`
+alone. The bar now reads `navigator.virtualKeyboard` (setting
+`overlaysContent` so Chromium reports geometry) and still reads the
+visual viewport, which is how Safari shows its keyboard. The ribbon
+journey fakes the Android way.
+
 **Reused from the other repos.** goblin: the remark pipeline and its
 directive syntax, if custom blocks are wanted. overstory: the touch
 accessory bar that docks above the keyboard using `visualViewport`,

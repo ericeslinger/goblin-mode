@@ -5,10 +5,12 @@ export * from './grammar/index';
 export { createNoteEditor, type NoteEditor, type NoteEditorOptions } from './editor';
 export {
   createAccessoryBar,
+  keyboardGeometry,
   keyboardHeight,
   KEYBOARD_MIN_PX,
   type AccessoryAction,
   type AccessoryBar,
+  type KeyboardGeometry,
 } from './accessory-bar';
 export { computeDecorations, type DecorationSpec, type Mode } from './live/decorations';
 export { continueList, insertWikiLink, toggleTaskAt, toggleTaskLine } from './live/commands';
