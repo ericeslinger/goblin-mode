@@ -632,6 +632,19 @@ Two things learned building it:
   an Enter typed instantly before more text. Journeys wait for the new
   line before typing on.
 
+**Ribbon (#77, Eric, 2026-10-07).** On a touch screen the accessory
+bar over the keyboard is a formatting ribbon: checklist item, bold and
+italic (`*bold*`, `_italic_`, toggled around the selection or as a pair
+around the cursor), link (`[[`), bulleted and numbered list (numbered
+down the selection; again on a list of that kind makes plain lines),
+outdent and indent (two spaces, a list level), and Done (hides the
+keyboard). The row scrolls sideways when a phone is too narrow. Each is
+one transaction, undone in one step, and a marker put in where the
+cursor is lands before what is typed next. Taps act a frame later, so
+an Enter or Backspace CodeMirror is still holding back on Android lands
+first. Image insert joins with attachments (M4). Desktop keys: Mod-b,
+Mod-i, Mod-] and Mod-[.
+
 **Reused from the other repos.** goblin: the remark pipeline and its
 directive syntax, if custom blocks are wanted. overstory: the touch
 accessory bar that docks above the keyboard using `visualViewport`,

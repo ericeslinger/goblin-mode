@@ -14,6 +14,8 @@ export interface AccessoryAction {
   label: string;
   /** Accessible name, when the label is a symbol. */
   name?: string;
+  /** How the label looks, e.g. bold for Bold. */
+  style?: Partial<Pick<CSSStyleDeclaration, 'fontWeight' | 'fontStyle'>>;
   run: () => void;
 }
 
@@ -36,6 +38,10 @@ export function createAccessoryBar(
   actions: AccessoryAction[],
   win: Window = window,
 ): AccessoryBar {
+  // One frame on: on Android, CodeMirror holds Enter and Backspace back
+  // until the next frame, so a tap right after one acts on the text with
+  // it in, not on the line before it.
+  const later = (run: () => void) => win.requestAnimationFrame(() => run());
   const bar = win.document.createElement('div');
   bar.className = 'mg-accessory-bar';
   bar.setAttribute('role', 'toolbar');
@@ -53,6 +59,9 @@ export function createAccessoryBar(
     gap: '4px',
     padding: '2px 8px',
     zIndex: '10',
+    // More buttons than a narrow phone fits: the row scrolls sideways.
+    overflowX: 'auto',
+    scrollbarWidth: 'none',
   });
 
   for (const action of actions) {
@@ -60,14 +69,15 @@ export function createAccessoryBar(
     button.type = 'button';
     button.textContent = action.label;
     if (action.name) button.setAttribute('aria-label', action.name);
-    Object.assign(button.style, { minWidth: '48px', minHeight: '48px' });
+    Object.assign(button.style, { minWidth: '48px', minHeight: '48px', flex: '0 0 auto' });
+    if (action.style) Object.assign(button.style, action.style);
     button.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      action.run();
+      later(action.run);
     });
     // Keyboard and assistive-tech activation, which has no pointerdown.
     button.addEventListener('click', (e) => {
-      if ((e as MouseEvent).detail === 0) action.run();
+      if ((e as MouseEvent).detail === 0) later(action.run);
     });
     bar.append(button);
   }

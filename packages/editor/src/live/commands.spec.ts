@@ -1,6 +1,14 @@
 import { EditorSelection, EditorState, type TransactionSpec } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
-import { continueList, insertWikiLink, toggleTaskAt, toggleTaskLine } from './commands';
+import {
+  continueList,
+  insertWikiLink,
+  setList,
+  shiftLines,
+  toggleMark,
+  toggleTaskAt,
+  toggleTaskLine,
+} from './commands';
 
 function run(
   command: typeof toggleTaskLine,
@@ -22,6 +30,12 @@ describe('toggleTaskAt', () => {
 });
 
 describe('toggleTaskLine', () => {
+  it('leaves the cursor after a box put in where it was', () => {
+    const state = run(toggleTaskLine, 'a\n', 2);
+    expect(state.doc.toString()).toBe('a\n- [ ] ');
+    expect(state.selection.main.head).toBe(8);
+  });
+
   it('turns plain text into a task', () => {
     expect(run(toggleTaskLine, 'buy a card', 3).doc.toString()).toBe('- [ ] buy a card');
   });
@@ -114,5 +128,64 @@ describe('continueList', () => {
   it('leaves Enter alone outside lists and inside the marker', () => {
     expect(enter('plain text')).toBeNull();
     expect(enter('- one', 1)).toBeNull();
+  });
+});
+
+const text = (state: EditorState) => state.doc.toString();
+const selected = (state: EditorState) =>
+  state.sliceDoc(state.selection.main.from, state.selection.main.to);
+
+describe('toggleMark', () => {
+  it('wraps the selection, and unwraps it again', () => {
+    const bold = run(toggleMark('*'), 'a word here', 6, 2);
+    expect(text(bold)).toBe('a *word* here');
+    expect(selected(bold)).toBe('word');
+    let again = bold;
+    toggleMark('*')({ state: bold, dispatch: (tr) => (again = bold.update(tr).state) });
+    expect(text(again)).toBe('a word here');
+    expect(text(run(toggleMark('_'), 'a _word_ here', 8, 2))).toBe('a word here');
+  });
+
+  it('puts a pair in with the cursor between when nothing is selected', () => {
+    const state = run(toggleMark('_'), 'say ', 4);
+    expect(text(state)).toBe('say __');
+    expect(state.selection.main.head).toBe(5);
+  });
+});
+
+describe('setList', () => {
+  it('makes lines a list, numbered down the selection, keeping indent and tasks', () => {
+    const doc = 'eggs\n  milk\n\n- [ ] bread';
+    expect(text(run(setList('bullet'), doc, doc.length, 0))).toBe(
+      '- eggs\n  - milk\n\n- [ ] bread',
+    );
+    expect(text(run(setList('number'), doc, doc.length, 0))).toBe(
+      '1. eggs\n  2. milk\n\n3. [ ] bread',
+    );
+  });
+
+  it('turns a list of that kind back into plain lines', () => {
+    expect(text(run(setList('bullet'), '- a\n- b', 7, 0))).toBe('a\nb');
+    expect(text(run(setList('number'), '- a', 1))).toBe('1. a');
+  });
+
+  it('leaves the cursor after a marker put in where it was', () => {
+    const state = run(setList('bullet'), 'x\ny', 2);
+    expect(state.doc.toString()).toBe('x\n- y');
+    expect(state.selection.main.head).toBe(4);
+  });
+
+  it('starts a list on an empty line', () => {
+    const state = run(setList('number'), '', 0);
+    expect(text(state)).toBe('1. ');
+    expect(state.selection.main.head).toBe(3);
+  });
+});
+
+describe('shiftLines', () => {
+  it('indents and outdents the selected lines a list level', () => {
+    expect(text(run(shiftLines(1), '- a\n- b\n\nc', 6, 0))).toBe('  - a\n  - b\n\nc');
+    expect(text(run(shiftLines(-1), '  - a\n\t- b\n- c', 12, 0))).toBe('- a\n- b\n- c');
+    expect(run(shiftLines(-1), '- a', 1).doc.toString()).toBe('- a');
   });
 });

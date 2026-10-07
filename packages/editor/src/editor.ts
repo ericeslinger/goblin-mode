@@ -13,7 +13,14 @@ import { EditorView, keymap, placeholder } from '@codemirror/view';
 import type { Mode } from './live/decorations';
 import { livePreview, modeField, setMode } from './live/extension';
 import { hooksFacet, type NoteEditorHooks } from './live/hooks';
-import { continueList, insertWikiLink, toggleTaskLine } from './live/commands';
+import {
+  continueList,
+  insertWikiLink,
+  setList,
+  shiftLines,
+  toggleMark,
+  toggleTaskLine,
+} from './live/commands';
 import { linkAutocomplete } from './live/link-complete';
 import { noteTheme } from './live/theme';
 
@@ -47,6 +54,13 @@ export interface NoteEditor {
   /** Toolbar actions. */
   toggleTask(): void;
   insertWikiLink(): void;
+  /** `*bold*` and `_italic_`, the house convention. */
+  toggleBold(): void;
+  toggleItalic(): void;
+  bulletList(): void;
+  numberedList(): void;
+  indent(): void;
+  outdent(): void;
   focus(): void;
   destroy(): void;
 }
@@ -75,6 +89,10 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         { key: 'Enter', run: continueList },
         { key: 'Mod-Enter', run: toggleTaskLine },
         { key: 'Mod-k', run: insertWikiLink },
+        { key: 'Mod-b', run: toggleMark('*') },
+        { key: 'Mod-i', run: toggleMark('_') },
+        { key: 'Mod-]', run: shiftLines(1) },
+        { key: 'Mod-[', run: shiftLines(-1) },
         ...defaultKeymap,
         ...historyKeymap,
       ]),
@@ -137,6 +155,12 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
       view.dispatch({ effects: editing.reconfigure(readOnlyExtension(readOnly)) });
     },
     toggleTask: () => void toggleTaskLine(view),
+    toggleBold: () => void toggleMark('*')(view),
+    toggleItalic: () => void toggleMark('_')(view),
+    bulletList: () => void setList('bullet')(view),
+    numberedList: () => void setList('number')(view),
+    indent: () => void shiftLines(1)(view),
+    outdent: () => void shiftLines(-1)(view),
     insertWikiLink: () => {
       insertWikiLink(view);
       // Offer names at once, as typing `[[` would.
