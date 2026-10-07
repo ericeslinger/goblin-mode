@@ -10,6 +10,16 @@ import type { NoteState } from './history';
 export const MERGE_DEVICE = 'merge';
 /** How many kept versions to search for the shared text. */
 export const BASE_SEARCH = 20;
+/**
+ * How many texts writes replaced a note keeps, newest first, to find a
+ * merge's shared text: History keeps a version only now and then, and
+ * the text a stale write was built on is usually a recent one it skipped
+ * (2026-10-07, Eric's note kept both copies of two lines). One document
+ * each, so saves arriving together never contend.
+ */
+export const REPLACED_KEPT = 20;
+/** Longer texts are not kept: one must fit in a document (1 MiB). */
+export const REPLACED_CHARS = 300_000;
 
 /** The note as it stands when a merge is written. */
 export interface CurrentNote {
@@ -20,8 +30,16 @@ export interface CurrentNote {
 }
 
 export interface MergeStore {
-  /** The bodies of the newest kept versions, newest first. */
+  /**
+   * Texts to find a shared one among: those writes recently replaced,
+   * then the newest `limit` kept versions; each newest first.
+   */
   keptBodies(uid: string, noteId: string, limit: number): Promise<string[]>;
+  /**
+   * Keeps a text a write replaced, as of when it was written (ms), and
+   * drops all but the newest `REPLACED_KEPT`.
+   */
+  rememberReplaced(uid: string, noteId: string, body: string, writtenAt?: number): Promise<void>;
   /**
    * In a transaction: reads the note, and writes what `decide` returns
    * for it (a body and the text it was written over), or nothing.
@@ -34,6 +52,29 @@ export interface MergeStore {
 }
 
 export type MergeOutcome = 'merged' | 'kept-both' | 'clean' | 'moved-on';
+
+/**
+ * Remembers the text a write replaced, so a later merge can start from
+ * it. Never throws: a merge must run whether or not this worked.
+ */
+export async function rememberReplaced(
+  store: MergeStore,
+  uid: string,
+  noteId: string,
+  before: NoteState | undefined,
+  after: NoteState | undefined,
+  warn: (message: string, err: unknown) => void = () => undefined,
+): Promise<boolean> {
+  if (!before || !after || before.body === after.body || !before.body.trim()) return false;
+  if (before.body.length > REPLACED_CHARS) return false;
+  try {
+    await store.rememberReplaced(uid, noteId, before.body, before.updatedAt);
+    return true;
+  } catch (err) {
+    warn('rememberReplaced failed', err);
+    return false;
+  }
+}
 
 /**
  * Whether `current` was written knowing `text`: the same writer's later

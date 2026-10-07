@@ -59,6 +59,7 @@ export class FakeNotes {
   );
   setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
   newId = () => `new${++this.n}`;
+  deviceId = () => 'here';
   find = (id: string) => this.notes().find((x) => x.id === id);
   exists = (id: string) => this.written.has(id) || !!this.find(id);
 

@@ -4,7 +4,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { claudeTitler, federationFromEnv } from './claude-titler';
 import { firestoreNotesStore, noteState } from './firestore-store';
 import { recordHistory } from './history';
-import { mergeConflict } from './merge';
+import { mergeConflict, rememberReplaced } from './merge';
 import { type Titler, titleNote } from './title';
 
 const NOTE = 'users/{uid}/notes/{noteId}';
@@ -22,6 +22,15 @@ export const noteHistory = onDocumentWritten(NOTE, async (event) => {
     Date.now(),
   );
   if (reason) logger.debug('noteHistory kept a version', { noteId, reason });
+  // The text this write replaced, for a later merge to start from.
+  await rememberReplaced(
+    firestoreNotesStore(getFirestore()),
+    uid,
+    noteId,
+    noteState(event.data?.before),
+    noteState(event.data?.after),
+    (message, err) => logger.warn(message, err),
+  );
   // A write over text its writer had not seen: merge the two (#37).
   const merged = await mergeConflict(
     firestoreNotesStore(getFirestore()),

@@ -68,6 +68,8 @@ export interface NoteRecord {
   createdAt?: number;
   /** When the note was last settled (left after a change); milliseconds. */
   settledAt?: number;
+  /** Who wrote it last: a device id (with a restore or keep suffix), or 'merge'. */
+  deviceId?: string;
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -135,6 +137,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     updatedAt: stamp?.toMillis?.(),
     createdAt: (data['createdAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
     settledAt: (data['settledAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
+    ...(typeof data['deviceId'] === 'string' ? { deviceId: data['deviceId'] } : {}),
   };
 }
 

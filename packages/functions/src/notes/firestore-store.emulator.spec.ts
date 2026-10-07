@@ -3,6 +3,7 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { firestoreNotesStore } from './firestore-store';
+import { REPLACED_KEPT } from './merge';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id so it never touches journey or rules-test data.
@@ -27,6 +28,18 @@ afterAll(() => deleteApp(app));
 const T = Date.parse('2026-10-06T13:00:00Z');
 
 describe('firestoreNotesStore', () => {
+  it('keeps the newest replaced texts, from saves arriving all at once', async () => {
+    const store = firestoreNotesStore(db);
+    const n = REPLACED_KEPT + 5;
+    await Promise.all(
+      Array.from({ length: n }, (_, i) => store.rememberReplaced('u1', 'n2', `t${i}`, T + i)),
+    );
+    // One more, alone, trims what the racing ones left.
+    await store.rememberReplaced('u1', 'n2', `t${n}`, T + n);
+    const bodies = await store.keptBodies('u1', 'n2', 1);
+    expect(bodies).toEqual(Array.from({ length: REPLACED_KEPT }, (_, i) => `t${n - i}`));
+  });
+
   it('keeps versions and reports when the newest was kept', async () => {
     const store = firestoreNotesStore(db);
     expect(await store.lastKept('u1', 'n1')).toBeUndefined();
@@ -99,6 +112,12 @@ describe('firestoreNotesStore', () => {
     await store.keep('u1', 'n1', 'e1', v('one'));
     await store.keep('u1', 'n1', 'e2', v('two'));
     expect(await store.keptBodies('u1', 'n1', 5)).toEqual(['two', 'one']);
+    // Texts writes replaced come first, newest written first, once
+    // each, whatever order their triggers ran in.
+    await store.rememberReplaced('u1', 'n1', 'r2', T + 2);
+    await store.rememberReplaced('u1', 'n1', 'r1', T + 1);
+    await store.rememberReplaced('u1', 'n1', 'r2', T + 2);
+    expect(await store.keptBodies('u1', 'n1', 5)).toEqual(['r2', 'r1', 'two', 'one']);
 
     await db.doc('users/u1/notes/n1').set({
       body: 'mine',
