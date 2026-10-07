@@ -26,6 +26,10 @@ export const routes: Routes = [
     path: 'right-now',
     loadComponent: () => import('./reminders/right-now').then((m) => m.RightNow),
   },
+  {
+    path: 'map/n/:id',
+    loadComponent: () => import('./map/neighborhood-map').then((m) => m.NeighborhoodMap),
+  },
   { path: 'history', loadComponent: () => import('./history/history').then((m) => m.History) },
   {
     path: 'oauth/authorize',

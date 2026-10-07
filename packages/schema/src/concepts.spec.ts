@@ -3,6 +3,7 @@ import {
   backlinks,
   conceptId,
   nameIndex,
+  neighborhood,
   normalizeName,
   oftenTogether,
   resolveLinks,
@@ -132,5 +133,41 @@ describe('sentenceAround', () => {
   it('keeps a whole short line, and shortens a long one', () => {
     expect(sentenceAround('see [[A]]', 4, 9)).toBe('see [[A]]');
     expect(sentenceAround(`[[A]] ${'x'.repeat(300)}`, 0, 5, 20)).toHaveLength(20);
+  });
+});
+
+describe('neighborhood', () => {
+  const notes = [
+    { id: 'a', links: ['c-kiln'] },
+    { id: 'b', links: ['c-kiln', 'c-glaze'] },
+    { id: 'c', links: ['c-glaze'] },
+    { id: 'gone', links: ['c-kiln'], archived: true },
+    { id: 'c-kiln', links: [] },
+    { id: 'c-glaze', links: [] },
+    { id: 'far', links: ['c'] },
+  ];
+
+  it('rings the center with what it links and what links it, two hops out', () => {
+    const { nodes, edges } = neighborhood('c-kiln', notes);
+    expect(nodes).toEqual([
+      { id: 'c-kiln', hop: 0 },
+      { id: 'b', hop: 1 },
+      { id: 'a', hop: 1 },
+      { id: 'c-glaze', hop: 2, via: 'b' },
+    ]);
+    expect(edges).toEqual([
+      ['a', 'c-kiln'],
+      ['b', 'c-kiln'],
+      ['b', 'c-glaze'],
+    ]);
+  });
+
+  it('caps each ring, and is empty for an unknown or archived center', () => {
+    expect(neighborhood('c-kiln', notes, { hop1: 1, hop2: 0 }).nodes.map((n) => n.id)).toEqual([
+      'c-kiln',
+      'b',
+    ]);
+    expect(neighborhood('gone', notes).nodes).toEqual([]);
+    expect(neighborhood('nope', notes).nodes).toEqual([]);
   });
 });

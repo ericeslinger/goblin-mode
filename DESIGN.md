@@ -234,6 +234,18 @@ notes link to it), Tags (notes grouped under each tag) and Archived
 within the lens. The filters are pure (`browse/lenses.ts`). On a wide
 screen the launch screen's list pane stays on Recent.
 
+**Neighborhood map (#32, 2026-10-07).** Map, beside History on a note,
+opens `/map/n/<id>` (a lazy chunk, so capture never pays for it): the
+note in the middle, the notes it links or that link it on an inner
+ring, and the notes one more link out beyond the one they came through
+(the schema's `neighborhood`, capped at 16 and 32, most connected
+first, from the body-derived graph). The layout is radial and
+deterministic (`map/layout.ts`), plain SVG with no graph library; the
+frame fits the nodes but never shrinks below a full ring's, so a small
+neighborhood keeps its scale. Tapping a node opens its note, and back
+returns to the map. The drawing is hidden from assistive tech; the same
+notes are listed under it (Linked directly, Two links away) as links.
+
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
 remembers that it has been signed in: with that mark set, the editor
