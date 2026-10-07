@@ -11,6 +11,8 @@ const EXPORTS = [
   'oauth',
   'proposalAccepted',
   'sendDuePush',
+  'reminderScheduled',
+  'reminderWake',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

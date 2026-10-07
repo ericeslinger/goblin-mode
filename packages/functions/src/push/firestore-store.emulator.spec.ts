@@ -1,7 +1,7 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { firestoreStore } from './firestore-store';
+import { firestoreStore, upcomingReminders } from './firestore-store';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id so it never touches journey or rules-test data.
@@ -25,6 +25,27 @@ afterAll(() => deleteApp(app));
 
 const at = (ms: number) => Timestamp.fromMillis(ms);
 const T = Date.parse('2026-10-06T13:00:00Z');
+
+describe('upcomingReminders', () => {
+  it('finds pushes after now and by the end of the window, soonest first', async () => {
+    const r = (id: string, ms?: number) =>
+      db.doc(`users/a/reminders/${id}`).set({
+        text: id,
+        status: 'open',
+        createdBy: 'user',
+        ...(ms === undefined ? {} : { nextFireAt: at(ms) }),
+      });
+    await r('due', T);
+    await r('soon', T + 20 * 60_000);
+    await r('sooner', T + 5 * 60_000);
+    await r('later', T + 2 * 60 * 60_000);
+    await r('none');
+    expect(await upcomingReminders(db, T, T + 65 * 60_000, 10)).toEqual([
+      { uid: 'a', id: 'sooner', nextFireAt: T + 5 * 60_000 },
+      { uid: 'a', id: 'soon', nextFireAt: T + 20 * 60_000 },
+    ]);
+  });
+});
 
 describe('firestoreStore', () => {
   it('finds due reminders across users, oldest first, and reads their fields', async () => {

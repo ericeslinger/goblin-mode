@@ -6,6 +6,28 @@ function millis(v: unknown): number | undefined {
   return v instanceof Timestamp ? v.toMillis() : undefined;
 }
 
+/** Reminders whose next push falls after `from` and by `to`, soonest first. */
+export async function upcomingReminders(
+  db: Firestore,
+  from: number,
+  to: number,
+  limit: number,
+): Promise<{ uid: string; id: string; nextFireAt: number }[]> {
+  const snap = await db
+    .collectionGroup('reminders')
+    .where('nextFireAt', '>', Timestamp.fromMillis(from))
+    .where('nextFireAt', '<=', Timestamp.fromMillis(to))
+    .orderBy('nextFireAt')
+    .limit(limit)
+    .get();
+  return snap.docs.flatMap((d) => {
+    const owner = d.ref.parent.parent;
+    const nextFireAt = millis(d.get('nextFireAt'));
+    if (!owner || owner.parent.id !== 'users' || nextFireAt === undefined) return [];
+    return [{ uid: owner.id, id: d.id, nextFireAt }];
+  });
+}
+
 /** The PushStore over Firestore, as the admin SDK (rules do not apply). */
 export function firestoreStore(db: Firestore): PushStore {
   return {

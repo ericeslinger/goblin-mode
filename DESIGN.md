@@ -697,8 +697,9 @@ Functions, so the MCP endpoint and OAuth live on mossgoblin.garden:
 | `/oauth/register`, `/oauth/token` | `oauth` | Dynamic client registration, token exchange |
 | `/oauth/authorize` | client route | Google sign-in, then consent |
 
-Other functions: `noteHistory` and `noteTitle` (Firestore triggers),
-`sendDuePush` (scheduled every minute).
+Other functions: `noteHistory`, `noteTitle` and `reminderScheduled`
+(Firestore triggers), `reminderWake` (a Cloud Tasks queue) and
+`sendDuePush` (hourly).
 
 ## MCP server
 
@@ -932,10 +933,12 @@ when Eric and Claude (or two devices) edit one note at once:
 
 ## Push
 
-The app registers an FCM token per device in `devices`. `sendDuePush`
-runs every minute, finds reminders with `nextFireAt <= now`, sends one
-web push each, and advances `nextFireAt` (next occurrence for recurring
-reminders, cleared otherwise). Tapping a notification opens the
+The app registers an FCM token per device in `devices`. `sendDue`
+finds reminders with `nextFireAt <= now`, sends one web push each, and
+advances `nextFireAt` (next occurrence for recurring reminders, cleared
+otherwise). A Cloud Task wakes it when a push falls due, and
+`sendDuePush` runs it hourly as a safety net (2026-10-07; it ran every
+minute, 1,440 times a day). Tapping a notification opens the
 reminder's note, or a new note from its template.
 
 **As built (2026-10-06).**
@@ -956,7 +959,19 @@ reminder's note, or a new note from its template.
   JSON has `notification.title`, and a tap follows
   `notification.data.onActionClick` (`navigateLastFocusedOrOpen`).
   Not testable without real FCM: check on the phone after deploy.
-- **Sending.** `sendDuePush` (every minute, no retries) reads up to
+- **Waking (Eric, 2026-10-07).** Every write that sets or moves a
+  reminder's `nextFireAt` (made, snoozed, edited, or advanced by a
+  claim) queues a Cloud Task for that moment (`reminderScheduled`),
+  named by reminder and time so the same write never queues twice. The
+  task (`reminderWake`, three tries) runs `sendDue`; its claim already
+  makes any run safe, so a stale or duplicate wake sends nothing. A
+  task reaches 30 days ahead, so a later push hops: the wake re-queues
+  toward it. The hourly `sendDuePush` also queues wakes for pushes in
+  the next 65 minutes, which covers a lost task and reminders set
+  before tasks existed. The e2e suite runs no tasks emulator (a
+  dispatched task would claim reminders mid-journey), so queueing is a
+  no-op under the functions emulator; unit specs cover it.
+- **Sending.** `sendDue` (no retries in the hourly run) reads up to
   100 due reminders with a collection-group query (its index is in
   `firestore.indexes.json`), then for each one claims it in a
   transaction (moves `nextFireAt` only if it is unchanged, so a done or

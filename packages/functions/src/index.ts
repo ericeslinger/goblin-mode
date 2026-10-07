@@ -13,3 +13,4 @@ export { oauth } from './oauth/http';
 export { noteHistory, noteTitle } from './notes/triggers';
 export { proposalAccepted } from './organize/triggers';
 export { sendDuePush } from './push/send-due-push';
+export { reminderScheduled, reminderWake } from './push/reminder-wake';

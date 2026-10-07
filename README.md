@@ -64,6 +64,14 @@ Eventarc Service Agent", wait a few minutes and re-run it; if it
 persists, grant `roles/eventarc.serviceAgent` to
 `service-<number>@gcp-sa-eventarc.iam.gserviceaccount.com`.
 
+Reminder pushes are woken by Cloud Tasks (`reminderWake`). Once,
+a project owner enables the Cloud Tasks API, grants the deploy service
+account `roles/cloudtasks.queueAdmin` (the deploy creates the queue),
+and grants `<number>-compute@developer.gserviceaccount.com`
+`roles/cloudtasks.enqueuer` and `roles/iam.serviceAccountUser` on
+itself (functions queue wakes as it). Without them pushes still go,
+up to an hour late, from the hourly `sendDuePush`.
+
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
 `OWNER_UID` can approve it. For nightly suggestions, add the routine
