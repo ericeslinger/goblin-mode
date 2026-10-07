@@ -38,17 +38,15 @@ and variables, Actions); nothing in the code names a deployment.
 | `FIREBASE_SERVICE_ACCOUNT` | secret | JSON key of the deploy service account |
 | `WEB_PUSH_PUBLIC_KEY` | variable, optional | Cloud Messaging Web Push public key; notifications |
 | `OWNER_UID` | variable, optional | Your Firebase Auth uid; the MCP server's one account |
-| `ANTHROPIC_FEDERATION_RULE_ID` | variable, optional | Claude titles (DESIGN.md, Titles) and nightly suggestions |
+| `ANTHROPIC_FEDERATION_RULE_ID` | variable, optional | Claude titles (DESIGN.md, Titles) |
 | `ANTHROPIC_ORGANIZATION_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_WORKSPACE_ID` | variable, optional | Only if the federation rule covers several workspaces |
-| `ORGANIZE_TIME_ZONE` | variable, optional | Your IANA time zone, for the 4 am suggestions run; UTC if unset |
 
 Also create a Google service account named `goblin-titles` in the
 project, with `roles/datastore.user`, and let the deploy service
 account act as it (`roles/iam.serviceAccountUser` on it): `noteTitle`
-and `nightlyOrganize` always run as that account, even with Claude
-off. DESIGN.md, Titles,
+always runs as that account, even with titles off. DESIGN.md, Titles,
 covers the Claude side.
 
 The deploy account cannot change project IAM, so the first deploy of
@@ -68,7 +66,8 @@ persists, grant `roles/eventarc.serviceAgent` to
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
-`OWNER_UID` can approve it.
+`OWNER_UID` can approve it. For nightly suggestions, add the routine
+in `routines/nightly-suggestions.md` to your claude.ai account.
 
 A push to `main` deploys. The deploy stops before building when a
 required value is missing; an optional one left out turns its feature

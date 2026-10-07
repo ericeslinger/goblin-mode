@@ -1,11 +1,9 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NotesTools } from '../mcp/tools';
 import { applyAccepted } from './apply';
-import type { Proposer } from './claude-proposer';
-import { KEEP_DONE_DAYS, STALE_CLAIM_MS, organizeNightly, sweepProposals } from './nightly';
-import type { RawProposal } from './proposals';
+import { KEEP_DONE_DAYS, STALE_CLAIM_MS, sweepProposals } from './store';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id.
@@ -46,31 +44,30 @@ async function eric(id: string, body: string, over: Record<string, unknown> = {}
   });
 }
 
-const proposer = (raw: RawProposal[]) => vi.fn<Proposer>(async () => raw);
-
 async function proposals() {
   const snap = await db.collection('users/u1/proposals').orderBy('key').get();
   return snap.docs.map((d): Record<string, unknown> => ({ id: d.id, ...d.data() }));
 }
 
-describe('organizeNightly', () => {
-  it('stores the suggestions that check out as open proposals, changing nothing else', async () => {
+describe('suggest_changes', () => {
+  const tools = () => new NotesTools(db, 'u1', () => T);
+
+  it('stores the suggestions that check out as open proposals, changing no notes', async () => {
     await eric('a', 'Kiln log\nCone 6.');
     await eric('b', 'Firing notes\nShelf 2.');
-    const propose = proposer([
-      { kind: 'merge', ids: ['a', 'b'], reason: 'One firing.' },
-      { kind: 'link', from: 'a', to: ['nope'], reason: 'Not a note.' },
-    ]);
-    expect(await organizeNightly(db, 'u1', propose, T)).toEqual({
-      recent: 2,
-      asked: true,
-      added: 1,
+    const result = await tools().suggestChanges({
+      proposals: [
+        { kind: 'merge', ids: ['a', 'b'], reason: 'One firing.' },
+        { kind: 'link', from: 'a', to: ['nope'], reason: 'Not a note.' },
+      ],
     });
+    expect(result).toMatchObject({ stored: [{ kind: 'merge' }], dropped: 1, waiting: 1 });
     expect(await proposals()).toEqual([
       expect.objectContaining({
         kind: 'merge',
         key: 'merge:a,b',
         status: 'open',
+        reason: 'One firing.',
         notes: [
           { id: 'a', title: 'Kiln log' },
           { id: 'b', title: 'Firing notes' },
@@ -78,21 +75,32 @@ describe('organizeNightly', () => {
       }),
     ]);
     expect((await db.doc('users/u1/notes/a').get()).get('archived')).toBe(false);
+    expect((await db.collection('users/u1/activity').get()).size).toBe(0);
 
-    // The same suggestion the next night is not proposed again.
-    expect((await organizeNightly(db, 'u1', propose, T + DAY)).added).toBe(0);
+    // The same suggestion the next night, even dismissed, is not stored again.
+    const [only] = await proposals();
+    await db.doc(`users/u1/proposals/${only.id}`).update({ status: 'dismissed' });
+    const again = await tools().suggestChanges({
+      proposals: [{ kind: 'merge', ids: ['b', 'a'], reason: 'Still one firing.' }],
+    });
+    expect(again).toMatchObject({ stored: [], dropped: 1, waiting: 0 });
   });
 
-  it('does not ask Claude when nothing changed this week, or when enough is waiting', async () => {
-    await eric('a', 'Kiln log', { updatedAt: Timestamp.fromMillis(T - 8 * DAY) });
-    const propose = proposer([]);
-    expect(await organizeNightly(db, 'u1', propose, T)).toMatchObject({ asked: false });
+  it('stores nothing more once 20 wait', async () => {
+    await eric('a', 'Kiln log');
     await eric('b', 'Firing notes');
     for (let i = 0; i < 20; i++) {
-      await db.doc(`users/u1/proposals/p${i}`).set({ key: `k${i}`, status: 'open' });
+      await db.doc(`users/u1/proposals/p${i}`).set({
+        key: `k${i}`,
+        status: 'open',
+        createdAt: Timestamp.fromMillis(T),
+      });
     }
-    expect(await organizeNightly(db, 'u1', propose, T)).toMatchObject({ asked: false });
-    expect(propose).not.toHaveBeenCalled();
+    expect(
+      await tools().suggestChanges({
+        proposals: [{ kind: 'merge', ids: ['a', 'b'], reason: 'x' }],
+      }),
+    ).toMatchObject({ stored: [], dropped: 1, waiting: 20 });
   });
 });
 

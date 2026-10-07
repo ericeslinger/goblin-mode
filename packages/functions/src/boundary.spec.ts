@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from 'vitest';
 const EXPORTS = [
   'health',
   'mcp',
-  'nightlyOrganize',
   'noteHistory',
   'noteTitle',
   'oauth',

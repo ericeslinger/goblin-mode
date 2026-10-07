@@ -1,11 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, seedDoc, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
-// Nightly suggestions (#35): the organize run stores proposals; nothing
-// changes until Eric accepts one, which works offline, and then the
-// matching organize tool runs and What Claude changed records it.
+// Nightly suggestions (#35): Claude's routine stores them through
+// suggest_changes; nothing changes until Eric accepts one, which works
+// offline, and then the matching organize tool runs and What Claude
+// changed records it.
 
 test('accepting a suggestion, even offline, carries it out; dismissing drops it', async ({
   page,
@@ -18,27 +19,21 @@ test('accepting a suggestion, even offline, carries it out; dismissing drops it'
   await letItSave(page);
   await page.getByRole('button', { name: 'New' }).click();
 
-  // Ids as the nightly run would know them.
   const call = await connectClaude(page);
   const [kiln] = (await call('search_notes', { query: 'cone' })) as { id: string }[];
   const [firing] = (await call('search_notes', { query: 'shelf' })) as { id: string }[];
-  const notes = [
-    { id: kiln.id, title: 'Kiln log' },
-    { id: firing.id, title: 'Firing notes' },
-  ];
-  const base = { notes, status: 'open', createdAt: new Date() };
-  await seedDoc(`users/${OWNER.uid}/proposals/merge`, {
-    ...base,
-    kind: 'merge',
-    reason: 'Both are about the same firing.',
-    key: `merge:${[kiln.id, firing.id].sort()}`,
-  });
-  await seedDoc(`users/${OWNER.uid}/proposals/link`, {
-    ...base,
-    kind: 'link',
-    reason: 'The log mentions the shelf.',
-    key: `link:${kiln.id}>${firing.id}`,
-  });
+  // As the nightly routine does, through the connector.
+  const result = (await call('suggest_changes', {
+    proposals: [
+      {
+        kind: 'merge',
+        ids: [kiln.id, firing.id],
+        reason: 'Both are about the same firing.',
+      },
+      { kind: 'link', from: kiln.id, to: [firing.id], reason: 'The log mentions the shelf.' },
+    ],
+  })) as { stored: unknown[] };
+  expect(result.stored).toHaveLength(2);
 
   await page.goto('/browse');
   await page.getByRole('link', { name: 'What Claude changed 2 suggestions' }).click();

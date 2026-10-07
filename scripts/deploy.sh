@@ -17,9 +17,7 @@
 #   WEB_PUSH_PUBLIC_KEY     notifications
 #   OWNER_UID               the MCP server's one allowed account (step 7)
 #   ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID,
-#   ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_WORKSPACE_ID   Claude titles and
-#                           the nightly organize suggestions
-#   ORGANIZE_TIME_ZONE      IANA zone for the 4 am suggestions run (UTC if unset)
+#   ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_WORKSPACE_ID   Claude titles
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -56,7 +54,7 @@ functions_env="packages/functions/.env.$FIREBASE_PROJECT_ID"
 trap 'rm -f "$functions_env"' EXIT
 : > "$functions_env"
 for name in OWNER_UID ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID \
-  ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_WORKSPACE_ID ORGANIZE_TIME_ZONE; do
+  ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_WORKSPACE_ID; do
   if [ -n "${!name:-}" ]; then printf '%s=%s\n' "$name" "${!name}" >> "$functions_env"; fi
 done
 bash scripts/deploy-functions.sh --project "$FIREBASE_PROJECT_ID"

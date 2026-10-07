@@ -1,7 +1,8 @@
-// The nightly organize run (#35) asks Claude for suggestions, then keeps
-// only those the organize tools would carry out: real, live notes,
-// links not already there, names that reach their note, and nothing
-// proposed before. What survives is stored for the gardener to accept.
+// Claude's nightly organize routine (#35) hands its suggestions to
+// `suggest_changes`, which keeps only those the organize tools would
+// carry out: real, live notes, links not already there, names that
+// reach their note, and nothing proposed before. What survives is
+// stored for the gardener to accept.
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   type ConceptType,
@@ -29,8 +30,8 @@ export interface GardenNote {
   archived?: boolean;
 }
 
-/** The most suggestions one night adds, and the most left open at once. */
-export const PER_NIGHT = 10;
+/** The most suggestions one round adds, and the most left open at once. */
+export const PER_ROUND = 10;
 export const MAX_OPEN = 20;
 const REASON_CHARS = 300;
 

@@ -32,6 +32,8 @@ import {
   Timestamp,
 } from 'firebase-admin/firestore';
 import { randomFillSync } from 'node:crypto';
+import type { RawProposal } from '../organize/proposals';
+import { storeSuggestions } from '../organize/store';
 import { cutsOf, joined } from './verbatim';
 
 export const CLAUDE_DEVICE = 'claude';
@@ -648,6 +650,24 @@ export class NotesTools {
       );
       return { id: args.id, archived };
     });
+  }
+
+  /**
+   * Suggestions for Eric to accept or dismiss in the app (#35); nothing
+   * changes until he accepts. Checked and stored as proposals.
+   */
+  async suggestChanges(args: { proposals: RawProposal[] }) {
+    const { stored, dropped, open } = await storeSuggestions(
+      this.db,
+      this.uid,
+      args.proposals,
+      this.now(),
+    );
+    return {
+      stored: stored.map((p) => ({ id: p.id, kind: p.kind, notes: p.notes, reason: p.reason })),
+      dropped,
+      waiting: open,
+    };
   }
 
   async listReminders(args: { includeDone?: boolean }) {

@@ -1,11 +1,17 @@
 import { Proposal, autoId, paths } from '@mossgoblin/schema';
 import { type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { randomFillSync } from 'node:crypto';
-import { RECENT_DAYS, type Proposer } from './claude-proposer';
-import { type GardenNote, MAX_OPEN, PER_NIGHT, checkProposals } from './proposals';
+import {
+  type Checked,
+  type GardenNote,
+  MAX_OPEN,
+  PER_ROUND,
+  type RawProposal,
+  checkProposals,
+} from './proposals';
 
 const DAY = 86_400_000;
-/** A claim this old was cut off partway; the run says so. */
+/** A claim this old was cut off partway; the next round says so. */
 export const STALE_CLAIM_MS = 3_600_000;
 /** Applied and failed proposals are kept this long, then deleted. */
 export const KEEP_DONE_DAYS = 90;
@@ -41,21 +47,31 @@ export async function sweepProposals(db: Firestore, uid: string, now: number): P
   return n;
 }
 
+/** What a round of suggestions came to. */
+export interface Stored {
+  /** The suggestions stored, as the gardener will see them. */
+  stored: (Checked & { id: string })[];
+  /** How many were dropped: already done, made before, or not possible. */
+  dropped: number;
+  /** How many now wait for the gardener. */
+  open: number;
+}
+
 /**
- * One night's organize pass (#35): tidy the proposals; then, when notes
- * changed in the last week and there is room, ask for suggestions, keep
- * the ones that check out, and store them as open proposals. Changes no
- * notes.
+ * Stores suggestions for the gardener (#35, through `suggest_changes`):
+ * tidies the proposals, checks each suggestion against the garden as it
+ * is and every earlier proposal, and stores the survivors as open, up
+ * to PER_ROUND at a time and MAX_OPEN waiting. Changes no notes.
  */
-export async function organizeNightly(
+export async function storeSuggestions(
   db: Firestore,
   uid: string,
-  propose: Proposer,
+  raw: readonly RawProposal[],
   now: number,
-): Promise<{ recent: number; asked: boolean; added: number }> {
+): Promise<Stored> {
   await sweepProposals(db, uid, now);
   const snap = await db.collection(paths.notes(uid)).get();
-  const notes = snap.docs.map((doc) => {
+  const garden: GardenNote[] = snap.docs.map((doc) => {
     const d = doc.data();
     return {
       id: doc.id,
@@ -65,22 +81,12 @@ export async function organizeNightly(
       synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
       conceptType: typeof d['conceptType'] === 'string' ? d['conceptType'] : undefined,
       archived: d['archived'] === true,
-      at: millis(d['updatedAt']),
     };
   });
-  const garden: GardenNote[] = notes;
-  const recent = notes
-    .filter((n) => !n.archived && n.body.trim() && n.at >= now - RECENT_DAYS * DAY)
-    .sort((a, b) => b.at - a.at);
-  if (recent.length === 0) return { recent: 0, asked: false, added: 0 };
-
   const proposals = db.collection(paths.proposals(uid));
   const known = await proposals.select('key', 'status').get();
-  const open = known.docs.filter((d) => d.get('status') === 'open').length;
-  const room = Math.min(PER_NIGHT, MAX_OPEN - open);
-  if (room <= 0) return { recent: recent.length, asked: false, added: 0 };
-
-  const raw = await propose(garden, recent);
+  const waiting = known.docs.filter((d) => d.get('status') === 'open').length;
+  const room = Math.max(0, Math.min(PER_ROUND, MAX_OPEN - waiting));
   const checked = checkProposals(
     raw,
     garden,
@@ -88,13 +94,14 @@ export async function organizeNightly(
     room,
   );
   const batch = db.batch();
-  for (const c of checked) {
+  const stored = checked.map((c) => {
     const id = autoId((bytes) => void randomFillSync(bytes));
     batch.set(
       proposals.doc(id),
       Proposal.parse({ ...c, status: 'open', createdAt: Timestamp.fromMillis(now) }),
     );
-  }
+    return { id, ...c };
+  });
   await batch.commit();
-  return { recent: recent.length, asked: true, added: checked.length };
+  return { stored, dropped: raw.length - stored.length, open: waiting + stored.length };
 }
