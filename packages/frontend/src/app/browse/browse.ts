@@ -18,6 +18,7 @@ import { NoteList } from './note-list';
     <main class="page">
       <a routerLink="/">Back</a>
       <h1>Notes</h1>
+      <p><a routerLink="/map">See the whole garden as a map</a></p>
       <nav aria-label="Lenses">
         @for (l of lenses(); track l.id) {
           <a

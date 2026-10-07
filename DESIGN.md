@@ -249,6 +249,21 @@ names itself on hover). The drawing is hidden from assistive tech; the
 same notes are listed under it (Linked directly, Two links away) as
 links. Before the notes load it says Loading, not empty.
 
+**Garden and Timeline maps (#33, 2026-10-07).** Browse links to
+`/map`, the whole garden in the same lazy chunk. Garden: every live
+concept is a bed, most-linked first, laid on a square-ish grid; each
+note with text is planted once, in the bed of the most-linked concept
+it links, and notes that link none share a last bed, Not linked yet.
+A bed draws at most 20 notes and says how many more. Timeline
+(`/map/timeline`): the same beds as lanes (six at most, the rest
+folded into Everything else), each note at when it was made. The
+concept filter is in the URL (`?concept=<id>`), so back undoes it, and
+a filtered lane holds every note linking the concept, not just the
+ones planted in its bed; a filter naming no concept shows them all.
+As on the neighborhood map, the drawing is plain SVG hidden from
+assistive tech, every dot opens its note, and the same notes are
+listed under it (Beds, Over time).
+
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
 remembers that it has been signed in: with that mark set, the editor

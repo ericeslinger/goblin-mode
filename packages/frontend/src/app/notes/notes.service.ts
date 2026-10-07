@@ -58,6 +58,8 @@ export interface NoteRecord {
   archived: boolean;
   /** Milliseconds; undefined while a new note's server time is pending. */
   updatedAt?: number;
+  /** When the note was made; milliseconds. */
+  createdAt?: number;
   /** When the note was last settled (left after a change); milliseconds. */
   settledAt?: number;
 }
@@ -123,6 +125,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
       : {}),
     archived: data['archived'] === true,
     updatedAt: stamp?.toMillis?.(),
+    createdAt: (data['createdAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
     settledAt: (data['settledAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
   };
 }
