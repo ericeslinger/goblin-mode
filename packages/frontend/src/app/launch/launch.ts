@@ -11,7 +11,7 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { CONCEPT_PREFIX, normalizeName, suggestLinks } from '@mossgoblin/schema';
+import { CONCEPT_PREFIX, checklist, normalizeName, suggestLinks } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
@@ -22,6 +22,7 @@ import { SignIn } from '../sign-in/sign-in';
 import { EditorModeService } from '../note-editor/editor-mode.service';
 import { NoteEditorComponent } from '../note-editor/note-editor';
 import { RightNowPanel } from '../reminders/right-now-panel';
+import { ListView } from '../shopping/list-view';
 import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
 import { TemplateHeader } from '../templates/template-header';
 import { TemplatesService } from '../templates/templates.service';
@@ -40,6 +41,7 @@ import { TemplatesService } from '../templates/templates.service';
     NoteLinks,
     NoteList,
     RightNowPanel,
+    ListView,
     SignIn,
     TemplateHeader,
   ],
@@ -94,6 +96,11 @@ export class Launch {
   protected readonly linkStatus = signal('');
   /** The open note as stored, once it exists (a concept shows its header). */
   protected readonly record = computed(() => this.notes.find(this.capture.open().id));
+  /** A list made from a template (#39): it can be shopped from in the list view. */
+  protected readonly listable = computed(
+    () => !!this.record()?.fromTemplate && checklist(this.capture.current()).length > 0,
+  );
+  protected readonly listMode = signal(false);
   /** The URL names a concept (its id is derived from its name). */
   protected readonly routeIsConcept = computed(() => !!this.routeId()?.startsWith(CONCEPT_PREFIX));
 
@@ -224,6 +231,11 @@ export class Launch {
     this.editor()?.load(note.id, note.text);
     this.editor()?.focus();
     await this.router.navigate(['/n', note.id]);
+  }
+
+  /** A tick or Done shopping in the list view. */
+  protected listChange(change: { body: string; keep: boolean }): void {
+    this.capture.replace(change.body, { keep: change.keep });
   }
 
   protected openPrevious(id: string): void {

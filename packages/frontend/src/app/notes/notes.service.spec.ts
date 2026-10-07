@@ -328,6 +328,14 @@ describe('NotesService', () => {
     expect(api.set.mock.lastCall![2]['baseHash']).toBe('');
   });
 
+  it('writes Done shopping as its own writer too, so history keeps the list', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'n1', data: { body: '- [x] limes', archived: false } }]);
+    notes.save('n1', '', { keep: true });
+    expect(api.set.mock.lastCall![2]['deviceId']).toBe(notes.deviceId() + '~keep');
+  });
+
   it('writes a restore as its own writer, so history keeps what it replaces', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

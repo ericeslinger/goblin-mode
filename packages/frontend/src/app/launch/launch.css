@@ -169,3 +169,12 @@
   background: none;
   cursor: pointer;
 }
+
+.editor.hidden {
+  display: none;
+}
+.list-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}

@@ -6,6 +6,27 @@ import { NotesService } from '../notes/notes.service';
 export const NEW_TEMPLATE =
   'New template\n\n## Instructions for Claude\n\nHow to fill in or tidy notes made from this template.\n';
 
+/** The shopping list (#39): meals first, then the store's sections. */
+export const SHOPPING_LIST = [
+  'Shopping list',
+  '',
+  '## Meal plan',
+  '',
+  '## Produce',
+  '',
+  '## Butcher',
+  '',
+  '## Dry goods',
+  '',
+  '## Instructions for Claude',
+  '',
+  'When Eric asks for help with his grocery list: read the Meal plan, then add what the',
+  'meals need with add_lines, one "- [ ] item" per line, under Produce, Butcher or Dry goods.',
+  'Skip what is already on the list, ticked or not. Keep his items and words as they are.',
+  'Items with ★ are staples: they stay on the list from week to week.',
+  '',
+].join('\n');
+
 /**
  * Templates (#38): notes of kind `template`. Using one opens the note
  * to write in: a living template's one note (made the first time), or
@@ -22,6 +43,13 @@ export class TemplatesService {
       .filter((n) => n.kind === 'template' && !n.archived)
       .sort((a, b) => a.title.localeCompare(b.title)),
   );
+
+  /** The shopping list template, a living one; returns its id. */
+  createShoppingList(): string {
+    const id = this.notes.newId();
+    this.notes.create(id, SHOPPING_LIST, { kind: 'template', templateMode: 'living' });
+    return id;
+  }
 
   /** A new template, `mode` living or entry; returns its id. */
   create(mode: 'living' | 'entry'): string {

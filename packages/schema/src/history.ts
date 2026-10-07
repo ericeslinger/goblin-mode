@@ -7,6 +7,8 @@ export const HISTORY_INTERVAL_MS = 10 * 60 * 1000;
 
 /** A restore writes as its own writer, so the text it replaces is kept. */
 export const RESTORE_SUFFIX = '~restore';
+/** So does Done shopping (#39): the list it clears stays in History. */
+export const KEEP_SUFFIX = '~keep';
 
 export interface VersionFacts {
   body: string;

@@ -60,7 +60,15 @@ export class CaptureService {
   /** Bumped when coming back after five minutes starts a fresh note. */
   readonly renewed = signal(0);
 
-  private body = '';
+  private readonly typed = signal('');
+  /** The open note's text as it is now, typing included. */
+  readonly current = this.typed.asReadonly();
+  private get body(): string {
+    return untracked(this.typed);
+  }
+  private set body(text: string) {
+    this.typed.set(text);
+  }
   /**
    * The open note's text as the server last had it, from here: what was
    * loaded, saved, or merged in. Typing since is merged against it.
@@ -151,6 +159,28 @@ export class CaptureService {
     }
   }
 
+  /**
+   * A change made outside the editor (the list view, #39): shown in the
+   * editor, keeping anything typed there, and saved. `keep` saves at
+   * once as its own writer, so History keeps the text it replaced.
+   */
+  replace(text: string, { keep = false }: { keep?: boolean } = {}): void {
+    const { id } = this.open();
+    // What was typed or ticked first is saved first, so a keep keeps it.
+    if (keep && this.dirty) this.flush();
+    const before = this.body;
+    if (text === before) return;
+    this.body = text;
+    this.dirty = true;
+    this.untouched = false;
+    this.open.set({ id, text, base: before });
+    if (keep) this.flush({ keep: true });
+    else {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.flush(), SAVE_DELAY_MS);
+    }
+  }
+
   /** The editor reports every change here. */
   onText(text: string): void {
     this.body = text;
@@ -161,7 +191,7 @@ export class CaptureService {
   }
 
   /** Writes any unsaved typing now. */
-  flush(): void {
+  flush({ keep = false }: { keep?: boolean } = {}): void {
     clearTimeout(this.timer);
     if (!this.dirty) return;
     this.dirty = false;
@@ -178,7 +208,8 @@ export class CaptureService {
     this.synced = this.body;
     // A concept is never deleted for having no text: its name, type and
     // other names are what it is (review on #66). Nor is a template.
-    if (this.body.trim() || this.isKept(id)) this.notes.save(id, this.body, { base });
+    if (this.body.trim() || this.isKept(id))
+      this.notes.save(id, this.body, keep ? { base, keep } : { base });
     else if (this.notes.exists(id)) this.notes.remove(id);
   }
 

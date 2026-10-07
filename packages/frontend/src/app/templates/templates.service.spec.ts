@@ -1,7 +1,8 @@
 import { TestBed } from '@angular/core/testing';
+import { templateParts } from '@mossgoblin/schema';
 import { NotesService } from '../notes/notes.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
-import { NEW_TEMPLATE, TemplatesService } from './templates.service';
+import { NEW_TEMPLATE, SHOPPING_LIST, TemplatesService } from './templates.service';
 
 const SHOPPING =
   'Shopping list\n## Produce\n\n## Instructions for Claude\nStart from the meal plan.';
@@ -49,5 +50,17 @@ describe('TemplatesService', () => {
     expect(a.id).not.toBe(b.id);
     expect(notes.create).toHaveBeenLastCalledWith(b.id, 'Journal\nMood:', { fromTemplate: 't2' });
     expect(templates.use('n1')).toBeUndefined();
+  });
+
+  it('makes the shopping list, a living template with a section for Claude', () => {
+    const { notes, templates } = setup();
+    expect(templates.createShoppingList()).toBe('new1');
+    expect(notes.create).toHaveBeenCalledWith('new1', SHOPPING_LIST, {
+      kind: 'template',
+      templateMode: 'living',
+    });
+    const { skeleton, instructions } = templateParts(SHOPPING_LIST);
+    expect(skeleton).toContain('## Produce\n\n## Butcher\n\n## Dry goods');
+    expect(instructions).toContain('add_lines');
   });
 });
