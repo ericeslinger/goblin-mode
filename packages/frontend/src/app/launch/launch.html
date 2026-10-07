@@ -12,6 +12,7 @@
         {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
       </button>
       @if (hasHistory()) {
+        <a [routerLink]="['/map/n', capture.open().id]" class="muted">Map</a>
         <button type="button" class="link" (click)="copyLink()">Copy link</button>
         <a routerLink="/history" [queryParams]="{ note: capture.open().id }" class="muted"
           >History</a

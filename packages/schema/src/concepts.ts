@@ -197,3 +197,58 @@ export function sentenceAround(body: string, start: number, end: number, max = 1
     .trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
+
+/** A note in a neighborhood: how many links away from the center. */
+export interface Neighbor {
+  id: string;
+  hop: 0 | 1 | 2;
+  /** For hop 2: the hop-1 note it was reached through. */
+  via?: string;
+}
+
+/**
+ * The notes around `id`, two links out in either direction (a link or a
+ * backlink), live notes only, at most `limits` per ring, closest and
+ * most-connected first. Edges are the links among the notes shown.
+ */
+export function neighborhood(
+  id: string,
+  notes: readonly LinkedNote[],
+  limits: { hop1: number; hop2: number } = { hop1: 16, hop2: 32 },
+): { nodes: Neighbor[]; edges: [string, string][] } {
+  const live = notes.filter((n) => !n.archived);
+  const known = new Set(live.map((n) => n.id));
+  const around = new Map<string, Set<string>>();
+  const touch = (a: string, b: string) => {
+    if (a === b || !known.has(a) || !known.has(b)) return;
+    around.set(a, (around.get(a) ?? new Set()).add(b));
+    around.set(b, (around.get(b) ?? new Set()).add(a));
+  };
+  for (const n of live) for (const to of n.links) touch(n.id, to);
+  const degree = (n: string) => around.get(n)?.size ?? 0;
+  const byDegree = (a: string, b: string) => degree(b) - degree(a) || a.localeCompare(b);
+
+  const ring1 = [...(around.get(id) ?? [])].sort(byDegree).slice(0, limits.hop1);
+  const shown = new Set([id, ...ring1]);
+  const ring2: Neighbor[] = [];
+  for (const via of ring1) {
+    for (const next of [...(around.get(via) ?? [])].sort(byDegree)) {
+      if (shown.has(next) || ring2.length >= limits.hop2) continue;
+      shown.add(next);
+      ring2.push({ id: next, hop: 2, via });
+    }
+  }
+  const nodes: Neighbor[] = [
+    { id, hop: 0 },
+    ...ring1.map((n) => ({ id: n, hop: 1 as const })),
+    ...ring2,
+  ];
+  const edges: [string, string][] = [];
+  for (const n of live) {
+    if (!shown.has(n.id)) continue;
+    for (const to of new Set(n.links)) {
+      if (to !== n.id && shown.has(to)) edges.push([n.id, to]);
+    }
+  }
+  return { nodes: known.has(id) ? nodes : [], edges: known.has(id) ? edges : [] };
+}
