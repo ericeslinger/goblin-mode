@@ -361,8 +361,8 @@ Bog Goblin and Pixel Mossling, each light and dark.
   are the schema's `ThemeId`, so the rules and the app agree).
   `ThemeSync` listens to it once signed in and adopts what another
   device chose (never the echo of its own pending write, which could
-  briefly undo a newer choice); a choice made here is written through the persistent
-  cache, never awaited. The device keeps its last choice under
+  briefly undo a newer choice); a choice made here is written through
+  the persistent cache, never awaited. The device keeps its last choice under
   `goblin.theme` so the first paint is right before auth and offline.
   When there is no doc yet, a device that holds a choice uploads it;
   once there is one, the doc wins over a choice made while signed
