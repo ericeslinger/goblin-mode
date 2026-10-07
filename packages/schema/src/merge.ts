@@ -76,6 +76,8 @@ function unshared(lines: readonly string[], have: readonly string[]): string[] {
 /**
  * One side only added lines around a stretch the other side changed:
  * its additions go before, between and after the other side's version.
+ * Lines the other side also added at the same end are taken once (a
+ * stale save and the newer text both ending in the same new line).
  */
 function weave(base: readonly string[], added: readonly string[], changed: readonly string[]) {
   const at = positions(base, added);
@@ -83,7 +85,11 @@ function weave(base: readonly string[], added: readonly string[], changed: reado
   const first = at[0];
   const last = at[at.length - 1];
   const between = added.slice(first, last + 1).filter((_, i) => !at.includes(first + i));
-  return [...added.slice(0, first), ...changed, ...between, ...added.slice(last + 1)];
+  const before = added.slice(0, first);
+  const after = added.slice(last + 1);
+  const leads = same(changed.slice(0, before.length), before);
+  const trails = same(changed.slice(changed.length - after.length), after);
+  return [...(leads ? [] : before), ...changed, ...between, ...(trails ? [] : after)];
 }
 
 /**

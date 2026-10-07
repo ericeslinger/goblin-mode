@@ -1,7 +1,13 @@
 import { textHash } from '@mossgoblin/schema';
 import { describe, expect, it, vi } from 'vitest';
 import type { NoteState } from './history';
-import { type CurrentNote, type MergeStore, mergeConflict } from './merge';
+import {
+  type CurrentNote,
+  type MergeStore,
+  REPLACED_CHARS,
+  mergeConflict,
+  rememberReplaced,
+} from './merge';
 
 const S = 'List\n- [ ] apples\n- [ ] kale';
 const CLAUDE = 'List\n- [ ] apples\n- [ ] kale\n- [ ] oats';
@@ -20,6 +26,7 @@ function store(kept: string[], current: CurrentNote) {
   const s = {
     current,
     keptBodies: vi.fn(async () => kept),
+    rememberReplaced: vi.fn(async () => undefined),
     writeMerged: vi.fn(
       async (_uid: string, _id: string, decide: Parameters<MergeStore['writeMerged']>[2]) => {
         const write = decide(s.current);
@@ -44,7 +51,47 @@ const now = (body: string, over: Partial<CurrentNote> = {}): CurrentNote => ({
   ...over,
 });
 
+describe('rememberReplaced', () => {
+  it('remembers the text a write changed, and nothing else', async () => {
+    const s = store([], now(S));
+    expect(await rememberReplaced(s, 'u1', 'n1', state(S, { updatedAt: 5 }), state(ERIC))).toBe(
+      true,
+    );
+    expect(s.rememberReplaced).toHaveBeenCalledWith('u1', 'n1', S, 5);
+    expect(await rememberReplaced(s, 'u1', 'n1', state(S), state(S))).toBe(false);
+    expect(await rememberReplaced(s, 'u1', 'n1', state(''), state(S))).toBe(false);
+    expect(await rememberReplaced(s, 'u1', 'n1', undefined, state(S))).toBe(false);
+    // Too long to keep in one document.
+    const long = 'x'.repeat(REPLACED_CHARS + 1);
+    expect(await rememberReplaced(s, 'u1', 'n1', state(long), state(S))).toBe(false);
+    expect(s.rememberReplaced).toHaveBeenCalledOnce();
+  });
+
+  it('never throws, so the merge after it always runs', async () => {
+    const s = store([], now(S));
+    s.rememberReplaced.mockRejectedValueOnce(new Error('contention'));
+    const warn = vi.fn();
+    expect(await rememberReplaced(s, 'u1', 'n1', state(S), state(ERIC), warn)).toBe(false);
+    expect(warn).toHaveBeenCalledOnce();
+  });
+});
+
 describe('mergeConflict', () => {
+  it('merges a stale write from a replaced text, without doubling lines (2026-10-07)', async () => {
+    // The phone saved S1, S2 (a fix), S3 (a new line); a save built on
+    // S1 then crossed S3. History kept none of them; the replaced texts did.
+    const head = 'Projects\n';
+    const S1 = `${head}- the site and conconpanion app\n- core rules`;
+    const S2 = `${head}- the site and conpanion app\n- core rules (content)`;
+    const S3 = `${S2}\n- basic modules`;
+    const R = `${S1}\n- basic modules`;
+    const s = store([S2, S1], now(R, { baseHash: textHash(S1) }));
+    const before = state(S3, { baseHash: textHash(S2) });
+    const after = state(R, { baseHash: textHash(S1) });
+    expect(await mergeConflict(s, 'u1', 'n1', before, after)).toBe('merged');
+    expect(s.current.body).toBe(S3);
+  });
+
   it('merges a write made over text its writer had not seen', async () => {
     // Eric ticked apples offline, over S; Claude had added oats meanwhile.
     const s = store([CLAUDE, S], now(ERIC, { baseHash: textHash(S) }));

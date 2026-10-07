@@ -879,13 +879,26 @@ when Eric and Claude (or two devices) edit one note at once:
   without repeating it), shown in place with the cursor where it was
   (`updateText`), and saved if typing survived. The editor merges once
   more against keys typed before it heard of the change.
+- **Its own saves are not news (2026-10-07).** The capture loop
+  remembers the texts it saved for the open note (the last 50). A
+  snapshot carrying one of them, written by this device, is a late echo
+  of its own write and is ignored: merged as someone else's edit, it
+  undid Eric's edit since, the save built on it crossed the newer text,
+  and with no shared text found the server kept both, so two lines
+  showed before and after his fix. The same text from another device,
+  Claude or a merge is a real change (a laptop unticking an item) and
+  merges in.
 - **Writes say what they were written over.** Each body write carries
   `baseHash`, the `textHash` of the text it replaced as the writer had
   it ('' when not known, e.g. a draft from before sign-in). When
   `noteHistory` sees a write whose base is not the text it replaced (a
   phone coming back online with a queued tick, or a save crossing
-  Claude's edit), it finds the shared text among the last 20 kept
-  versions (history kept it when the newer text replaced it), merges,
+  Claude's edit), it finds the shared text among the last 20 texts
+  writes replaced (server-only, `notes/{id}/replaced/{hash}`, one
+  document each in write order, kept by `noteHistory` on every change,
+  texts over 300,000 characters skipped, each removed after 30 days by
+  a TTL policy on `expireAt` so a deleted note's texts do not stay;
+  2026-10-07) and the last 20 kept versions, merges,
   and writes the result as device `merge` in a transaction. The two
   writes can start from different texts (two devices, one of them
   saving twice); the older one, which both descend from, is the base.

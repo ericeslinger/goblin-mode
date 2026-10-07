@@ -6,7 +6,7 @@ import {
   Timestamp,
 } from 'firebase-admin/firestore';
 import type { HistoryStore, NoteState } from './history';
-import { MERGE_DEVICE, type MergeStore } from './merge';
+import { MERGE_DEVICE, type MergeStore, REPLACED_KEPT, REPLACED_TTL_MS } from './merge';
 import type { TitleStore } from './title';
 
 const millis = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
@@ -55,12 +55,36 @@ export function firestoreNotesStore(db: Firestore): HistoryStore & TitleStore & 
     },
 
     async keptBodies(uid, noteId, limit) {
-      const snap = await db
-        .collection(paths.history(uid, noteId))
-        .orderBy('savedAt', 'desc')
-        .limit(limit)
+      const [replaced, kept] = await Promise.all([
+        db
+          .collection(paths.replaced(uid, noteId))
+          .orderBy('writtenAt', 'desc')
+          .limit(REPLACED_KEPT)
+          .get(),
+        db.collection(paths.history(uid, noteId)).orderBy('savedAt', 'desc').limit(limit).get(),
+      ]);
+      return [...replaced.docs, ...kept.docs].map((d) => String(d.get('body') ?? ''));
+    },
+
+    async rememberReplaced(uid, noteId, body, writtenAt) {
+      const col = db.collection(paths.replaced(uid, noteId));
+      // Keyed by the text, so the same text twice is one document.
+      await col.doc(textHash(body)).set({
+        body,
+        writtenAt:
+          writtenAt === undefined ? FieldValue.serverTimestamp() : Timestamp.fromMillis(writtenAt),
+        // A TTL policy (firestore.indexes.json) removes it after this,
+        // so a deleted note's texts do not stay forever.
+        expireAt: Timestamp.fromMillis(Date.now() + REPLACED_TTL_MS),
+      });
+      // Counting costs one read; the oldest are read only when over.
+      const count = (await col.count().get()).data().count;
+      if (count <= REPLACED_KEPT) return;
+      const old = await col
+        .orderBy('writtenAt', 'asc')
+        .limit(count - REPLACED_KEPT)
         .get();
-      return snap.docs.map((d) => String(d.get('body') ?? ''));
+      await Promise.all(old.docs.map((d) => d.ref.delete()));
     },
 
     writeMerged(uid, noteId, decide) {

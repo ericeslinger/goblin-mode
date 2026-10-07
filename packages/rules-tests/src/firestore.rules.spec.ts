@@ -193,6 +193,17 @@ describe('function-only collections: notes/history, activity', () => {
   }
 });
 
+describe('server-only: notes/replaced, the texts merges start from', () => {
+  const path = 'users/owner/notes/n1/replaced/h1';
+  it('not even the owner can read or write it', async () => {
+    await seed(path);
+    await assertFails(owner().doc(path).get());
+    await assertFails(owner().doc(path).set({ bodies: [] }));
+    await assertFails(owner().doc(path).delete());
+    await assertFails(intruder().doc(path).get());
+  });
+});
+
 describe('proposals: the owner only accepts or dismisses an open one', () => {
   const path = 'users/owner/proposals/p1';
   const proposal = (status = 'open') => ({

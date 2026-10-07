@@ -13,6 +13,7 @@
 // | activity | function only | Claude's "What Claude changed" records |
 // | proposals | function, plus the owner's accept or dismiss | nightly organize (#35) |
 // | attachments | client, direct | a photo taken offline must be recorded offline (#43) |
+// | notes/replaced | function only | texts writes replaced, for merges (2026-10-07) |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 //
 // Direct-write collections get shape validators generated from these
@@ -301,6 +302,8 @@ export const paths = {
   activity: (uid: string) => `users/${uid}/activity`,
   proposals: (uid: string) => `users/${uid}/proposals`,
   attachments: (uid: string) => `users/${uid}/attachments`,
+  /** Server only: the texts recent writes replaced, for merges. */
+  replaced: (uid: string, noteId: string) => `users/${uid}/notes/${noteId}/replaced`,
   /** Storage: an attachment's files, under its id. */
   attachmentFiles: (uid: string, id: string) => `users/${uid}/attachments/${id}`,
 };

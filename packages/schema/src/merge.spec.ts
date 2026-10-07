@@ -61,6 +61,14 @@ describe('merge3', () => {
     expect(merge3('a\nb', 'a\nB', 'a\nnew\nb')).toBe('a\nnew\nB');
   });
 
+  it('takes a line both sides added beside an edit once (2026-10-07)', () => {
+    // A stale save added a line; the newer text fixed the lines above
+    // and added the same one.
+    expect(merge3('a\nb', 'a\nb\nnew', 'A\nB\nnew')).toBe('A\nB\nnew');
+    expect(merge3('a\nb', 'a\nb\nnew', 'A\nB')).toBe('A\nB\nnew');
+    expect(merge3('a\nb', 'top\na\nb', 'top\nA\nb')).toBe('top\nA\nb');
+  });
+
   it('keeps typing at the end and lines added elsewhere', () => {
     const ours = `${base}\n- [ ] bre`;
     const theirs = base.replace('## Produce', '## Produce\n- [ ] leeks');
