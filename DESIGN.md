@@ -131,6 +131,24 @@ were in the contract from the start, so the rules are unchanged.
   nothing answers to points at the concept it would make (the stub is
   created on settle, #29).
 
+**Editing links (#29, 2026-10-07).** Typing `[[` (or the accessory
+bar's `[[` button) opens suggestions from `suggestLinks` in the schema:
+names that start with what is typed before names that contain it,
+concepts (by title or synonym, offered by title) before notes, and the
+typed name itself as a new concept when nothing matches it exactly.
+Picking one writes `name]]`. A tapped link chip opens its note at
+`/n/<id>`, pushing history; a name nothing answers to becomes a stub
+concept first. Leaving a note that was typed in also plants stubs for
+its new names (`NotesService.plantConcepts`). A stub is a note with
+kind `concept`, the name as written as its title (`titleSource: 'user'`,
+so a settle never retitles it), type `other` and no text; it is written
+only once the notes have loaded, so a known note is never mistaken for
+a new one. A concept another device made that has not reached this one
+yet can still be written over by a stub; noteHistory keeps the version
+it replaced. MCP writes do not plant stubs; a link from Claude to a new
+name points at the concept id, and the stub appears when the gardener
+follows it or leaves a note linking it.
+
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
 `[[name]]` inside code is not a link). Notes written before this keep

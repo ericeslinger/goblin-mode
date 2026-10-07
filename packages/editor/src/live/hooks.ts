@@ -7,6 +7,8 @@ import { Facet } from '@codemirror/state';
 export interface NoteEditorHooks {
   /** A wiki link chip was tapped. */
   openLink?: (target: string) => void;
+  /** Names a `[[` can complete to, best first (host-ranked). */
+  suggestLinks?: (query: string) => { name: string; kind: string }[];
   /** Turns an attachment id into an image URL, if it is available. */
   resolveAttachment?: (id: string) => string | undefined;
 }

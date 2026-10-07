@@ -115,6 +115,29 @@ describe('NotesService', () => {
     expect(api.set.mock.lastCall![2]).toMatchObject({ links: ['c-vikas', 'n9', 'c-pottery'] });
   });
 
+  it('makes a stub concept for each linked name nothing answers to, once loaded', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    notes.plantConcepts('before load: [[Kiln]]');
+    expect(api.set).not.toHaveBeenCalled();
+    push([{ id: 'c-vikas', data: { body: '', title: 'Vikas', kind: 'concept' } }]);
+    notes.plantConcepts('Ask [[Vikas]] about the [[Kiln]], and the [[kiln]] again');
+    expect(api.set).toHaveBeenCalledOnce();
+    const [, path, data, merge] = api.set.mock.lastCall!;
+    expect([path, merge]).toEqual(['users/u1/notes/c-kiln', false]);
+    expect(data).toMatchObject({
+      kind: 'concept',
+      body: '',
+      title: 'Kiln',
+      titleSource: 'user',
+      conceptType: 'other',
+      links: [],
+      archived: false,
+    });
+    expect(notes.createConcept('kiln')).toBe('c-kiln');
+    expect(api.set).toHaveBeenCalledOnce();
+  });
+
   it('keeps a title Eric set himself', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

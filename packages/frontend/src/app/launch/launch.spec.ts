@@ -140,6 +140,27 @@ describe('Launch', () => {
     expect(url()).toBe('/');
   });
 
+  it('follows a tapped link to its note, making a concept for a new name', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([
+      noteRecord('n1', 'Ask [[Groceries]] and [[Kiln]]\nthe cursor sits here'),
+      noteRecord('n2', 'Groceries'),
+    ]);
+    const { el, fixture, url } = await render({ notes, url: '/n/n1' });
+    const chip = (name: string) =>
+      [...el.querySelectorAll<HTMLElement>('.mg-wikilink')].find((c) => c.textContent === name)!;
+    chip('Groceries').click();
+    await fixture.whenStable();
+    expect(url()).toBe('/n/n2');
+    expect(notes.createConcept).not.toHaveBeenCalled();
+    await TestBed.inject(Router).navigateByUrl('/n/n1');
+    await fixture.whenStable();
+    chip('Kiln').click();
+    await fixture.whenStable();
+    expect(notes.createConcept).toHaveBeenCalledWith('Kiln');
+    expect(url()).toBe('/n/c-kiln');
+  });
+
   it('copies a note’s link', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

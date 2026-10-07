@@ -1,5 +1,6 @@
 // The note editor: CodeMirror 6 with live preview and source modes over
 // one markdown string. Framework-free; the host app wraps it.
+import { startCompletion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
@@ -7,6 +8,7 @@ import type { Mode } from './live/decorations';
 import { livePreview, modeField, setMode } from './live/extension';
 import { hooksFacet, type NoteEditorHooks } from './live/hooks';
 import { continueList, insertWikiLink, toggleTaskLine } from './live/commands';
+import { linkAutocomplete } from './live/link-complete';
 import { noteTheme } from './live/theme';
 
 export interface NoteEditorOptions extends NoteEditorHooks {
@@ -43,7 +45,7 @@ function readOnlyExtension(readOnly: boolean) {
 }
 
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
-  const { openLink, resolveAttachment } = options;
+  const { openLink, resolveAttachment, suggestLinks } = options;
   const editing = new Compartment();
   const base = EditorState.create({ doc: options.text ?? '' });
   const state = EditorState.create({
@@ -68,7 +70,8 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         spellcheck: 'true',
       }),
       placeholder(options.placeholder ?? ''),
-      hooksFacet.of({ openLink, resolveAttachment }),
+      hooksFacet.of({ openLink, resolveAttachment, suggestLinks }),
+      linkAutocomplete,
       livePreview(options.mode ?? 'live'),
       noteTheme,
       editing.of(readOnlyExtension(options.readOnly ?? false)),
@@ -94,7 +97,11 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
       view.dispatch({ effects: editing.reconfigure(readOnlyExtension(readOnly)) });
     },
     toggleTask: () => void toggleTaskLine(view),
-    insertWikiLink: () => void insertWikiLink(view),
+    insertWikiLink: () => {
+      insertWikiLink(view);
+      // Offer names at once, as typing `[[` would.
+      startCompletion(view);
+    },
     focus: () => view.focus(),
     destroy: () => view.destroy(),
   };

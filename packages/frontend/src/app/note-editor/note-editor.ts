@@ -45,7 +45,11 @@ export class NoteEditorComponent {
   readonly autofocus = input(false, { transform: booleanAttribute });
   /** Shown but not editable (a linked note that has not arrived yet). */
   readonly readOnly = input(false);
+  /** Names a `[[` can complete to (the host ranks them). */
+  readonly suggestLinks = input<(query: string) => { name: string; kind: string }[]>();
   readonly textChange = output<string>();
+  /** A wiki link was tapped; carries its target name. */
+  readonly linkOpen = output<string>();
 
   private readonly modes = inject(EditorModeService);
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
@@ -60,6 +64,8 @@ export class NoteEditorComponent {
         label: untracked(this.label),
         placeholder: untracked(this.placeholder),
         readOnly: untracked(this.readOnly),
+        openLink: (target) => this.linkOpen.emit(target),
+        suggestLinks: (query) => untracked(this.suggestLinks)?.(query) ?? [],
         mode: untracked(this.modes.mode),
         onChange: (text) => this.textChange.emit(text),
       });

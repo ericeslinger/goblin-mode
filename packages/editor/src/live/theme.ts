@@ -52,6 +52,20 @@ export const noteTheme = EditorView.theme({
   '.mg-bullet': { color: 'var(--mg-quiet, inherit)', fontWeight: '700' },
   '.mg-list-number, .mg-list-marker': { color: 'var(--mg-quiet, inherit)' },
   '.mg-image': { maxWidth: '100%', display: 'block', margin: '4px 0' },
+  // The `[[` suggestions.
+  '.cm-tooltip': {
+    color: 'var(--mg-ink, inherit)',
+    backgroundColor: 'var(--mg-surface, Canvas)',
+    border: '1px solid var(--mg-rule, currentColor)',
+    borderRadius: 'var(--mg-radius-card, 6px)',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'inherit', maxHeight: '14em' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '6px 10px' },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    color: 'var(--mg-ink, inherit)',
+    backgroundColor: 'var(--mg-chip-bg, Highlight)',
+  },
+  '.cm-completionDetail': { color: 'var(--mg-quiet, inherit)', fontStyle: 'normal' },
   '.mg-attachment-placeholder': {
     fontStyle: 'italic',
     color: 'var(--mg-quiet, inherit)',

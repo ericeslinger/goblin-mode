@@ -88,3 +88,48 @@ export function resolveLinks(targets: readonly string[], index: Map<string, stri
   const ids = targets.map((t) => index.get(normalizeName(t)) ?? conceptId(t));
   return [...new Set(ids)];
 }
+
+/** One autocomplete choice: the name to insert and what it is. */
+export interface LinkSuggestion {
+  name: string;
+  /** 'person', 'project', 'concept', 'note', or 'new' for a name to make. */
+  kind: string;
+}
+
+/**
+ * Names a `[[` can complete to, best first: names that start with the
+ * query before names that contain it, concepts (by title or synonym)
+ * before notes, then shorter names. A concept found by a synonym is
+ * offered by its title. A query nothing matches exactly is
+ * offered as a new concept at the end. Archived notes are left out.
+ */
+export function suggestLinks(
+  query: string,
+  notes: readonly (NamedNote & { conceptType?: string })[],
+  limit = 8,
+): LinkSuggestion[] {
+  const q = normalizeName(query);
+  const scored: { name: string; kind: string; rank: number }[] = [];
+  const seen = new Set<string>();
+  /** A note matches by its title, or a concept by any of its names. */
+  const consider = (title: string, names: string[], kind: string, concept: boolean) => {
+    const key = normalizeName(title);
+    if (!key || seen.has(key)) return;
+    const at = names.map((n) => normalizeName(n).indexOf(q)).filter((i) => i >= 0);
+    if (at.length === 0) return;
+    seen.add(key);
+    for (const n of names) seen.add(normalizeName(n));
+    scored.push({ name: title, kind, rank: (at.includes(0) ? 0 : 2) + (concept ? 0 : 1) });
+  };
+  const live = notes.filter((n) => !n.archived);
+  for (const n of live.filter((n) => n.kind === 'concept')) {
+    const kind = n.conceptType && n.conceptType !== 'other' ? n.conceptType : 'concept';
+    consider(n.title, [n.title, ...(n.synonyms ?? [])], kind, true);
+  }
+  for (const n of live.filter((n) => n.kind !== 'concept'))
+    consider(n.title, [n.title], 'note', false);
+  scored.sort((a, b) => a.rank - b.rank || a.name.length - b.name.length);
+  const found: LinkSuggestion[] = scored.slice(0, limit).map(({ name, kind }) => ({ name, kind }));
+  if (q && !seen.has(q)) found.push({ name: query.trim(), kind: 'new' });
+  return found;
+}

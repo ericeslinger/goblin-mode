@@ -11,8 +11,10 @@ import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   RESTORE_SUFFIX,
   autoId,
+  conceptId,
   firstWordsTitle,
   nameIndex,
+  normalizeName,
   paths,
   resolveLinks,
   type TitleSource,
@@ -43,6 +45,8 @@ export interface NoteRecord {
   kind: string;
   /** A concept's other names. */
   synonyms?: string[];
+  /** A concept's type: 'person', 'project' or 'other'. */
+  conceptType?: string;
   /** Ids this note links to (DESIGN.md, Links and concepts). */
   links: string[];
   archived: boolean;
@@ -97,6 +101,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     titleSource: (data['titleSource'] as TitleSource) ?? 'words',
     kind: typeof data['kind'] === 'string' ? data['kind'] : 'text',
     ...(Array.isArray(data['synonyms']) ? { synonyms: data['synonyms'].map(String) } : {}),
+    ...(typeof data['conceptType'] === 'string' ? { conceptType: data['conceptType'] } : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
     archived: data['archived'] === true,
     updatedAt: stamp?.toMillis?.(),
@@ -203,6 +208,54 @@ export class NotesService {
       : { kind: 'text', tags: [], archived: false, createdAt: now, ...update };
     this.written.add(id);
     this.api.set(this.fb.db, path, data, known).catch(report);
+  }
+
+  /**
+   * Makes the concepts a body links to by names nothing answers to yet
+   * (stub concepts, #29): kind 'concept', the name as written, no text.
+   * Only once the notes have loaded, so a known note is never mistaken
+   * for a new one. A concept another device made that has not synced
+   * here can still be written over; noteHistory keeps what it replaced.
+   */
+  plantConcepts(body: string): void {
+    if (!this.ready) return;
+    const names = this.names();
+    for (const target of wikiLinkTargets(parseNote(body))) {
+      if (names.has(normalizeName(target))) continue;
+      this.createConcept(target);
+    }
+  }
+
+  /** A stub concept for `name`, unless one exists; returns its id. */
+  createConcept(name: string): string {
+    const id = conceptId(name);
+    if (!this.ready || !this.uid || this.exists(id)) return id;
+    const now = this.api.serverTime();
+    this.written.add(id);
+    this.api
+      .set(
+        this.fb.db,
+        paths.note(this.uid, id),
+        {
+          kind: 'concept',
+          body: '',
+          title: name.trim(),
+          // The name is Eric's: a settle never retitles a concept.
+          titleSource: 'user',
+          conceptType: 'other',
+          synonyms: [],
+          links: [],
+          tags: [],
+          archived: false,
+          createdAt: now,
+          updatedAt: now,
+          updatedBy: 'user',
+          deviceId: this.deviceId(),
+        },
+        false,
+      )
+      .catch(report);
+    return id;
   }
 
   /**

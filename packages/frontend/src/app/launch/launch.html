@@ -44,7 +44,9 @@
         [noteId]="capture.open().id"
         [text]="capture.open().text"
         [readOnly]="waiting()"
+        [suggestLinks]="suggest"
         (textChange)="capture.onText($event)"
+        (linkOpen)="followLink($event)"
       />
       @if (previous().length > 0) {
         <div class="previous">
