@@ -194,10 +194,38 @@ interface Reminder {
   snoozedUntil?: Timestamp;
   nextFireAt?: Timestamp;       // drives push; null when nothing to send
   noteId?: string;
-  template?: string;            // e.g. 'feelings': tap opens a new note from it
+  template?: string;            // a template's id: its schedule (#36)
   createdBy: 'user' | 'claude';
 }
 ```
+
+### Templates (#36, 2026-10-07)
+
+A template is a note of kind `template`, not a collection of its own,
+so it syncs, links, keeps History and is edited like any note. Its
+`templateMode` is `living` (one note reused, like the shopping list)
+or `entry` (a new note each time, like a journal entry). A note made
+from it records the template's id in `fromTemplate`. Template ids are
+generated like any note's.
+
+- **Instructions for Claude** are a section of the body, under a
+  heading of that name at any level, running to the next heading of
+  the same level or higher. `templateParts` (schema) splits a body
+  into that section and the skeleton a new note starts from.
+- **The schedule** is a recurring reminder whose `template` names the
+  template, so it needs no field of its own: tapping it opens the
+  template's note (a fresh entry, or the living note).
+- **Readers are lenient.** A template with no `templateMode` is used
+  as `entry`, and `templateMode` on any other kind is ignored; the
+  schema and rules do not tie the two together.
+- **For #38.** The empty-note delete guard, Recent, garden beds and
+  the name index treat every kind but `concept` as an ordinary note;
+  #38 extends the guard so an emptied template is kept, and decides
+  where templates show. A heading-like line inside a code block is
+  still read as a heading by `templateParts`.
+- The rules accept the two fields through the generated note
+  validator. New from template, the template list, `list_templates`
+  and `use_template` come with #38.
 
 ## Client
 

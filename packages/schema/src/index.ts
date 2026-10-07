@@ -6,3 +6,4 @@ export * from './reminders';
 export * from './history';
 export * from './search';
 export * from './concepts';
+export * from './templates';

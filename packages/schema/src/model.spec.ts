@@ -59,6 +59,19 @@ describe('Reminder', () => {
   });
 });
 
+describe('templates', () => {
+  it('marks a template with its mode, and a note with the template it came from', () => {
+    expect(Note.safeParse({ ...note, kind: 'template', templateMode: 'living' }).success).toBe(
+      true,
+    );
+    expect(Note.safeParse({ ...note, kind: 'template', templateMode: 'weekly' }).success).toBe(
+      false,
+    );
+    expect(Note.safeParse({ ...note, fromTemplate: 't1' }).success).toBe(true);
+    expect(Note.safeParse({ ...note, fromTemplate: 7 }).success).toBe(false);
+  });
+});
+
 describe('Activity', () => {
   it('records a run, what it did and what it touched', () => {
     const run = {

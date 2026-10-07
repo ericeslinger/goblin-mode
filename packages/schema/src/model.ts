@@ -34,11 +34,18 @@ export const Timestamp = z.custom<{ seconds: number; nanoseconds: number }>(
 );
 export type Timestamp = z.infer<typeof Timestamp>;
 
-export const NoteKind = z.enum(['text', 'sketch', 'concept']);
+export const NoteKind = z.enum(['text', 'sketch', 'concept', 'template']);
 export type NoteKind = z.infer<typeof NoteKind>;
 
 export const ConceptType = z.enum(['person', 'project', 'other']);
 export type ConceptType = z.infer<typeof ConceptType>;
+
+/**
+ * How a template is used (#36): living, one note reused (the shopping
+ * list); entry, a new note each time (a journal entry).
+ */
+export const TemplateMode = z.enum(['living', 'entry']);
+export type TemplateMode = z.infer<typeof TemplateMode>;
 
 export const TitleSource = z.enum(['words', 'llm', 'user']);
 export type TitleSource = z.infer<typeof TitleSource>;
@@ -57,6 +64,10 @@ export const Note = z.object({
   /** Ids of notes this note links to. */
   links: z.array(z.string()),
   tags: z.array(z.string()),
+  /** Only on templates. Its schedule is a reminder naming it (`template`). */
+  templateMode: TemplateMode.optional(),
+  /** The id of the template this note was made from. */
+  fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */
   archived: z.boolean(),
   mergedInto: z.string().optional(),
@@ -117,7 +128,10 @@ export const Reminder = z.object({
   /** Drives push; absent when there is nothing to send. */
   nextFireAt: Timestamp.optional(),
   noteId: z.string().optional(),
-  /** e.g. 'feelings': tapping opens a new note from this template. */
+  /**
+   * A template's id: the reminder is that template's schedule, and
+   * tapping it opens the template's note (#36).
+   */
   template: z.string().optional(),
   createdBy: Author,
 });
