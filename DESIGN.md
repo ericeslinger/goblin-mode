@@ -215,6 +215,14 @@ generated like any note's.
 - **The schedule** is a recurring reminder whose `template` names the
   template, so it needs no field of its own: tapping it opens the
   template's note (a fresh entry, or the living note).
+- **Readers are lenient.** A template with no `templateMode` is used
+  as `entry`, and `templateMode` on any other kind is ignored; the
+  schema and rules do not tie the two together.
+- **For #38.** The empty-note delete guard, Recent, garden beds and
+  the name index treat every kind but `concept` as an ordinary note;
+  #38 extends the guard so an emptied template is kept, and decides
+  where templates show. A heading-like line inside a code block is
+  still read as a heading by `templateParts`.
 - The rules accept the two fields through the generated note
   validator. New from template, the template list, `list_templates`
   and `use_template` come with #38.
