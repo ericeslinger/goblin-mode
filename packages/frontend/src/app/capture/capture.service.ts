@@ -30,6 +30,8 @@ export const LAST_SEEN_KEY = 'goblin.lastSeen';
 export const PENDING_DRAFT_KEY = 'goblin.pendingDraft';
 export const PENDING_SETTLE_KEY = 'goblin.pendingSettle';
 export const SAVE_DELAY_MS = 300;
+/** How many of its own saved texts the open note remembers. */
+const SENT_KEPT = 50;
 
 /**
  * The capture loop (DESIGN.md, Client): which note is open, saving it as
@@ -74,6 +76,14 @@ export class CaptureService {
    * loaded, saved, or merged in. Typing since is merged against it.
    */
   private synced = '';
+  /**
+   * Texts this device saved for the open note, oldest first. A snapshot
+   * of one, written by this device, is a late echo of its own write, not
+   * news: merging it would undo everything typed since (2026-10-07, a
+   * note on Eric's phone came back with two lines both before and after
+   * his edit). The same text from another writer is a real change.
+   */
+  private sent: string[] = [];
   /** The text a restore just replaced, until a newer snapshot arrives. */
   private replaced?: { id: string; text: string };
   private dirty = false;
@@ -107,7 +117,7 @@ export class CaptureService {
       untracked(() => {
         const { id } = this.open();
         const note = list.find((n) => n.id === id);
-        if (note) this.merge(id, note.body);
+        if (note) this.merge(id, note.body, note.deviceId);
       });
     });
 
@@ -141,8 +151,9 @@ export class CaptureService {
     });
   }
 
-  private merge(id: string, remote: string): void {
+  private merge(id: string, remote: string, writer?: string): void {
     if (remote === this.synced) return;
+    if (writer?.startsWith(this.notes.deviceId()) && this.sent.includes(remote)) return;
     if (this.replaced?.id === id && this.replaced.text === remote) return;
     this.replaced = undefined;
     const local = this.body;
@@ -206,6 +217,7 @@ export class CaptureService {
     this.store.remove(PENDING_DRAFT_KEY);
     const base = this.synced;
     this.synced = this.body;
+    this.sent = [...this.sent, this.body].slice(-SENT_KEPT);
     // A concept is never deleted for having no text: its name, type and
     // other names are what it is (review on #66). Nor is a template.
     if (this.body.trim() || this.isKept(id))
@@ -231,7 +243,7 @@ export class CaptureService {
       this.synced = '';
       this.untouched = false;
       const note = this.notes.find(id);
-      if (note) this.merge(id, note.body);
+      if (note) this.merge(id, note.body, note.deviceId);
       return;
     }
     // `known`: the text of a note just made here, which may not be in
@@ -310,6 +322,7 @@ export class CaptureService {
     this.open.set(note);
     this.body = note.text;
     this.synced = note.text;
+    this.sent = [];
     this.dirty = false;
     this.untouched = true;
   }
