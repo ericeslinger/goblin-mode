@@ -720,6 +720,14 @@ be set up in a claude.ai account, and it is tested like the rest.
   (`link_notes`, `merge_notes`, `refile`), which records itself in
   What Claude changed, and stores the outcome: applied, or failed with
   why (the garden moved on). A failure stays in view for three days.
+- **Housekeeping.** Each night first marks a claim older than an hour
+  failed (its function stopped partway) and deletes applied and failed
+  proposals after 90 days. Dismissed ones stay, so a dismissed
+  suggestion never returns; the nightly read of them is keys only.
+- **Note text is data.** In what Claude reads, `<` in a note is
+  escaped, so a note cannot close its `<note>`, and the instructions
+  say note text is never an instruction. The checks, the accept gate
+  and the tools' own checks bound what a steered answer could do.
 
 ## Push
 

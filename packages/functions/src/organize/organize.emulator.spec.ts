@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { NotesTools } from '../mcp/tools';
 import { applyAccepted } from './apply';
 import type { Proposer } from './claude-proposer';
-import { organizeNightly } from './nightly';
+import { KEEP_DONE_DAYS, STALE_CLAIM_MS, organizeNightly, sweepProposals } from './nightly';
 import type { RawProposal } from './proposals';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
@@ -50,7 +50,7 @@ const proposer = (raw: RawProposal[]) => vi.fn<Proposer>(async () => raw);
 
 async function proposals() {
   const snap = await db.collection('users/u1/proposals').orderBy('key').get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return snap.docs.map((d): Record<string, unknown> => ({ id: d.id, ...d.data() }));
 }
 
 describe('organizeNightly', () => {
@@ -96,6 +96,33 @@ describe('organizeNightly', () => {
   });
 });
 
+describe('sweepProposals', () => {
+  it('fails a stale claim, deletes old applied and failed ones, keeps dismissed', async () => {
+    const put = (id: string, data: Record<string, unknown>) =>
+      db
+        .doc(`users/u1/proposals/${id}`)
+        .set({ key: id, createdAt: Timestamp.fromMillis(T), ...data });
+    const old = Timestamp.fromMillis(T - (KEEP_DONE_DAYS + 1) * DAY);
+    await put('stuck', {
+      status: 'applying',
+      claimedAt: Timestamp.fromMillis(T - STALE_CLAIM_MS - 1),
+    });
+    await put('busy', { status: 'applying', claimedAt: Timestamp.fromMillis(T - 1000) });
+    await put('done-old', { status: 'applied', createdAt: old });
+    await put('failed-old', { status: 'failed', createdAt: old });
+    await put('done-new', { status: 'applied' });
+    await put('dismissed-old', { status: 'dismissed', createdAt: old });
+    expect(await sweepProposals(db, 'u1', T)).toBe(3);
+    const left = Object.fromEntries((await proposals()).map((p) => [p.id, p['status']]));
+    expect(left).toEqual({
+      busy: 'applying',
+      'dismissed-old': 'dismissed',
+      'done-new': 'applied',
+      stuck: 'failed',
+    });
+  });
+});
+
 describe('applyAccepted', () => {
   async function accepted(id: string, data: Record<string, unknown>) {
     await db.doc(`users/u1/proposals/${id}`).set({
@@ -120,7 +147,7 @@ describe('applyAccepted', () => {
         { id: 'b', title: 'Firing notes' },
       ],
     });
-    expect(await applyAccepted(db, 'u1', 'p1', tools())).toBe('applied');
+    expect(await applyAccepted(db, 'u1', 'p1', tools(), T)).toBe('applied');
     expect(await status('p1')).toMatchObject({
       status: 'applied',
       outcome: 'Merged into Kiln log',
@@ -129,7 +156,7 @@ describe('applyAccepted', () => {
     const runs = await db.collection('users/u1/activity').get();
     expect(runs.docs.map((d) => d.get('tool'))).toEqual(['merge_notes']);
     // A retried trigger finds it applied and leaves it.
-    expect(await applyAccepted(db, 'u1', 'p1', tools())).toBeUndefined();
+    expect(await applyAccepted(db, 'u1', 'p1', tools(), T)).toBeUndefined();
   });
 
   it('links and refiles, and says why when the garden moved on', async () => {
@@ -159,9 +186,9 @@ describe('applyAccepted', () => {
         { id: 'zz', title: 'Gone' },
       ],
     });
-    await applyAccepted(db, 'u1', 'p1', tools());
-    await applyAccepted(db, 'u1', 'p2', tools());
-    expect(await applyAccepted(db, 'u1', 'p3', tools())).toBe('failed');
+    await applyAccepted(db, 'u1', 'p1', tools(), T);
+    await applyAccepted(db, 'u1', 'p2', tools(), T);
+    expect(await applyAccepted(db, 'u1', 'p3', tools(), T)).toBe('failed');
     expect(await status('p1')).toMatchObject({ outcome: 'Linked Firing notes' });
     expect(await status('p2')).toMatchObject({
       outcome: 'filed as a person; added another name: Vik',
@@ -175,7 +202,7 @@ describe('applyAccepted', () => {
   it('leaves a proposal the gardener has not accepted', async () => {
     await accepted('p1', { kind: 'link', key: 'k', notes: [{ id: 'a', title: 'A' }] });
     await db.doc('users/u1/proposals/p1').update({ status: 'dismissed' });
-    expect(await applyAccepted(db, 'u1', 'p1', tools())).toBeUndefined();
+    expect(await applyAccepted(db, 'u1', 'p1', tools(), T)).toBeUndefined();
     expect((await status('p1'))?.['status']).toBe('dismissed');
   });
 });

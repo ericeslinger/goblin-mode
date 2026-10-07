@@ -211,6 +211,8 @@ export const Proposal = z.object({
   outcome: z.string().optional(),
   createdAt: Timestamp,
   decidedAt: Timestamp.optional(),
+  /** When the trigger began applying it; a stale claim is swept. */
+  claimedAt: Timestamp.optional(),
 });
 export type Proposal = z.infer<typeof Proposal>;
 

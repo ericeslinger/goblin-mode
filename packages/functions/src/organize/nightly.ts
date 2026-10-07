@@ -5,12 +5,47 @@ import { RECENT_DAYS, type Proposer } from './claude-proposer';
 import { type GardenNote, MAX_OPEN, PER_NIGHT, checkProposals } from './proposals';
 
 const DAY = 86_400_000;
+/** A claim this old was cut off partway; the run says so. */
+export const STALE_CLAIM_MS = 3_600_000;
+/** Applied and failed proposals are kept this long, then deleted. */
+export const KEEP_DONE_DAYS = 90;
 const millis = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : 0);
 
 /**
- * One night's organize pass (#35): when notes changed in the last week
- * and there is room, ask for suggestions, keep the ones that check out,
- * and store them as open proposals. Changes nothing else.
+ * Tidies the proposals: one stuck applying (its function stopped) is
+ * marked failed, so it does not show as in progress forever; applied
+ * and failed ones past KEEP_DONE_DAYS are deleted. Dismissed ones stay,
+ * so a dismissed suggestion is never made again.
+ */
+export async function sweepProposals(db: Firestore, uid: string, now: number): Promise<number> {
+  const snap = await db
+    .collection(paths.proposals(uid))
+    .where('status', 'in', ['applying', 'applied', 'failed'])
+    .get();
+  const batch = db.batch();
+  let n = 0;
+  for (const doc of snap.docs) {
+    const status = doc.get('status');
+    if (status === 'applying' && now - millis(doc.get('claimedAt')) > STALE_CLAIM_MS) {
+      batch.update(doc.ref, {
+        status: 'failed',
+        outcome: 'Stopped partway; check the changes below',
+      });
+      n++;
+    } else if (status !== 'applying' && now - millis(doc.get('createdAt')) > KEEP_DONE_DAYS * DAY) {
+      batch.delete(doc.ref);
+      n++;
+    }
+  }
+  if (n) await batch.commit();
+  return n;
+}
+
+/**
+ * One night's organize pass (#35): tidy the proposals; then, when notes
+ * changed in the last week and there is room, ask for suggestions, keep
+ * the ones that check out, and store them as open proposals. Changes no
+ * notes.
  */
 export async function organizeNightly(
   db: Firestore,
@@ -18,6 +53,7 @@ export async function organizeNightly(
   propose: Proposer,
   now: number,
 ): Promise<{ recent: number; asked: boolean; added: number }> {
+  await sweepProposals(db, uid, now);
   const snap = await db.collection(paths.notes(uid)).get();
   const notes = snap.docs.map((doc) => {
     const d = doc.data();

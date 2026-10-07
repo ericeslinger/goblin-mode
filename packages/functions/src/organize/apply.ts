@@ -1,5 +1,5 @@
 import { type Proposal, paths } from '@mossgoblin/schema';
-import type { Firestore } from 'firebase-admin/firestore';
+import { type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { type NotesTools, ToolError } from '../mcp/tools';
 
@@ -40,12 +40,13 @@ export async function applyAccepted(
   uid: string,
   id: string,
   tools: Tools,
+  now: number,
 ): Promise<'applied' | 'failed' | undefined> {
   const ref = db.doc(`${paths.proposals(uid)}/${id}`);
   const proposal = await db.runTransaction(async (tx) => {
     const doc = await tx.get(ref);
     if (doc.get('status') !== 'accepted') return undefined;
-    tx.update(ref, { status: 'applying' });
+    tx.update(ref, { status: 'applying', claimedAt: Timestamp.fromMillis(now) });
     return doc.data() as Proposal;
   });
   if (!proposal) return undefined;

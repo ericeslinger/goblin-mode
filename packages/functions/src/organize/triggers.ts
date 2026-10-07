@@ -49,7 +49,7 @@ export const proposalAccepted = onDocumentUpdated(
     const { uid, proposalId } = event.params;
     if (uid !== process.env['OWNER_UID']) return;
     const db = getFirestore();
-    const status = await applyAccepted(db, uid, proposalId, new NotesTools(db, uid));
+    const status = await applyAccepted(db, uid, proposalId, new NotesTools(db, uid), Date.now());
     logger.info('proposalAccepted', { proposalId, status });
   },
 );
