@@ -19,6 +19,8 @@ test('the desktop toolbar formats by mouse and keeps the cursor in the note', as
   );
   await page.keyboard.type('Plans');
   await page.keyboard.press('Enter');
+  // At a person's pace: the Enter lands before the next key.
+  await expect(page.locator('.cm-line')).toHaveCount(2);
   await page.keyboard.type('dinner');
   await tools.getByRole('button', { name: 'Bulleted list' }).click();
   await expect(note).toBeFocused();

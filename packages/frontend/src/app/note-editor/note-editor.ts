@@ -9,8 +9,10 @@ import {
   inject,
   input,
   output,
+  signal,
   untracked,
   viewChild,
+  viewChildren,
 } from '@angular/core';
 import {
   type AccessoryBar,
@@ -25,10 +27,17 @@ function isTouch(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 }
 
+/** A key as this platform's keyboard shows it: `Mod` is ⌘ on a Mac. */
+export function keyLabel(keys: string, mac: boolean): string {
+  return keys.replace('Mod+', mac ? '⌘' : 'Ctrl+');
+}
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+
 interface FormatAction {
   label: string;
   name: string;
-  /** The desktop key, shown in the toolbar's tooltip. */
+  /** The desktop key as the editor binds it (`Mod` is Ctrl, or ⌘ on a Mac). */
   keys?: string;
   style?: { fontWeight?: string; fontStyle?: string };
   run: (editor: NoteEditor) => void;
@@ -40,26 +49,26 @@ interface FormatAction {
  * Image insert joins them with attachments (M4).
  */
 const FORMAT_ACTIONS: FormatAction[] = [
-  { label: '☐', name: 'Checklist item', keys: 'Ctrl+Enter', run: (e) => e.toggleTask() },
+  { label: '☐', name: 'Checklist item', keys: 'Mod+Enter', run: (e) => e.toggleTask() },
   {
     label: 'B',
     name: 'Bold',
-    keys: 'Ctrl+B',
+    keys: 'Mod+B',
     style: { fontWeight: '700' },
     run: (e) => e.toggleBold(),
   },
   {
     label: 'I',
     name: 'Italic',
-    keys: 'Ctrl+I',
+    keys: 'Mod+I',
     style: { fontStyle: 'italic' },
     run: (e) => e.toggleItalic(),
   },
-  { label: '[[', name: 'Insert link', keys: 'Ctrl+K', run: (e) => e.insertWikiLink() },
+  { label: '[[', name: 'Insert link', keys: 'Mod+K', run: (e) => e.insertWikiLink() },
   { label: '•', name: 'Bulleted list', run: (e) => e.bulletList() },
   { label: '1.', name: 'Numbered list', run: (e) => e.numberedList() },
-  { label: '⇤', name: 'Outdent', keys: 'Ctrl+[', run: (e) => e.outdent() },
-  { label: '⇥', name: 'Indent', keys: 'Ctrl+]', run: (e) => e.indent() },
+  { label: '⇤', name: 'Outdent', keys: 'Mod+[', run: (e) => e.outdent() },
+  { label: '⇥', name: 'Indent', keys: 'Mod+]', run: (e) => e.indent() },
 ];
 
 /**
@@ -71,11 +80,14 @@ const FORMAT_ACTIONS: FormatAction[] = [
   template: `
     @if (!touch && !readOnly()) {
       <div class="tools" role="toolbar" aria-label="Formatting">
-        @for (action of actions; track action.name) {
+        @for (action of actions; track action.name; let i = $index) {
           <button
+            #tool
             type="button"
             [attr.aria-label]="action.name"
-            [title]="action.keys ? action.name + ' (' + action.keys + ')' : action.name"
+            [title]="tooltip(action)"
+            [tabindex]="i === active() ? 0 : -1"
+            (keydown)="move($event, i)"
             [style.font-weight]="action.style?.fontWeight"
             [style.font-style]="action.style?.fontStyle"
             (mousedown)="$event.preventDefault()"
@@ -145,6 +157,9 @@ export class NoteEditorComponent {
   /** On a touch screen the actions ride on the keyboard instead. */
   protected readonly touch = isTouch();
   protected readonly actions = FORMAT_ACTIONS;
+  /** The toolbar's one tab stop; arrow keys move it (ARIA toolbar). */
+  protected readonly active = signal(0);
+  private readonly tools = viewChildren<ElementRef<HTMLButtonElement>>('tool');
   private readonly modes = inject(EditorModeService);
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private editor?: NoteEditor;
@@ -225,6 +240,33 @@ export class NoteEditorComponent {
 
   focus(): void {
     this.editor?.focus();
+  }
+
+  protected tooltip(action: FormatAction): string {
+    return action.keys ? `${action.name} (${keyLabel(action.keys, IS_MAC)})` : action.name;
+  }
+
+  /** Arrow keys, Home and End move along the toolbar. */
+  protected move(event: KeyboardEvent, i: number): void {
+    const last = this.actions.length - 1;
+    const to =
+      event.key === 'ArrowRight'
+        ? i === last
+          ? 0
+          : i + 1
+        : event.key === 'ArrowLeft'
+          ? i === 0
+            ? last
+            : i - 1
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? last
+              : undefined;
+    if (to === undefined) return;
+    event.preventDefault();
+    this.active.set(to);
+    this.tools()[to]?.nativeElement.focus();
   }
 
   /** A toolbar click: the action, then back to typing. */
