@@ -5,3 +5,4 @@ export * from './ids';
 export * from './reminders';
 export * from './history';
 export * from './search';
+export * from './concepts';

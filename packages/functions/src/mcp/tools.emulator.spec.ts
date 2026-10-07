@@ -63,8 +63,9 @@ describe('NotesTools', () => {
   });
 
   it('searches, lists and reads notes, with backlinks, leaving archived ones out', async () => {
-    await eric('a', 'Project Hotswap\nsync with Vikas');
-    await eric('b', 'Groceries', { links: ['a'] });
+    await eric('a', 'Project Hotswap\nsync with Vikas', { title: 'Plan A' });
+    // No stored links: backlinks come from the body.
+    await eric('b', 'Groceries\nask about [[plan a]]');
     await eric('c', 'Old hotswap plan', { archived: true });
     const t = tools();
     expect((await t.searchNotes({ query: 'hotswap vikas' })).map((n) => n.id)).toEqual(['a']);
@@ -78,6 +79,15 @@ describe('NotesTools', () => {
       backlinks: [{ id: 'b', title: 'Groceries' }],
     });
     await expect(t.getNote({ id: 'zz' })).rejects.toBeInstanceOf(ToolError);
+  });
+
+  it('stores the ids a note links to, when Claude writes it', async () => {
+    await eric('v', 'Vikas', { kind: 'concept', synonyms: ['Vik'] });
+    const t = tools();
+    const { id } = await t.createNote({ body: 'Lunch with [[vik]] about [[Pottery]]' });
+    expect((await db.doc(`users/u1/notes/${id}`).get()).get('links')).toEqual(['v', 'c-pottery']);
+    await t.updateNote({ id, body: 'Lunch moved; ask [[Vikas]]' });
+    expect((await db.doc(`users/u1/notes/${id}`).get()).get('links')).toEqual(['v']);
   });
 
   it("updates a note as Claude, keeping Eric's own title his", async () => {

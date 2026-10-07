@@ -49,7 +49,15 @@ export class FakeNotes {
 }
 
 export function noteRecord(id: string, body: string): NoteRecord {
-  return { id, body, title: body.split('\n')[0], titleSource: 'words', archived: false };
+  return {
+    id,
+    body,
+    title: body.split('\n')[0],
+    titleSource: 'words',
+    kind: 'text',
+    links: [],
+    archived: false,
+  };
 }
 
 /** A stand-in Firestore seam for RemindersService; `push` is a snapshot. */

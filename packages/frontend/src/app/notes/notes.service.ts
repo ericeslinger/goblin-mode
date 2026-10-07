@@ -1,9 +1,20 @@
-import { DestroyRef, Injectable, InjectionToken, effect, inject, signal } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  InjectionToken,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
+import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   RESTORE_SUFFIX,
   autoId,
   firstWordsTitle,
+  nameIndex,
   paths,
+  resolveLinks,
   type TitleSource,
 } from '@mossgoblin/schema';
 import {
@@ -28,6 +39,12 @@ export interface NoteRecord {
   body: string;
   title: string;
   titleSource: TitleSource;
+  /** 'text', 'sketch' or 'concept'. */
+  kind: string;
+  /** A concept's other names. */
+  synonyms?: string[];
+  /** Ids this note links to (DESIGN.md, Links and concepts). */
+  links: string[];
   archived: boolean;
   /** Milliseconds; undefined while a new note's server time is pending. */
   updatedAt?: number;
@@ -78,6 +95,9 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     body: String(data['body'] ?? ''),
     title: String(data['title'] ?? ''),
     titleSource: (data['titleSource'] as TitleSource) ?? 'words',
+    kind: typeof data['kind'] === 'string' ? data['kind'] : 'text',
+    ...(Array.isArray(data['synonyms']) ? { synonyms: data['synonyms'].map(String) } : {}),
+    links: Array.isArray(data['links']) ? data['links'].map(String) : [],
     archived: data['archived'] === true,
     updatedAt: stamp?.toMillis?.(),
     settledAt: (data['settledAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
@@ -99,6 +119,8 @@ export class NotesService {
   private readonly random = inject(RANDOM_BYTES);
 
   readonly notes = signal<NoteRecord[]>([]);
+  /** Names to ids, for resolving `[[links]]` (schema, concepts.ts). */
+  readonly names = computed(() => nameIndex(this.notes()));
   /** True once the first snapshot for the current user has arrived. */
   readonly loaded = signal(false);
 
@@ -170,14 +192,15 @@ export class NotesService {
       existing?.titleSource === 'user' || (existing?.titleSource === 'llm' && !restore);
     const title = keepTitle ? {} : { title: firstWordsTitle(body), titleSource: 'words' };
     const deviceId = this.deviceId() + (restore ? RESTORE_SUFFIX : '');
-    const update = { body, ...title, updatedAt: now, updatedBy: 'user', deviceId };
+    const links = resolveLinks(wikiLinkTargets(parseNote(body)), this.names());
+    const update = { body, ...title, links, updatedAt: now, updatedBy: 'user', deviceId };
     // A known note gets a merged update, keeping fields this device did
     // not set (Claude's links, tags, a title). A new one gets the full
     // shape the rules require.
     const known = this.exists(id);
     const data = known
       ? update
-      : { kind: 'text', links: [], tags: [], archived: false, createdAt: now, ...update };
+      : { kind: 'text', tags: [], archived: false, createdAt: now, ...update };
     this.written.add(id);
     this.api.set(this.fb.db, path, data, known).catch(report);
   }

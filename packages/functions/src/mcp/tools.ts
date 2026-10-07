@@ -3,6 +3,7 @@
 // checked against the zod contract before it lands; notes Claude writes
 // carry updatedBy 'claude' and deviceId 'claude', so noteHistory keeps
 // the version Claude replaced.
+import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   Note,
   type Recurrence,
@@ -13,7 +14,9 @@ import {
   firstWordsTitle,
   markDone,
   matchesSearch,
+  nameIndex,
   paths,
+  resolveLinks,
   snoozeUntil,
 } from '@mossgoblin/schema';
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
@@ -43,6 +46,20 @@ function snippet(body: string, length = 200): string {
 }
 
 type Data = Record<string, unknown>;
+
+/** What the name index needs of a stored note. */
+function named(id: string, d: Data) {
+  return {
+    id,
+    title: String(d['title'] ?? ''),
+    kind: typeof d['kind'] === 'string' ? d['kind'] : 'text',
+    synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
+    archived: d['archived'] === true,
+  };
+}
+
+/** The `[[names]]` in a body, as raw targets. */
+const targetsOf = (body: string) => wikiLinkTargets(parseNote(body));
 
 function noteSummary(id: string, d: Data) {
   return {
@@ -108,6 +125,13 @@ export class NotesTools {
   private notes() {
     return this.db.collection(paths.notes(this.uid));
   }
+  /** Names to ids across the gardener's notes (schema, concepts.ts). */
+  private async names(): Promise<Map<string, string>> {
+    // Names only: no bodies.
+    const snap = await this.notes().select('title', 'kind', 'synonyms', 'archived').get();
+    return nameIndex(snap.docs.map((doc) => named(doc.id, doc.data())));
+  }
+
   private reminders() {
     return this.db.collection(paths.reminders(this.uid));
   }
@@ -140,7 +164,17 @@ export class NotesTools {
     const doc = await this.notes().doc(args.id).get();
     if (!doc.exists) throw new ToolError(`no note ${args.id}`);
     const d = doc.data()!;
-    const backlinks = await this.notes().where('links', 'array-contains', args.id).get();
+    // Read from bodies, not stored links, so notes written before links
+    // were stored (#28) count too. Every body is parsed: fine for one
+    // gardener's notes; once all notes carry links, an array-contains
+    // query on `links` can replace the scan.
+    const all = await this.notes().get();
+    const index = nameIndex(all.docs.map((n) => named(n.id, n.data())));
+    const backlinks = all.docs.filter(
+      (n) =>
+        n.id !== args.id &&
+        resolveLinks(targetsOf(String(n.get('body') ?? '')), index).includes(args.id),
+    );
     return {
       id: doc.id,
       title: d['title'],
@@ -148,7 +182,7 @@ export class NotesTools {
       body: d['body'],
       tags: d['tags'] ?? [],
       links: d['links'] ?? [],
-      backlinks: backlinks.docs.map((b) => ({ id: b.id, title: b.get('title') })),
+      backlinks: backlinks.map((b) => ({ id: b.id, title: b.get('title') })),
       archived: d['archived'] === true,
       createdAt: iso(d['createdAt']),
       updatedAt: iso(d['updatedAt']),
@@ -164,7 +198,7 @@ export class NotesTools {
       body: args.body,
       title: args.title?.trim() || firstWordsTitle(args.body),
       titleSource: args.title?.trim() ? 'llm' : 'words',
-      links: [],
+      links: resolveLinks(targetsOf(args.body), await this.names()),
       tags: args.tags ?? [],
       archived: false,
       createdAt: now,
@@ -185,6 +219,7 @@ export class NotesTools {
     archived?: boolean;
   }) {
     const ref = this.notes().doc(args.id);
+    const names = args.body === undefined ? undefined : await this.names();
     return this.db.runTransaction(async (tx) => {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
@@ -198,6 +233,7 @@ export class NotesTools {
         if (!args.body.trim())
           throw new ToolError('body must not be empty; archive the note instead');
         update['body'] = args.body;
+        update['links'] = resolveLinks(targetsOf(args.body), names!);
         if (current['titleSource'] === 'words' && args.title === undefined) {
           update['title'] = firstWordsTitle(args.body);
         }
