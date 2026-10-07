@@ -104,6 +104,12 @@
   background: transparent;
   cursor: pointer;
 }
+.note-status {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) 0;
+  font-size: 14px;
+  color: var(--quiet);
+}
 .editor {
   flex: 1;
   min-height: 0;

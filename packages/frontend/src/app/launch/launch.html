@@ -12,6 +12,7 @@
         {{ modes.mode() === 'live' ? 'Source' : 'Preview' }}
       </button>
       @if (hasHistory()) {
+        <button type="button" class="link" (click)="copyLink()">Copy link</button>
         <a routerLink="/history" [queryParams]="{ note: capture.open().id }" class="muted"
           >History</a
         >
@@ -27,6 +28,14 @@
     </aside>
 
     <section class="capture">
+      @if (linkStatus()) {
+        <p class="note-status" role="status">{{ linkStatus() }}</p>
+      }
+      @if (waiting() && notes.loaded()) {
+        <p class="note-status" role="status">
+          This note hasn’t reached this device yet. It will appear here when it does.
+        </p>
+      }
       <app-note-editor
         class="editor"
         label="New note"
@@ -34,6 +43,7 @@
         autofocus
         [noteId]="capture.open().id"
         [text]="capture.open().text"
+        [readOnly]="waiting()"
         (textChange)="capture.onText($event)"
       />
       @if (previous().length > 0) {

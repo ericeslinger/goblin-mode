@@ -245,6 +245,6 @@ export class History {
 
   protected restore(v: VersionRecord): void {
     this.capture.restore(this.noteId(), v.body);
-    void this.router.navigate(['/']);
+    void this.router.navigate(['/n', this.noteId()]);
   }
 }

@@ -1,10 +1,22 @@
-import { Routes } from '@angular/router';
+import { type Routes, type UrlMatchResult, type UrlSegment } from '@angular/router';
 import { Launch } from './launch/launch';
 import { UnknownRoute } from './unknown-route';
 
+/**
+ * `/` (the capture note) and `/n/<id>` (any note) are one route, so
+ * moving between them reuses the launch screen instead of rebuilding it.
+ */
+export function launchMatcher(segments: UrlSegment[]): UrlMatchResult | null {
+  if (segments.length === 0) return { consumed: [] };
+  if (segments.length === 2 && segments[0].path === 'n') {
+    return { consumed: segments, posParams: { id: segments[1] } };
+  }
+  return null;
+}
+
 export const routes: Routes = [
   // Eager, not lazy: launch must never wait on a chunk (DESIGN.md, Editor).
-  { path: '', component: Launch },
+  { matcher: launchMatcher, component: Launch },
   { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse) },
   {
     path: 'right-now',

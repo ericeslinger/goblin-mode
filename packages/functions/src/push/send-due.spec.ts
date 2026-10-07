@@ -100,7 +100,7 @@ describe('sendDue', () => {
 
 describe('messageFor', () => {
   it('opens the linked note, or Right Now', () => {
-    expect(messageFor(reminder({ noteId: 'n 1' })).url).toBe('/?note=n%201');
+    expect(messageFor(reminder({ noteId: 'n 1' })).url).toBe('/n/n%201');
     expect(messageFor(reminder())).toEqual({
       tag: 'r1',
       title: 'Call the bank',

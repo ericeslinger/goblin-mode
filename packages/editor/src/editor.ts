@@ -1,7 +1,7 @@
 // The note editor: CodeMirror 6 with live preview and source modes over
 // one markdown string. Framework-free; the host app wraps it.
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { EditorSelection, EditorState } from '@codemirror/state';
+import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import type { Mode } from './live/decorations';
 import { livePreview, modeField, setMode } from './live/extension';
@@ -16,6 +16,8 @@ export interface NoteEditorOptions extends NoteEditorHooks {
   /** Accessible name for the editing area, e.g. "New note". */
   label?: string;
   placeholder?: string;
+  /** Shown but not editable, e.g. while the note has not arrived. */
+  readOnly?: boolean;
   /** Called with the full text after every change. */
   onChange?: (text: string) => void;
 }
@@ -27,6 +29,7 @@ export interface NoteEditor {
   setText(text: string): void;
   getMode(): Mode;
   setMode(mode: Mode): void;
+  setReadOnly(readOnly: boolean): void;
   /** Toolbar actions. */
   toggleTask(): void;
   insertWikiLink(): void;
@@ -34,8 +37,14 @@ export interface NoteEditor {
   destroy(): void;
 }
 
+/** Both halves of read-only: no edits, and no caret or keyboard input. */
+function readOnlyExtension(readOnly: boolean) {
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
+}
+
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
   const { openLink, resolveAttachment } = options;
+  const editing = new Compartment();
   const base = EditorState.create({ doc: options.text ?? '' });
   const state = EditorState.create({
     doc: base.doc,
@@ -62,6 +71,7 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
       hooksFacet.of({ openLink, resolveAttachment }),
       livePreview(options.mode ?? 'live'),
       noteTheme,
+      editing.of(readOnlyExtension(options.readOnly ?? false)),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) options.onChange?.(update.state.doc.toString());
       }),
@@ -79,6 +89,9 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
     getMode: () => view.state.field(modeField),
     setMode(mode) {
       view.dispatch({ effects: setMode.of(mode) });
+    },
+    setReadOnly(readOnly) {
+      view.dispatch({ effects: editing.reconfigure(readOnlyExtension(readOnly)) });
     },
     toggleTask: () => void toggleTaskLine(view),
     insertWikiLink: () => void insertWikiLink(view),

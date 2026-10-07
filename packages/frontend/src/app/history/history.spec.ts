@@ -92,7 +92,7 @@ describe('History', () => {
     expect(el.querySelector('pre')?.textContent).toBe('Groceries: milk, eggs');
     button(el, 'Restore this version')!.click();
     expect(capture.restore).toHaveBeenCalledWith('n1', 'Groceries: milk, eggs');
-    expect(navigate).toHaveBeenCalledWith(['/']);
+    expect(navigate).toHaveBeenCalledWith(['/n', 'n1']);
   });
 });
 

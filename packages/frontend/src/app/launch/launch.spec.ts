@@ -1,5 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
+import { launchMatcher } from '../app.routes';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { NotesService } from '../notes/notes.service';
@@ -10,26 +12,33 @@ import {
   noteRecord,
   remindersTestProviders,
 } from '../testing/fakes';
+import { CaptureService } from '../capture/capture.service';
 import { Launch } from './launch';
 
-async function render(options: { signedIn?: boolean; notes?: FakeNotes } = {}) {
+async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: string } = {}) {
   localStorage.clear();
   const auth = new FakeAuthService();
   if (options.signedIn ?? true) auth.user.set({ uid: 'u1', email: 'e@x.test' } as User);
   const notes = options.notes ?? new FakeNotes();
-  await TestBed.configureTestingModule({
-    imports: [Launch],
+  TestBed.configureTestingModule({
     providers: [
-      provideRouter([{ path: '**', component: Launch }]),
+      provideRouter([{ matcher: launchMatcher, component: Launch }]),
       { provide: AuthService, useValue: auth },
       { provide: NotesService, useValue: notes },
       ...remindersTestProviders(new FakeRemindersApi(), () => Date.now()),
     ],
-  }).compileComponents();
-  const fixture = TestBed.createComponent(Launch);
-  document.body.appendChild(fixture.nativeElement);
-  await fixture.whenStable();
-  return { fixture, el: fixture.nativeElement as HTMLElement, auth, notes };
+  });
+  const harness = await RouterTestingHarness.create();
+  // In the document before the editor renders, so autofocus can land.
+  document.body.appendChild(harness.fixture.nativeElement);
+  await harness.navigateByUrl(options.url ?? '/', Launch);
+  const el = harness.routeNativeElement as HTMLElement;
+  const fixture = { whenStable: () => harness.fixture.whenStable() };
+  const go = async (url: string) => {
+    await harness.navigateByUrl(url);
+    await harness.fixture.whenStable();
+  };
+  return { fixture, el, auth, notes, go, url: () => TestBed.inject(Router).url };
 }
 
 const buttonNamed = (el: HTMLElement, text: string) =>
@@ -73,41 +82,85 @@ describe('Launch', () => {
     expect(el.querySelector('.right-now')?.textContent).toContain('Nothing to tend.');
   });
 
-  it('offers previous notes and opens one', async () => {
+  it('offers previous notes and opens one at its own URL', async () => {
     const notes = new FakeNotes();
     notes.signIn([noteRecord('n1', 'Groceries\neggs'), noteRecord('n2', 'Call Vikas')]);
-    const { el, fixture } = await render({ notes });
+    const { el, fixture, url } = await render({ notes });
     buttonNamed(el, 'Previous note')!.click();
     await fixture.whenStable();
     const list = el.querySelector('[aria-label="Previous notes"]')!;
     expect(list.textContent).toContain('Groceries');
     buttonNamed(el, 'Call Vikas')!.click();
     await fixture.whenStable();
+    expect(url()).toBe('/n/n2');
     expect(el.querySelector('.cm-content')?.textContent).toContain('Call Vikas');
     expect(el.querySelector('[aria-label="Previous notes"]')).toBeNull();
   });
 
-  it('opens the note named in ?note= and clears the URL', async () => {
+  it('opens /n/<id>, and / goes back to the capture note', async () => {
     const notes = new FakeNotes();
-    notes.signIn([noteRecord('n7', 'From the list')]);
-    const { el, fixture } = await render({ notes });
-    await TestBed.inject(Router).navigateByUrl('/?note=n7');
-    await fixture.whenStable();
-    expect(el.querySelector('.cm-content')?.textContent).toContain('From the list');
-    expect(TestBed.inject(Router).url).toBe('/');
+    notes.signIn([noteRecord('n7', 'Linked from outside')]);
+    const { el, go } = await render({ notes, url: '/n/n7' });
+    expect(el.querySelector('.cm-content')?.textContent).toContain('Linked from outside');
+    await go('/');
+    expect(el.querySelector('.cm-content')?.textContent).not.toContain('Linked from outside');
   });
 
-  it('starts a new note', async () => {
+  it('sends an old /?note= link to the note’s URL', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n7', 'From a push')]);
+    const { el, go, url } = await render({ notes });
+    await go('/?note=n7');
+    expect(url()).toBe('/n/n7');
+    expect(el.querySelector('.cm-content')?.textContent).toContain('From a push');
+  });
+
+  it('holds a linked note that has not arrived, read-only, until it does', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { el, fixture } = await render({ notes, url: '/n/later' });
+    expect(el.textContent).toContain('This note hasn’t reached this device yet.');
+    const content = el.querySelector('.cm-content')!;
+    expect(content.getAttribute('contenteditable')).toBe('false');
+    notes.notes.set([noteRecord('later', 'Synced at last')]);
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('reached this device');
+    expect(content.getAttribute('contenteditable')).toBe('true');
+    expect(content.textContent).toContain('Synced at last');
+  });
+
+  it('goes to / when coming back after five minutes starts a fresh note', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n7', 'Left open')]);
+    const { fixture, url } = await render({ notes, url: '/n/n7' });
+    const capture = TestBed.inject(CaptureService);
+    capture.newNote();
+    capture.renewed.update((n) => n + 1);
+    await fixture.whenStable();
+    expect(url()).toBe('/');
+  });
+
+  it('copies a note’s link', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n7', 'Share me')]);
+    const { el, fixture } = await render({ notes, url: '/n/n7' });
+    buttonNamed(el, 'Copy link')!.click();
+    await fixture.whenStable();
+    expect(writeText).toHaveBeenCalledWith(`${location.origin}/n/n7`);
+    expect(el.textContent).toContain('Link copied');
+  });
+
+  it('starts a new note at /', async () => {
     const notes = new FakeNotes();
     notes.signIn([noteRecord('n1', 'Old')]);
-    const { el, fixture } = await render({ notes });
-    buttonNamed(el, 'Previous note')!.click();
-    await fixture.whenStable();
-    buttonNamed(el, 'Old')!.click();
-    await fixture.whenStable();
+    const { el, fixture, url } = await render({ notes, url: '/n/n1' });
     buttonNamed(el, 'New')!.click();
     await fixture.whenStable();
+    expect(url()).toBe('/');
     expect(el.querySelector('.cm-content')?.textContent).not.toContain('Old');
+    expect(document.activeElement).toBe(el.querySelector('.cm-content'));
   });
 
   it('switches between live preview and source', async () => {

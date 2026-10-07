@@ -46,6 +46,14 @@ export class CaptureService {
 
   /** The note in the editor; `text` changes only when a note is opened. */
   readonly open = signal<OpenNote>({ id: '', text: '' });
+  /**
+   * The capture note, the one `/` shows: chosen at launch by the
+   * five-minute rule, and replaced by New. Other notes have their own
+   * URL, `/n/<id>`.
+   */
+  readonly home = signal('');
+  /** Bumped when coming back after five minutes starts a fresh note. */
+  readonly renewed = signal(0);
 
   private body = '';
   private dirty = false;
@@ -67,6 +75,7 @@ export class CaptureService {
       const resume = fresh ? undefined : seen?.noteId;
       this.show({ id: resume ?? this.notes.newId(), text: '' });
     }
+    this.home.set(this.open().id);
 
     // A resumed note's text arrives with the first snapshot; load it
     // unless the user has already started typing.
@@ -140,6 +149,14 @@ export class CaptureService {
   openNote(id: string): void {
     if (id === this.open().id) return;
     this.closeCurrent();
+    // Typing held on the device before the notes load is this note's
+    // newest text: show it, never an empty note that would replace it.
+    const draft = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
+    if (draft?.id === id && draft.body) {
+      this.show({ id, text: draft.body });
+      this.untouched = false;
+      return;
+    }
     this.show({ id, text: this.notes.find(id)?.body ?? '' });
   }
 
@@ -159,10 +176,16 @@ export class CaptureService {
     this.untouched = false;
   }
 
-  /** Starts a fresh, empty note. */
+  /** Starts a fresh, empty note, which becomes the capture note. */
   newNote(): void {
     this.closeCurrent();
     this.show({ id: this.notes.newId(), text: '' });
+    this.home.set(this.open().id);
+  }
+
+  /** Back to the capture note (`/`), from another note. */
+  openHome(): void {
+    this.openNote(this.home());
   }
 
   /** The app is being hidden: save, tidy, and stamp the time. */
@@ -174,7 +197,10 @@ export class CaptureService {
   /** The app is visible again: after 5 minutes away, a fresh note. */
   returned(): void {
     const seen = this.store.get<LastSeen>(LAST_SEEN_KEY);
-    if (shouldStartFreshNote(seen?.hiddenAt, this.now())) this.newNote();
+    if (shouldStartFreshNote(seen?.hiddenAt, this.now())) {
+      this.newNote();
+      this.renewed.update((n) => n + 1);
+    }
   }
 
   private closeCurrent(): void {
