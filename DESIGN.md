@@ -872,6 +872,15 @@ when Eric and Claude (or two devices) edit one note at once:
   without repeating it), shown in place with the cursor where it was
   (`updateText`), and saved if typing survived. The editor merges once
   more against keys typed before it heard of the change.
+- **Its own saves are not news (2026-10-07).** The capture loop
+  remembers the texts it saved for the open note (the last 50). A
+  snapshot carrying one of them is a late echo of this device's own
+  write, and is ignored: merged as someone else's edit, it undid
+  Eric's edit since, the save built on it crossed the newer text, and
+  with no shared text kept the server kept both, so two lines showed
+  before and after his fix. The cost: a change elsewhere that lands on
+  exactly a text this device saved (Claude removing a line just added)
+  shows only when the note is next opened.
 - **Writes say what they were written over.** Each body write carries
   `baseHash`, the `textHash` of the text it replaced as the writer had
   it ('' when not known, e.g. a draft from before sign-in). When

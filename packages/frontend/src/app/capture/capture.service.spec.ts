@@ -131,6 +131,36 @@ describe('CaptureService', () => {
     expect(capture.open()).toBe(shown);
   });
 
+  it('ignores a late snapshot of its own earlier save, keeping the edit since', () => {
+    const { capture, notes } = setup();
+    notes.signIn([note('n1', 'title')]);
+    capture.openNote('n1');
+    const old = 'title\n- the site and conconpanion app';
+    const fixed = 'title\n- the site and conpanion app';
+    capture.onText(old);
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    capture.onText(fixed);
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    capture.onText(`${fixed}\n- basic modules`);
+    // The first save comes back after the second (2026-10-07): merging
+    // it would put the typo back and lose the fix.
+    notes.notes.set([note('n1', old)]);
+    TestBed.tick();
+    expect(capture.current()).toBe(`${fixed}\n- basic modules`);
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith('n1', `${fixed}\n- basic modules`, {
+      base: fixed,
+    });
+    // A change from elsewhere still merges in.
+    notes.notes.set([
+      note('n1', `title\n- [[armature]]\n- the site and conpanion app\n- basic modules`),
+    ]);
+    TestBed.tick();
+    expect(capture.current()).toBe(
+      'title\n- [[armature]]\n- the site and conpanion app\n- basic modules',
+    );
+  });
+
   it('keeps typing done before a resumed note arrived, and the note too', () => {
     const { capture, notes } = setup({
       [LAST_SEEN_KEY]: { hiddenAt: clock - 4 * MIN, noteId: 'n1' },
