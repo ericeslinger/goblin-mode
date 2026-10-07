@@ -82,10 +82,29 @@ export class NoteEditorComponent {
       });
       if (isTouch()) {
         const editor = this.editor;
+        // The ribbon over the keyboard (#77). Image insert joins it with
+        // attachments (M4).
         this.bar = createAccessoryBar(editor, [
+          { label: '☐', name: 'Checklist item', run: () => editor.toggleTask() },
+          {
+            label: 'B',
+            name: 'Bold',
+            style: { fontWeight: '700' },
+            run: () => editor.toggleBold(),
+          },
+          {
+            label: 'I',
+            name: 'Italic',
+            style: { fontStyle: 'italic' },
+            run: () => editor.toggleItalic(),
+          },
           { label: '[[', name: 'Insert link', run: () => editor.insertWikiLink() },
-          { label: '☐', name: 'Toggle task', run: () => editor.toggleTask() },
-          { label: 'Done', run: () => editor.view.contentDOM.blur() },
+          { label: '•', name: 'Bulleted list', run: () => editor.bulletList() },
+          { label: '1.', name: 'Numbered list', run: () => editor.numberedList() },
+          { label: '⇤', name: 'Outdent', run: () => editor.outdent() },
+          { label: '⇥', name: 'Indent', run: () => editor.indent() },
+          // Hides the keyboard; pinned so a narrow phone always shows it.
+          { label: 'Done', pinned: true, run: () => editor.view.contentDOM.blur() },
         ]);
       }
       if (untracked(this.autofocus)) this.editor.focus();

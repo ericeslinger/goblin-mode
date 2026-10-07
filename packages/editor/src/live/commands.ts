@@ -1,6 +1,12 @@
 // Edits the toolbar and widgets make. Each is a plain text change on the
 // note, so nothing is ever rewritten beyond the characters touched.
-import { EditorSelection, type EditorState, type TransactionSpec } from '@codemirror/state';
+import {
+  type ChangeSet,
+  type ChangeSpec,
+  EditorSelection,
+  type EditorState,
+  type TransactionSpec,
+} from '@codemirror/state';
 import type { Nodes } from 'mdast';
 import { parseNote } from '../grammar/parse';
 
@@ -39,12 +45,21 @@ export const toggleTaskLine: Command = ({ state, dispatch }) => {
     return true;
   }
   const list = LIST.exec(rest);
-  dispatch({
-    changes: list ? { from: at + list[0].length, insert: '[ ] ' } : { from: at, insert: '- [ ] ' },
-    userEvent: 'input.toggle-task',
-  });
+  const changes = state.changes(
+    list ? { from: at + list[0].length, insert: '[ ] ' } : { from: at, insert: '- [ ] ' },
+  );
+  dispatch({ changes, selection: after(state, changes), userEvent: 'input.toggle-task' });
   return true;
 };
+
+/**
+ * The selection after `changes`, kept after text inserted right at the
+ * cursor: a marker put in where the cursor is goes before what is typed
+ * next, not after it.
+ */
+function after(state: EditorState, changes: ChangeSet) {
+  return state.selection.map(changes, 1);
+}
 
 const ITEM = /^([-*+]|(\d+)([.)]))([ \t]+)(\[[ xX]\][ \t]?)?/;
 
@@ -144,3 +159,137 @@ export const insertWikiLink: Command = ({ state, dispatch }) => {
   );
   return true;
 };
+
+/**
+ * Wraps the selection in `marker` (`*` bold, `_` italic, the house
+ * convention), or unwraps it if it already is; with nothing selected,
+ * puts a pair in with the cursor between.
+ */
+export function toggleMark(marker: '*' | '_'): Command {
+  return ({ state, dispatch }) => {
+    const n = marker.length;
+    dispatch({
+      ...state.changeByRange((range) => {
+        if (range.empty) {
+          return {
+            changes: { from: range.from, insert: marker + marker },
+            range: EditorSelection.cursor(range.from + n),
+          };
+        }
+        const inner = state.sliceDoc(range.from, range.to);
+        // Wrapped as a whole: `*a and b*`, not two emphases `*a* and *b*`.
+        const wrapped =
+          inner.length >= 2 * n &&
+          inner.startsWith(marker) &&
+          inner.endsWith(marker) &&
+          !inner.slice(n, -n).includes(marker);
+        if (wrapped) {
+          return {
+            changes: { from: range.from, to: range.to, insert: inner.slice(n, -n) },
+            range: EditorSelection.range(range.from, range.to - 2 * n),
+          };
+        }
+        const before = state.sliceDoc(range.from - n, range.from);
+        const after = state.sliceDoc(range.to, range.to + n);
+        if (before === marker && after === marker) {
+          return {
+            changes: [
+              { from: range.from - n, to: range.from },
+              { from: range.to, to: range.to + n },
+            ],
+            range: EditorSelection.range(range.from - n, range.to - n),
+          };
+        }
+        return {
+          changes: [
+            { from: range.from, insert: marker },
+            { from: range.to, insert: marker },
+          ],
+          range: EditorSelection.range(range.from + n, range.to + n),
+        };
+      }),
+      userEvent: 'input.format',
+    });
+    return true;
+  };
+}
+
+/** The lines the selection touches, each once. */
+function selectedLines(state: EditorState) {
+  const seen = new Set<number>();
+  const lines = [];
+  for (const range of state.selection.ranges) {
+    for (let n = state.doc.lineAt(range.from).number; n <= state.doc.lineAt(range.to).number; n++) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      lines.push(state.doc.line(n));
+    }
+  }
+  return lines;
+}
+
+/**
+ * Makes the selected lines a bulleted or numbered list (numbered 1, 2,
+ * 3 down the selection), keeping indentation, quote markers and task
+ * boxes; if they all already are that kind, makes them plain lines.
+ * Blank lines are left alone.
+ */
+export function setList(kind: 'bullet' | 'number'): Command {
+  return ({ state, dispatch }) => {
+    const lines = selectedLines(state).filter((l) => l.text.trim());
+    if (!lines.length) {
+      const at = state.selection.main.head;
+      dispatch({
+        changes: { from: at, insert: kind === 'bullet' ? '- ' : '1. ' },
+        selection: EditorSelection.cursor(at + (kind === 'bullet' ? 2 : 3)),
+        userEvent: 'input.format',
+      });
+      return true;
+    }
+    const parts = lines.map((line) => {
+      const prefix = PREFIX.exec(line.text)![0].length;
+      const list = LIST.exec(line.text.slice(prefix));
+      const is = list ? (/\d/.test(list[1]) ? 'number' : 'bullet') : undefined;
+      return { line, prefix, list, is };
+    });
+    const off = parts.every((p) => p.is === kind);
+    let count = 0;
+    const changes = state.changes(
+      parts.map(({ line, prefix, list }) => {
+        const from = line.from + prefix;
+        const to = from + (list ? list[0].length : 0);
+        const insert = off ? '' : kind === 'bullet' ? '- ' : `${++count}. `;
+        return { from, to, insert };
+      }),
+    );
+    dispatch({ changes, selection: after(state, changes), userEvent: 'input.format' });
+    return true;
+  };
+}
+
+/**
+ * Indents the selected list items one level (two spaces), or outdents
+ * any selected line. Plain lines are not indented: four spaces would
+ * make them a code block. Always takes the key, so Mod-[ on a line with
+ * nothing to outdent is not the browser's Back.
+ */
+export function shiftLines(direction: 1 | -1): Command {
+  return ({ state, dispatch }) => {
+    const changes = selectedLines(state).flatMap((line): ChangeSpec[] => {
+      if (direction === 1) {
+        const prefix = PREFIX.exec(line.text)![0].length;
+        return LIST.test(line.text.slice(prefix)) ? [{ from: line.from, insert: '  ' }] : [];
+      }
+      const lead = /^( {1,2}|\t)/.exec(line.text);
+      return lead ? [{ from: line.from, to: line.from + lead[0].length }] : [];
+    });
+    if (!changes.length) return true;
+    const set = state.changes(changes);
+    dispatch({
+      changes: set,
+      selection: after(state, set),
+      userEvent: direction === 1 ? 'input.indent' : 'input.outdent',
+    });
+    return true;
+  };
+}

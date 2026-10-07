@@ -20,7 +20,7 @@ describe('keyboardHeight', () => {
 });
 
 describe('createAccessoryBar', () => {
-  it('runs an action on pointerdown without blurring the editor', () => {
+  it('runs an action a frame after pointerdown, without blurring the editor', async () => {
     const parent = document.createElement('div');
     document.body.append(parent);
     const editor = createNoteEditor({ parent, text: 'eggs' });
@@ -29,6 +29,9 @@ describe('createAccessoryBar', () => {
     const button = bar.element.querySelector('button')!;
     const down = new Event('pointerdown', { cancelable: true });
     button.dispatchEvent(down);
+    // Pending Android keys land first, on the next frame.
+    expect(run).not.toHaveBeenCalled();
+    await new Promise((done) => requestAnimationFrame(done));
     expect(run).toHaveBeenCalledOnce();
     expect(down.defaultPrevented).toBe(true);
     expect(button.getAttribute('aria-label')).toBe('Link');
