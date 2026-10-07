@@ -8,6 +8,7 @@ import { NotesService } from '../notes/notes.service';
 import { radial } from './layout';
 
 const SIZE = 600;
+const MAX_OUTER_LABELS = 12;
 
 /**
  * The neighborhood of a note or concept (#32): what it links and what
@@ -22,8 +23,10 @@ const SIZE = 600;
   template: `
     <main class="page wide">
       <a [routerLink]="['/n', id()]">Back to the note</a>
-      <h1>Around {{ title(id()) }}</h1>
-      @if (placed().length <= 1) {
+      <h1>Around {{ notes.loaded() ? title(id()) : '…' }}</h1>
+      @if (!notes.loaded()) {
+        <p class="muted" role="status">Loading…</p>
+      } @else if (placed().length <= 1) {
         <p class="muted">Nothing links here yet. Link a name with [[ to grow the map.</p>
       } @else {
         <svg [attr.viewBox]="viewBox()" aria-hidden="true" class="map">
@@ -37,8 +40,13 @@ const SIZE = 600;
               [class.concept]="isConcept(n.id)"
               (click)="open(n.id)"
             >
+              <title>{{ title(n.id) }}</title>
+              <!-- A finger-sized target around the dot. -->
+              <circle class="hit" [attr.cx]="n.x" [attr.cy]="n.y" r="22" />
               <circle [attr.cx]="n.x" [attr.cy]="n.y" [attr.r]="radius(n)" />
-              <text [attr.x]="n.x" [attr.y]="n.y + radius(n) + 16">{{ short(n.id) }}</text>
+              @if (labelled(n)) {
+                <text [attr.x]="n.x" [attr.y]="n.y + radius(n) + 16">{{ short(n.id) }}</text>
+              }
             </g>
           }
         </svg>
@@ -82,6 +90,10 @@ const SIZE = 600;
     }
     .node {
       cursor: pointer;
+    }
+    .node circle.hit {
+      fill: transparent;
+      stroke: none;
     }
     .node circle {
       fill: var(--surface);
@@ -128,7 +140,7 @@ const SIZE = 600;
   `,
 })
 export class NeighborhoodMap {
-  private readonly notes = inject(NotesService);
+  protected readonly notes = inject(NotesService);
   private readonly links = inject(LinksService);
   private readonly router = inject(Router);
   protected readonly id = toSignal(
@@ -182,6 +194,14 @@ export class NeighborhoodMap {
 
   protected isConcept(id: string): boolean {
     return this.notes.find(id)?.kind === 'concept';
+  }
+
+  /**
+   * Labels for the center and the inner ring; the outer ring is labelled
+   * only while it is sparse enough to read (the list below names all).
+   */
+  protected labelled(n: { hop: number }): boolean {
+    return n.hop < 2 || this.ring(2).length <= MAX_OUTER_LABELS;
   }
 
   protected radius(n: { hop: number; id: string }): number {

@@ -243,8 +243,11 @@ first, from the body-derived graph). The layout is radial and
 deterministic (`map/layout.ts`), plain SVG with no graph library; the
 frame fits the nodes but never shrinks below a full ring's, so a small
 neighborhood keeps its scale. Tapping a node opens its note, and back
-returns to the map. The drawing is hidden from assistive tech; the same
-notes are listed under it (Linked directly, Two links away) as links.
+returns to the map. Each dot has a finger-sized tap target, and the
+outer ring is labelled only while it has 12 notes or fewer (every dot
+names itself on hover). The drawing is hidden from assistive tech; the
+same notes are listed under it (Linked directly, Two links away) as
+links. Before the notes load it says Loading, not empty.
 
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
