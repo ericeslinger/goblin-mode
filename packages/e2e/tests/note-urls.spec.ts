@@ -52,7 +52,8 @@ test('a note link opens that note on another device', async ({ page, browser }) 
   await prepPage(second);
   await signInAs(second, OWNER, { reset: false });
   await second.goto(`/n/${id}`);
-  await expect(note(second)).toContainText('Linked from a chat');
+  // A cold second device signs in and waits for its first snapshot.
+  await expect(note(second)).toContainText('Linked from a chat', { timeout: 15_000 });
   await other.close();
 });
 
