@@ -89,15 +89,15 @@ const WIDTH = 760;
         <label class="filter">
           Show
           <select #pick (change)="filter(pick.value)">
-            <option value="" [selected]="!concept()">Every concept</option>
+            <option value="" [selected]="!only()">Every concept</option>
             @for (bed of garden(); track bed.id) {
               @if (bed.id) {
-                <option [value]="bed.id" [selected]="bed.id === concept()">{{ bed.title }}</option>
+                <option [value]="bed.id" [selected]="bed.id === only()">{{ bed.title }}</option>
               }
             }
           </select>
         </label>
-        @if (timeline().length === 0) {
+        @if (!hasDots()) {
           <p class="muted">Nothing to show yet.</p>
         } @else {
           <svg
@@ -296,7 +296,15 @@ export class GardenMap {
     return `0 0 ${cols * CELL} ${rows * CELL + 12}`;
   });
 
-  protected readonly timeline = computed(() => lanes(this.links.graph(), 6, this.concept()));
+  /** The filter, when it names a concept that exists; otherwise none. */
+  protected readonly only = computed(() => {
+    const id = this.concept();
+    return id && this.garden().some((b) => b.id === id) ? id : undefined;
+  });
+
+  protected readonly timeline = computed(() => lanes(this.links.graph(), 6, this.only()));
+
+  protected readonly hasDots = computed(() => this.timeline().some((l) => l.notes.length > 0));
 
   protected readonly span = computed(() => {
     const times = this.timeline().flatMap((l) => l.notes.map((d) => d.at));

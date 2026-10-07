@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { NotesService } from '../notes/notes.service';
+import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
 import { GardenMap } from './garden-map';
 
@@ -11,7 +11,7 @@ class NotePage {}
 
 const DAY = 86_400_000;
 
-async function render(url: string, { loaded = true } = {}) {
+async function render(url: string, { loaded = true, extra = [] as NoteRecord[] } = {}) {
   const notes = new FakeNotes();
   const list = [
     { ...noteRecord('n1', 'Studio day\n[[Kiln]] and [[Glaze]]'), createdAt: 1 * DAY },
@@ -22,7 +22,7 @@ async function render(url: string, { loaded = true } = {}) {
     { ...noteRecord('c-glaze', ''), title: 'Glaze', kind: 'concept' as const, createdAt: 0 },
     { ...noteRecord('lonely', 'Nothing links here'), createdAt: 2 * DAY },
   ];
-  if (loaded) notes.signIn(list);
+  if (loaded) notes.signIn([...list, ...extra]);
   TestBed.configureTestingModule({
     providers: [
       provideRouter([
@@ -90,6 +90,19 @@ describe('GardenMap', () => {
     const { el } = await render('/map/timeline?concept=c-kiln');
     expect(el.querySelector('select')!.value).toBe('c-kiln');
     expect(el.textContent).not.toContain('Glaze recipe');
+  });
+
+  it('says there is nothing to show for a concept no note links', async () => {
+    const idle = { ...noteRecord('c-idle', ''), title: 'Idle', kind: 'concept' as const };
+    const { el } = await render('/map/timeline?concept=c-idle', { extra: [idle] });
+    expect(el.textContent).toContain('Nothing to show yet.');
+    expect(el.querySelector('select')!.value).toBe('c-idle');
+  });
+
+  it('shows every concept when the filter names none that exists', async () => {
+    const { el } = await render('/map/timeline?concept=c-gone');
+    expect(el.querySelector('select')!.value).toBe('');
+    expect(el.textContent).toContain('Firing log');
   });
 
   it('says it is loading, not empty, before the notes arrive', async () => {

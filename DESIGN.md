@@ -259,9 +259,10 @@ A bed draws at most 20 notes and says how many more. Timeline
 folded into Everything else), each note at when it was made. The
 concept filter is in the URL (`?concept=<id>`), so back undoes it, and
 a filtered lane holds every note linking the concept, not just the
-ones planted in its bed. As on the neighborhood map, the drawing is
-plain SVG hidden from assistive tech, every dot opens its note, and
-the same notes are listed under it (Beds, Over time).
+ones planted in its bed; a filter naming no concept shows them all.
+As on the neighborhood map, the drawing is plain SVG hidden from
+assistive tech, every dot opens its note, and the same notes are
+listed under it (Beds, Over time).
 
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
