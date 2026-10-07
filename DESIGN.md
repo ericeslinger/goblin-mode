@@ -677,6 +677,10 @@ itself; `import_url` waits for M4):
   note, after every title, so `[[Old title]]` elsewhere reaches the
   merged note instead of making a stub. The originals are archived
   with `mergedInto`; the merged note keeps the earliest `createdAt`.
+  An original linking another stores no link to the merged note
+  itself. Caveat: an edit made offline to an original, synced after
+  the merge, lands in the archived original (and its History), not in
+  the merged note; it shows only under Archived.
 - **Activity.** Every write tool (the MVP ones too) records a run in
   `users/{uid}/activity` in the same batch or transaction as the
   change: tool, a one-line summary, and the notes and reminders it

@@ -253,13 +253,14 @@ describe('organizing tools', () => {
       tags: ['clay'],
       createdAt: Timestamp.fromMillis(T - 5000),
     });
-    await eric('b', 'Firing notes\nShelf 2 cracked.', { tags: ['kiln'] });
+    await eric('b', 'Firing notes\nShelf 2 cracked, see [[Kiln log]].', { tags: ['kiln'] });
     await eric('c', 'Todo\ncheck the [[Firing notes]]');
     const t = ticking();
     const { id } = await t.mergeNotes({ ids: ['a', 'b'] });
     const merged = await body(id);
     expect(merged).toMatchObject({
-      body: 'Kiln log\nCone 6, slow cool.\n\nFiring notes\nShelf 2 cracked.',
+      body: 'Kiln log\nCone 6, slow cool.\n\nFiring notes\nShelf 2 cracked, see [[Kiln log]].',
+      links: [],
       title: 'Kiln log',
       titleSource: 'words',
       synonyms: ['Firing notes'],

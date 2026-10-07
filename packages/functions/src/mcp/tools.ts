@@ -541,7 +541,8 @@ export class NotesTools {
         ...docs.filter((d) => !gone.has(d.id)).map((d) => named(d.id, d.data)),
         named(id, merged),
       ]);
-      merged['links'] = resolveLinks(targetsOf(body), index);
+      // One original linking another now names the merged note itself.
+      merged['links'] = resolveLinks(targetsOf(body), index).filter((l) => l !== id);
       tx.set(this.notes().doc(id), Note.parse(merged));
       for (const o of originals) {
         const update = { ...this.stamp(), archived: true, mergedInto: id };
