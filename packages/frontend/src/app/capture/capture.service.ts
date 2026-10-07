@@ -52,6 +52,8 @@ export class CaptureService {
    * URL, `/n/<id>`.
    */
   readonly home = signal('');
+  /** Bumped when coming back after five minutes starts a fresh note. */
+  readonly renewed = signal(0);
 
   private body = '';
   private dirty = false;
@@ -147,6 +149,14 @@ export class CaptureService {
   openNote(id: string): void {
     if (id === this.open().id) return;
     this.closeCurrent();
+    // Typing held on the device before the notes load is this note's
+    // newest text: show it, never an empty note that would replace it.
+    const draft = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
+    if (draft?.id === id && draft.body) {
+      this.show({ id, text: draft.body });
+      this.untouched = false;
+      return;
+    }
     this.show({ id, text: this.notes.find(id)?.body ?? '' });
   }
 
@@ -187,7 +197,10 @@ export class CaptureService {
   /** The app is visible again: after 5 minutes away, a fresh note. */
   returned(): void {
     const seen = this.store.get<LastSeen>(LAST_SEEN_KEY);
-    if (shouldStartFreshNote(seen?.hiddenAt, this.now())) this.newNote();
+    if (shouldStartFreshNote(seen?.hiddenAt, this.now())) {
+      this.newNote();
+      this.renewed.update((n) => n + 1);
+    }
   }
 
   private closeCurrent(): void {

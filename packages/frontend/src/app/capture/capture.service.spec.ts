@@ -239,6 +239,32 @@ describe('CaptureService', () => {
     expect(capture.open().id).toBe('new2');
   });
 
+  it('reopens a note held only as a pending draft with that draft', () => {
+    const { capture, notes } = setup({ [LAST_SEEN_KEY]: { hiddenAt: clock, noteId: 'h1' } });
+    capture.onText('typed before the notes load');
+    capture.flush();
+    capture.openNote('x1');
+    capture.openHome();
+    expect(capture.open()).toEqual({ id: 'h1', text: 'typed before the notes load' });
+    capture.onText('typed before the notes load, and more');
+    capture.flush();
+    notes.signIn();
+    TestBed.tick();
+    expect(notes.save).toHaveBeenCalledWith('h1', 'typed before the notes load, and more');
+  });
+
+  it('says when coming back starts a fresh note', () => {
+    const { capture, notes } = setup();
+    notes.signIn();
+    capture.leave();
+    clock += 2 * MIN;
+    capture.returned();
+    expect(capture.renewed()).toBe(0);
+    clock += 5 * MIN;
+    capture.returned();
+    expect(capture.renewed()).toBe(1);
+  });
+
   it('opens another note with its text', () => {
     const { capture, notes } = setup();
     notes.signIn([note('n9', 'older note')]);

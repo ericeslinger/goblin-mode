@@ -12,6 +12,7 @@ import {
   noteRecord,
   remindersTestProviders,
 } from '../testing/fakes';
+import { CaptureService } from '../capture/capture.service';
 import { Launch } from './launch';
 
 async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: string } = {}) {
@@ -126,6 +127,17 @@ describe('Launch', () => {
     expect(el.textContent).not.toContain('reached this device');
     expect(content.getAttribute('contenteditable')).toBe('true');
     expect(content.textContent).toContain('Synced at last');
+  });
+
+  it('goes to / when coming back after five minutes starts a fresh note', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n7', 'Left open')]);
+    const { fixture, url } = await render({ notes, url: '/n/n7' });
+    const capture = TestBed.inject(CaptureService);
+    capture.newNote();
+    capture.renewed.update((n) => n + 1);
+    await fixture.whenStable();
+    expect(url()).toBe('/');
   });
 
   it('copies a note’s link', async () => {

@@ -1,4 +1,13 @@
-import { Component, DestroyRef, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -88,6 +97,15 @@ export class Launch {
       const id = params.get('id');
       if (id) this.capture.openNote(id);
       else this.capture.openHome();
+    });
+    // Back after five minutes away opens a fresh capture note; the URL
+    // follows, so a reload or back does not land on the old note.
+    let renewed = untracked(this.capture.renewed);
+    effect(() => {
+      const n = this.capture.renewed();
+      if (n === renewed) return;
+      renewed = n;
+      if (untracked(this.routeId)) void this.router.navigate(['/'], { replaceUrl: true });
     });
     // Links from before note URLs (/?note=<id>, in pushes already sent).
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
