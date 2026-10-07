@@ -814,11 +814,18 @@ when Eric and Claude (or two devices) edit one note at once:
   phone coming back online with a queued tick, or a save crossing
   Claude's edit), it finds the shared text among the last 20 kept
   versions (history kept it when the newer text replaced it), merges,
-  and writes the result as device `merge`, only while the note still
-  holds the write it merged. Without the shared text it does not guess;
-  History has both versions.
+  and writes the result as device `merge` in a transaction. The two
+  writes can start from different texts (two devices, one of them
+  saving twice); the older one, which both descend from, is the base.
+  If the note was saved again since by a write built on the merged one
+  (the same device's next save, a write made straight over it, or
+  Claude's), the merge is carried onto that write instead of dropped;
+  a write that had not seen it gets its own merge from its own trigger.
+  Without a shared text it does not guess; History has both versions.
 - **Limits.** A merge keeps both versions of a line both sides changed
-  differently, which can read as a near-duplicate. Stored `links` on a
+  differently, which can read as a near-duplicate. A rewrite too large
+  to compare line by line (`MAX_TABLE` cells) keeps both sides of the
+  changed middle. Stored `links` on a
   server merge are not recomputed until the next edit (readers derive
   links from bodies). Keystrokes never wait on any of this.
 

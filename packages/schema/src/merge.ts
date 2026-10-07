@@ -2,6 +2,9 @@
 // the server while it is being typed in, the open editor keeps both
 // sides instead of either one winning.
 
+/** The most cells a merge's line table may have (lines changed x lines changed). */
+export const MAX_TABLE = 2_000_000;
+
 /** For each line of `a`, the index of the line it matches in `b`, or -1 (an LCS). */
 function matches(a: readonly string[], b: readonly string[]): number[] {
   const n = a.length;
@@ -20,7 +23,9 @@ function matches(a: readonly string[], b: readonly string[]): number[] {
   for (let i = endA; i < n; i++) out[i] = endB + (i - endA);
   const rows = endA - start;
   const cols = endB - start;
-  if (rows === 0 || cols === 0) return out;
+  // A huge rewrite matches only its shared ends: the middle is kept from
+  // both sides, which is safe, instead of a table too big for a phone.
+  if (rows === 0 || cols === 0 || rows * cols > MAX_TABLE) return out;
   // Lengths of common subsequences of the middles, from the end.
   const len: Uint32Array[] = Array.from({ length: rows + 1 }, () => new Uint32Array(cols + 1));
   for (let i = rows - 1; i >= 0; i--) {
@@ -55,6 +60,17 @@ function positions(sub: readonly string[], seq: readonly string[]): number[] | u
     at.push(j++);
   }
   return at;
+}
+
+/** The lines of `lines` beyond those `have` already holds, counted, in order. */
+function unshared(lines: readonly string[], have: readonly string[]): string[] {
+  const left = new Map<string, number>();
+  for (const line of have) left.set(line, (left.get(line) ?? 0) + 1);
+  return lines.filter((line) => {
+    const n = left.get(line) ?? 0;
+    if (n > 0) left.set(line, n - 1);
+    return n === 0;
+  });
 }
 
 /**
@@ -97,11 +113,7 @@ export function merge3(base: string, ours: string, theirs: string): string {
     const tc = t.slice(pt + 1, ti);
     if (same(oc, bc)) out.push(...tc);
     else if (same(tc, bc) || same(oc, tc)) out.push(...oc);
-    else
-      out.push(
-        ...(weave(bc, tc, oc) ??
-          weave(bc, oc, tc) ?? [...oc, ...tc.filter((line) => !oc.includes(line))]),
-      );
+    else out.push(...(weave(bc, tc, oc) ?? weave(bc, oc, tc) ?? [...oc, ...unshared(tc, oc)]));
   };
   for (let i = 0; i < b.length; i++) {
     // A line both sides kept anchors the stretches around it.

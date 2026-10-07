@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { merge3, textHash } from './merge';
+import { MAX_TABLE, merge3, textHash } from './merge';
 
 const list = (...lines: string[]) => lines.join('\n');
 const base = list(
@@ -80,6 +80,22 @@ describe('merge3', () => {
 
   it('keeps both sides’ new lines in the same place, without repeats', () => {
     expect(merge3('a', 'a\nb\nc', 'a\nc\nd')).toBe('a\nb\nc\nd');
+  });
+
+  it('keeps a repeated line one side added even when the other has one', () => {
+    expect(merge3('a\nz', 'a\nb\n---\nz', 'a\nc\n---\n---\nz')).toBe('a\nb\n---\nc\n---\nz');
+  });
+
+  it('keeps both sides of a rewrite too large to compare line by line', () => {
+    const n = Math.ceil(Math.sqrt(MAX_TABLE)) + 2;
+    const lines = (p: string) => Array.from({ length: n }, (_, i) => `${p}${i}`).join('\n');
+    const merged = merge3(
+      `top\n${lines('b')}\nend`,
+      `top\n${lines('o')}\nend`,
+      `top\n${lines('t')}\nend`,
+    );
+    expect(merged.startsWith(`top\n${lines('o')}\n${lines('t')}`)).toBe(true);
+    expect(merged.endsWith('\nend')).toBe(true);
   });
 
   it('takes one side whole when the other did not change', () => {

@@ -1,3 +1,4 @@
+import { textHash } from '@mossgoblin/schema';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -106,13 +107,25 @@ describe('firestoreNotesStore', () => {
       updatedBy: 'user',
       deviceId: 'phone',
     });
-    expect(await store.writeMerged('u1', 'n1', 'not the body', 'merged')).toBe(false);
-    expect(await store.writeMerged('u1', 'n1', 'mine', 'merged\nmine')).toBe(true);
+    const seen: unknown[] = [];
+    expect(
+      await store.writeMerged('u1', 'n1', (current) => {
+        seen.push(current);
+        return undefined;
+      }),
+    ).toBe(false);
+    expect(seen).toEqual([
+      { body: 'mine', deviceId: 'phone', updatedBy: 'user', baseHash: undefined },
+    ]);
+    expect(
+      await store.writeMerged('u1', 'n1', () => ({ body: 'merged\nmine', over: 'mine' })),
+    ).toBe(true);
     expect((await db.doc('users/u1/notes/n1').get()).data()).toMatchObject({
       body: 'merged\nmine',
       title: 'merged',
       deviceId: 'merge',
       updatedBy: 'user',
+      baseHash: textHash('mine'),
     });
   });
 });

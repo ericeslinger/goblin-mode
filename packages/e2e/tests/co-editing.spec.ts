@@ -38,7 +38,7 @@ test('typing goes on while Claude adds to the same list', async ({ page }) => {
   expect(saved.body).toContain('- [ ] apples');
 });
 
-test('a tick made offline and Claude’s addition meanwhile are both kept', async ({
+test('edits made offline and Claude’s addition meanwhile are all kept', async ({
   page,
   request,
 }) => {
@@ -52,14 +52,19 @@ test('a tick made offline and Claude’s addition meanwhile are both kept', asyn
   await note(page).locator('input.mg-checkbox').first().click();
   await expect(note(page).locator('input.mg-checkbox').first()).toBeChecked();
   await letItSave(page);
+  // A second queued save, so the phone sends two writes when it is back.
+  await page.keyboard.press('ControlOrMeta+End');
+  // Enter continues the checklist.
+  await typeLines(page, ['', 'bread']);
+  await letItSave(page);
   await call('add_lines', { id, heading: 'Produce', lines: ['- [ ] oats'] });
   await page.context().setOffline(false);
 
-  // The phone's write lands over Claude's; the server merges the two.
+  // The phone's writes land over Claude's; the server merges them.
   await expect(note(page)).toContainText('oats', { timeout: 15_000 });
   await expect
     .poll(async () => ((await call('get_note', { id })) as { body: string }).body, {
       timeout: 15_000,
     })
-    .toBe('Shopping list\n## Produce\n- [x] apples\n- [ ] oats');
+    .toBe('Shopping list\n## Produce\n- [x] apples\n- [ ] bread\n- [ ] oats');
 });

@@ -63,20 +63,26 @@ export function firestoreNotesStore(db: Firestore): HistoryStore & TitleStore & 
       return snap.docs.map((d) => String(d.get('body') ?? ''));
     },
 
-    writeMerged(uid, noteId, over, merged) {
+    writeMerged(uid, noteId, decide) {
       const ref = db.doc(paths.note(uid, noteId));
       return db.runTransaction(async (tx) => {
         const note = await tx.get(ref);
-        // Written again since: that write's own trigger merges it.
-        if (!note.exists || note.get('body') !== over) return false;
+        if (!note.exists) return false;
+        const write = decide({
+          body: String(note.get('body') ?? ''),
+          deviceId: String(note.get('deviceId') ?? ''),
+          updatedBy: String(note.get('updatedBy') ?? ''),
+          baseHash: note.get('baseHash'),
+        });
+        if (!write) return false;
         const update: Record<string, unknown> = {
-          body: merged,
-          baseHash: textHash(over),
+          body: write.body,
+          baseHash: textHash(write.over),
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: note.get('updatedBy') === 'claude' ? 'claude' : 'user',
           deviceId: MERGE_DEVICE,
         };
-        if (note.get('titleSource') === 'words') update['title'] = firstWordsTitle(merged);
+        if (note.get('titleSource') === 'words') update['title'] = firstWordsTitle(write.body);
         tx.update(ref, update);
         return true;
       });
