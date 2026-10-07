@@ -200,6 +200,23 @@ describe('Launch', () => {
     expect(document.activeElement).toBe(content());
   });
 
+  it('keeps a note typed a moment before New reachable by back', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { el, fixture, url } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+    const old = capture.open().id;
+    capture.onText('Kiln log');
+    // Straight away: the 300 ms save has not run yet.
+    buttonNamed(el, 'New')!.click();
+    await fixture.whenStable();
+    // The capture entry in history became the typed note's own URL.
+    expect(navigate).toHaveBeenCalledWith(['/n', old], { replaceUrl: true });
+    expect(url()).toBe('/');
+    expect(capture.open().id).not.toBe(old);
+  });
+
   it('switches between live preview and source', async () => {
     const { el, fixture } = await render();
     const toggle = () =>
