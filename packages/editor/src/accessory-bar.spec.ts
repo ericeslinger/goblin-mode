@@ -76,6 +76,7 @@ describe('createAccessoryBar', () => {
       const parent = document.createElement('div');
       document.body.append(parent);
       const editor = createNoteEditor({ parent });
+      const covered = vi.spyOn(editor, 'setCoveredFrom');
       const bar = createAccessoryBar(editor, [{ label: 'B', run: () => undefined }]);
       expect(vk.overlaysContent).toBe(true);
       editor.view.focus();
@@ -84,9 +85,12 @@ describe('createAccessoryBar', () => {
       vk.boundingRect = new DOMRect(0, innerHeight - 300, innerWidth, 300);
       vk.dispatchEvent(new Event('geometrychange'));
       expect(bar.element.hidden).toBe(false);
+      // The editor keeps its line above the bar's top.
+      expect(covered).toHaveBeenLastCalledWith(innerHeight - 300 - bar.element.offsetHeight);
       vk.boundingRect = new DOMRect(0, 0, 0, 0);
       vk.dispatchEvent(new Event('geometrychange'));
       expect(bar.element.hidden).toBe(true);
+      expect(covered).toHaveBeenLastCalledWith(undefined);
       bar.destroy();
       expect(vk.overlaysContent).toBe(false);
       editor.destroy();

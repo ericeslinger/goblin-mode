@@ -51,6 +51,14 @@ export interface NoteEditor {
   getMode(): Mode;
   setMode(mode: Mode): void;
   setReadOnly(readOnly: boolean): void;
+  /**
+   * Where the window starts being covered (y, px from the top): an
+   * on-screen keyboard and the ribbon over it overlay the page. The
+   * editor gets room below its last line and keeps the cursor above
+   * that point, bringing it there when the cover grows; undefined when
+   * nothing covers it.
+   */
+  setCoveredFrom(y: number | undefined): void;
   /** Toolbar actions. */
   toggleTask(): void;
   insertWikiLink(): void;
@@ -76,6 +84,13 @@ function readOnlyExtension(readOnly: boolean) {
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
   const { openLink, resolveAttachment, suggestLinks } = options;
   const editing = new Compartment();
+  let inset = 0;
+  /** How much of the editor's visible box lies at or below `y`. */
+  const overlap = (y: number | undefined) => {
+    if (y === undefined) return 0;
+    const bottom = Math.min(view.scrollDOM.getBoundingClientRect().bottom, window.innerHeight);
+    return Math.max(0, Math.ceil(bottom - y));
+  };
   const base = EditorState.create({ doc: options.text ?? '' });
   const state = EditorState.create({
     doc: base.doc,
@@ -97,6 +112,7 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         ...historyKeymap,
       ]),
       EditorView.lineWrapping,
+      EditorView.scrollMargins.of(() => ({ bottom: inset })),
       EditorView.contentAttributes.of({
         'aria-label': options.label ?? 'Note',
         autocapitalize: 'sentences',
@@ -153,6 +169,16 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
     },
     setReadOnly(readOnly) {
       view.dispatch({ effects: editing.reconfigure(readOnlyExtension(readOnly)) });
+    },
+    setCoveredFrom(y) {
+      const px = overlap(y);
+      const grew = px > inset;
+      inset = px;
+      // Room for the last line to scroll above the cover.
+      view.scrollDOM.style.paddingBottom = px ? `${px}px` : '';
+      if (grew && view.hasFocus) {
+        view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head) });
+      }
     },
     toggleTask: () => void toggleTaskLine(view),
     toggleBold: () => void toggleMark('*')(view),

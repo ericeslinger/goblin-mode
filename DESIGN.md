@@ -662,6 +662,13 @@ button, follows New). Browsers that resize the layout viewport
 themselves (Firefox Android) give neither signal and get no ribbon;
 not a regression, and left until one of them is in use.
 
+**Room above the keyboard (2026-10-07).** The keyboard and the ribbon
+overlay the page, so in a long note the ribbon sat on the line being
+typed. The bar tells the editor where the cover starts
+(`setCoveredFrom`); the editor pads its scroller by as much of its
+visible box as is covered, so the last line can scroll clear, and adds
+that as a bottom scroll margin, so the cursor stays above the ribbon.
+
 **Reused from the other repos.** goblin: the remark pipeline and its
 directive syntax, if custom blocks are wanted. overstory: the touch
 accessory bar that docks above the keyboard using `visualViewport`,

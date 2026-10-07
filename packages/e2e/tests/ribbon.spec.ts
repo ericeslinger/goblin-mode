@@ -13,8 +13,8 @@ import { OWNER } from '../src/personas';
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
-test('the ribbon formats as you write: checklist, bold, lists and levels', async ({ page }) => {
-  await page.addInitScript(() => {
+const fakeKeyboard = (page: Page) =>
+  page.addInitScript(() => {
     const vk = Object.defineProperties(new EventTarget(), {
       overlaysContent: { value: false, writable: true },
       boundingRect: {
@@ -30,6 +30,9 @@ test('the ribbon formats as you write: checklist, bold, lists and levels', async
     document.addEventListener('focusin', changed);
     document.addEventListener('focusout', changed);
   });
+
+test('the ribbon formats as you write: checklist, bold, lists and levels', async ({ page }) => {
+  await fakeKeyboard(page);
   await signInAs(page, OWNER);
   await note(page).click();
   const ribbon = page.getByRole('toolbar', { name: 'Formatting' });
@@ -82,4 +85,32 @@ test('the ribbon formats as you write: checklist, bold, lists and levels', async
   await expect(note(page)).toHaveText(
     ['Groceries', '- [ ] milk *fresh*', '  - [ ] eggs', '- [ ] bread', '', '1. Steps'].join(''),
   );
+});
+
+test('the line being typed stays above the keyboard and the ribbon in a long note', async ({
+  page,
+}) => {
+  // Both overlay the page (2026-10-07: the ribbon sat on the line).
+  await fakeKeyboard(page);
+  await signInAs(page, OWNER);
+  await note(page).click();
+  const ribbon = page.getByRole('toolbar', { name: 'Formatting' });
+  await expect(ribbon).toBeVisible();
+  const settle = () =>
+    page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+  for (let i = 0; i < 40; i++) {
+    await page.keyboard.type(`line ${i}`);
+    await page.keyboard.press('Enter');
+    await settle();
+  }
+  await page.keyboard.type('the last line');
+  await settle();
+  await expect(page.locator('.cm-line')).toHaveCount(41);
+  const line = (await page.locator('.cm-line', { hasText: 'the last line' }).boundingBox())!;
+  const bar = (await ribbon.boundingBox())!;
+  const keyboardTop = await page.evaluate(() => window.innerHeight - 300);
+  expect(bar.y + bar.height).toBeLessThanOrEqual(keyboardTop + 1);
+  expect(line.y + line.height).toBeLessThanOrEqual(bar.y + 1);
 });
