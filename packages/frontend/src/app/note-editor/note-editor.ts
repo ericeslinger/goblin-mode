@@ -55,6 +55,8 @@ export class NoteEditorComponent {
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private editor?: NoteEditor;
   private bar?: AccessoryBar;
+  /** What `load` showed ahead of the inputs, so they do not show it again. */
+  private loaded?: { id: string; text: string };
 
   constructor() {
     afterNextRender(() => {
@@ -95,8 +97,12 @@ export class NoteEditorComponent {
     });
 
     effect(() => {
-      this.noteId();
+      const id = this.noteId();
       const text = this.text();
+      // Already shown by `load`; typing since then must not be undone.
+      const loaded = this.loaded;
+      this.loaded = undefined;
+      if (loaded && loaded.id === id && loaded.text === text) return;
       if (this.editor && this.editor.getText() !== text) this.editor.setText(text);
     });
 
@@ -108,5 +114,15 @@ export class NoteEditorComponent {
 
   focus(): void {
     this.editor?.focus();
+  }
+
+  /**
+   * Shows a note's text now, ahead of the `noteId` and `text` inputs,
+   * so keys typed before the next render land in it (New, a template).
+   */
+  load(noteId: string, text: string): void {
+    if (!this.editor) return;
+    this.loaded = { id: noteId, text };
+    if (this.editor.getText() !== text) this.editor.setText(text);
   }
 }

@@ -201,6 +201,7 @@ export class Launch {
     // The fresh note and its cursor come first, before any navigation,
     // so typing straight after New lands in it (never a keystroke lost).
     this.capture.newNote();
+    this.editor()?.load(this.capture.open().id, '');
     this.editor()?.focus();
     if (rewrite) {
       // Only the history entry changes; the open note stays the new one.
@@ -217,10 +218,12 @@ export class Launch {
   /** Opens a template's note: its living note, or a fresh entry (#38). */
   protected async fromTemplate(templateId: string): Promise<void> {
     this.templatesOpen.set(false);
-    const id = this.templates.use(templateId);
-    if (!id) return;
-    await this.router.navigate(['/n', id]);
+    const note = this.templates.use(templateId);
+    if (!note) return;
+    this.capture.openNote(note.id, note.text);
+    this.editor()?.load(note.id, note.text);
     this.editor()?.focus();
+    await this.router.navigate(['/n', note.id]);
   }
 
   protected openPrevious(id: string): void {

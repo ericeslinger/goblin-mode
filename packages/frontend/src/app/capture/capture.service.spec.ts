@@ -140,6 +140,13 @@ describe('CaptureService', () => {
     expect(notes.remove).toHaveBeenCalledWith('new1');
   });
 
+  it('opens a note just made here with its text, before the list has it', () => {
+    const { capture, notes } = setup();
+    notes.signIn([]);
+    capture.openNote('e1', 'Journal\nMood:');
+    expect(capture.open()).toEqual({ id: 'e1', text: 'Journal\nMood:' });
+  });
+
   it('keeps a template emptied by typing', () => {
     const { capture, notes } = setup();
     notes.signIn([{ ...noteRecord('t1', 'Journal'), kind: 'template' }]);

@@ -30,17 +30,22 @@ export class TemplatesService {
     return id;
   }
 
-  /** The id of the note to open for a template: its living note, or a new entry. */
-  use(templateId: string): string | undefined {
+  /**
+   * The note to open for a template, with its text: its living note, or
+   * a new entry from the skeleton. The text comes back too, so the note
+   * opens with it before the new note reaches the list.
+   */
+  use(templateId: string): { id: string; text: string } | undefined {
     const template = this.notes.find(templateId);
     if (template?.kind !== 'template') return undefined;
     if (template.templateMode === 'living') {
       // The notes are newest first, so this is the one last written in.
       const living = this.notes.notes().find((n) => n.fromTemplate === templateId && !n.archived);
-      if (living) return living.id;
+      if (living) return { id: living.id, text: living.body };
     }
     const id = this.notes.newId();
-    this.notes.create(id, templateParts(template.body).skeleton, { fromTemplate: templateId });
-    return id;
+    const text = templateParts(template.body).skeleton;
+    this.notes.create(id, text, { fromTemplate: templateId });
+    return { id, text };
   }
 }

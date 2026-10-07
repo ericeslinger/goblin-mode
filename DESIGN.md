@@ -245,6 +245,12 @@ generated like any note's.
   the living note, or a new entry it makes (recorded in What Claude
   changed), with the instructions to follow. The server instructions
   point Claude at them.
+- **Two living notes.** If a second device uses a living template
+  before the first device's living note has synced to it, it makes
+  its own, and the two diverge; nothing is lost, and the organize
+  tools can merge them. A living note's id is not derived from the
+  template's, because an offline device would then write over the
+  other's note.
 - **Not yet.** A reminder naming a template does not open it yet;
   that comes with the journal's daily reminder (#40).
 

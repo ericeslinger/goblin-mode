@@ -35,20 +35,19 @@ describe('TemplatesService', () => {
 
   it('opens a living template’s one note, making it from the skeleton the first time', () => {
     const { notes, templates } = setup();
-    const id = templates.use('t1');
-    expect(notes.create).toHaveBeenCalledWith(id, 'Shopping list\n## Produce', {
-      fromTemplate: 't1',
-    });
-    expect(templates.use('t1')).toBe(id);
+    const made = templates.use('t1')!;
+    expect(made.text).toBe('Shopping list\n## Produce');
+    expect(notes.create).toHaveBeenCalledWith(made.id, made.text, { fromTemplate: 't1' });
+    expect(templates.use('t1')).toEqual(made);
     expect(notes.create).toHaveBeenCalledTimes(1);
   });
 
   it('starts a new entry every time, and ignores what is not a template', () => {
     const { notes, templates } = setup();
-    const a = templates.use('t2');
-    const b = templates.use('t2');
-    expect(a).not.toBe(b);
-    expect(notes.create).toHaveBeenLastCalledWith(b, 'Journal\nMood:', { fromTemplate: 't2' });
+    const a = templates.use('t2')!;
+    const b = templates.use('t2')!;
+    expect(a.id).not.toBe(b.id);
+    expect(notes.create).toHaveBeenLastCalledWith(b.id, 'Journal\nMood:', { fromTemplate: 't2' });
     expect(templates.use('n1')).toBeUndefined();
   });
 });

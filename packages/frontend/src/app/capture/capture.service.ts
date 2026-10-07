@@ -153,8 +153,8 @@ export class CaptureService {
     return kind === 'concept' || kind === 'template';
   }
 
-  /** Opens another note (from Previous notes, Browse or a link). */
-  openNote(id: string): void {
+  /** Opens another note (from Previous notes, Browse, a link or a template). */
+  openNote(id: string, known?: string): void {
     if (id === this.open().id) return;
     this.closeCurrent();
     // Typing held on the device before the notes load is this note's
@@ -165,7 +165,9 @@ export class CaptureService {
       this.untouched = false;
       return;
     }
-    this.show({ id, text: this.notes.find(id)?.body ?? '' });
+    // `known`: the text of a note just made here, which may not be in
+    // the list yet; typing must never start on an empty stand-in.
+    this.show({ id, text: this.notes.find(id)?.body ?? known ?? '' });
   }
 
   /**
