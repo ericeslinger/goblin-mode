@@ -966,7 +966,8 @@ reminder's note, or a new note from its template.
   task (`reminderWake`, three tries) runs `sendDue`; its claim already
   makes any run safe, so a stale or duplicate wake sends nothing. A
   task reaches 30 days ahead, so a later push hops: the wake re-queues
-  toward it. The hourly `sendDuePush` also queues wakes for pushes in
+  toward it, at times counted back from the push in 29-day steps so
+  every caller names a hop alike. The hourly `sendDuePush` also queues wakes for pushes in
   the next 65 minutes, which covers a lost task and reminders set
   before tasks existed. The e2e suite runs no tasks emulator (a
   dispatched task would claim reminders mid-journey), so queueing is a

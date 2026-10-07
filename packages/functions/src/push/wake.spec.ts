@@ -24,11 +24,18 @@ describe('wakeFor', () => {
 
   it('wakes a past push now, and hops toward one beyond a task’s reach', async () => {
     expect(wakeAt(NOW - 5_000, NOW)).toBe(NOW);
-    const far = NOW + 2 * MAX_AHEAD_MS;
-    expect(wakeAt(far, NOW)).toBe(NOW + MAX_AHEAD_MS);
+    const far = NOW + 2.5 * MAX_AHEAD_MS;
+    const hop = far - 2 * MAX_AHEAD_MS;
+    expect(wakeAt(far, NOW)).toBe(hop);
+    expect(hop).toBeGreaterThan(NOW);
+    expect(hop - NOW).toBeLessThanOrEqual(MAX_AHEAD_MS);
+    // Callers at other moments in the same stretch name the same hop.
+    expect(wakeAt(far, NOW + 60 * 60_000)).toBe(hop);
     const q = queue();
     await wakeFor(q, 'u1', 'r1', undefined, far, NOW);
-    expect(q.enqueue).toHaveBeenCalledWith('u1', 'r1', NOW + MAX_AHEAD_MS, expect.any(String));
+    expect(q.enqueue).toHaveBeenCalledWith('u1', 'r1', hop, wakeName('u1', 'r1', far, hop));
+    // Within reach: the push time itself.
+    expect(wakeAt(NOW + MAX_AHEAD_MS, NOW)).toBe(NOW + MAX_AHEAD_MS);
   });
 
   it('names tasks the way Cloud Tasks allows', () => {

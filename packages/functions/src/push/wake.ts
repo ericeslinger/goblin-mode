@@ -40,9 +40,15 @@ export async function wakeUpcoming(
   return upcoming.length;
 }
 
-/** When to wake for a push at `fireAt`: then, or as far as a task can reach. */
+/**
+ * When to wake for a push at `fireAt`: then, or, beyond a task's reach,
+ * the nearest hop on a grid counted back from `fireAt` in steps of
+ * `MAX_AHEAD_MS`, so every caller names the same hop alike.
+ */
 export function wakeAt(fireAt: number, now: number): number {
-  return Math.min(Math.max(fireAt, now), now + MAX_AHEAD_MS);
+  if (fireAt <= now) return now;
+  const hops = Math.max(0, Math.ceil((fireAt - now - MAX_AHEAD_MS) / MAX_AHEAD_MS));
+  return fireAt - hops * MAX_AHEAD_MS;
 }
 
 /** A task name per reminder, push time and wake time: the same write twice queues once. */

@@ -69,8 +69,10 @@ a project owner enables the Cloud Tasks API, grants the deploy service
 account `roles/cloudtasks.queueAdmin` (the deploy creates the queue),
 and grants `<number>-compute@developer.gserviceaccount.com`
 `roles/cloudtasks.enqueuer` and `roles/iam.serviceAccountUser` on
-itself (functions queue wakes as it). Without them pushes still go,
-up to an hour late, from the hourly `sendDuePush`.
+itself (functions queue wakes as it). Without the API or
+`queueAdmin` the deploy fails at the functions step (rules and indexes
+already shipped); without the last two it deploys, and pushes still
+go, up to an hour late, from the hourly `sendDuePush`.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
