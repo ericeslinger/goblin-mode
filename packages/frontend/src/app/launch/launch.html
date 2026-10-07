@@ -28,6 +28,11 @@
     </aside>
 
     <section class="capture">
+      @if (record(); as note) {
+        @if (note.kind === 'concept') {
+          <app-concept-header [note]="note" />
+        }
+      }
       @if (linkStatus()) {
         <p class="note-status" role="status">{{ linkStatus() }}</p>
       }
@@ -51,6 +56,11 @@
         [suggestLinks]="suggest"
         (textChange)="capture.onText($event)"
         (linkOpen)="followLink($event)"
+      />
+      <app-note-links
+        class="links"
+        [noteId]="capture.open().id"
+        [concept]="record()?.kind === 'concept'"
       />
       @if (previous().length > 0) {
         <div class="previous">

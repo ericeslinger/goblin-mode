@@ -42,6 +42,10 @@ export class FakeNotes {
   readonly names = computed(() => nameIndex(this.notes()));
   plantConcepts = vi.fn((_body: string) => undefined);
   createConcept = vi.fn((name: string) => conceptId(name));
+  updateConcept = vi.fn(
+    (_id: string, _change: { title?: string; conceptType?: string; synonyms?: string[] }) =>
+      undefined,
+  );
   newId = () => `new${++this.n}`;
   find = (id: string) => this.notes().find((x) => x.id === id);
   exists = (id: string) => this.written.has(id) || !!this.find(id);

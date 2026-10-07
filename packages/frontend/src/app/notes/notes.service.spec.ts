@@ -171,6 +171,42 @@ describe('NotesService', () => {
     expect(api.createIfAbsent).toHaveBeenCalledTimes(2);
   });
 
+  it('renames a concept, keeping the old name as another name', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      {
+        id: 'c-kiln',
+        data: { body: '', title: 'Kiln', kind: 'concept', synonyms: ['Oven'], titleSource: 'user' },
+      },
+      { id: 'n1', data: { body: 'not a concept', title: 'n' } },
+    ]);
+    notes.updateConcept('c-kiln', { title: 'The kiln' });
+    expect(api.set).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'users/u1/notes/c-kiln',
+      expect.objectContaining({
+        title: 'The kiln',
+        titleSource: 'user',
+        synonyms: ['Oven', 'Kiln'],
+        updatedBy: 'user',
+      }),
+      true,
+    );
+    notes.updateConcept('c-kiln', {
+      synonyms: ['oven', 'Oven', ' ', 'Kiln'],
+      conceptType: 'project',
+    });
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      synonyms: ['Oven'],
+      conceptType: 'project',
+    });
+    api.set.mockClear();
+    notes.updateConcept('n1', { title: 'Nope' });
+    notes.updateConcept('c-kiln', { title: 'Kiln' });
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
   it('keeps a title Eric set himself', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

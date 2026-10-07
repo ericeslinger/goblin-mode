@@ -310,6 +310,42 @@ export class NotesService {
   }
 
   /**
+   * Changes a concept's name, type or other names. A new name keeps the
+   * id (derived from the first name) and adds the old one as a synonym,
+   * so links written with it still land (#30).
+   */
+  updateConcept(
+    id: string,
+    change: { title?: string; conceptType?: string; synonyms?: string[] },
+  ): void {
+    const concept = this.find(id);
+    if (!this.uid || concept?.kind !== 'concept') return;
+    const update: Record<string, unknown> = {};
+    let synonyms = change.synonyms ?? concept.synonyms ?? [];
+    const title = change.title?.trim();
+    if (title && title !== concept.title) {
+      update['title'] = title;
+      update['titleSource'] = 'user';
+      if (!synonyms.some((s) => normalizeName(s) === normalizeName(concept.title))) {
+        synonyms = [...synonyms, concept.title];
+      }
+    }
+    const clean = [...new Map(synonyms.map((s) => [normalizeName(s), s.trim()])).values()].filter(
+      (s) => s && normalizeName(s) !== normalizeName(title ?? concept.title),
+    );
+    if (change.synonyms || update['title']) update['synonyms'] = clean;
+    if (change.conceptType) update['conceptType'] = change.conceptType;
+    if (Object.keys(update).length === 0) return;
+    const path = paths.note(this.uid, id);
+    const stamp = {
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, path, { ...update, ...stamp }, true).catch(report);
+  }
+
+  /**
    * Marks a note settled (Eric left it), which asks noteTitle for a
    * Claude title. `edited`: the caller saw it typed in and saved, with
    * text. Otherwise only a note with text written since its last settle

@@ -157,6 +157,20 @@ so opening a note never marks it edited, and undo never brings back
 another note's text (found with #29: an empty concept was deleted as
 "emptied by typing" the moment it opened).
 
+**Concept page (#30, 2026-10-07).** A concept opens at `/n/<id>` like
+any note, with a header above its text: its name (renaming keeps the
+id and adds the old name as another name, so links written with it
+still land), its type (person, project, other) and its other names,
+added and removed as chips (`NotesService.updateConcept`). Under any
+note, **Linked from** lists the notes that link to it, each with the
+sentence the link sits in, and under a concept **Often together**
+lists the concepts most often linked from the same notes.
+`LinksService` builds this graph from note bodies resolved against
+today's names (the schema's `backlinks`, `oftenTogether` and
+`sentenceAround`), parsing each body once per change, so older notes
+with empty stored `links` count, and a synonym added today links notes
+written last week.
+
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
 `[[name]]` inside code is not a link). Notes written before this keep

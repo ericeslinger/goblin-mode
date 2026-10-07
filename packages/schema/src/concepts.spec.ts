@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { conceptId, nameIndex, normalizeName, resolveLinks, suggestLinks } from './concepts';
+import {
+  backlinks,
+  conceptId,
+  nameIndex,
+  normalizeName,
+  oftenTogether,
+  resolveLinks,
+  sentenceAround,
+  suggestLinks,
+} from './concepts';
 import { autoId } from './ids';
 
 describe('normalizeName', () => {
@@ -88,5 +97,40 @@ describe('suggestLinks', () => {
 
   it('lists everything live for an empty query, up to the limit', () => {
     expect(suggestLinks('', notes, 2)).toHaveLength(2);
+  });
+});
+
+describe('backlinks and oftenTogether', () => {
+  const notes = [
+    { id: 'n1', links: ['c-kiln', 'c-glaze', 'c-vikas'] },
+    { id: 'n2', links: ['c-kiln', 'c-glaze'] },
+    { id: 'n3', links: ['c-kiln', 'n9'], archived: true },
+    { id: 'n4', links: ['c-glaze'] },
+    { id: 'c-kiln', links: ['c-kiln'] },
+  ];
+
+  it('lists live notes linking to an id, never the note itself', () => {
+    expect(backlinks('c-kiln', notes).map((n) => n.id)).toEqual(['n1', 'n2']);
+  });
+
+  it('ranks concepts by how many notes they share', () => {
+    expect(oftenTogether('c-kiln', notes)).toEqual([
+      { id: 'c-glaze', shared: 2 },
+      { id: 'c-vikas', shared: 1 },
+    ]);
+    expect(oftenTogether('c-kiln', notes, 1)).toEqual([{ id: 'c-glaze', shared: 2 }]);
+  });
+});
+
+describe('sentenceAround', () => {
+  it('takes the sentence holding the span, on its line, without list marks', () => {
+    const body = 'Title\n- Fire it Friday. Ask [[Vikas]] about the kiln. Then glaze.\nmore';
+    const start = body.indexOf('[[');
+    expect(sentenceAround(body, start, start + 9)).toBe('Ask [[Vikas]] about the kiln.');
+  });
+
+  it('keeps a whole short line, and shortens a long one', () => {
+    expect(sentenceAround('see [[A]]', 4, 9)).toBe('see [[A]]');
+    expect(sentenceAround(`[[A]] ${'x'.repeat(300)}`, 0, 5, 20)).toHaveLength(20);
   });
 });
