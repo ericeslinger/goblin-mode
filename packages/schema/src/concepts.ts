@@ -61,9 +61,11 @@ export interface NamedNote {
 
 /**
  * Names to ids, for resolving links: a concept's title and synonyms,
- * then other notes' titles. A concept wins over a note with the same
- * title, and the first of two equal names wins. Archived notes are left
- * out, so a link follows a merge to the note that replaced it.
+ * then other notes' titles, then their synonyms. A concept wins over a
+ * note with the same title, and the first of two equal names wins.
+ * Archived notes are left out, so a link follows a merge to the note
+ * that replaced it: a merged note answers to its originals' titles as
+ * synonyms (#34).
  */
 export function nameIndex(notes: readonly NamedNote[]): Map<string, string> {
   const index = new Map<string, string>();
@@ -76,7 +78,9 @@ export function nameIndex(notes: readonly NamedNote[]): Map<string, string> {
     add(n.title, n.id);
     for (const s of n.synonyms ?? []) add(s, n.id);
   }
-  for (const n of live.filter((n) => n.kind !== 'concept')) add(n.title, n.id);
+  const others = live.filter((n) => n.kind !== 'concept');
+  for (const n of others) add(n.title, n.id);
+  for (const n of others) for (const s of n.synonyms ?? []) add(s, n.id);
   return index;
 }
 

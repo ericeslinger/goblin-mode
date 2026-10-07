@@ -638,7 +638,7 @@ is slow.
   request he just started.
 - **MCP** is stateless Streamable HTTP (POST only, JSON responses): each
   request checks the bearer token belongs to the owner, then builds a
-  server with the eight MVP tools. Writes are validated against the zod
+  server with the tools. Writes are validated against the zod
   contract before they land; Claude's note writes carry `updatedBy:
   claude` and `deviceId: claude`, so History keeps the version Claude
   replaced. Claude cannot change a title Eric set, and there is no
@@ -650,6 +650,47 @@ is slow.
   the app, then Disconnect. Its owner has a fixed uid that `e2e.sh`
   gives the functions emulator as `OWNER_UID` (`.env.local`, written
   for the run and deleted after).
+
+**Organize tools and What Claude changed (#34, 2026-10-07).** Seven
+more tools, replacing the Phase 2 list above (`add_synonym` became
+`refile`; `record_activity` is not a tool, since every write records
+itself; `import_url` waits for M4):
+
+| Tool | Does |
+| --- | --- |
+| `list_concepts` | Concepts with type, other names and link counts |
+| `get_backlinks` | Notes linking here, each with its sentence |
+| `link_notes` | Adds a `See also [[...]]` line at the end of a note |
+| `split_note` | Cuts a note into pieces, refusing any rewording |
+| `merge_notes` | Joins notes into a new one, archiving the originals |
+| `refile` | Concept type and other names; tags on any note |
+| `archive_note` | Archives or restores |
+
+- **Verbatim, by construction.** `split_note` takes the parts as text
+  and accepts them only if they are the note itself, in order, cut
+  where there is whitespace (`mcp/verbatim.ts`); the first part stays
+  in the note, which links the new ones. `merge_notes` joins whole
+  bodies with a blank line between. Claude's own words are only the
+  `See also` and `Split off:` lines.
+- **Links follow a merge.** The merged note answers to its originals'
+  titles as synonyms, and `nameIndex` now indexes the synonyms of any
+  note, after every title, so `[[Old title]]` elsewhere reaches the
+  merged note instead of making a stub. The originals are archived
+  with `mergedInto`; the merged note keeps the earliest `createdAt`.
+  An original linking another stores no link to the merged note
+  itself. Caveat: an edit made offline to an original, synced after
+  the merge, lands in the archived original (and its History), not in
+  the merged note; it shows only under Archived.
+- **Activity.** Every write tool (the MVP ones too) records a run in
+  `users/{uid}/activity` in the same batch or transaction as the
+  change: tool, a one-line summary, and the notes and reminders it
+  touched, named as they were (`Activity` in the schema). The uid is
+  the token's, as for every tool. Runs are function-only; the rules
+  already let the owner read them and nobody write them.
+- **What Claude changed** (`/activity`, linked from Browse and from
+  Settings, Claude) lists the latest 100 runs, newest first, each
+  with its notes (current titles, archived ones marked), each note's
+  History, and its reminders. Older runs stay stored.
 
 ## Push
 

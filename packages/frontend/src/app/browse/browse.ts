@@ -18,7 +18,10 @@ import { NoteList } from './note-list';
     <main class="page">
       <a routerLink="/">Back</a>
       <h1>Notes</h1>
-      <p><a routerLink="/map">See the whole garden as a map</a></p>
+      <p class="more">
+        <a routerLink="/map">See the whole garden as a map</a>
+        <a routerLink="/activity">What Claude changed</a>
+      </p>
       <nav aria-label="Lenses">
         @for (l of lenses(); track l.id) {
           <a
@@ -32,6 +35,11 @@ import { NoteList } from './note-list';
     </main>
   `,
   styles: `
+    .more {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1) var(--space-3);
+    }
     nav {
       display: flex;
       flex-wrap: wrap;

@@ -144,6 +144,28 @@ export const Settings = z.object({
 });
 export type Settings = z.infer<typeof Settings>;
 
+/** A note or reminder a Claude run touched, named as it was then. */
+export const Touched = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+});
+export type Touched = z.infer<typeof Touched>;
+
+/**
+ * One Claude tool run that changed something, under `activity`
+ * (function-only), shown in the app as What Claude changed (#34).
+ */
+export const Activity = z.object({
+  at: Timestamp,
+  /** The MCP tool, e.g. 'merge_notes'. */
+  tool: z.string().min(1),
+  /** One line saying what changed, for the gardener. */
+  summary: z.string().min(1),
+  notes: z.array(Touched),
+  reminders: z.array(Touched),
+});
+export type Activity = z.infer<typeof Activity>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Note, Recurrence, Reminder, Timestamp, paths } from './model';
+import { Activity, Note, Recurrence, Reminder, Timestamp, paths } from './model';
 
 const ts = { seconds: 1_800_000_000, nanoseconds: 0 };
 
@@ -56,6 +56,21 @@ describe('Reminder', () => {
       Reminder.safeParse({ text: 'journal', status: 'open', createdBy: 'claude' }).success,
     ).toBe(true);
     expect(Reminder.safeParse({ text: '', status: 'open', createdBy: 'user' }).success).toBe(false);
+  });
+});
+
+describe('Activity', () => {
+  it('records a run, what it did and what it touched', () => {
+    const run = {
+      at: ts,
+      tool: 'merge_notes',
+      summary: 'Merged 2 notes into Kiln log',
+      notes: [{ id: 'n1', title: 'Kiln log' }],
+      reminders: [],
+    };
+    expect(Activity.safeParse(run).success).toBe(true);
+    expect(Activity.safeParse({ ...run, summary: '' }).success).toBe(false);
+    expect(Activity.safeParse({ ...run, notes: [{ id: '', title: 'x' }] }).success).toBe(false);
   });
 });
 

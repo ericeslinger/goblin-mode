@@ -48,6 +48,7 @@ import { ThemePicker } from '../theme/theme-picker';
         <p>
           <code>{{ mcpUrl }}</code>
         </p>
+        <p><a routerLink="/activity">What Claude changed</a></p>
         <button type="button" (click)="disconnect()">Disconnect Claude</button>
         @if (claudeStatus()) {
           <p role="status">{{ claudeStatus() }}</p>
