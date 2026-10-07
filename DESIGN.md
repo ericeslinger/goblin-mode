@@ -225,6 +225,15 @@ History restores link to `/n/<id>`; the old `/?note=<id>` redirects.
 Copy link copies the note's address. The Worker and the service
 worker already serve any extensionless path as the app, offline too.
 
+**Browse lenses (#31, 2026-10-07).** Browse looks at the garden
+through lenses, each at its own URL (`/browse` for Recent,
+`/browse/<lens>` for the rest) with a count: Recent (notes with text),
+Concepts, People and Projects (concepts by type, each saying how many
+notes link to it), Tags (notes grouped under each tag) and Archived
+(archived notes, the only place they appear). The search box filters
+within the lens. The filters are pure (`browse/lenses.ts`). On a wide
+screen the launch screen's list pane stays on Recent.
+
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
 remembers that it has been signed in: with that mark set, the editor

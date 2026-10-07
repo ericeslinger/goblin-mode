@@ -63,4 +63,31 @@ describe('NoteList', () => {
     await fixture.whenStable();
     expect(el.textContent).toContain('No notes match.');
   });
+
+  it('lists a lens: concepts say how many notes link to them, tags are grouped', async () => {
+    const { el, fixture } = await render([
+      noteRecord('n1', 'Studio\nwith [[Kiln]]'),
+      { ...noteRecord('c-kiln', ''), title: 'Kiln', kind: 'concept', conceptType: 'project' },
+      { ...noteRecord('t1', 'Calm day'), tags: ['feelings', 'date night'] },
+    ]);
+    fixture.componentRef.setInput('lens', 'projects');
+    await fixture.whenStable();
+    expect(el.querySelector('ul')!.textContent).toContain('Kiln');
+    expect(el.querySelector('ul')!.textContent).toContain('Linked from 1 note');
+
+    fixture.componentRef.setInput('lens', 'tags');
+    await fixture.whenStable();
+    const headings = [...el.querySelectorAll('h2')];
+    expect(headings.map((h) => h.textContent)).toEqual(['#date night (1)', '#feelings (1)']);
+    // Each group is named by its heading, even for a tag with a space.
+    for (const list of el.querySelectorAll('ul[aria-labelledby]')) {
+      const label = el.querySelector(`#${list.getAttribute('aria-labelledby')}`);
+      expect(label?.tagName).toBe('H2');
+    }
+    expect(el.querySelector('ul')!.textContent).toContain('Calm day');
+
+    fixture.componentRef.setInput('lens', 'archived');
+    await fixture.whenStable();
+    expect(el.querySelector('ul')!.textContent).toContain('gone');
+  });
 });

@@ -36,6 +36,7 @@ describe('LinksService', () => {
       concept('c-glaze', 'Glaze'),
     ]);
     expect(links.togetherWith('c-kiln')).toEqual([{ id: 'c-glaze', title: 'Glaze' }]);
+    expect(links.backlinkCounts().get('c-kiln')).toBe(1);
     notes.notes.set([noteRecord('n1', 'Studio\nonly [[Kiln]] now'), ...notes.notes().slice(1)]);
     expect(links.togetherWith('c-kiln')).toEqual([]);
     expect(links.backlinksTo('c-glaze')).toEqual([]);
