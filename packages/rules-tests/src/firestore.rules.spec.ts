@@ -99,6 +99,16 @@ describe('client-written collections: notes, reminders, devices, settings', () =
     await assertSucceeds(ref.set({ ...note(), conceptType: 'person', synonyms: ['vik'] }));
   });
 
+  it('accepts templates and notes made from them, with known modes only', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertSucceeds(ref.set({ ...note(), kind: 'template', templateMode: 'living' }));
+    await assertSucceeds(ref.set({ ...note(), kind: 'template', templateMode: 'entry' }));
+    await assertFails(ref.set({ ...note(), kind: 'template', templateMode: 'weekly' }));
+    await assertSucceeds(ref.set({ ...note(), fromTemplate: 't1' }));
+    await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
+  });
+
   it('lets the app settle a note with a merged server timestamp, and nothing else in it', async () => {
     const note = valid['users/owner/notes/n1'];
     const ref = owner().doc('users/owner/notes/n1');
