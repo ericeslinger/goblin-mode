@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, signInAs, test } from '../src/fixtures';
+import { expect, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The shopping list (#39): a living template; Claude adds what the meal
@@ -76,7 +76,7 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
     );
 
   // The list before Done shopping is in History.
-  await page.getByRole('link', { name: 'History' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'History' }).click();
   await expect(page.getByRole('list', { name: 'Earlier versions' })).toContainText('[x] limes', {
     timeout: 15_000,
   });

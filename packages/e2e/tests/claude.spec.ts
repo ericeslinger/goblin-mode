@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { createHash, randomBytes } from 'node:crypto';
-import { expect, signInAs, test } from '../src/fixtures';
+import { expect, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
@@ -101,7 +101,7 @@ test('Claude connects with OAuth, writes a note through MCP, and can be disconne
   await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Filed by Claude');
 
   await page.getByRole('link', { name: 'Back' }).click();
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByText(/\/mcp$/)).toBeVisible();
   await page.getByRole('button', { name: 'Disconnect Claude' }).click();
   await expect(page.getByText('Claude is disconnected.')).toBeVisible();

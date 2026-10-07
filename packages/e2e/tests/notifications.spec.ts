@@ -1,4 +1,4 @@
-import { expect, signInAs, test } from '../src/fixtures';
+import { expect, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const FIRESTORE = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
@@ -34,7 +34,7 @@ test('turning notifications on registers this device, and off removes it', async
   );
   await context.grantPermissions(['notifications']);
   await signInAs(page, OWNER);
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   const status = page.getByRole('status').filter({ hasText: /device|notifications/i });
   await expect(status).toHaveText('Reminders are not sent to this device.');
 

@@ -110,6 +110,8 @@ export class Launch {
 
   protected readonly previousOpen = signal(false);
   protected readonly templatesOpen = signal(false);
+  /** The More menu (#78): everything but writing, one tap away. */
+  protected readonly moreOpen = signal(false);
   protected readonly templates = inject(TemplatesService);
   /** While New rewrites the old note's history entry, its URL does not reopen it. */
   private holdRoute: string | undefined;
@@ -148,6 +150,13 @@ export class Launch {
       const id = params.get('note');
       if (id) void this.router.navigate(['/n', id], { replaceUrl: true });
     });
+
+    // A tap outside More closes it.
+    const outside = (event: PointerEvent) => {
+      if (!(event.target as Element | null)?.closest?.('.more')) this.moreOpen.set(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    inject(DestroyRef).onDestroy(() => document.removeEventListener('pointerdown', outside));
 
     const update = () => this.online.set(navigator.onLine);
     addEventListener('online', update);
@@ -231,6 +240,18 @@ export class Launch {
     this.editor()?.load(note.id, note.text);
     this.editor()?.focus();
     await this.router.navigate(['/n', note.id]);
+  }
+
+  /** After a choice in More that stays here, the cursor goes back to the note. */
+  protected backToNote(): void {
+    this.moreOpen.set(false);
+    this.editor()?.focus();
+  }
+
+  /** Escape closes More and returns to its button. */
+  protected closeMore(button: HTMLButtonElement): void {
+    this.moreOpen.set(false);
+    button.focus();
   }
 
   /** A tick or Done shopping in the list view. */

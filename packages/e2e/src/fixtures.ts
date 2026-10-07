@@ -96,3 +96,17 @@ export const test = base.extend({
 });
 
 export { expect };
+
+/**
+ * Opens the launch screen's More menu (#78), where everything but
+ * writing lives, and returns it.
+ */
+export async function openMore(page: Page) {
+  // A choice just made closes More on the next render: let it land first.
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => done(null))));
+  const more = page.getByRole('button', { name: 'More' });
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+  const menu = page.getByRole('navigation', { name: 'More' });
+  await expect(menu).toBeVisible();
+  return menu;
+}

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, signInAs, test } from '../src/fixtures';
+import { expect, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // axe over every surface, WCAG 2.1 A and AA; serious and critical
@@ -35,7 +35,7 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await expectNoSeriousViolations(page);
 
   await page.getByRole('list', { name: 'Notes' }).getByRole('link').first().click();
-  await page.getByRole('link', { name: 'History' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'History' }).click();
   await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
   await expectNoSeriousViolations(page);
 
@@ -56,7 +56,7 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await expectNoSeriousViolations(page);
   await page.setViewportSize({ width: 412, height: 839 });
 
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expectNoSeriousViolations(page);
 });
