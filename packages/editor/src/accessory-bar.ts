@@ -216,14 +216,20 @@ export function createAccessoryBar(
   let menu: { element: HTMLElement; button: HTMLButtonElement } | undefined;
   const closeMenu = () => {
     if (!menu) return;
+    // A keyboard that was in the menu goes back to its button.
+    const focused = menu.element.contains(doc.activeElement);
     menu.element.remove();
     menu.button.setAttribute('aria-expanded', 'false');
+    if (focused) menu.button.focus();
     menu = undefined;
   };
   // A tap anywhere else closes the menu; before the editor's own
   // handlers, so a tap into the note both closes it and places the caret.
+  // The menu's own button is left to its handler, which closes it too
+  // (the target there is the label span, not the button).
   const outside = (e: Event) => {
-    if (menu && !menu.element.contains(e.target as Node) && e.target !== menu.button) closeMenu();
+    const target = e.target as Node;
+    if (menu && !menu.element.contains(target) && !menu.button.contains(target)) closeMenu();
   };
   doc.addEventListener('pointerdown', outside, true);
   const escape = (e: KeyboardEvent) => {
@@ -280,6 +286,24 @@ export function createAccessoryBar(
       });
       element.append(item);
     });
+    // Arrow keys walk the choices, Home and End jump; Escape is global.
+    element.addEventListener('keydown', (e) => {
+      const buttons = [...element.querySelectorAll<HTMLButtonElement>('button')];
+      const at = buttons.indexOf(doc.activeElement as HTMLButtonElement);
+      const to =
+        e.key === 'ArrowDown'
+          ? (at + 1) % buttons.length
+          : e.key === 'ArrowUp'
+            ? (at - 1 + buttons.length) % buttons.length
+            : e.key === 'Home'
+              ? 0
+              : e.key === 'End'
+                ? buttons.length - 1
+                : -1;
+      if (to < 0) return;
+      e.preventDefault();
+      buttons[to]?.focus();
+    });
     doc.body.append(element);
     // Above the bar, starting where the button does, kept on screen.
     const barTop = bar.getBoundingClientRect().top;
@@ -322,8 +346,13 @@ export function createAccessoryBar(
     };
     button.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      // A new press: a click the last one meant to swallow never came
+      // (the finger slid away, or the browser took the pan).
+      swallowClick = false;
       if (menu?.button === button) {
+        // A tap on the open menu's button only closes it.
         closeMenu();
+        swallowClick = true;
         return;
       }
       release();

@@ -156,6 +156,92 @@ describe('createAccessoryBar', () => {
     editor.destroy();
   });
 
+  it('closes an open menu on a tap on its own button, running nothing (review on #103)', async () => {
+    const run = vi.fn();
+    const { editor, bar, button } = setup(
+      [{ name: 'Insert', actions: [{ label: '+', name: 'Insert image', immediate: true, run }] }],
+      20,
+    );
+    button.dispatchEvent(pointer('pointerdown'));
+    await wait(40);
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    button.dispatchEvent(pointer('pointerup'));
+    button.dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
+    // The finger lands on the label span, as in Chrome, not the button.
+    const label = button.querySelector('.mg-label')!;
+    label.dispatchEvent(pointer('pointerdown'));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    label.dispatchEvent(pointer('pointerup'));
+    label.dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
+    await frame();
+    expect(run).not.toHaveBeenCalled();
+    // The next tap is a tap again.
+    label.dispatchEvent(pointer('pointerdown'));
+    label.dispatchEvent(pointer('pointerup'));
+    label.dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
+    expect(run).toHaveBeenCalledOnce();
+    bar.destroy();
+    editor.destroy();
+  });
+
+  it('forgets a swallowed click the finger never finished (review on #103)', async () => {
+    const run = vi.fn();
+    const { editor, bar, button } = setup(
+      [{ name: 'Insert', actions: [{ label: '+', name: 'Insert image', immediate: true, run }] }],
+      20,
+    );
+    button.dispatchEvent(pointer('pointerdown'));
+    await wait(40);
+    // The browser took the pan after the hold: no lift, no click.
+    button.dispatchEvent(pointer('pointercancel'));
+    editor.view.contentDOM.dispatchEvent(pointer('pointerdown'));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    button.dispatchEvent(pointer('pointerdown'));
+    button.dispatchEvent(pointer('pointerup'));
+    button.dispatchEvent(new MouseEvent('click', { detail: 1 }));
+    expect(run).toHaveBeenCalledOnce();
+    bar.destroy();
+    editor.destroy();
+  });
+
+  it('walks a menu by keyboard, and Escape returns to the button', () => {
+    const { editor, bar, button } = setup([
+      {
+        name: 'Lists',
+        actions: [
+          { label: '☐', name: 'Checklist item', run: vi.fn() },
+          { label: '•', name: 'Bulleted list', run: vi.fn() },
+          { label: '1.', name: 'Numbered list', run: vi.fn() },
+        ],
+      },
+    ]);
+    const key = (target: Element, key: string) =>
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    // The menu only opens while the bar shows, and jsdom will not focus
+    // a button in a hidden one.
+    bar.element.hidden = false;
+    bar.element.style.display = 'flex';
+    key(button, 'ArrowDown');
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('button')];
+    expect(document.activeElement).toBe(items[0]);
+    key(items[0]!, 'ArrowDown');
+    expect(document.activeElement).toBe(items[1]);
+    key(items[1]!, 'End');
+    expect(document.activeElement).toBe(items[2]);
+    key(items[2]!, 'ArrowDown');
+    expect(document.activeElement).toBe(items[0]);
+    key(items[0]!, 'ArrowUp');
+    expect(document.activeElement).toBe(items[2]);
+    key(items[2]!, 'Home');
+    expect(document.activeElement).toBe(items[0]);
+    key(items[0]!, 'Escape');
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(button);
+    bar.destroy();
+    editor.destroy();
+  });
+
   it('closes an open menu on a tap elsewhere, and when the bar hides', async () => {
     const { editor, bar, button } = setup(
       [{ name: 'Insert', actions: [{ label: '+', name: 'Insert image', run: vi.fn() }] }],

@@ -809,8 +809,10 @@ button also shows that it has some. So:
   the button's choice, which lasts while the note is open. A small
   `▾` in the button's corner says there is a hold, and the button is
   `aria-haspopup="menu"`, with `title` saying "Hold for lists". A
-  keyboard opens the menu with an arrow key. The desktop toolbar keeps
-  every action flat; it has the room.
+  keyboard opens the menu with an arrow key, walks it with the arrows,
+  Home and End, and Escape returns to the button. A tap on the open
+  menu's button only closes it. The desktop toolbar keeps every action
+  flat; it has the room.
 - **A tap is a tap** when the finger lifts within `TAP_SLOP_PX` (10)
   of where it landed, with no `pointercancel` (the browser taking the
   pan, which `touch-action: pan-x` lets it do). The action runs on the
