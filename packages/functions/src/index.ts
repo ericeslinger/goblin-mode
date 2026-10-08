@@ -14,4 +14,9 @@ export { noteHistory, noteTitle } from './notes/triggers';
 export { proposalAccepted } from './organize/triggers';
 export { sendDuePush } from './push/send-due-push';
 export { reminderScheduled, reminderWake } from './push/reminder-wake';
-export { attachmentCreated, attachmentDeleted, attachmentUploaded } from './attachments/triggers';
+export {
+  attachmentCreated,
+  attachmentDeleted,
+  attachmentTranscribe,
+  attachmentUploaded,
+} from './attachments/triggers';

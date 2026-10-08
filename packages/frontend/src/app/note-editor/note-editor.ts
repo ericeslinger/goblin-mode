@@ -20,7 +20,12 @@ import {
   createNoteEditor,
   type NoteEditor,
 } from '@mossgoblin/editor';
-import { AttachmentsService, captionFor } from '../attachments/attachments.service';
+import { Router } from '@angular/router';
+import {
+  AttachmentsService,
+  type Transcription,
+  captionFor,
+} from '../attachments/attachments.service';
 import { EditorModeService } from './editor-mode.service';
 
 /** Touch screens get the keyboard accessory bar instead of shortcuts. */
@@ -131,12 +136,32 @@ const FORMAT_ACTIONS: FormatAction[] = [
       #viewer
       class="viewer"
       aria-label="Image"
-      (close)="viewing.set(undefined)"
+      (close)="viewing.set(undefined); stopTranscription()"
       (click)="closeViewer($event)"
     >
       @if (viewing(); as image) {
         <img [src]="image.src" [alt]="image.alt" />
         <button type="button" class="close" (click)="viewer.close()">Close</button>
+        @if (image.id) {
+          <div class="transcribe">
+            @if (transcription()?.id === image.id) {
+              @switch (transcription()!.state.status) {
+                @case ('done') {
+                  <button type="button" (click)="openTranscript()">Open the transcription</button>
+                }
+                @case ('failed') {
+                  <span role="status">Not transcribed: {{ transcription()!.state.error }}</span>
+                  <button type="button" (click)="startTranscription(image.id)">Try again</button>
+                }
+                @default {
+                  <span role="status">Claude is transcribing…</span>
+                }
+              }
+            } @else {
+              <button type="button" (click)="startTranscription(image.id)">Transcribe</button>
+            }
+          </div>
+        }
       }
     </dialog>
     <dialog
@@ -152,6 +177,24 @@ const FORMAT_ACTIONS: FormatAction[] = [
             <a [href]="doc.url" [attr.download]="doc.name">Save</a>
           }
           <button type="button" class="close" (click)="fileViewer.close()">Close</button>
+        </div>
+        <div class="transcribe">
+          @if (transcription()?.id === doc.id) {
+            @switch (transcription()!.state.status) {
+              @case ('done') {
+                <button type="button" (click)="openTranscript()">Open the transcription</button>
+              }
+              @case ('failed') {
+                <span role="status">Not transcribed: {{ transcription()!.state.error }}</span>
+                <button type="button" (click)="startTranscription(doc.id)">Try again</button>
+              }
+              @default {
+                <span role="status">Claude is transcribing…</span>
+              }
+            }
+          } @else {
+            <button type="button" (click)="startTranscription(doc.id)">Transcribe</button>
+          }
         </div>
         @if (openPages()) {
           <form class="document-find" role="search" (submit)="find($event, findBox.value)">
@@ -264,6 +307,14 @@ const FORMAT_ACTIONS: FormatAction[] = [
       padding: var(--space-2);
       color: var(--quiet);
     }
+    .transcribe {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
+      padding: var(--space-1) var(--space-2);
+      font-size: 14px;
+    }
     .document-find {
       display: flex;
       flex-wrap: wrap;
@@ -347,7 +398,15 @@ export class NoteEditorComponent {
   private readonly modes = inject(EditorModeService);
   protected readonly attachments = inject(AttachmentsService);
   /** The image shown full screen, if any. */
-  protected readonly viewing = signal<{ src: string; alt: string } | undefined>(undefined);
+  protected readonly viewing = signal<{ src: string; alt: string; id?: string } | undefined>(
+    undefined,
+  );
+  /** A transcription asked for from a viewer (#47), and how it goes. */
+  protected readonly transcription = signal<{ id: string; state: Transcription } | undefined>(
+    undefined,
+  );
+  private stopWatching?: () => void;
+  private readonly router = inject(Router);
   /** Why the last photo could not be attached. */
   protected readonly problem = signal<string | undefined>(undefined);
   private readonly picker = viewChild.required<ElementRef<HTMLInputElement>>('picker');
@@ -602,11 +661,12 @@ export class NoteEditorComponent {
    * then the full photo when it arrives, if the viewer is still open on it.
    */
   private async openViewer(src: string, alt: string, url: string): Promise<void> {
-    this.viewing.set({ src, alt });
+    const id = url.startsWith('attachment:') ? url.slice('attachment:'.length) : undefined;
+    this.viewing.set({ src, alt, ...(id ? { id } : {}) });
     this.viewer().nativeElement.showModal();
     if (!url.startsWith('attachment:')) return;
     const full = await this.attachments.full(url.slice('attachment:'.length));
-    if (full && this.viewing()?.src === src) this.viewing.set({ src: full, alt });
+    if (full && this.viewing()?.src === src) this.viewing.set({ ...this.viewing()!, src: full });
   }
 
   /**
@@ -662,11 +722,36 @@ export class NoteEditorComponent {
   }
 
   protected closeDocument(): void {
+    this.stopTranscription();
     this.openDoc?.close();
     this.openDoc = undefined;
     this.openPages.set(false);
     this.found.set(undefined);
     this.document.set(undefined);
+  }
+
+  /** Asks Claude to transcribe the open photo or PDF (#47). */
+  protected startTranscription(id: string): void {
+    this.stopTranscription();
+    this.transcription.set({ id, state: { status: 'requested' } });
+    this.stopWatching = this.attachments.transcribe(id, (state) => {
+      if (this.transcription()?.id === id) this.transcription.set({ id, state });
+    });
+  }
+
+  protected stopTranscription(): void {
+    this.stopWatching?.();
+    this.stopWatching = undefined;
+    this.transcription.set(undefined);
+  }
+
+  /** Opens the note Claude wrote, closing the viewer. */
+  protected openTranscript(): void {
+    const noteId = this.transcription()?.state.noteId;
+    if (!noteId) return;
+    this.viewer().nativeElement.close();
+    this.fileViewer().nativeElement.close();
+    void this.router.navigate(['/n', noteId]);
   }
 
   /** Finds words in the open PDF (#45), on this device; shows the first page. */

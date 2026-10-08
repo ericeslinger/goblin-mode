@@ -3,7 +3,7 @@ import { type Firestore, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import type { Bucket } from '@google-cloud/storage';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { removeFiles, storageStore } from './storage-store';
+import { removeFiles, storageStore, transcribeStore } from './storage-store';
 
 // Runs inside `npm run e2e`, against the e2e Firestore and Storage
 // emulators, under its own project id and bucket.
@@ -64,5 +64,27 @@ describe('storageStore', () => {
     await removeFiles(bucket, 'u1', 'a1');
     const [left] = await bucket.getFiles({ prefix: 'users/u1/' });
     expect(left.map((f) => f.name)).toEqual(['users/u1/attachments/a2/other.jpg']);
+  });
+});
+
+describe('transcribeStore', () => {
+  it('claims a request once, counting it against the day’s cap (#47)', async () => {
+    const store = transcribeStore(bucket, db, async () => 'n1');
+    const ref = db.doc('users/u1/attachments/a1');
+    await ref.set({ kind: 'image', name: 'x', transcribe: 'requested' });
+    const first = await store.claim('u1', 'a1', '2026-10-08', 2);
+    expect(first.status).toBe('claimed');
+    expect((await ref.get()).data()?.['transcribe']).toBe('working');
+    // Claimed already: a second run leaves it.
+    expect((await store.claim('u1', 'a1', '2026-10-08', 2)).status).toBe('skip');
+    await ref.set({ transcribe: 'requested' }, { merge: true });
+    expect((await store.claim('u1', 'a1', '2026-10-08', 2)).status).toBe('claimed');
+    await ref.set({ transcribe: 'requested' }, { merge: true });
+    expect((await store.claim('u1', 'a1', '2026-10-08', 2)).status).toBe('capped');
+    expect((await db.doc('users/u1/usage/2026-10-08').get()).data()).toEqual({
+      transcriptions: 2,
+    });
+    // A new day starts again.
+    expect((await store.claim('u1', 'a1', '2026-10-09', 2)).status).toBe('claimed');
   });
 });

@@ -296,6 +296,23 @@ text or its kind (Google Doc, Sheet, and so on) that opens Drive in a
 new tab. MCP `get_note` returns `driveFiles` with each id, so Claude
 opens the same file through its Google Drive connector.
 
+**Transcribe (#47, 2026-10-08).** The photo and PDF viewers have a
+Transcribe button. It sets the attachment's `transcribe` to
+`requested` (through the offline cache, once the file has uploaded).
+`attachmentTranscribe`, running as `goblin-titles` like titles, claims
+it in a transaction that counts it in `users/{uid}/usage/<UTC day>`
+(server only; no rule lets a client touch it) and refuses past
+`DAILY_TRANSCRIPTIONS`, 20 a day, ready for M5. It sends a photo as
+an upright JPEG of at most 2400 px, or a PDF as a document, to Claude
+through the same federation, asking for the words as written. The
+result is a new note written as Claude's (`NotesTools.createNote`, so
+it shows in What Claude changed): "Transcription of <name>", the
+original embedded, then a line marking what follows as Claude's
+transcription. Eric's own notes on it, added below, stay his. The
+record ends `done` with `transcriptNoteId`, or `failed` with
+`transcribeError`, which the viewer shows; with no federation set up
+it says so.
+
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
 `[[name]]` inside code is not a link). Notes written before this keep

@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { Router, provideRouter } from '@angular/router';
 import type { EditorView } from '@codemirror/view';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { FakeAttachments } from '../testing/fakes';
@@ -29,7 +30,10 @@ async function render() {
   localStorage.clear();
   await TestBed.configureTestingModule({
     imports: [Host],
-    providers: [{ provide: AttachmentsService, useValue: new FakeAttachments() }],
+    providers: [
+      provideRouter([]),
+      { provide: AttachmentsService, useValue: new FakeAttachments() },
+    ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Host);
   document.body.appendChild(fixture.nativeElement);
@@ -110,6 +114,48 @@ describe('NoteEditorComponent', () => {
     });
     content.dispatchEvent(text);
     expect(fake.attach).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks Claude to transcribe a PDF from its viewer, and opens the note (#47)', async () => {
+    const { fixture } = await render();
+    const fake = TestBed.inject(AttachmentsService) as unknown as FakeAttachments;
+    fake.full.mockResolvedValue(undefined);
+    let update!: (state: {
+      status: 'requested' | 'working' | 'done' | 'failed';
+      noteId?: string;
+    }) => void;
+    fake.transcribe.mockImplementation((_id, u) => {
+      update = u;
+      return () => undefined;
+    });
+    const editor = fixture.debugElement.query(By.directive(NoteEditorComponent))
+      .componentInstance as NoteEditorComponent;
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.open = true;
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.open = false;
+    };
+    await (
+      editor as unknown as { openDocument(id: string, name: string): Promise<void> }
+    ).openDocument('p1', 'receipt.pdf');
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const button = [...el.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Transcribe',
+    )!;
+    button.click();
+    expect(fake.transcribe).toHaveBeenCalledWith('p1', expect.any(Function));
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Claude is transcribing');
+    update({ status: 'done', noteId: 'n9' });
+    await fixture.whenStable();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    [...el.querySelectorAll('button')]
+      .find((b) => b.textContent?.trim() === 'Open the transcription')!
+      .click();
+    expect(navigate).toHaveBeenCalledWith(['/n', 'n9']);
   });
 
   it('gives a mouse a toolbar with one tab stop, moved by arrow keys', async () => {

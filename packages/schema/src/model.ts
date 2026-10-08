@@ -314,6 +314,14 @@ export const Attachment = z.object({
   pages: z.number().optional(),
   /** Links: why the page could not be imported, if it could not (#48). */
   importError: z.string().optional(),
+  /**
+   * Transcription (#47): the app asks with 'requested'; a function
+   * claims it ('working'), then writes a note of Claude's transcription
+   * ('done', `transcriptNoteId`) or says why not ('failed').
+   */
+  transcribe: z.enum(['requested', 'working', 'done', 'failed']).optional(),
+  transcriptNoteId: z.string().optional(),
+  transcribeError: z.string().optional(),
   /** The reading queue: saved to read later (#48), and whether it was. */
   toRead: z.boolean(),
   read: z.boolean(),
@@ -335,6 +343,8 @@ export const paths = {
   activity: (uid: string) => `users/${uid}/activity`,
   proposals: (uid: string) => `users/${uid}/proposals`,
   attachments: (uid: string) => `users/${uid}/attachments`,
+  /** Server only: a day's metered calls, e.g. transcriptions (#47). */
+  usage: (uid: string, day: string) => `users/${uid}/usage/${day}`,
   /** Server only: the texts recent writes replaced, for merges. */
   replaced: (uid: string, noteId: string) => `users/${uid}/notes/${noteId}/replaced`,
   /** Storage: an attachment's files, under its id. */

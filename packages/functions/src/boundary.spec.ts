@@ -16,6 +16,7 @@ const EXPORTS = [
   'attachmentUploaded',
   'attachmentDeleted',
   'attachmentCreated',
+  'attachmentTranscribe',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

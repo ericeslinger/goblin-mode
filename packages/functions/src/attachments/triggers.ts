@@ -1,12 +1,28 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from 'firebase-functions/v2';
-import { onDocumentCreated, onDocumentDeleted } from 'firebase-functions/v2/firestore';
+import {
+  onDocumentCreated,
+  onDocumentDeleted,
+  onDocumentWritten,
+} from 'firebase-functions/v2/firestore';
 import { defineString } from 'firebase-functions/params';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
+import { NotesTools } from '../mcp/tools';
+import { federationFromEnv } from '../notes/claude-titler';
+import { claudeTranscriber } from './claude-transcriber';
 import { importLink, publicFetch } from './import';
+import { type Transcriber, transcribe } from './transcribe';
 import { processUpload } from './process';
-import { importStore, pdfText, removeFiles, sharpThumbnail, storageStore } from './storage-store';
+import {
+  importStore,
+  pdfText,
+  prepForClaude,
+  removeFiles,
+  sharpThumbnail,
+  storageStore,
+  transcribeStore,
+} from './storage-store';
 
 /**
  * The default bucket's region: a Storage trigger must run where its
@@ -57,5 +73,42 @@ export const attachmentCreated = onDocumentCreated(
       record,
     );
     if (outcome !== 'skipped') logger.info('attachmentCreated', { outcome });
+  },
+);
+
+let transcriber: Transcriber | null | undefined;
+
+/**
+ * Transcribe (#47): when the app asks, Claude reads the photo or PDF and
+ * a note of its transcription is written. Runs as the service account
+ * the Claude federation rule trusts, like titles.
+ */
+export const attachmentTranscribe = onDocumentWritten(
+  {
+    document: 'users/{uid}/attachments/{attachmentId}',
+    serviceAccount: 'goblin-titles@',
+    memory: '1GiB',
+    timeoutSeconds: 300,
+  },
+  async (event) => {
+    if (event.data?.after.data()?.['transcribe'] !== 'requested') return;
+    if (transcriber === undefined) {
+      const config = federationFromEnv(process.env);
+      transcriber = config ? claudeTranscriber(config) : null;
+    }
+    const { uid, attachmentId } = event.params;
+    const db = getFirestore();
+    const outcome = await transcribe(
+      transcribeStore(getStorage().bucket(), db, async (owner, body, title) => {
+        const note = await new NotesTools(db, owner).createNote({ body, title });
+        return note.id;
+      }),
+      transcriber,
+      prepForClaude,
+      uid,
+      attachmentId,
+      Date.now(),
+    );
+    logger.info('attachmentTranscribe', { outcome });
   },
 );
