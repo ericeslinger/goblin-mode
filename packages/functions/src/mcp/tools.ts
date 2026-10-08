@@ -4,7 +4,7 @@
 // carry updatedBy 'claude' and deviceId 'claude', so noteHistory keeps
 // the version Claude replaced. Every write also records an activity
 // entry in the same commit, shown in the app as What Claude changed.
-import { findWikiLinks, parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
+import { driveFiles, findWikiLinks, parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   Activity,
   Attachment,
@@ -300,6 +300,9 @@ export class NotesTools {
       body: d['body'],
       tags: d['tags'] ?? [],
       links: d['links'] ?? [],
+      // Drive files the note links to (#50): open them by id through the
+      // Google Drive connector.
+      driveFiles: driveFiles(parseNote(String(d['body'] ?? ''))),
       backlinks: backlinks.map((b) => ({ id: b.id, title: b.get('title') })),
       archived: d['archived'] === true,
       createdAt: iso(d['createdAt']),

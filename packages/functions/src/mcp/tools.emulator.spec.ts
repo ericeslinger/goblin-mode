@@ -79,6 +79,16 @@ describe('NotesTools', () => {
       backlinks: [{ id: 'b', title: 'Groceries' }],
     });
     await expect(t.getNote({ id: 'zz' })).rejects.toBeInstanceOf(ToolError);
+    // Drive files by id, for Claude's Drive connector (#50).
+    await eric('d', 'Budget\nhttps://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMn/edit');
+    expect((await t.getNote({ id: 'd' })).driveFiles).toEqual([
+      {
+        id: '1AbCdEfGhIjKlMn',
+        kind: 'Google Sheet',
+        url: 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMn/edit',
+      },
+    ]);
+    expect((await t.getNote({ id: 'a' })).driveFiles).toEqual([]);
   });
 
   it('stores the ids a note links to, when Claude writes it', async () => {

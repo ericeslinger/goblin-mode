@@ -7,6 +7,7 @@
 // construct is hidden, and widgets replace it, unless the selection is
 // on one of its lines: there it shows as typed, so it can be edited.
 import type { Nodes, Root } from 'mdast';
+import { driveFile } from '../grammar/drive';
 import { ATTACHMENT_SCHEME } from '../grammar/extract';
 
 export type Mode = 'live' | 'source';
@@ -19,7 +20,8 @@ export type DecorationSpec =
   | { kind: 'bullet'; from: number; to: number }
   | { kind: 'wikiLink'; from: number; to: number; target: string; alias?: string }
   | { kind: 'image'; from: number; to: number; url: string; alt: string }
-  | { kind: 'file'; from: number; to: number; id: string; name: string };
+  | { kind: 'file'; from: number; to: number; id: string; name: string }
+  | { kind: 'drive'; from: number; to: number; url: string; label: string };
 
 const TASK_MARKER = /^([-*+]|\d+[.)])[ \t]+\[([ xX])\]/;
 const LIST_MARKER = /^([-*+]|\d+[.)])/;
@@ -118,6 +120,14 @@ export function computeDecorations(
             id: node.url.slice(ATTACHMENT_SCHEME.length),
             name,
           });
+          return;
+        }
+        // A Google Drive file (#50): a chip that opens it in Drive.
+        const drive = driveFile(node.url);
+        if (drive && live && !isActive(node)) {
+          const text = node.children.map((c) => ('value' in c ? c.value : '')).join('');
+          const named = text && text !== node.url ? text : drive.kind;
+          specs.push({ kind: 'drive', from, to, url: drive.url, label: named });
           return;
         }
         specs.push({ kind: 'mark', from, to, className: 'mg-link' });

@@ -143,6 +143,7 @@ export class Reading {
     const tab = window.open('about:blank', '_blank');
     const url = await this.attachments.full(item.id);
     if (url && tab) tab.location.href = url;
+    else if (url) this.status.set('The browser blocked the new tab. Allow pop-ups to open it.');
     else {
       tab?.close();
       this.status.set('This PDF is not on this device yet. Try again online.');

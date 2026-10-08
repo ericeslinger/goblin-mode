@@ -160,6 +160,32 @@ export class FileWidget extends WidgetType {
   }
 }
 
+/** A Google Drive file (#50): a chip that opens it in Drive. */
+export class DriveWidget extends WidgetType {
+  constructor(
+    readonly url: string,
+    readonly label: string,
+  ) {
+    super();
+  }
+
+  override eq(other: DriveWidget): boolean {
+    return other.url === this.url && other.label === this.label;
+  }
+
+  toDOM(): HTMLElement {
+    const chip = document.createElement('a');
+    chip.className = 'mg-file mg-drive';
+    chip.href = this.url;
+    chip.target = '_blank';
+    chip.rel = 'noopener noreferrer';
+    chip.textContent = `\u{1F5C2} ${this.label}`;
+    chip.setAttribute('aria-label', `Open ${this.label} in Google Drive`);
+    chip.addEventListener('mousedown', (e) => e.preventDefault());
+    return chip;
+  }
+}
+
 /** A list item's `-`, `*` or `+`, drawn as a bullet off the edited line. */
 export class BulletWidget extends WidgetType {
   override eq(): boolean {

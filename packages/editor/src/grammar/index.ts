@@ -4,3 +4,4 @@ export { parseNote } from './parse';
 export { renderNoteHtml, type RenderOptions } from './render';
 export { ATTACHMENT_SCHEME, attachmentIds, tasks, wikiLinkTargets, type Task } from './extract';
 export { findWikiLinks, remarkWikiLinks, type WikiLink } from './wikilink';
+export { driveFile, driveFiles, type DriveFile } from './drive';
