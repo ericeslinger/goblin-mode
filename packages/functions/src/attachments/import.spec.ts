@@ -101,6 +101,10 @@ describe('the fetch guard', () => {
       'fd00::1',
       'fe80::1',
       '::ffff:127.0.0.1',
+      '::7f00:1',
+      '64:ff9b::7f00:1',
+      '2002:7f00:1::1',
+      '2001:0:4136:e378::1',
       'metadata.google.internal',
     ]) {
       expect(isPublicAddress(no)).toBe(false);
@@ -114,6 +118,31 @@ describe('the fetch guard', () => {
     );
     await expect(publicFetch('http://[::1]:8080/')).rejects.toThrow('not a public address');
     await expect(publicFetch('http://localhost/')).rejects.toThrow('not a public address');
+  });
+});
+
+describe('the fetch guard on redirects', () => {
+  const redirect = (location: string) => new Response(null, { status: 302, headers: { location } });
+
+  it('checks every hop: a private host, another scheme, too many hops', async () => {
+    const fetchMock = vi.fn(async () => redirect('http://169.254.169.254/latest'));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(publicFetch('http://93.184.216.34/a')).rejects.toThrow('not a public address');
+      expect(fetchMock).toHaveBeenCalledOnce();
+      fetchMock.mockImplementation(async () => redirect('file:///etc/passwd'));
+      await expect(publicFetch('http://93.184.216.34/a')).rejects.toThrow('only http and https');
+      fetchMock.mockImplementation(async () => redirect('http://93.184.216.34/again'));
+      await expect(publicFetch('http://93.184.216.34/a')).rejects.toThrow('too many redirects');
+      expect(fetchMock).toHaveBeenCalledTimes(1 + 1 + 6);
+      fetchMock.mockImplementation(
+        async () => new Response('<title>Hi</title>', { headers: { 'content-type': 'text/html' } }),
+      );
+      const page = await publicFetch('http://93.184.216.34/a');
+      expect(new TextDecoder().decode(page.bytes)).toBe('<title>Hi</title>');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

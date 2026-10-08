@@ -4,7 +4,7 @@
 // trigger then reads. Over small interfaces, so it runs in specs.
 import { BlockList, isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { TEXT_METADATA } from './process';
+import { MAX_TEXT, TEXT_METADATA } from './process';
 
 /** The most a page or PDF may weigh, as for uploads. */
 export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
@@ -129,7 +129,7 @@ export async function importLink(
     const textPath = `users/${uid}/attachments/${id}/text_page.txt`;
     await store.write(
       textPath,
-      new TextEncoder().encode(text),
+      new TextEncoder().encode(text.slice(0, MAX_TEXT)),
       'text/plain; charset=utf-8',
       TEXT_METADATA,
     );
@@ -157,12 +157,14 @@ for (const [net, bits] of [
 ] as const) {
   PRIVATE.addSubnet(net, bits, 'ipv4');
 }
+/** IPv6 is allowed only in global unicast, less the tunnels that wrap IPv4. */
+const GLOBAL_V6 = new BlockList();
+GLOBAL_V6.addSubnet('2000::', 3, 'ipv6');
 for (const [net, bits] of [
-  ['::', 128],
-  ['::1', 128],
-  ['fc00::', 7],
-  ['fe80::', 10],
-  ['ff00::', 8],
+  // 6to4 and Teredo carry an IPv4 address inside; and documentation.
+  ['2002::', 16],
+  ['2001::', 32],
+  ['2001:db8::', 32],
 ] as const) {
   PRIVATE.addSubnet(net, bits, 'ipv6');
 }
@@ -173,6 +175,9 @@ export function isPublicAddress(address: string): boolean {
   if (mapped) return isPublicAddress(mapped);
   const family = isIP(address);
   if (family === 0) return false;
+  // Only global unicast: no loopback, link-local, unique-local,
+  // IPv4-compatible (::7f00:1) or NAT64 (64:ff9b::) addresses (review on #99).
+  if (family === 6 && !GLOBAL_V6.check(address, 'ipv6')) return false;
   return !PRIVATE.check(address, family === 4 ? 'ipv4' : 'ipv6');
 }
 

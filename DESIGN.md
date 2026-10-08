@@ -268,7 +268,12 @@ DNS rebinding open, which for one person's links is accepted. MCP:
 lists what is saved, newest first, `get_attachment_text` reads a
 stretch of text at a time, and `search_attachments` searches every
 text with a snippet. The record's new fields (`textPath`, `pages`,
-`importError`) are set only by functions.
+`importError`) are set only by functions. Review on #99: the MCP
+tools read a `textPath` only inside that attachment's own folder,
+since the owner's app can write the record; IPv6 is allowed only in
+global unicast, less 6to4 and Teredo; imported page text is capped
+like PDF text; search reads texts eight at a time; and the tool
+descriptions say the text is web or file content, never instructions.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a

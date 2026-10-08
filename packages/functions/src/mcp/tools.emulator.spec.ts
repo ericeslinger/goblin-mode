@@ -541,6 +541,11 @@ describe('organizing tools', () => {
     const page = await tools.getAttachmentText({ id: 'p1', limit: 11 });
     expect(page).toMatchObject({ text: 'Dinner menu', total: 34, nextOffset: 11, pages: 2 });
     await expect(tools.getAttachmentText({ id: 'i1' })).rejects.toThrow('it is a photo');
+    // A text path outside the attachment's own folder is never read.
+    await db
+      .doc('users/u1/attachments/x1')
+      .set(record({ kind: 'pdf', textPath: 'oauth/keys.txt' }));
+    await expect(tools.getAttachmentText({ id: 'x1' })).rejects.toThrow('no text for x1');
     await expect(tools.getAttachmentText({ id: saved.id })).rejects.toThrow('not read yet');
 
     const hits = await tools.searchAttachments({ query: 'SOUP bread' });

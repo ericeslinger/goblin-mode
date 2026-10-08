@@ -1171,8 +1171,8 @@ export class NotesTools {
     const doc = await this.attachments().doc(args.id).get();
     if (!doc.exists) throw new ToolError(`no attachment ${args.id}`);
     const data = doc.data()!;
-    const textPath = data['textPath'];
-    if (typeof textPath !== 'string') {
+    const textPath = this.ownText(args.id, data['textPath']);
+    if (textPath === undefined) {
       const why =
         data['importError'] ?? (data['kind'] === 'image' ? 'it is a photo' : 'not read yet');
       throw new ToolError(`no text for ${args.id}: ${String(why)}`);
@@ -1190,25 +1190,47 @@ export class NotesTools {
     };
   }
 
+  /**
+   * An attachment's text file, only if it lies in that attachment's own
+   * folder: the owner's app can write the record, and the bucket is
+   * read here with the server's rights (review on #99).
+   */
+  private ownText(id: string, path: unknown): string | undefined {
+    const folder = `${paths.attachmentFiles(this.uid, id)}/`;
+    return typeof path === 'string' && path.startsWith(folder) && !path.includes('..')
+      ? path
+      : undefined;
+  }
+
   /** Searches the text of PDFs and saved pages (#45): every word must appear. */
   async searchAttachments(args: { query: string; limit?: number }) {
     const words = args.query.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) throw new ToolError('query must have a word');
     const snap = await this.attachments().get();
+    const withText = snap.docs.flatMap((d) => {
+      const path = this.ownText(d.id, d.data()['textPath']);
+      return path === undefined ? [] : [{ id: d.id, data: d.data(), path }];
+    });
+    withText.sort(
+      (a, b) => (millis(b.data['createdAt']) ?? 0) - (millis(a.data['createdAt']) ?? 0),
+    );
+    const limit = args.limit ?? 10;
     const found: Data[] = [];
-    for (const d of snap.docs) {
-      const data = d.data();
-      if (typeof data['textPath'] !== 'string') continue;
-      const text = await this.readText(data['textPath']).catch(() => '');
-      if (!matchesSearch({ title: String(data['name'] ?? ''), body: text }, args.query)) continue;
-      const at = Math.max(0, text.toLowerCase().indexOf(words[0]));
-      const from = Math.max(0, at - 120);
-      const snippet = text
-        .slice(from, at + 200)
-        .replace(/\s+/g, ' ')
-        .trim();
-      found.push({ ...attachmentView(d.id, data), snippet });
-      if (found.length >= (args.limit ?? 10)) break;
+    // A few at a time, newest first, until enough are found (review on #99).
+    for (let i = 0; i < withText.length && found.length < limit; i += 8) {
+      const batch = withText.slice(i, i + 8);
+      const texts = await Promise.all(batch.map((d) => this.readText(d.path).catch(() => '')));
+      batch.forEach((d, k) => {
+        const text = texts[k];
+        if (found.length >= limit) return;
+        if (!matchesSearch({ title: String(d.data['name'] ?? ''), body: text }, args.query)) return;
+        const at = Math.max(0, text.toLowerCase().indexOf(words[0]));
+        const snippet = text
+          .slice(Math.max(0, at - 120), at + 200)
+          .replace(/\s+/g, ' ')
+          .trim();
+        found.push({ ...attachmentView(d.id, d.data), snippet });
+      });
     }
     return found;
   }
