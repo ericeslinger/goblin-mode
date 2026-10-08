@@ -74,6 +74,18 @@ itself (functions queue wakes as it). Without the API or
 already shipped); without the last two it deploys, and pushes still
 go, up to an hour late, from the hourly `sendDuePush`.
 
+Photos (#44) are downloaded by the app with the owner's credentials, so
+the Storage bucket must allow your domain. Once, as a project owner,
+with `<bucket>` from `gcloud storage buckets list`:
+
+```bash
+echo '[{"origin": ["https://<APP_DOMAIN>"], "method": ["GET"], "maxAgeSeconds": 3600}]' > cors.json
+gcloud storage buckets update gs://<bucket> --cors-file=cors.json
+```
+
+Without it a photo shows only on the device that took it, until that
+device's copy is gone; elsewhere its caption shows instead.
+
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
 `OWNER_UID` can approve it. For nightly suggestions, add the routine
