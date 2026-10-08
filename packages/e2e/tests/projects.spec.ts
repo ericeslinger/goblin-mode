@@ -20,7 +20,7 @@ async function makeProject(page: Page, name: string): Promise<void> {
 
 test('a project files under another, with its kind, status and tasks', async ({ page }) => {
   await signInAs(page, OWNER);
-  await typeLines(page, ['Plans', 'Work on [[Sprout]] and [[Sprout docs]] this week.']);
+  await typeLines(page, ['Plans', 'Work on [[Sprout]] and [[Sprout docs]] this week.', 'soon']);
   await letItSave(page);
 
   await makeProject(page, 'Sprout');
