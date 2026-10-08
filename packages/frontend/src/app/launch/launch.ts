@@ -10,6 +10,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -138,6 +139,9 @@ export class Launch {
   private readonly entryFrom = signal<string | undefined>(undefined);
   private readonly shareInbox = inject(SHARE_INBOX);
   private readonly injector = inject(Injector);
+  private readonly doc = inject(DOCUMENT);
+  /** The note the latest share went into. */
+  private shareNote?: string;
   protected readonly previousOpen = signal(false);
   protected readonly templatesOpen = signal(false);
   /** The More menu (#78): everything but writing, one tap away. */
@@ -185,10 +189,16 @@ export class Launch {
       if (id) void this.router.navigate(['/n', id], { replaceUrl: true });
       // Shared from another app (#42, #46): a new note holding the words,
       // the link and the files.
-      const shared = sharedText(params.get('title'), params.get('text'), params.get('url'));
-      const files = params.get('shared');
+      // Only from this device: another site's link must not plant text
+      // a later Claude would read (review on #98).
+      const local = this.cameFromHere();
+      const shared = local
+        ? sharedText(params.get('title'), params.get('text'), params.get('url'))
+        : '';
+      const files = local ? params.get('shared') : null;
       if (shared || files) {
         this.capture.newNote();
+        this.shareNote = this.capture.open().id;
         if (shared) this.capture.replace(shared);
         void this.router.navigate(['/'], { replaceUrl: true }).then(() => {
           if (files === 'lost') {
@@ -199,10 +209,19 @@ export class Launch {
         if (files && files !== 'lost') {
           afterNextRender(() => void this.takeSharedFiles(), { injector: this.injector });
         }
+      } else if (params.has('text') || params.has('shared')) {
+        void this.router.navigate(['/'], { replaceUrl: true });
       }
       // A reminder's link (#40): to a template, it means a new entry.
       const routed = this.route.snapshot.paramMap.get('id');
       if (params.get('from') === 'reminder' && routed) this.entryFrom.set(routed);
+    });
+    // Files shared while signed out wait for the editor (review on #98).
+    let drained = false;
+    effect(() => {
+      if (drained || !this.editor()) return;
+      drained = true;
+      untracked(() => void this.takeSharedFiles());
     });
     effect(() => {
       const id = this.entryFrom();
@@ -332,12 +351,36 @@ export class Launch {
   }
 
   /** Files sw.js kept from a share go into the new note (#46). */
-  private async takeSharedFiles(): Promise<void> {
-    // Signed out there is no note to put them in: they wait in the inbox.
+  /** One take at a time, so two callers never split a share. */
+  private taking = Promise.resolve();
+
+  private takeSharedFiles(): Promise<void> {
+    this.taking = this.taking
+      .then(() => this.takeShared())
+      .catch((err) => console.error('shared files not taken', err));
+    return this.taking;
+  }
+
+  private async takeShared(): Promise<void> {
+    // Signed out there is no note to put them in: they wait in the inbox,
+    // taken when the editor first shows (review on #98).
     const editor = this.editor();
     if (!editor) return;
     const files = await this.shareInbox.take();
-    if (files.length) await editor.addFiles(files);
+    if (!files.length) return;
+    // Into the note the share made, or a new one: never another note.
+    if (this.capture.open().id !== this.shareNote) {
+      this.capture.newNote();
+      this.shareNote = this.capture.open().id;
+      void this.router.navigate(['/'], { replaceUrl: true });
+    }
+    await editor.addFiles(files);
+  }
+
+  /** The page was opened by this app or the share sheet, not another site. */
+  private cameFromHere(): boolean {
+    const from = this.doc.referrer;
+    return !from || new URL(from).origin === this.doc.location.origin;
   }
 
   /** A tick or Done shopping in the list view. */

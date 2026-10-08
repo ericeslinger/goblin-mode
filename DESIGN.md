@@ -236,7 +236,19 @@ note with the words and puts the files in through the same path as
 the attach button. A share that reaches the Cloudflare Worker before
 the service worker is installed keeps its words; its files cannot be
 kept there, so the app says to share them again. In the editor, a
-pasted or dropped image or PDF goes in the same way.
+pasted or dropped image or PDF goes in the same way. Review on #98:
+a paste that also carries text is the editor's own text paste (a
+spreadsheet copy brings a picture of itself), while a drop of files
+is always files. Files shared while signed out wait in the cache and
+go into a new note when the editor first shows; ones over a day old
+are dropped. A share must come from this device: `sw.js` and the
+Worker refuse a POST whose `Sec-Fetch-Site` is cross-site or
+same-site, or whose referrer is another origin, and the app ignores
+`?text=` opened from another site's page, so a page cannot plant
+text Claude would later read. Android's share sheet sends none of
+those; that, and the move of every installed copy from
+`ngsw-worker.js` to `sw.js` (same scope, caches and push
+subscription), want a check on the phone after the deploy.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a

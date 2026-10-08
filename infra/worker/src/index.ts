@@ -27,6 +27,9 @@ export function functionFor(pathname: string): string | undefined {
   return undefined;
 }
 
+/** The largest share body the fallback reads, in bytes. */
+export const MAX_SHARE_BODY = 30 * 1024 * 1024;
+
 /**
  * A share (#46) that reached the server: the app's service worker was
  * not installed yet to take it. The words and link go on to the app in
@@ -34,6 +37,15 @@ export function functionFor(pathname: string): string | undefined {
  */
 export async function shareFallback(request: Request): Promise<Response> {
   const params = new URLSearchParams();
+  const home = new URL('/', request.url).toString();
+  // Only a share from this device: another site posting here could plant
+  // text a later Claude would read (review on #98).
+  const site = request.headers.get('sec-fetch-site');
+  if (site === 'cross-site' || site === 'same-site') return Response.redirect(home, 303);
+  // Words are small; a body this big is files, which cannot be kept here.
+  if (Number(request.headers.get('content-length') ?? 0) > MAX_SHARE_BODY) {
+    return Response.redirect(`${home}?shared=lost`, 303);
+  }
   try {
     const form = await request.formData();
     for (const key of ['title', 'text', 'url']) {

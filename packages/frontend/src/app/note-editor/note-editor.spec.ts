@@ -89,7 +89,7 @@ describe('NoteEditorComponent', () => {
     fake.inspect.mockImplementation(async (f: File) => ({ type: f.type }));
     const photo = new File(['x'], 'shot.png', { type: 'image/png' });
     const paste = new Event('paste', { bubbles: true, cancelable: true });
-    Object.defineProperty(paste, 'clipboardData', { value: { files: [photo] } });
+    Object.defineProperty(paste, 'clipboardData', { value: { files: [photo], getData: () => '' } });
     content.dispatchEvent(paste);
     expect(paste.defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(fake.attach).toHaveBeenCalledOnce());
@@ -103,10 +103,10 @@ describe('NoteEditorComponent', () => {
     expect(fake.inspect).toHaveBeenCalledWith(pdf, 'pdf');
     expect(fixture.componentInstance.changes.at(-1)).toContain('[paper.pdf](attachment:');
 
-    // Text pastes are the editor's own.
+    // Text pastes are the editor's own, even with a picture of the text.
     const text = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(text, 'clipboardData', {
-      value: { files: [], getData: () => 'hi', types: ['text/plain'] },
+      value: { files: [photo], getData: () => 'A1 B1', types: ['text/plain', 'Files'] },
     });
     content.dispatchEvent(text);
     expect(fake.attach).toHaveBeenCalledTimes(2);

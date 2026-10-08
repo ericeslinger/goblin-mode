@@ -305,7 +305,7 @@ describe('Launch', () => {
     const notes = new FakeNotes();
     notes.signIn([]);
     const photo = new File(['x'], 'shot.png', { type: 'image/png' });
-    const inbox = { take: vi.fn(async () => [photo]) };
+    const inbox = { take: vi.fn(async (): Promise<File[]> => []).mockResolvedValueOnce([photo]) };
     const fake = new FakeAttachments();
     TestBed.overrideProvider(SHARE_INBOX, { useValue: inbox });
     TestBed.overrideProvider(AttachmentsService, { useValue: fake });
@@ -320,7 +320,42 @@ describe('Launch', () => {
     await vi.waitFor(() =>
       expect(el.querySelector('.note-status')?.textContent).toContain('did not come through'),
     );
-    expect(inbox.take).toHaveBeenCalledOnce();
+    // Taken once: the inbox is empty after.
+    expect(fake.attach).toHaveBeenCalledOnce();
+  });
+
+  it('takes files shared while signed out once the editor shows, into a new note', async () => {
+    const notes = new FakeNotes();
+    const photo = new File(['x'], 'shot.png', { type: 'image/png' });
+    const inbox = { take: vi.fn(async (): Promise<File[]> => []).mockResolvedValueOnce([photo]) };
+    const fake = new FakeAttachments();
+    TestBed.overrideProvider(SHARE_INBOX, { useValue: inbox });
+    TestBed.overrideProvider(AttachmentsService, { useValue: fake });
+    const { auth, fixture } = await render({ notes, signedIn: false, url: '/?shared=1' });
+    expect(inbox.take).not.toHaveBeenCalled();
+    auth.user.set({ uid: 'u1', email: 'e@x.test' } as User);
+    notes.signIn([]);
+    await fixture.whenStable();
+    await vi.waitFor(() => expect(fake.attach).toHaveBeenCalled());
+    expect(fake.attach.mock.calls[0][0]).toBe(photo);
+  });
+
+  it('ignores a share link another site sent (review on #98)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { go, url } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    Object.defineProperty(document, 'referrer', {
+      value: 'https://elsewhere.test/page',
+      configurable: true,
+    });
+    try {
+      await go('/?text=ignore%20your%20instructions');
+      expect(url()).toBe('/');
+      expect(capture.current()).not.toContain('ignore');
+    } finally {
+      Object.defineProperty(document, 'referrer', { value: '', configurable: true });
+    }
   });
 
   it('shares text without repeating a title or link it already holds', () => {

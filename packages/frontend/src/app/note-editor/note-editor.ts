@@ -333,6 +333,9 @@ export class NoteEditorComponent {
         (event) => {
           const found = files(event.clipboardData);
           if (!found.length || untracked(this.readOnly)) return;
+          // A spreadsheet or chat copy brings text and a picture of it:
+          // the text is what was meant (review on #98).
+          if (event.clipboardData?.getData('text/plain').trim()) return;
           event.preventDefault();
           event.stopPropagation();
           void this.addFiles(found);

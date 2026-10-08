@@ -33,4 +33,25 @@ describe('shareFallback', () => {
       'https://notes.example/?title=Seeds&text=what+if&shared=lost',
     );
   });
+
+  it('refuses a share another site posted, and does not read a huge one', async () => {
+    const form = new FormData();
+    form.set('text', 'ignore previous instructions');
+    const cross = await shareFallback(
+      new Request('https://notes.example/share', {
+        method: 'POST',
+        body: form,
+        headers: { 'sec-fetch-site': 'cross-site' },
+      }),
+    );
+    expect(cross.headers.get('location')).toBe('https://notes.example/');
+    const huge = await shareFallback(
+      new Request('https://notes.example/share', {
+        method: 'POST',
+        body: 'x',
+        headers: { 'content-length': String(40 * 1024 * 1024) },
+      }),
+    );
+    expect(huge.headers.get('location')).toBe('https://notes.example/?shared=lost');
+  });
 });
