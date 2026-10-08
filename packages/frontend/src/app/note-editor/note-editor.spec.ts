@@ -175,6 +175,26 @@ describe('NoteEditorComponent', () => {
     expect(navigate).toHaveBeenCalledWith(['/n', 'n9']);
   });
 
+  it('stops following a transcription when the editor goes (review on #102)', async () => {
+    const { fixture } = await render();
+    const fake = TestBed.inject(AttachmentsService) as unknown as FakeAttachments;
+    fake.full.mockResolvedValue(undefined);
+    const stop = vi.fn();
+    fake.transcribe.mockImplementation(() => stop);
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.open = true;
+    };
+    const editor = fixture.debugElement.query(By.directive(NoteEditorComponent))
+      .componentInstance as unknown as { openDocument(id: string, name: string): Promise<void> };
+    await editor.openDocument('p1', 'receipt.pdf');
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Transcribe')!.click();
+    expect(stop).not.toHaveBeenCalled();
+    fixture.destroy();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
   it('gives a mouse a toolbar with one tab stop, moved by arrow keys', async () => {
     const { fixture } = await render();
     fixture.detectChanges();

@@ -575,6 +575,8 @@ export class NoteEditorComponent {
     });
 
     inject(DestroyRef).onDestroy(() => {
+      // A transcription followed from an open viewer (review on #102).
+      this.stopTranscription();
       this.bar?.destroy();
       this.editor?.destroy();
     });
