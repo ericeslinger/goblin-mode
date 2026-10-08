@@ -1,5 +1,9 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { ProjectKind, ProjectStatus, childrenOf, selfAndDescendants } from '@mossgoblin/schema';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
+import { KINDS, STATUSES, kindLabel, statusLabel } from './project-labels';
+import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
 
 const TYPES = [
   { id: 'person', label: 'Person' },
@@ -10,9 +14,12 @@ const TYPES = [
 /**
  * A concept's name, type and other names, above its text (#30). Renaming
  * keeps the concept and its links: the old name becomes another name.
+ * A project (#41) also has a parent, a kind and a status, lists the
+ * projects under it, and shows its tasks: reminders linked to it.
  */
 @Component({
   selector: 'app-concept-header',
+  imports: [RouterLink],
   template: `
     <section class="concept" aria-label="Concept">
       <div class="row">
@@ -27,7 +34,7 @@ const TYPES = [
         </label>
         <label class="type">
           <span class="visually-hidden">Type</span>
-          <select #type (change)="notes.updateConcept(note().id, { conceptType: type.value })">
+          <select #type (change)="setType(type.value)">
             @for (t of types; track t.id) {
               <option [value]="t.id" [selected]="t.id === kind()">{{ t.label }}</option>
             }
@@ -57,6 +64,88 @@ const TYPES = [
           />
         </label>
       </div>
+      @if (kind() === 'project') {
+        <div class="project">
+          <label>
+            Parent
+            <select #parent (change)="setParent(parent.value)">
+              <option value="" [selected]="!note().parent">None</option>
+              @for (p of parents(); track p.id) {
+                <option [value]="p.id" [selected]="p.id === note().parent">{{ p.title }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Kind
+            <select
+              #pkind
+              (change)="notes.updateConcept(note().id, { projectKind: $any(pkind.value) })"
+            >
+              @if (!note().projectKind) {
+                <option value="" selected disabled>Choose</option>
+              }
+              @for (k of kinds; track k.id) {
+                <option [value]="k.id" [selected]="k.id === note().projectKind">
+                  {{ k.label }}
+                </option>
+              }
+            </select>
+          </label>
+          <label>
+            Status
+            <select
+              #pstatus
+              (change)="notes.updateConcept(note().id, { projectStatus: $any(pstatus.value) })"
+            >
+              @if (!note().projectStatus) {
+                <option value="" selected disabled>Choose</option>
+              }
+              @for (s of statuses; track s.id) {
+                <option [value]="s.id" [selected]="s.id === note().projectStatus">
+                  {{ s.label }}
+                </option>
+              }
+            </select>
+          </label>
+        </div>
+        @if (children().length) {
+          <div class="children">
+            <h2 id="sub-projects">Projects in {{ note().title }}</h2>
+            <ul aria-labelledby="sub-projects">
+              @for (c of children(); track c.id) {
+                <li>
+                  <a [routerLink]="['/n', c.id]">{{ c.title }}</a>
+                  <span class="meta">{{ meta(c) }}</span>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+        <div class="tasks">
+          <h2 id="project-tasks">Tasks</h2>
+          @if (tasks().length) {
+            <ul aria-labelledby="project-tasks">
+              @for (t of tasks(); track t.id) {
+                <li>
+                  <span>{{ t.text }}</span>
+                  <button type="button" [attr.aria-label]="'Done: ' + t.text" (click)="done(t)">
+                    Done
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+          <label>
+            <span class="visually-hidden">Add a task</span>
+            <input
+              #task
+              placeholder="+ task"
+              enterkeyhint="done"
+              (change)="addTask(task.value); task.value = ''"
+            />
+          </label>
+        </div>
+      }
       @if (refusal()) {
         <p class="refusal" role="status">{{ refusal() }}</p>
       }
@@ -130,6 +219,57 @@ const TYPES = [
       display: inline;
       margin: 0;
     }
+    .project {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1) var(--space-3);
+      padding-bottom: var(--space-2);
+      font-size: 14px;
+      color: var(--quiet);
+    }
+    .project select {
+      margin-left: var(--space-1);
+    }
+    h2 {
+      margin: 0 0 var(--space-1);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--quiet);
+    }
+    .children ul,
+    .tasks ul {
+      display: block;
+      margin: 0 0 var(--space-2);
+      padding: 0;
+    }
+    .children li,
+    .tasks li {
+      display: flex;
+      gap: var(--space-2);
+      align-items: center;
+      padding: 0;
+      background: none;
+      font-size: 14px;
+    }
+    .meta {
+      color: var(--quiet);
+    }
+    .tasks li button {
+      min-height: 32px;
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      color: var(--ink);
+    }
+    .tasks input {
+      font: inherit;
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--surface);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      padding: var(--space-1) var(--space-2);
+      margin-bottom: var(--space-2);
+    }
     .refusal {
       margin: 0 0 var(--space-2);
       font-size: 14px;
@@ -139,12 +279,57 @@ const TYPES = [
 })
 export class ConceptHeader {
   protected readonly notes = inject(NotesService);
+  private readonly reminders = inject(RemindersService);
   readonly note = input.required<NoteRecord>();
+  /** The concept became a project: its text needs the project sections. */
+  readonly becameProject = output<void>();
   protected readonly types = TYPES;
+  protected readonly kinds = KINDS;
+  protected readonly statuses = STATUSES;
+  private readonly projects = computed(() =>
+    this.notes
+      .notes()
+      .filter((n) => n.kind === 'concept' && n.conceptType === 'project' && !n.archived),
+  );
+  /** Projects this one may go under: not itself, nor anything under it. */
+  protected readonly parents = computed(() => {
+    const below = selfAndDescendants(this.note().id, this.projects());
+    return this.projects()
+      .filter((p) => !below.has(p.id))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  });
+  protected readonly children = computed(() =>
+    childrenOf(this.note().id, this.projects()).sort((a, b) => a.title.localeCompare(b.title)),
+  );
+  protected readonly tasks = computed(() =>
+    this.reminders.reminders().filter((r) => r.noteId === this.note().id && r.status !== 'done'),
+  );
   protected readonly kind = computed(() => this.note().conceptType ?? 'other');
   protected readonly synonyms = computed(() => this.note().synonyms ?? []);
 
   protected readonly refusal = signal('');
+
+  protected setType(type: string): void {
+    this.notes.updateConcept(this.note().id, { conceptType: type });
+    if (type === 'project') this.becameProject.emit();
+  }
+
+  protected setParent(id: string): void {
+    this.notes.updateConcept(this.note().id, { parent: id || null });
+  }
+
+  protected meta(p: NoteRecord): string {
+    return [kindLabel(p.projectKind), statusLabel(p.projectStatus)].filter(Boolean).join(' · ');
+  }
+
+  protected addTask(text: string): void {
+    if (!text.trim()) return;
+    this.reminders.add({ text, noteId: this.note().id });
+  }
+
+  protected done(task: ReminderRecord): void {
+    this.reminders.done(task);
+  }
 
   protected rename(input: HTMLInputElement): void {
     const title = input.value.trim();

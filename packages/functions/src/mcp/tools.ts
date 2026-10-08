@@ -9,6 +9,8 @@ import {
   Activity,
   type ConceptType,
   Note,
+  type ProjectKind,
+  type ProjectStatus,
   type Touched,
   type Recurrence,
   Reminder,
@@ -27,6 +29,7 @@ import {
   snoozeUntil,
   templateParts,
   textHash,
+  withProjectSections,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -140,6 +143,13 @@ function timesData(t: {
 /** Drops FieldValue.delete() entries, to validate the document as it will be. */
 function withoutDeletes(d: Data): Data {
   return Object.fromEntries(Object.entries(d).filter(([, v]) => !(v instanceof FieldValue)));
+}
+
+/** The live projects in `docs`, with their parents, for filing one under another (#41). */
+function projectsIn(docs: { id: string; data: Data }[]) {
+  return docs
+    .filter((d) => d.data['conceptType'] === 'project' && d.data['archived'] !== true)
+    .map((d) => ({ id: d.id, parent: d.data['parent'] as string | undefined }));
 }
 
 /** The longest concept name, and the most other names or tags, create_concept takes. */
@@ -305,6 +315,10 @@ export class NotesTools {
     synonyms?: string[];
     body?: string;
     tags?: string[];
+    /** A project's parent project, kind and status (#41). */
+    parent?: string;
+    kind?: ProjectKind;
+    status?: ProjectStatus;
   }) {
     const name = args.name.trim();
     if (!name) throw new ToolError('name must not be empty');
@@ -316,12 +330,18 @@ export class NotesTools {
       throw new ToolError(`at most ${MAX_NAMES} other names and ${MAX_NAMES} tags`);
     if (synonyms.some((s) => s.length > MAX_NAME))
       throw new ToolError(`a name is at most ${MAX_NAME} characters`);
-    const names = await this.names();
+    const project = args.type === 'project';
+    if (!project && (args.parent || args.kind || args.status))
+      throw new ToolError('only a project has a parent, a kind and a status');
+    const { docs, index: names } = await this.garden();
+    if (args.parent && !projectsIn(docs).some((p) => p.id === args.parent))
+      throw new ToolError(`no project ${args.parent}`);
     const id = conceptId(name);
     const taken = [name, ...synonyms].filter((n) => names.has(normalizeName(n)));
     if (taken.length) throw new ToolError(`already a name in the garden: ${taken.join(', ')}`);
     const now = Timestamp.fromMillis(this.now());
-    const body = args.body ?? '';
+    // A project's text holds its sections; what was given goes under Overview.
+    const body = project ? withProjectSections(args.body ?? '') : (args.body ?? '');
     const data = Note.parse({
       kind: 'concept',
       body,
@@ -329,6 +349,9 @@ export class NotesTools {
       // A concept's name is Eric's: a settle never retitles it.
       titleSource: 'user',
       conceptType: args.type ?? 'other',
+      ...(args.parent ? { parent: args.parent } : {}),
+      ...(args.kind ? { projectKind: args.kind } : {}),
+      ...(args.status ? { projectStatus: args.status } : {}),
       synonyms,
       links: resolveLinks(targetsOf(body), names),
       tags,
@@ -432,6 +455,13 @@ export class NotesTools {
         title: String(d.data['title'] ?? ''),
         type: (d.data['conceptType'] as string | undefined) ?? 'other',
         synonyms: (d.data['synonyms'] as string[] | undefined) ?? [],
+        ...(d.data['conceptType'] === 'project'
+          ? {
+              parent: d.data['parent'] as string | undefined,
+              kind: d.data['projectKind'] as string | undefined,
+              status: d.data['projectStatus'] as string | undefined,
+            }
+          : {}),
         linkedFrom: counts.get(d.id) ?? 0,
       }))
       .sort((a, b) => b.linkedFrom - a.linkedFrom || a.title.localeCompare(b.title));
@@ -654,6 +684,10 @@ export class NotesTools {
     addSynonyms?: string[];
     addTags?: string[];
     removeTags?: string[];
+    /** A project's parent; null makes it top level (#41). */
+    parent?: string | null;
+    kind?: ProjectKind;
+    status?: ProjectStatus;
   }) {
     const { index } = await this.garden();
     const ref = this.notes().doc(args.id);
@@ -669,6 +703,54 @@ export class NotesTools {
       if (args.type && args.type !== (current['conceptType'] ?? 'other')) {
         update['conceptType'] = args.type;
         said.push(`filed as ${args.type === 'other' ? 'a concept' : `a ${args.type}`}`);
+        if (args.type === 'project') {
+          // The project sections, Eric's text kept word for word under Overview.
+          const body = String(current['body'] ?? '');
+          const sectioned = withProjectSections(body);
+          if (sectioned !== body) {
+            update['body'] = sectioned;
+            update['baseHash'] = textHash(body);
+            said.push('added the project sections');
+          }
+        }
+      }
+      const project = (args.type ?? current['conceptType']) === 'project';
+      if (!project && (args.parent !== undefined || args.kind || args.status))
+        throw new ToolError('only a project has a parent, a kind and a status');
+      if (args.parent === null || args.parent === '') {
+        if (current['parent'] !== undefined) {
+          update['parent'] = FieldValue.delete();
+          said.push('moved to the top level');
+        }
+      } else if (args.parent !== undefined && args.parent !== current['parent']) {
+        // Up the new parent's chain, read in this transaction, so two
+        // moves at once cannot make a loop (review on #95).
+        let parentTitle = '';
+        const seen = new Set<string>();
+        for (let at: string | undefined = args.parent; at;) {
+          if (at === args.id)
+            throw new ToolError('a project cannot go under itself or a project under it');
+          if (seen.has(at)) break;
+          seen.add(at);
+          const up = await tx.get(this.notes().doc(at));
+          const data = up.data();
+          if (!up.exists || data?.['conceptType'] !== 'project' || data['archived'] === true) {
+            if (at === args.parent) throw new ToolError(`no project ${args.parent}`);
+            break;
+          }
+          if (at === args.parent) parentTitle = String(data['title'] ?? '');
+          at = data['parent'] as string | undefined;
+        }
+        update['parent'] = args.parent;
+        said.push(`filed under ${parentTitle || args.parent}`);
+      }
+      if (args.kind && args.kind !== current['projectKind']) {
+        update['projectKind'] = args.kind;
+        said.push(`kind ${args.kind}`);
+      }
+      if (args.status && args.status !== current['projectStatus']) {
+        update['projectStatus'] = args.status;
+        said.push(`status ${args.status}`);
       }
       const refused: string[] = [];
       if (args.addSynonyms?.length) {
@@ -711,7 +793,7 @@ export class NotesTools {
       }
       if (said.length === 0) return { id: args.id, changed: [], refused };
       Object.assign(update, this.stamp());
-      Note.parse({ ...current, ...update });
+      Note.parse(withoutDeletes({ ...current, ...update }));
       tx.update(ref, update);
       const what = `Refiled ${String(current['title'] ?? '') || 'a note'}: ${said.join('; ')}`;
       tx.set(...this.activity('refile', what, [touched(args.id, current)]));

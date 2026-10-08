@@ -86,7 +86,7 @@
       }
       @if (record(); as note) {
         @if (note.kind === 'concept') {
-          <app-concept-header [note]="note" />
+          <app-concept-header [note]="note" (becameProject)="addProjectSections()" />
         } @else if (note.kind === 'template') {
           <app-template-header [note]="note" />
         }

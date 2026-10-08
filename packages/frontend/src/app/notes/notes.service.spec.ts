@@ -25,6 +25,7 @@ function setup() {
     ),
     remove: vi.fn((_db: unknown, _path: string) => Promise.resolve()),
     serverTime: () => 'SERVER_TIME',
+    removeField: () => 'REMOVED',
   } satisfies NotesApi;
   const online = signal(true);
   TestBed.configureTestingModule({
@@ -206,6 +207,35 @@ describe('NotesService', () => {
     notes.updateConcept('n1', { title: 'Nope' });
     notes.updateConcept('c-kiln', { title: 'Kiln' });
     expect(api.set).not.toHaveBeenCalled();
+  });
+
+  it('files a project under a parent, never under itself or below it (#41)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    const project = (title: string, parent?: string) => ({
+      body: '',
+      title,
+      kind: 'concept',
+      conceptType: 'project',
+      ...(parent ? { parent } : {}),
+    });
+    push([
+      { id: 'sprout', data: { ...project('Sprout'), projectKind: 'build', projectStatus: 'x' } },
+      { id: 'leaf', data: project('Leaf', 'sprout') },
+      { id: 'studio', data: project('Sprout studio') },
+    ]);
+    // An unknown status is not read as one.
+    expect(notes.find('sprout')).toMatchObject({ projectKind: 'build' });
+    expect(notes.find('sprout')?.projectStatus).toBeUndefined();
+    expect(notes.find('leaf')?.parent).toBe('sprout');
+    api.set.mockClear();
+    notes.updateConcept('sprout', { parent: 'leaf' });
+    notes.updateConcept('sprout', { parent: 'sprout' });
+    expect(api.set).not.toHaveBeenCalled();
+    notes.updateConcept('leaf', { parent: 'studio', projectStatus: 'waiting' });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'studio', projectStatus: 'waiting' });
+    notes.updateConcept('leaf', { parent: null, projectKind: 'content' });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'REMOVED', projectKind: 'content' });
   });
 
   it('refuses a name another note already answers to', () => {

@@ -49,3 +49,34 @@ export function byTag(notes: readonly NoteRecord[]): { tag: string; notes: NoteR
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([tag, list]) => ({ tag, notes: list }));
 }
+
+/**
+ * Projects as a tree (#41): each with how deep it sits, children under
+ * their parent in name order. A project whose parent is not in the list
+ * (filtered out, archived or gone) starts a tree of its own.
+ */
+export function projectTree(
+  projects: readonly NoteRecord[],
+): { note: NoteRecord; depth: number }[] {
+  const ids = new Set(projects.map((p) => p.id));
+  const byName = (a: NoteRecord, b: NoteRecord) => a.title.localeCompare(b.title);
+  const under = new Map<string, NoteRecord[]>();
+  const roots: NoteRecord[] = [];
+  for (const p of projects) {
+    if (p.parent && p.parent !== p.id && ids.has(p.parent)) {
+      under.set(p.parent, [...(under.get(p.parent) ?? []), p]);
+    } else roots.push(p);
+  }
+  const out: { note: NoteRecord; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (p: NoteRecord, depth: number) => {
+    if (seen.has(p.id)) return;
+    seen.add(p.id);
+    out.push({ note: p, depth });
+    for (const c of (under.get(p.id) ?? []).sort(byName)) walk(c, depth + 1);
+  };
+  for (const r of roots.sort(byName)) walk(r, 0);
+  // A loop of parents (written elsewhere) has no root: list it flat.
+  for (const p of [...projects].sort(byName)) walk(p, 0);
+  return out;
+}

@@ -6,7 +6,7 @@ import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { NOW, TIME_ZONE } from '../platform/platform';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import type { ProposalRecord } from '../claude/proposals.service';
-import type { NoteRecord } from '../notes/notes.service';
+import type { NoteRecord, NotesService } from '../notes/notes.service';
 
 export function fakeFirebase(usingEmulators: boolean): FirebaseHandles {
   return { app: {}, auth: {}, db: {}, storage: {}, usingEmulators } as unknown as FirebaseHandles;
@@ -44,8 +44,7 @@ export class FakeNotes {
   plantConcepts = vi.fn((_body: string) => undefined);
   createConcept = vi.fn((name: string) => conceptId(name));
   updateConcept = vi.fn(
-    (_id: string, _change: { title?: string; conceptType?: string; synonyms?: string[] }) =>
-      [] as string[],
+    (_id: string, _change: Parameters<NotesService['updateConcept']>[1]) => [] as string[],
   );
   create = vi.fn(
     (

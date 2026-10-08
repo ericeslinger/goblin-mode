@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { NotesService } from '../notes/notes.service';
+import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
 import { matches, NoteList, snippet } from './note-list';
 
@@ -89,5 +89,33 @@ describe('NoteList', () => {
     fixture.componentRef.setInput('lens', 'archived');
     await fixture.whenStable();
     expect(el.querySelector('ul')!.textContent).toContain('gone');
+  });
+
+  it('lists projects as a tree with kind and status, filtered by status (#41)', async () => {
+    const project = (id: string, title: string, more: Partial<NoteRecord> = {}): NoteRecord => ({
+      ...noteRecord(id, ''),
+      title,
+      kind: 'concept',
+      conceptType: 'project',
+      ...more,
+    });
+    const { el, fixture } = await render([
+      project('sprout', 'Sprout', { projectKind: 'build', projectStatus: 'active' }),
+      project('leaf', 'Leaf', { parent: 'sprout', projectStatus: 'waiting' }),
+    ]);
+    fixture.componentRef.setInput('lens', 'projects');
+    await fixture.whenStable();
+    const rows = [...el.querySelectorAll<HTMLLIElement>('ul[aria-label="Projects"] li')];
+    expect(rows.map((r) => r.querySelector('.title')!.textContent)).toEqual(['Sprout', 'Leaf']);
+    expect(rows[0].textContent).toContain('Build · Active');
+    expect(rows[1].style.paddingLeft).toBe('20px');
+    const status = el.querySelector<HTMLSelectElement>('.status select')!;
+    status.value = 'waiting';
+    status.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    // Its parent filtered out, Leaf stands at the top.
+    const left = [...el.querySelectorAll<HTMLLIElement>('ul[aria-label="Projects"] li')];
+    expect(left.map((r) => r.querySelector('.title')!.textContent)).toEqual(['Leaf']);
+    expect(left[0].style.paddingLeft).toBe('0px');
   });
 });

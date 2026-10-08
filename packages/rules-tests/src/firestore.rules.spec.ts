@@ -112,6 +112,17 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertSucceeds(ref.set({ ...note(), conceptType: 'person', synonyms: ['vik'] }));
   });
 
+  it('accepts a project with a parent, a kind and a known status (#41)', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    const project = () => ({ ...note(), conceptType: 'project', parent: 'p0' });
+    await assertSucceeds(ref.set({ ...project(), projectKind: 'build', projectStatus: 'active' }));
+    await assertSucceeds(ref.set({ ...project(), projectKind: 'content', projectStatus: 'new' }));
+    await assertFails(ref.set({ ...project(), projectStatus: 'someday' }));
+    await assertFails(ref.set({ ...project(), projectKind: 'garden' }));
+    await assertFails(ref.set({ ...project(), parent: 7 }));
+  });
+
   it('accepts templates and notes made from them, with known modes only', async () => {
     const note = valid['users/owner/notes/n1'];
     const ref = owner().doc('users/owner/notes/n1');

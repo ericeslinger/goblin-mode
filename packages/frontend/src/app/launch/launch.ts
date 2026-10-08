@@ -11,7 +11,13 @@ import {
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { CONCEPT_PREFIX, checklist, normalizeName, suggestLinks } from '@mossgoblin/schema';
+import {
+  CONCEPT_PREFIX,
+  checklist,
+  normalizeName,
+  suggestLinks,
+  withProjectSections,
+} from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
@@ -252,6 +258,14 @@ export class Launch {
   protected closeMore(button: HTMLButtonElement): void {
     this.moreOpen.set(false);
     button.focus();
+  }
+
+  /**
+   * A concept just became a project (#41): its text gains the project
+   * sections, keeping what was written under Overview.
+   */
+  protected addProjectSections(): void {
+    this.capture.replace(withProjectSections(this.capture.current()));
   }
 
   /** A tick or Done shopping in the list view. */

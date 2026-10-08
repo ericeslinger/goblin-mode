@@ -127,6 +127,10 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         'aria-label': options.label ?? 'Note',
         autocapitalize: 'sentences',
         spellcheck: 'true',
+        // Said outright, so a note long enough to scroll has keyboard
+        // access by axe's reckoning, which does not count contenteditable
+        // (scrollable-region-focusable, #41). Read only, it still scrolls.
+        tabindex: '0',
       }),
       placeholder(options.placeholder ?? ''),
       hooksFacet.of({ openLink, resolveAttachment, suggestLinks, openImage, openFile }),

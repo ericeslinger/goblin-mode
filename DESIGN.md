@@ -92,6 +92,9 @@ interface Note {
   titleSource: 'words' | 'llm' | 'user';
   conceptType?: 'person' | 'project' | 'other';  // kind == 'concept'
   synonyms?: string[];          // kind == 'concept'
+  parent?: string;              // conceptType == 'project' (#41)
+  projectKind?: 'build' | 'content';
+  projectStatus?: 'active' | 'nearly-done' | 'maintenance' | 'waiting' | 'done' | 'new';
   links: string[];              // note ids this note links to
   tags: string[];               // e.g. 'feelings'
   archived: boolean;            // merged away by Claude, kept for undo
@@ -174,6 +177,23 @@ today's names (the schema's `backlinks`, `oftenTogether` and
 `sentenceAround`), parsing each body once per change, so older notes
 with empty stored `links` count, and a synonym added today links notes
 written last week.
+
+**Projects (#41, Eric, 2026-10-08).** A project is a concept with
+`conceptType: 'project'` and three real fields: `parent` (another
+project), `projectKind` (build or content) and `projectStatus` (new,
+active, nearly done, maintenance, waiting, done). Every project has
+one layout, its sections held in its own text, in this order:
+Overview, Working notes, Tasks, Ideas, Open questions, Decisions,
+Links. Becoming a project (in the app, or through `refile` and
+`create_concept`) adds the missing headings with `withProjectSections`
+(`packages/schema/src/projects.ts`); text already there goes under
+Overview word for word. Tasks are both a checklist under the Tasks
+heading and reminders with `noteId` set to the project, shown live
+in the concept header with Done and a "+ task" field. The header also
+picks the parent (never the project itself or one under it,
+`canParent`), kind and status, and lists the projects one level
+under it. Browse, Projects, shows the tree with a status filter; a
+project whose parent is filtered out stands at the top.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a

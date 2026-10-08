@@ -10,8 +10,11 @@ import {
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   KEEP_SUFFIX,
+  ProjectKind,
+  ProjectStatus,
   RESTORE_SUFFIX,
   autoId,
+  canParent,
   conceptId,
   firstWordsTitle,
   nameIndex,
@@ -25,6 +28,7 @@ import {
   type Firestore,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   onSnapshot,
   orderBy,
@@ -57,6 +61,12 @@ export interface NoteRecord {
   synonyms?: string[];
   /** A concept's type: 'person', 'project' or 'other'. */
   conceptType?: string;
+  /** A project's parent project (#41). */
+  parent?: string;
+  /** A project's kind: 'build' or 'content'. */
+  projectKind?: ProjectKind;
+  /** A project's status, e.g. 'active' or 'waiting'. */
+  projectStatus?: ProjectStatus;
   /** Ids this note links to (DESIGN.md, Links and concepts). */
   links: string[];
   /** e.g. 'feelings'. */
@@ -85,6 +95,8 @@ export interface NotesApi {
   createIfAbsent(db: Firestore, path: string, data: Record<string, unknown>): Promise<boolean>;
   remove(db: Firestore, path: string): Promise<void>;
   serverTime(): unknown;
+  /** Takes a field out in a merged write. */
+  removeField(): unknown;
 }
 
 export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
@@ -114,6 +126,7 @@ export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
       }),
     remove: (db, path) => deleteDoc(doc(db, path)),
     serverTime: () => serverTimestamp(),
+    removeField: () => deleteField(),
   }),
 });
 
@@ -127,6 +140,13 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     kind: typeof data['kind'] === 'string' ? data['kind'] : 'text',
     ...(Array.isArray(data['synonyms']) ? { synonyms: data['synonyms'].map(String) } : {}),
     ...(typeof data['conceptType'] === 'string' ? { conceptType: data['conceptType'] } : {}),
+    ...(typeof data['parent'] === 'string' ? { parent: data['parent'] } : {}),
+    ...(ProjectKind.safeParse(data['projectKind']).success
+      ? { projectKind: data['projectKind'] as ProjectKind }
+      : {}),
+    ...(ProjectStatus.safeParse(data['projectStatus']).success
+      ? { projectStatus: data['projectStatus'] as ProjectStatus }
+      : {}),
     ...(typeof data['templateMode'] === 'string' ? { templateMode: data['templateMode'] } : {}),
     ...(typeof data['fromTemplate'] === 'string' ? { fromTemplate: data['fromTemplate'] } : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
@@ -395,7 +415,15 @@ export class NotesService {
    */
   updateConcept(
     id: string,
-    change: { title?: string; conceptType?: string; synonyms?: string[] },
+    change: {
+      title?: string;
+      conceptType?: string;
+      synonyms?: string[];
+      /** A project's parent; null makes it top level. */
+      parent?: string | null;
+      projectKind?: ProjectKind;
+      projectStatus?: ProjectStatus;
+    },
   ): string[] {
     const concept = this.find(id);
     if (!this.uid || concept?.kind !== 'concept') return [];
@@ -429,6 +457,15 @@ export class NotesService {
     );
     if (change.synonyms || update['title']) update['synonyms'] = clean;
     if (change.conceptType) update['conceptType'] = change.conceptType;
+    if (change.parent === null) update['parent'] = this.api.removeField();
+    else if (change.parent !== undefined) {
+      const projects = this.notes().filter((n) => n.conceptType === 'project');
+      if (change.parent !== id && canParent(id, change.parent, projects)) {
+        update['parent'] = change.parent;
+      }
+    }
+    if (change.projectKind) update['projectKind'] = change.projectKind;
+    if (change.projectStatus) update['projectStatus'] = change.projectStatus;
     if (Object.keys(update).length === 0) return refused;
     const path = paths.note(this.uid, id);
     const stamp = {

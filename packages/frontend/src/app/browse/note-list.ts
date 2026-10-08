@@ -2,9 +2,10 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { matchesSearch } from '@mossgoblin/schema';
+import { STATUSES, kindLabel, statusLabel } from '../links/project-labels';
 import { LinksService } from '../links/links.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
-import { type LensId, byTag, inLens } from './lenses';
+import { type LensId, byTag, inLens, projectTree } from './lenses';
 
 /** The text shown under a note's title: its body after the title line. */
 export function snippet(note: NoteRecord, length = 90): string {
@@ -37,6 +38,17 @@ export function matches(note: NoteRecord, search: string): boolean {
         (input)="search.set($any($event.target).value)"
       />
     </label>
+    @if (lens() === 'projects') {
+      <label class="status">
+        Status
+        <select #status (change)="statusFilter.set(status.value)">
+          <option value="">All</option>
+          @for (s of statuses; track s.id) {
+            <option [value]="s.id" [selected]="s.id === statusFilter()">{{ s.label }}</option>
+          }
+        </select>
+      </label>
+    }
     @if (shown().length === 0) {
       <p class="muted">{{ search() ? 'No notes match.' : empty[lens()] }}</p>
     }
@@ -52,6 +64,14 @@ export function matches(note: NoteRecord, search: string): boolean {
           }
         </ul>
       }
+    } @else if (lens() === 'projects') {
+      <ul aria-label="Projects">
+        @for (p of tree(); track p.note.id) {
+          <li [style.padding-left.px]="p.depth * 20">
+            <ng-container *ngTemplateOutlet="row; context: { $implicit: p.note }" />
+          </li>
+        }
+      </ul>
     } @else {
       <ul aria-label="Notes">
         @for (note of shown(); track note.id) {
@@ -108,6 +128,21 @@ export function matches(note: NoteRecord, search: string): boolean {
       color: var(--quiet);
       font-size: 14px;
     }
+    .status {
+      display: block;
+      margin-top: var(--space-2);
+      font-size: 14px;
+      color: var(--quiet);
+    }
+    .status select {
+      font: inherit;
+      color: var(--ink);
+      background: var(--surface);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      padding: var(--space-1) var(--space-2);
+      margin-left: var(--space-1);
+    }
     .tag {
       font-size: 14px;
       color: var(--quiet);
@@ -123,9 +158,22 @@ export class NoteList {
   /** Which notes to list (Browse lenses, #31). */
   readonly lens = input<LensId>('recent');
   protected readonly search = signal('');
+  /** Projects lens: one status, or '' for all (#41). */
+  protected readonly statusFilter = signal('');
+  protected readonly statuses = STATUSES;
   protected readonly shown = computed(() =>
-    this.notes.notes().filter((n) => inLens(this.lens(), n) && matches(n, this.search())),
+    this.notes
+      .notes()
+      .filter(
+        (n) =>
+          inLens(this.lens(), n) &&
+          matches(n, this.search()) &&
+          (this.lens() !== 'projects' ||
+            !this.statusFilter() ||
+            n.projectStatus === this.statusFilter()),
+      ),
   );
+  protected readonly tree = computed(() => projectTree(this.shown()));
   protected readonly tagged = computed(() => byTag(this.shown()));
   protected readonly empty: Record<LensId, string> = {
     recent: 'No notes planted yet.',
@@ -139,6 +187,10 @@ export class NoteList {
   /** A concept says how many notes link to it; a note shows its text. */
   protected snippetOf(note: NoteRecord): string {
     if (note.kind !== 'concept') return snippet(note);
+    if (note.conceptType === 'project') {
+      const meta = [kindLabel(note.projectKind), statusLabel(note.projectStatus)];
+      if (meta.some(Boolean)) return meta.filter(Boolean).join(' · ');
+    }
     const n = this.links.backlinkCounts().get(note.id) ?? 0;
     const linked = n === 1 ? 'Linked from 1 note' : `Linked from ${n} notes`;
     return note.body.trim() ? `${linked} · ${snippet(note)}` : linked;
