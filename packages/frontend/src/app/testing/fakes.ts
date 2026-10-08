@@ -4,6 +4,7 @@ import { conceptId, nameIndex } from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { NOW, TIME_ZONE } from '../platform/platform';
+import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import type { ProposalRecord } from '../claude/proposals.service';
 import type { NoteRecord, NotesService } from '../notes/notes.service';
@@ -124,10 +125,34 @@ export function reminderDoc(
 export function remindersTestProviders(api: FakeRemindersApi, now: () => number) {
   return [
     { provide: FIREBASE, useValue: fakeFirebase(true) },
+    { provide: READING_API, useValue: new FakeReadingApi() },
     { provide: REMINDERS_API, useValue: api },
     { provide: NOW, useValue: now },
     { provide: TIME_ZONE, useValue: 'America/New_York' },
   ];
+}
+
+/** A stand-in Firestore seam for ReadingService; `push` is a snapshot. */
+export class FakeReadingApi implements ReadingApi {
+  private next: (docs: { id: string; data: Record<string, unknown> }[]) => void = () => undefined;
+  listen = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    ) => {
+      this.next = next;
+      return vi.fn();
+    },
+  );
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
+    Promise.resolve(),
+  );
+  serverTime = () => 'SERVER_TIME';
+
+  push(docs: { id: string; data: Record<string, unknown> }[]): void {
+    this.next(docs);
+  }
 }
 
 /** A stand-in for ProposalsService: set `list`, watch accept and dismiss. */

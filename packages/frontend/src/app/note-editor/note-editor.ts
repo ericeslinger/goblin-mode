@@ -153,6 +153,29 @@ const FORMAT_ACTIONS: FormatAction[] = [
           }
           <button type="button" class="close" (click)="fileViewer.close()">Close</button>
         </div>
+        @if (openPages()) {
+          <form class="document-find" role="search" (submit)="find($event, findBox.value)">
+            <label>
+              <span class="visually-hidden">Find in this PDF</span>
+              <input #findBox type="search" placeholder="Find in this PDF" enterkeyhint="search" />
+            </label>
+            <button type="submit">Find</button>
+            @if (found(); as f) {
+              @if (f.pages.length) {
+                <span class="found">
+                  Page
+                  @for (n of f.pages; track n) {
+                    <button type="button" class="page-link" (click)="showPage(n)">{{ n }}</button>
+                  }
+                </span>
+              } @else {
+                <span class="found">{{
+                  f.partial ? 'Not found in the first ' + f.partial + ' pages' : 'Not found'
+                }}</span>
+              }
+            }
+          </form>
+        }
         @if (doc.status) {
           <p class="document-status" role="status">{{ doc.status }}</p>
         }
@@ -241,6 +264,30 @@ const FORMAT_ACTIONS: FormatAction[] = [
       padding: var(--space-2);
       color: var(--quiet);
     }
+    .document-find {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1) var(--space-2);
+      align-items: center;
+      padding: var(--space-1) var(--space-2);
+    }
+    .document-find input {
+      font: inherit;
+      font-size: 14px;
+      padding: var(--space-1) var(--space-2);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      color: var(--ink);
+      background: var(--surface);
+    }
+    .found {
+      font-size: 14px;
+    }
+    .page-link {
+      min-width: 32px;
+      min-height: 32px;
+      margin-left: 2px;
+    }
     .pages {
       display: flex;
       flex-direction: column;
@@ -308,7 +355,11 @@ export class NoteEditorComponent {
   private readonly fileViewer = viewChild.required<ElementRef<HTMLDialogElement>>('fileViewer');
   private readonly pages = viewChild<ElementRef<HTMLElement>>('pages');
   /** The PDF the viewer holds, let go when it closes. */
-  private openDoc?: { close(): void };
+  private openDoc?: import('../attachments/pdf-render').OpenPdf;
+  /** A PDF is drawn: it can be searched. */
+  protected readonly openPages = signal(false);
+  /** The pages the last find matched. */
+  protected readonly found = signal<{ pages: number[]; partial?: number } | undefined>(undefined);
   /** The document open in the viewer (#45). */
   protected readonly document = signal<
     { id: string; name: string; url?: string; status?: string } | undefined
@@ -587,6 +638,7 @@ export class NoteEditorComponent {
         return;
       }
       this.openDoc = pdf;
+      this.openPages.set(true);
       this.document.set({
         id,
         name,
@@ -612,7 +664,26 @@ export class NoteEditorComponent {
   protected closeDocument(): void {
     this.openDoc?.close();
     this.openDoc = undefined;
+    this.openPages.set(false);
+    this.found.set(undefined);
     this.document.set(undefined);
+  }
+
+  /** Finds words in the open PDF (#45), on this device; shows the first page. */
+  protected async find(event: Event, query: string): Promise<void> {
+    event.preventDefault();
+    const doc = this.openDoc;
+    if (!doc || !query.trim()) return;
+    const pages = await doc.find(query);
+    if (doc !== this.openDoc) return;
+    // Only laid-out pages are searched: a longer PDF says so (review on #100).
+    const { MAX_PAGES } = await import('../attachments/pdf-render');
+    this.found.set({ pages, ...(doc.pages > MAX_PAGES ? { partial: MAX_PAGES } : {}) });
+    if (pages.length) doc.show(pages[0]);
+  }
+
+  protected showPage(n: number): void {
+    this.openDoc?.show(n);
   }
 
   /** A click on the dark space around the image closes the viewer. */

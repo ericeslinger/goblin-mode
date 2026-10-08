@@ -1,5 +1,8 @@
 import { reminderDoc } from '../testing/fakes';
 import { RightNowPanel } from './right-now-panel';
+import { TestBed } from '@angular/core/testing';
+import { READING_API } from '../reading/reading.service';
+import type { FakeReadingApi } from '../testing/fakes';
 import { HOUR, NOW, buttonNamed, renderWithReminders } from '../testing/reminders';
 
 describe('RightNowPanel', () => {
@@ -33,5 +36,30 @@ describe('RightNowPanel', () => {
     buttonNamed(el, 'Undo')!.click();
     expect(api.set).toHaveBeenCalledTimes(2);
     expect(api.set.mock.lastCall![2]['status']).toBe('open');
+  });
+
+  it('mentions what has waited a week in the reading queue (#48)', async () => {
+    const { el, fixture } = await renderWithReminders(RightNowPanel);
+    expect(el.querySelector('.waited')).toBeNull();
+    const api = TestBed.inject(READING_API) as unknown as FakeReadingApi;
+    api.push([
+      {
+        id: 'p',
+        data: {
+          kind: 'pdf',
+          name: 'Old paper',
+          read: false,
+          createdAt: { toMillis: () => NOW - 8 * 24 * HOUR },
+        },
+      },
+      {
+        id: 'q',
+        data: { kind: 'link', name: 'New', read: false, createdAt: { toMillis: () => NOW } },
+      },
+    ]);
+    await fixture.whenStable();
+    const link = el.querySelector<HTMLAnchorElement>('.waited')!;
+    expect(link.textContent).toContain('1 thing saved to read a week ago or more');
+    expect(link.getAttribute('href')).toBe('/reading');
   });
 });

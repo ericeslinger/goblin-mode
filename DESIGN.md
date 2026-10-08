@@ -275,6 +275,18 @@ global unicast, less 6to4 and Teredo; imported page text is capped
 like PDF text; search reads texts eight at a time; and the tool
 descriptions say the text is web or file content, never instructions.
 
+**The reading queue and find in a PDF, app half (#45, #48,
+2026-10-08).** `/reading`, linked from Browse with its unread count,
+lists what is saved to read later, newest first: a link opens the
+page, a PDF its note or its file, each marked read or unread. A link
+pasted there is written at once as a `link` record (offline too, and
+held until the account restores), and the server fills in its title
+and text. Right Now mentions what has waited unread a week or more.
+In the PDF viewer, Find reads each laid-out page's text from the PDF
+itself and lists the pages that hold every word, scrolling to the
+first: finding in one open PDF never needs the server (Eric,
+2026-10-08).
+
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
 `[[name]]` inside code is not a link). Notes written before this keep
