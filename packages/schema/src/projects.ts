@@ -16,22 +16,30 @@ const heading = (name: string) => new RegExp(`^##\\s+${name}\\s*$`, 'im');
 
 /**
  * `body` with every project section heading: text already there stays,
- * word for word, under Overview when it has no sections of its own;
- * missing headings are added at the end, in order. Unchanged when all
- * are present.
+ * word for word, under Overview when it has no sections of its own.
+ * Otherwise each missing heading goes in its place, before the next
+ * section that is there, or at the end (review on #95). Unchanged when
+ * all are present.
  */
 export function withProjectSections(body: string): string {
   const missing = PROJECT_SECTIONS.filter((s) => !heading(s).test(body));
   if (missing.length === 0) return body;
-  const text = body.trim();
-  const hasAny = missing.length < PROJECT_SECTIONS.length;
-  const parts: string[] = [];
-  if (!hasAny) {
-    parts.push('## Overview', ...(text ? ['', text] : []));
+  if (missing.length === PROJECT_SECTIONS.length) {
+    const text = body.trim();
+    const parts = ['## Overview', ...(text ? ['', text] : [])];
     for (const s of missing.slice(1)) parts.push('', `## ${s}`);
     return `${parts.join('\n')}\n`;
   }
-  return `${body.replace(/\s*$/, '')}\n${missing.map((s) => `\n## ${s}`).join('\n')}\n`;
+  let out = body;
+  for (const s of missing) {
+    const later = PROJECT_SECTIONS.slice(PROJECT_SECTIONS.indexOf(s) + 1)
+      .map((n) => heading(n).exec(out))
+      .find((m) => m !== null);
+    out = later
+      ? `${out.slice(0, later.index)}## ${s}\n\n${out.slice(later.index)}`
+      : `${out.replace(/\s*$/, '')}\n\n## ${s}\n`;
+  }
+  return out;
 }
 
 interface Parented {

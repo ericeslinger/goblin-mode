@@ -374,7 +374,12 @@ describe('organizing tools', () => {
     await expect(
       t.createConcept({ name: 'Moss', type: 'project', parent: 'c-nope' }),
     ).rejects.toThrow('no project c-nope');
-    // Not under itself, nor under a project under it.
+    await t.createConcept({ name: 'Sprout leaf', type: 'project', parent: 'c-sprout-docs' });
+    // Not under itself, nor under a project under it, however deep.
+    await expect(t.refile({ id: 'c-sprout', parent: 'c-sprout-leaf' })).rejects.toThrow(
+      'cannot go under itself',
+    );
+    await expect(t.refile({ id: 'c-sprout', parent: 'a' })).rejects.toThrow('no project a');
     await expect(t.refile({ id: 'c-sprout', parent: 'c-sprout-docs' })).rejects.toThrow(
       'cannot go under itself',
     );

@@ -31,11 +31,39 @@ describe('withProjectSections', () => {
     expect(withProjectSections('').startsWith('## Overview\n\n## Working notes')).toBe(true);
   });
 
-  it('adds only the missing sections at the end, and leaves a full page alone', () => {
+  it('puts each missing section in its place among those there (review on #95)', () => {
+    const out = withProjectSections('Intro\n\n## Tasks\n- [ ] glaze\n\n## Links\nkiln.example\n');
+    expect(out).toBe(
+      [
+        'Intro',
+        '',
+        '## Overview',
+        '',
+        '## Working notes',
+        '',
+        '## Tasks',
+        '- [ ] glaze',
+        '',
+        '## Ideas',
+        '',
+        '## Open questions',
+        '',
+        '## Decisions',
+        '',
+        '## Links',
+        'kiln.example',
+        '',
+      ].join('\n'),
+    );
+    expect(withProjectSections(out)).toBe(out);
+  });
+
+  it('adds only the missing sections, and leaves a full page alone', () => {
     const some = '## Overview\nA game.\n\n## Ideas\n- hats\n';
     const out = withProjectSections(some);
-    expect(out.startsWith(some.trimEnd())).toBe(true);
-    expect(out).toContain('## Working notes');
+    expect(
+      out.startsWith('## Overview\nA game.\n\n## Working notes\n\n## Tasks\n\n## Ideas\n- hats\n'),
+    ).toBe(true);
     expect(out.match(/## Ideas/g)).toHaveLength(1);
     expect(withProjectSections(out)).toBe(out);
   });

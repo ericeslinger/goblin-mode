@@ -15,7 +15,6 @@ import {
   type Recurrence,
   Reminder,
   autoId,
-  canParent,
   conceptId,
   effectiveDue,
   firstOccurrence,
@@ -690,7 +689,7 @@ export class NotesTools {
     kind?: ProjectKind;
     status?: ProjectStatus;
   }) {
-    const { docs, index } = await this.garden();
+    const { index } = await this.garden();
     const ref = this.notes().doc(args.id);
     return this.db.runTransaction(async (tx) => {
       const doc = await tx.get(ref);
@@ -724,14 +723,26 @@ export class NotesTools {
           said.push('moved to the top level');
         }
       } else if (args.parent !== undefined && args.parent !== current['parent']) {
-        const projects = projectsIn(docs);
-        const parent = docs.find((d) => d.id === args.parent);
-        if (!projects.some((p) => p.id === args.parent))
-          throw new ToolError(`no project ${args.parent}`);
-        if (!canParent(args.id, args.parent, projects))
-          throw new ToolError('a project cannot go under itself or a project under it');
+        // Up the new parent's chain, read in this transaction, so two
+        // moves at once cannot make a loop (review on #95).
+        let parentTitle = '';
+        const seen = new Set<string>();
+        for (let at: string | undefined = args.parent; at;) {
+          if (at === args.id)
+            throw new ToolError('a project cannot go under itself or a project under it');
+          if (seen.has(at)) break;
+          seen.add(at);
+          const up = await tx.get(this.notes().doc(at));
+          const data = up.data();
+          if (!up.exists || data?.['conceptType'] !== 'project' || data['archived'] === true) {
+            if (at === args.parent) throw new ToolError(`no project ${args.parent}`);
+            break;
+          }
+          if (at === args.parent) parentTitle = String(data['title'] ?? '');
+          at = data['parent'] as string | undefined;
+        }
         update['parent'] = args.parent;
-        said.push(`filed under ${String(parent?.data['title'] ?? args.parent)}`);
+        said.push(`filed under ${parentTitle || args.parent}`);
       }
       if (args.kind && args.kind !== current['projectKind']) {
         update['projectKind'] = args.kind;
