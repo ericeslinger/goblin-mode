@@ -31,6 +31,7 @@ describe('moodCompletions', () => {
 
   it('stays quiet off a Moods line, inside a link, or on an empty one', () => {
     expect(moodCompletions(contextAt('My moods: c').context)).toBeNull();
+    expect(moodCompletions(contextAt('Mood: c').context)).toBeNull();
     expect(moodCompletions(contextAt('Moods: [[ca').context)).toBeNull();
     expect(moodCompletions(contextAt('Moods: ').context)).toBeNull();
     expect(moodCompletions(contextAt('calm').context)).toBeNull();

@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { moodLine } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
@@ -133,8 +134,11 @@ export class Settings {
     this.templates.templates().some((t) => t.title === 'Shopping list'),
   );
 
+  /** A template with a Moods line is a journal, whatever it is called (review on #96). */
   protected readonly hasFeelingsJournal = computed(() =>
-    this.templates.templates().some((t) => t.title === 'Feelings'),
+    this.templates
+      .templates()
+      .some((t) => t.body.split('\n').some((line) => moodLine(line) !== undefined)),
   );
 
   /** The feelings journal template and its three reminders (#40), opened to look over. */

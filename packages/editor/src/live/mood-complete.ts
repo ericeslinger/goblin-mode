@@ -11,7 +11,7 @@ import { hooksFacet } from './hooks';
  * listed or not) and any earlier moods, outside a link. Matches the
  * schema's moodLine (packages/schema/src/journal.ts).
  */
-const TYPING_MOOD = /^[ \t]*(?:[-*+][ \t]+)?\*?moods?\*?[ \t]*:\*?(?:[^\n]*,)?[ \t]*([^,[\]\n]*)$/i;
+const TYPING_MOOD = /^[ \t]*(?:[-*+][ \t]+)?\*?moods\*?[ \t]*:\*?(?:[^\n]*,)?[ \t]*([^,[\]\n]*)$/i;
 
 /** Writes `[[name]]` over what was typed, then `, ` to start the next. */
 function apply(name: string) {

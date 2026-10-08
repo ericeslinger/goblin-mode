@@ -266,6 +266,17 @@ describe('Launch', () => {
     expect(url()).toBe('/n/n7?from=reminder');
     expect(el.querySelector('.cm-content')?.textContent).toContain('Plain note');
     expect(notes.create).toHaveBeenCalledOnce();
+
+    // A template not on this device yet gets its entry when it arrives.
+    await go('/n/t9?from=reminder');
+    expect(notes.create).toHaveBeenCalledOnce();
+    notes.notes.update((list) => [
+      { ...noteRecord('t9', 'Later\nMoods: '), kind: 'template' },
+      ...list,
+    ]);
+    await go('/n/t9?from=reminder');
+    expect(notes.create).toHaveBeenCalledTimes(2);
+    expect(notes.create.mock.calls[1][2]).toEqual({ fromTemplate: 't9' });
   });
 
   it('offers no template menu when there are no templates', async () => {

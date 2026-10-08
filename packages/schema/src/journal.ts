@@ -2,8 +2,8 @@
 // Moods are concepts of type mood (Eric, 2026-10-08), linked from that
 // line, so a mood's page lists every entry that named it.
 
-/** A Moods line, as a list item or not, the label bold or not. */
-const MOODS_LINE = /^[ \t]*(?:[-*+][ \t]+)?\*?moods?\*?[ \t]*:\*?[ \t]*(.*)$/i;
+/** A Moods line, plural, as a list item or not, the label bold or not. */
+const MOODS_LINE = /^[ \t]*(?:[-*+][ \t]+)?\*?moods\*?[ \t]*:\*?[ \t]*(.*)$/i;
 const LINK = /\[\[([^[\]\n|]+)(?:\|[^[\]\n]*)?\]\]/g;
 
 /** Whether `line` is a Moods line; the text after the colon if so. */

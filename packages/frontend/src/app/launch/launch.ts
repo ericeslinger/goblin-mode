@@ -146,6 +146,10 @@ export class Launch {
       const id = params.get('id');
       if (id) this.capture.openNote(id);
       else this.capture.openHome();
+      // From one reminder's link to another, the query does not change.
+      if (id && this.route.snapshot.queryParamMap.get('from') === 'reminder') {
+        this.entryFrom.set(id);
+      }
     });
     // Back after five minutes away opens a fresh capture note; the URL
     // follows, so a reload or back does not land on the old note.
@@ -167,11 +171,13 @@ export class Launch {
     effect(() => {
       const id = this.entryFrom();
       if (!id || !this.notes.loaded()) return;
+      // Kept until the note arrives: a template not synced here yet still
+      // gets its entry when it does (review on #96).
+      const note = this.notes.find(id);
+      if (!note) return;
       untracked(() => {
         this.entryFrom.set(undefined);
-        if (this.notes.find(id)?.kind === 'template') {
-          void this.fromTemplate(id, { replaceUrl: true });
-        }
+        if (note.kind === 'template') void this.fromTemplate(id, { replaceUrl: true });
       });
     });
 

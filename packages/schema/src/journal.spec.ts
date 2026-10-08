@@ -5,7 +5,9 @@ import { templateParts } from './templates';
 describe('the feelings journal', () => {
   it('knows a Moods line however it is written', () => {
     expect(moodLine('Moods: calm')).toBe('calm');
-    expect(moodLine('- *Mood:* sad')).toBe('sad');
+    expect(moodLine('- *Moods:* sad')).toBe('sad');
+    // Only the plural: a trip note's "Mood: [[Paris]]" names no mood (review on #96).
+    expect(moodLine('Mood: [[Paris]]')).toBeUndefined();
     expect(moodLine('moods:')).toBe('');
     expect(moodLine('My moods: none of your business')).toBeUndefined();
   });

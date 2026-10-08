@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { ApplicationRef, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '../auth.service';
@@ -140,5 +140,18 @@ describe('Settings', () => {
       },
     );
     expect(navigate).toHaveBeenCalledWith(['/n', 'new1']);
+  });
+
+  it('offers the feelings journal until there is a template with a Moods line (#40)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const notes = new FakeNotes();
+    notes.signIn([{ ...noteRecord('t1', 'Journal\nMood: one'), kind: 'template' }]);
+    const el = await render(auth, fakePush(), notes);
+    expect(button(el, 'Add a feelings journal')).toBeDefined();
+    // Renamed, it is still the journal.
+    notes.notes.set([{ ...noteRecord('t2', 'How I feel\nMoods: '), kind: 'template' }]);
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect(button(el, 'Add a feelings journal')).toBeUndefined();
   });
 });
