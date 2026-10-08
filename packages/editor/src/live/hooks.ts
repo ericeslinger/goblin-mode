@@ -9,6 +9,8 @@ export interface NoteEditorHooks {
   openLink?: (target: string) => void;
   /** Names a `[[` can complete to, best first (host-ranked). */
   suggestLinks?: (query: string) => { name: string; kind: string }[];
+  /** Moods used before that match what is typed on a Moods line, best first (#40). */
+  suggestMoods?: (query: string) => string[];
   /** Turns an attachment id into an image URL, if it is available. */
   resolveAttachment?: (id: string) => string | undefined;
   /**

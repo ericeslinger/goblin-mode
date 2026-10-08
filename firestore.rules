@@ -22,7 +22,7 @@ service cloud.firestore {
         && data.body is string
         && data.title is string
         && (data.titleSource is string && data.titleSource in ['words', 'llm', 'user'])
-        && (!('conceptType' in data) || (data.conceptType is string && data.conceptType in ['person', 'project', 'other']))
+        && (!('conceptType' in data) || (data.conceptType is string && data.conceptType in ['person', 'project', 'mood', 'other']))
         && (!('parent' in data) || data.parent is string)
         && (!('projectKind' in data) || (data.projectKind is string && data.projectKind in ['build', 'content']))
         && (!('projectStatus' in data) || (data.projectStatus is string && data.projectStatus in ['active', 'nearly-done', 'maintenance', 'waiting', 'done', 'new']))

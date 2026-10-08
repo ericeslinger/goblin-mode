@@ -1,7 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { matchesSearch } from '@mossgoblin/schema';
+import { matchesSearch, moodsOf } from '@mossgoblin/schema';
 import { STATUSES, kindLabel, statusLabel } from '../links/project-labels';
 import { LinksService } from '../links/links.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
@@ -180,12 +180,28 @@ export class NoteList {
     concepts: 'No concepts yet. Link a name with [[ to make one.',
     people: 'No people yet. Set a concept’s type to Person.',
     projects: 'No projects yet. Set a concept’s type to Project.',
+    journal: 'No journal entries yet. Add a feelings journal in Settings.',
     tags: 'No tagged notes yet.',
     archived: 'Nothing archived.',
   };
 
+  /** A journal entry: when, and its moods (#40). */
+  private journalLine(note: NoteRecord): string {
+    const when = note.createdAt
+      ? new Date(note.createdAt).toLocaleString(undefined, {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : '';
+    return [when, moodsOf(note.body).join(', ')].filter(Boolean).join(' · ');
+  }
+
   /** A concept says how many notes link to it; a note shows its text. */
   protected snippetOf(note: NoteRecord): string {
+    if (this.lens() === 'journal') return this.journalLine(note);
     if (note.kind !== 'concept') return snippet(note);
     if (note.conceptType === 'project') {
       const meta = [kindLabel(note.projectKind), statusLabel(note.projectStatus)];

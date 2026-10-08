@@ -8,6 +8,7 @@ import { RemindersService, type ReminderRecord } from '../reminders/reminders.se
 const TYPES = [
   { id: 'person', label: 'Person' },
   { id: 'project', label: 'Project' },
+  { id: 'mood', label: 'Mood' },
   { id: 'other', label: 'Other' },
 ];
 

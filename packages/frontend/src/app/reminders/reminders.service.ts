@@ -101,6 +101,8 @@ export interface NewReminder {
   /** Milliseconds, or undefined for Someday. */
   dueAt?: number;
   repeat?: Recurrence['freq'];
+  /** A repeat's time of day, 'HH:MM', when there is no `dueAt`; else 9 am. */
+  at?: string;
   /** The note it belongs to: a project's task (#41). */
   noteId?: string;
 }
@@ -166,7 +168,14 @@ export class RemindersService {
     this.placed().filter((r) => r.section === 'overdue' || r.section === 'today'),
   );
 
+  /** Whose reminders are being listened to. */
   private uid?: string;
+  /**
+   * Who writes: the signed-in account now, not the listener's, which an
+   * effect sets later; a service first made to add (the feelings journal
+   * from Settings, #40) would otherwise drop its writes.
+   */
+  private readonly owner = () => this.auth.user()?.uid;
   private stop?: () => void;
   private undoTimer?: ReturnType<typeof setTimeout>;
 
@@ -195,17 +204,17 @@ export class RemindersService {
     });
   }
 
-  /** Adds a reminder; a repeat with no time starts at 9 am. */
+  /** Adds a reminder; a repeat with no time starts at `at`, or 9 am. */
   add(input: NewReminder): void {
     const text = input.text.trim();
-    if (!this.uid || !text) return;
+    if (!this.owner() || !text) return;
     const now = this.now();
     let dueAt = input.dueAt;
     let recurrence: Recurrence | undefined;
     if (input.repeat) {
       recurrence = {
         freq: input.repeat,
-        time: dueAt === undefined ? '09:00' : this.localTime(dueAt),
+        time: dueAt === undefined ? (input.at ?? '09:00') : this.localTime(dueAt),
         tz: this.tz,
       };
       dueAt ??= firstOccurrence(recurrence, now);
@@ -268,8 +277,9 @@ export class RemindersService {
   }
 
   private write(id: string, data: Record<string, unknown>, merge: boolean): void {
-    if (!this.uid) return;
-    const path = `${paths.reminders(this.uid)}/${id}`;
+    const uid = this.owner();
+    if (!uid) return;
+    const path = `${paths.reminders(uid)}/${id}`;
     this.api.set(this.fb.db, path, data, merge).catch((err) => {
       console.error('reminder write failed', err);
     });

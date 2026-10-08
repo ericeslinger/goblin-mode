@@ -119,14 +119,14 @@ export function buildServer(tools: ToolsApi): McpServer {
     {
       title: 'Create a concept',
       description:
-        'A new person, project or other named thing, which [[links]] to its name or other ' +
+        'A new person, project, mood or other named thing, which [[links]] to its name or other ' +
         'names then reach. Use names as Eric wrote them. Refused when a name is taken. ' +
         'A project may have a parent project, a kind and a status; its text gets the project ' +
         'sections (Overview, Working notes, Tasks, Ideas, Open questions, Decisions, Links), ' +
         'with any body given under Overview.',
       inputSchema: {
         name: z.string().min(1),
-        type: z.enum(['person', 'project', 'other']).optional(),
+        type: z.enum(['person', 'project', 'mood', 'other']).optional(),
         synonyms: z.array(z.string().min(1)).optional(),
         body: z.string().optional(),
         tags: z.array(z.string()).optional(),
@@ -166,7 +166,7 @@ export function buildServer(tools: ToolsApi): McpServer {
       description:
         'The concepts (people, projects and other named things) with their other names and how ' +
         'many notes link to each, most linked first.',
-      inputSchema: { type: z.enum(['person', 'project', 'other']).optional() },
+      inputSchema: { type: z.enum(['person', 'project', 'mood', 'other']).optional() },
       annotations: read,
     },
     run((a) => tools.listConcepts(a)),
@@ -240,14 +240,14 @@ export function buildServer(tools: ToolsApi): McpServer {
     {
       title: 'Refile a note',
       description:
-        'File a concept as a person, project or other, give it other names links can use, or ' +
+        'File a concept as a person, project, mood or other, give it other names links can use, or ' +
         'add and remove tags on any note. A name another note already answers to is refused. ' +
         'For a project: parent (another project id, or null for the top level), kind and ' +
         'status. Filing a concept as a project adds the project section headings to its ' +
         'text, keeping the text word for word under Overview.',
       inputSchema: {
         id: z.string().min(1),
-        type: z.enum(['person', 'project', 'other']).optional(),
+        type: z.enum(['person', 'project', 'mood', 'other']).optional(),
         addSynonyms: z.array(z.string().min(1)).optional(),
         addTags: z.array(z.string().min(1)).optional(),
         removeTags: z.array(z.string().min(1)).optional(),
@@ -302,7 +302,7 @@ export function buildServer(tools: ToolsApi): McpServer {
               z.object({
                 kind: z.literal('refile'),
                 id: z.string().min(1).describe('a concept'),
-                type: z.enum(['person', 'project', 'other']).optional(),
+                type: z.enum(['person', 'project', 'mood', 'other']).optional(),
                 synonyms: z.array(z.string().min(1)).optional(),
                 reason: z.string().min(1),
               }),

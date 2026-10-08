@@ -118,4 +118,16 @@ describe('NoteList', () => {
     expect(left.map((r) => r.querySelector('.title')!.textContent)).toEqual(['Leaf']);
     expect(left[0].style.paddingLeft).toBe('0px');
   });
+
+  it('lists journal entries with their moods (#40)', async () => {
+    const { el, fixture } = await render([
+      { ...noteRecord('e1', 'Feelings\nMoods: [[calm]], tired\n\nslow day'), createdAt: 1 },
+      noteRecord('n1', 'Just a note'),
+    ]);
+    fixture.componentRef.setInput('lens', 'journal');
+    await fixture.whenStable();
+    const rows = el.querySelectorAll('ul li');
+    expect(rows.length).toBe(1);
+    expect(rows[0].querySelector('.snippet')!.textContent).toContain('calm, tired');
+  });
 });

@@ -64,6 +64,9 @@ import { ThemePicker } from '../theme/theme-picker';
           @if (!hasShoppingList()) {
             <button type="button" (click)="newShoppingList()">Add a shopping list</button>
           }
+          @if (!hasFeelingsJournal()) {
+            <button type="button" (click)="newFeelingsJournal()">Add a feelings journal</button>
+          }
         </div>
       }
       @if (auth.user()) {
@@ -129,6 +132,15 @@ export class Settings {
   protected readonly hasShoppingList = computed(() =>
     this.templates.templates().some((t) => t.title === 'Shopping list'),
   );
+
+  protected readonly hasFeelingsJournal = computed(() =>
+    this.templates.templates().some((t) => t.title === 'Feelings'),
+  );
+
+  /** The feelings journal template and its three reminders (#40), opened to look over. */
+  protected newFeelingsJournal(): void {
+    void this.router.navigate(['/n', this.templates.createFeelingsJournal()]);
+  }
 
   /** The shopping list template, opened to look over. */
   protected newShoppingList(): void {

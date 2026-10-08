@@ -17,12 +17,15 @@ describe('lenses', () => {
     n('tagged', { tags: ['feelings', 'home'] }),
     n('gone', { archived: true, kind: 'concept', conceptType: 'person', tags: ['home'] }),
     n('template', { kind: 'template', tags: ['home'] }),
+    n('entry', { body: 'Feelings\nMoods: [[calm]]' }),
+    n('feelings-template', { kind: 'template', body: 'Feelings\nMoods: ' }),
   ];
   const ids = (lens: Parameters<typeof inLens>[0]) =>
     notes.filter((x) => inLens(lens, x)).map((x) => x.id);
 
   it('sorts notes into lenses, archived ones only under Archived', () => {
-    expect(ids('recent')).toEqual(['text', 'vikas', 'kiln', 'tagged']);
+    expect(ids('recent')).toEqual(['text', 'vikas', 'kiln', 'tagged', 'entry']);
+    expect(ids('journal')).toEqual(['entry']);
     expect(ids('concepts')).toEqual(['stub', 'vikas', 'kiln']);
     expect(ids('people')).toEqual(['vikas']);
     expect(ids('projects')).toEqual(['kiln']);
