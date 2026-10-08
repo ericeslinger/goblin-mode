@@ -93,6 +93,8 @@ export class AttachmentsService {
   readonly arrived = signal(0);
   /** Uploads have failed a few times running; still being retried. */
   readonly struggling = signal(false);
+  /** The device's store failed: waiting photos live only as long as the page. */
+  readonly inMemory = signal(false);
 
   constructor() {
     // Signed in: show what is still queued, and send it.
@@ -170,6 +172,7 @@ export class AttachmentsService {
       console.error('could not keep the photo on the device; keeping it in memory', err);
       const queued = await this.queue.all().catch(() => [] as QueuedUpload[]);
       this.queue = memoryQueue();
+      this.inMemory.set(true);
       for (const q of queued) await this.queue.put(q);
       await this.queue.put(item);
     }

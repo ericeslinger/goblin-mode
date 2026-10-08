@@ -120,6 +120,7 @@ describe('AttachmentsService', () => {
     await signIn();
     await service.attach(photo(), 'm1');
     expect(service.waiting().has('m1')).toBe(true);
+    expect(service.inMemory()).toBe(true);
     await service.drain();
     expect(api.upload).toHaveBeenCalledWith(
       'users/u1/attachments/m1/Dinner-menu.jpg',

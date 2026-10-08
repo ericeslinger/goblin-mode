@@ -112,7 +112,7 @@ const FORMAT_ACTIONS: FormatAction[] = [
       <p class="note-status" role="status">
         {{ count === 1 ? '1 photo' : count + ' photos' }} waiting to upload{{
           attachments.struggling() ? '; uploads are failing, still trying' : ''
-        }}
+        }}{{ attachments.inMemory() ? ' (kept only until this page closes)' : '' }}
       </p>
     }
     <dialog
