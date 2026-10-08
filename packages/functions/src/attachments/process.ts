@@ -2,7 +2,7 @@
 // checked against its declared type, and an image gets a thumbnail its
 // record names. Over a small store interface, so it runs in specs
 // without Storage (storage-store.ts is the real one).
-import { SNIFF_BYTES, isDeclared } from './sniff';
+import { SNIFF_BYTES, isDeclared, sniffType } from '@mossgoblin/schema';
 
 /** Where an attachment's file sits: users/{uid}/attachments/{id}/{name}. */
 export interface FilePlace {
@@ -32,8 +32,12 @@ export interface UploadStore {
   read(path: string): Promise<Uint8Array>;
   write(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
   remove(path: string): Promise<void>;
+  /** Corrects a file's stored content type to what its bytes are. */
+  setContentType(path: string, contentType: string): Promise<void>;
   /** Sets the attachment record's `thumbPath`, if the record is there. */
   setThumb(uid: string, id: string, thumbPath: string): Promise<void>;
+  /** Deletes an attachment's record (its files go with it). */
+  removeRecord(uid: string, id: string): Promise<void>;
 }
 
 /** Shrinks an image to a thumbnail, or throws for one it cannot read. */
@@ -41,22 +45,44 @@ export type Thumbnailer = (bytes: Uint8Array) => Promise<Uint8Array>;
 
 export type UploadOutcome = 'thumbnailed' | 'kept' | 'removed' | 'skipped';
 
+/** Object metadata that marks a thumbnail this function wrote. */
+export const THUMB_METADATA = { mossgoblinThumbnail: 'true' };
+
+/**
+ * A file landed. Bytes that are none of the types the app keeps (HTML or
+ * SVG labelled a photo) are removed with the attachment's record. Bytes
+ * that are, but not the declared one (a WebP saved as .jpg, which a
+ * browser labels by its name), are kept and relabelled. A photo then
+ * gets a thumbnail its record names.
+ */
 export async function processUpload(
   store: UploadStore,
   thumbnail: Thumbnailer,
   path: string,
   contentType: string | undefined,
+  metadata: Record<string, string> | undefined,
   warn: (message: string, detail?: unknown) => void = () => undefined,
 ): Promise<UploadOutcome> {
   const place = placeOf(path);
-  // Not an attachment, or a thumbnail this function wrote.
-  if (!place || place.name.startsWith(THUMB_PREFIX)) return 'skipped';
-  if (!isDeclared(await store.head(path, SNIFF_BYTES), contentType)) {
-    warn('removed a file that is not what it says', { path, contentType });
+  // Not an attachment, or a thumbnail this function wrote (marked by
+  // metadata only it sets, not by a name an upload could take).
+  if (!place) return 'skipped';
+  if (place.name.startsWith(THUMB_PREFIX) && metadata?.['mossgoblinThumbnail'] === 'true') {
+    return 'skipped';
+  }
+  const head = await store.head(path, SNIFF_BYTES);
+  const actual = sniffType(head);
+  if (!actual) {
+    warn('removed a file that is not a photo or PDF', { path, contentType });
     await store.remove(path);
+    await store.removeRecord(place.uid, place.id);
     return 'removed';
   }
-  if (!contentType?.startsWith('image/')) return 'kept';
+  if (!isDeclared(head, contentType)) {
+    warn('relabelled a file by its bytes', { path, contentType, actual });
+    await store.setContentType(path, actual);
+  }
+  if (!actual.startsWith('image/')) return 'kept';
   try {
     const thumb = await thumbnail(await store.read(path));
     const thumbPath = thumbPathFor(place);

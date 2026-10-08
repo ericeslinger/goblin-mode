@@ -14,6 +14,7 @@ export const attachmentUploaded = onObjectFinalized({ memory: '512MiB' }, async 
     sharpThumbnail,
     event.data.name,
     event.data.contentType,
+    event.data.metadata,
     (message, detail) => logger.warn(message, detail),
   );
   if (outcome !== 'skipped') logger.info('attachmentUploaded', { outcome });

@@ -683,17 +683,29 @@ credentials (a failed download is retried after 30 seconds). A tap on
 a photo opens it full screen (a native `dialog`). Photos are only ever
 shown as `img`.
 
-**On the server (#44, 2026-10-08).** `attachmentUploaded`, a Storage
-trigger, reads each new file's first bytes: one that is not the type it
-declared (HTML labelled a JPEG) is deleted, since the rules can only
-check the label (review on #43). A photo then gets a WebP thumbnail,
-at most 640 px, turned upright, beside it as `thumb_<name>.webp` (the
-owner-read rule covers it), and its record gets `thumbPath`. The
-record write is a merge, and so is the app's, so a thumbnail made
-before the phone's record lands is kept. HEIC, which the image library
-cannot decode, keeps no thumbnail. `attachmentDeleted` removes an
-attachment's files when its record is deleted. The app still shows the
-full photo inline; using the thumbnail there is its own change.
+**On the server (#44, 2026-10-08).** A browser labels a file by its
+name, so a WebP saved as `.jpg` arrives as a JPEG. The app reads each
+photo's first bytes before keeping it (`sniffType`, shared with the
+server): it keeps the photo under the type its bytes are, and turns
+away anything that is not a photo, saying so, before it enters the
+note. `attachmentUploaded`, a Storage trigger, reads each new file's
+first bytes too, since the rules can only check the label (review on
+#43): bytes that are none of the kept types (HTML, SVG) are deleted
+with the attachment's record; bytes of another kept type than the
+label are relabelled, not deleted (review on #91). A photo then gets a
+WebP thumbnail, at most 640 px, turned upright, beside it as
+`thumb_<name>.webp` (the owner-read rule covers it), marked by object
+metadata only the function sets, and its record gets `thumbPath`. The
+app's names never start `thumb_`. The record write is a merge, and so
+is the app's, so a thumbnail made before the phone's record lands is
+kept; a record the phone never completes stays holding only
+`thumbPath` and `updatedAt`, a shape no rule would accept from the
+app, which readers ignore. HEIC, which the image library cannot
+decode, keeps no thumbnail. `attachmentDeleted` removes an
+attachment's files when its record is deleted. A Storage trigger
+deploys in the default bucket's location, which must suit the
+functions' region (us-central1 for a US bucket). The app still shows
+the full photo inline; using the thumbnail there is its own change.
 
 **Room above the keyboard (2026-10-07).** The keyboard and the ribbon
 overlay the page, so in a long note the ribbon sat on the line being

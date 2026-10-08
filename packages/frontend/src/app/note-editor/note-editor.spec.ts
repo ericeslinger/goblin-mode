@@ -45,6 +45,11 @@ describe('keyLabel', () => {
   });
 });
 
+// The test DOM has no layout: CodeMirror measures ranges when it scrolls
+// to an inserted image.
+Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect ??= () => new DOMRect();
+
 describe('NoteEditorComponent', () => {
   it('puts a chosen photo in the note before its file is kept (#44)', async () => {
     const { fixture } = await render();
@@ -55,9 +60,10 @@ describe('NoteEditorComponent', () => {
     const file = new File(['x'], 'menu.png', { type: 'image/png' });
     Object.defineProperty(input, 'files', { value: [file], configurable: true });
     input.dispatchEvent(new Event('change'));
-    // In the note at once, while the file is still being kept.
+    await vi.waitFor(() => expect(fake.attach).toHaveBeenCalled());
+    // In the note once its bytes are read, while the file is still being kept.
     expect(fixture.componentInstance.changes.at(-1)).toContain('![menu](attachment:img1)');
-    expect(fake.attach).toHaveBeenCalledWith(file, 'img1', 'a');
+    expect(fake.attach).toHaveBeenCalledWith(file, 'img1', 'image/png', 'a');
     keep();
   });
 

@@ -64,7 +64,7 @@ describe('AttachmentsService', () => {
     const { service, queue, api, signIn } = setup();
     const id = service.newId();
     expect(id).toBe('new1');
-    await service.attach(photo(), id, 'n1');
+    await service.attach(photo(), id, 'image/jpeg', 'n1');
     // On the device at once, shown from there, and waiting.
     expect(queue.items.get('new1')).toMatchObject({ name: 'Dinner-menu.jpg', noteId: 'n1' });
     expect(service.resolve('new1')).toBe('blob:local/1');
@@ -89,7 +89,7 @@ describe('AttachmentsService', () => {
     const { service, queue, api, signIn } = setup();
     api.upload.mockRejectedValueOnce(new Error('offline'));
     await signIn();
-    await service.attach(photo(), 'p1');
+    await service.attach(photo(), 'p1', 'image/jpeg');
     await service.drain();
     expect(queue.items.size).toBe(1);
     window.dispatchEvent(new Event('online'));
@@ -100,16 +100,34 @@ describe('AttachmentsService', () => {
     expect(api.record).toHaveBeenCalledOnce();
   });
 
-  it('turns away files that are not photos, or too big', async () => {
-    const { service, queue } = setup();
-    expect(service.check(photo('page.svg', 'image/svg+xml'))).toMatch(/not a photo/);
-    expect(service.check(photo('doc.pdf', 'application/pdf'))).toMatch(/not a photo/);
-    const big = photo();
+  it('knows a photo by its bytes, not its name, and turns away the rest', async () => {
+    const { service } = setup();
+    const bytes = (b: number[] | string, name: string, type: string) =>
+      new File([typeof b === 'string' ? b : Uint8Array.from(b)], name, { type });
+    // A WebP saved as .jpg: the browser says JPEG.
+    expect(
+      await service.inspect(
+        bytes('RIFF\u0001\u0002\u0003\u0004WEBPVP8 ', 'menu.jpg', 'image/jpeg'),
+      ),
+    ).toEqual({ type: 'image/webp' });
+    expect(
+      await service.inspect(bytes([0xff, 0xd8, 0xff, 0xe0, 0], 'a.jpg', 'image/jpeg')),
+    ).toEqual({ type: 'image/jpeg' });
+    expect(await service.inspect(bytes('<html><script>', 'x.jpg', 'image/jpeg'))).toHaveProperty(
+      'error',
+    );
+    expect(await service.inspect(bytes('%PDF-1.7', 'doc.pdf', 'application/pdf'))).toHaveProperty(
+      'error',
+    );
+    const big = bytes([0xff, 0xd8, 0xff], 'big.jpg', 'image/jpeg');
     Object.defineProperty(big, 'size', { value: 26 * 1024 * 1024 });
-    expect(service.check(big)).toMatch(/25 MB/);
-    expect(service.check(photo())).toBeUndefined();
-    await expect(service.attach(big, 'x')).rejects.toThrow();
-    expect(queue.items.size).toBe(0);
+    expect(await service.inspect(big)).toEqual({ error: 'That photo is over 25 MB.' });
+  });
+
+  it('keeps a photo as the type its bytes are', async () => {
+    const { service, queue } = setup();
+    await service.attach(photo('menu.jpg', 'image/jpeg'), 't1', 'image/webp');
+    expect(queue.items.get('t1')?.contentType).toBe('image/webp');
   });
 
   it('keeps a photo in memory when the device store fails', async () => {
@@ -118,7 +136,7 @@ describe('AttachmentsService', () => {
       throw new Error('quota');
     };
     await signIn();
-    await service.attach(photo(), 'm1');
+    await service.attach(photo(), 'm1', 'image/jpeg');
     expect(service.waiting().has('m1')).toBe(true);
     expect(service.inMemory()).toBe(true);
     await service.drain();
@@ -136,7 +154,7 @@ describe('AttachmentsService', () => {
       const { service, api, signIn } = setup();
       api.upload.mockRejectedValue(new Error('denied'));
       await signIn();
-      await service.attach(photo(), 'f1');
+      await service.attach(photo(), 'f1', 'image/jpeg');
       await service.drain();
       expect(service.struggling()).toBe(false);
       await vi.advanceTimersByTimeAsync(30_000);
@@ -185,6 +203,8 @@ describe('names', () => {
     expect(safeName('IMG 2041 (1).HEIC')).toBe('IMG-2041-1-.HEIC');
     expect(safeName('../../etc')).toBe('etc');
     expect(safeName('😀')).toBe('image');
+    // The server's thumbnail prefix is its own.
+    expect(safeName('thumb_x.jpg')).toBe('x.jpg');
   });
 
   it('captions a photo by its name', () => {

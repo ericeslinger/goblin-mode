@@ -8,7 +8,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, paths } from '@mossgoblin/schema';
+import { MAX_ATTACHMENT_BYTES, SNIFF_BYTES, paths, sniffType } from '@mossgoblin/schema';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getBlob, ref, uploadBytes } from 'firebase/storage';
 import { AuthService } from '../auth.service';
@@ -55,7 +55,11 @@ export const OBJECT_URLS = new InjectionToken<{ create(blob: Blob): string }>('o
 
 /** A file name Storage paths and rules take: letters, digits, `.`, `-`, `_`. */
 export function safeName(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+/, '');
+  const cleaned = name
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    // thumb_ is the server's own thumbnails' prefix.
+    .replace(/^(thumb_)+/i, '')
+    .replace(/^[-.]+/, '');
   return cleaned.slice(-80) || 'image';
 }
 
@@ -119,16 +123,21 @@ export class AttachmentsService {
     });
   }
 
-  /** Why `file` cannot be attached, or undefined if it can. */
-  check(file: File): string | undefined {
-    if (
-      !(ATTACHMENT_TYPES as readonly string[]).includes(file.type) ||
-      file.type === 'application/pdf'
-    ) {
-      return 'That file is not a photo this app can keep (JPEG, PNG, WebP, GIF or HEIC).';
+  /**
+   * What `file` really is, by its first bytes, not its name: a browser
+   * labels a WebP saved as .jpg a JPEG, and the server would correct it
+   * anyway. An error for anything that is not a photo the app keeps.
+   */
+  async inspect(file: File): Promise<{ type: string } | { error: string }> {
+    if (file.size > MAX_ATTACHMENT_BYTES) return { error: 'That photo is over 25 MB.' };
+    const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
+    const type = sniffType(head);
+    if (!type?.startsWith('image/')) {
+      return {
+        error: 'That file is not a photo this app can keep (JPEG, PNG, WebP, GIF or HEIC).',
+      };
     }
-    if (file.size > MAX_ATTACHMENT_BYTES) return 'That photo is over 25 MB.';
-    return undefined;
+    return { type };
   }
 
   /** A new attachment id, made on the device. */
@@ -141,18 +150,17 @@ export class AttachmentsService {
    * first, then its record, then (when it can) Storage. The caller puts
    * the id in the note before awaiting this, so the photo lands in the
    * note it was taken for. Resolves once the file is safe on the device;
-   * rejects only if this device can keep it nowhere.
+   * rejects only if this device can keep it nowhere. `type` is what
+   * `inspect` found the file to be.
    */
-  async attach(file: File, id: string, noteId?: string): Promise<void> {
-    const error = this.check(file);
-    if (error) throw new Error(error);
+  async attach(file: File, id: string, type: string, noteId?: string): Promise<void> {
     // Shown at once, while it is stored.
     this.urls.set(id, this.urls$.create(file));
     this.arrived.update((n) => n + 1);
     const item: QueuedUpload = {
       id,
       name: safeName(file.name),
-      contentType: file.type,
+      contentType: type,
       size: file.size,
       ...(await imageSize(file)),
       ...(noteId ? { noteId } : {}),
