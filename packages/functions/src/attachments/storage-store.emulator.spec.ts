@@ -40,7 +40,9 @@ describe('storageStore', () => {
       contentType: 'image/jpeg',
     });
     expect(Buffer.from(await store.head(`${dir}/menu.jpg`, 4)).toString()).toBe('0123');
-    await store.write(`${dir}/thumb_menu.webp`, Uint8Array.from([1, 2]), 'image/webp');
+    await store.write(`${dir}/thumb_menu.webp`, Uint8Array.from([1, 2]), 'image/webp', {
+      mossgoblinThumbnail: 'true',
+    });
     const [meta] = await bucket.file(`${dir}/thumb_menu.webp`).getMetadata();
     expect(meta.contentType).toBe('image/webp');
 

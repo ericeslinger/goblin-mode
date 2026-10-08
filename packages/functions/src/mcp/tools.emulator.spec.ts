@@ -474,6 +474,85 @@ describe('organizing tools', () => {
     expect(String((await body('p'))['body'])).toContain('- When?');
   });
 
+  it('saves links to read later, lists the queue, reads and searches text (#45, #49)', async () => {
+    const texts: Record<string, string> = {
+      'users/u1/attachments/p1/text_menu.txt': 'Dinner menu\n\nSeasonal soup. Bread.',
+      'users/u1/attachments/l1/text_page.txt': 'How to plant seeds in spring.',
+    };
+    let t = T;
+    const tools = new NotesTools(
+      db,
+      'u1',
+      () => (t += 1000),
+      async (path) => texts[path] ?? '',
+    );
+    const record = (over: Record<string, unknown>) => ({
+      name: 'x',
+      toRead: false,
+      read: false,
+      createdAt: Timestamp.fromMillis(T),
+      updatedAt: Timestamp.fromMillis(T),
+      createdBy: 'user',
+      ...over,
+    });
+    await db.doc('users/u1/attachments/p1').set(
+      record({
+        kind: 'pdf',
+        name: 'menu.pdf',
+        textPath: 'users/u1/attachments/p1/text_menu.txt',
+        pages: 2,
+        toRead: true,
+        read: true,
+      }),
+    );
+    await db.doc('users/u1/attachments/l1').set(
+      record({
+        kind: 'link',
+        name: 'Seeds',
+        url: 'https://x.test/s',
+        textPath: 'users/u1/attachments/l1/text_page.txt',
+        toRead: true,
+        createdAt: Timestamp.fromMillis(T + 5),
+      }),
+    );
+    await db.doc('users/u1/attachments/i1').set(record({ kind: 'image', name: 'a.png' }));
+
+    const saved = await tools.addAttachment({
+      url: 'https://example.com/paper.pdf',
+      title: 'A paper',
+    });
+    expect((await db.doc(`users/u1/attachments/${saved.id}`).get()).data()).toMatchObject({
+      kind: 'link',
+      name: 'A paper',
+      url: 'https://example.com/paper.pdf',
+      toRead: true,
+      read: false,
+      createdBy: 'claude',
+    });
+    await expect(tools.addAttachment({ url: 'file:///etc/passwd' })).rejects.toThrow('http(s)');
+    await expect(tools.addAttachment({ url: 'https://x.test', noteId: 'nope' })).rejects.toThrow(
+      'no note nope',
+    );
+
+    const queue = await tools.listReadingQueue({});
+    expect(queue.map((q) => q.id)).toEqual([saved.id, 'l1']);
+    expect((await tools.listReadingQueue({ includeRead: true })).map((q) => q.id)).toContain('p1');
+
+    const page = await tools.getAttachmentText({ id: 'p1', limit: 11 });
+    expect(page).toMatchObject({ text: 'Dinner menu', total: 34, nextOffset: 11, pages: 2 });
+    await expect(tools.getAttachmentText({ id: 'i1' })).rejects.toThrow('it is a photo');
+    // A text path outside the attachment's own folder is never read.
+    await db
+      .doc('users/u1/attachments/x1')
+      .set(record({ kind: 'pdf', textPath: 'oauth/keys.txt' }));
+    await expect(tools.getAttachmentText({ id: 'x1' })).rejects.toThrow('no text for x1');
+    await expect(tools.getAttachmentText({ id: saved.id })).rejects.toThrow('not read yet');
+
+    const hits = await tools.searchAttachments({ query: 'SOUP bread' });
+    expect(hits.map((h) => h['id'])).toEqual(['p1']);
+    expect(hits[0]['snippet']).toContain('Seasonal soup');
+  });
+
   it('archives and restores a note, recording each', async () => {
     await eric('a', 'Old plan');
     const t = ticking();

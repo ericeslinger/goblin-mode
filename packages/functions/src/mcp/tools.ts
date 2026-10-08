@@ -7,6 +7,7 @@
 import { findWikiLinks, parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   Activity,
+  Attachment,
   type ConceptType,
   Note,
   type ProjectKind,
@@ -38,6 +39,7 @@ import {
   type Transaction,
   Timestamp,
 } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { randomFillSync } from 'node:crypto';
 import type { RawProposal } from '../organize/proposals';
 import { storeSuggestions } from '../organize/store';
@@ -91,6 +93,24 @@ const touched = (id: string, d: Data): Touched => ({ id, title: String(d['title'
 
 /** A name that can sit inside `[[...]]` as it is. */
 const linkable = (name: string) => !/\[\[|\]\]|\||\n/.test(name) && name.trim() !== '';
+
+/** An attachment as Claude sees it. */
+function attachmentView(id: string, d: Data) {
+  return {
+    id,
+    kind: d['kind'],
+    name: d['name'],
+    ...(d['url'] ? { url: d['url'] } : {}),
+    ...(d['noteId'] ? { noteId: d['noteId'] } : {}),
+    ...(d['driveFileId'] ? { driveFileId: d['driveFileId'] } : {}),
+    ...(typeof d['pages'] === 'number' ? { pages: d['pages'] } : {}),
+    toRead: d['toRead'] === true,
+    read: d['read'] === true,
+    hasText: typeof d['textPath'] === 'string',
+    ...(d['importError'] ? { importError: d['importError'] } : {}),
+    savedAt: iso(d['createdAt']),
+  };
+}
 
 function noteSummary(id: string, d: Data) {
   return {
@@ -175,7 +195,14 @@ export class NotesTools {
     private readonly db: Firestore,
     private readonly uid: string,
     private readonly now: () => number = () => Date.now(),
+    /** Reads a text file from Storage (an attachment's extracted text, #45). */
+    private readonly readText: (path: string) => Promise<string> = async (path) =>
+      String((await getStorage().bucket().file(path).download())[0]),
   ) {}
+
+  private attachments() {
+    return this.db.collection(paths.attachments(this.uid));
+  }
 
   private notes() {
     return this.db.collection(paths.notes(this.uid));
@@ -1088,6 +1115,124 @@ export class NotesTools {
     } catch {
       throw new ToolError(`unknown time zone ${timeZone}`);
     }
+  }
+
+  /**
+   * Saves a link to read later (#48, #49). A function then fetches it:
+   * a page becomes its title and text, a PDF the attachment's file.
+   */
+  async addAttachment(args: { url: string; title?: string; noteId?: string; toRead?: boolean }) {
+    let url: URL;
+    try {
+      url = new URL(args.url.trim());
+    } catch {
+      throw new ToolError('url must be a full http(s) link');
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:')
+      throw new ToolError('url must be a full http(s) link');
+    if (args.noteId && !(await this.notes().doc(args.noteId).get()).exists)
+      throw new ToolError(`no note ${args.noteId}`);
+    const now = Timestamp.fromMillis(this.now());
+    const data = Attachment.parse({
+      kind: 'link',
+      name: args.title?.trim() || url.toString(),
+      url: url.toString(),
+      ...(args.noteId ? { noteId: args.noteId } : {}),
+      toRead: args.toRead ?? true,
+      read: false,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: 'claude',
+    });
+    const id = newId();
+    const batch = this.db.batch();
+    batch.set(this.attachments().doc(id), data);
+    batch.set(...this.activity('add_attachment', `Saved ${data.name} to read later`, []));
+    await batch.commit();
+    return {
+      id,
+      name: data.name,
+      note: 'Its text arrives in a moment; get_attachment_text reads it.',
+    };
+  }
+
+  /** The reading queue (#48): saved to read later, newest first. */
+  async listReadingQueue(args: { includeRead?: boolean }) {
+    const snap = await this.attachments().where('toRead', '==', true).get();
+    return snap.docs
+      .map((d) => ({ id: d.id, data: d.data() }))
+      .filter((d) => args.includeRead || d.data['read'] !== true)
+      .sort((a, b) => (millis(b.data['createdAt']) ?? 0) - (millis(a.data['createdAt']) ?? 0))
+      .map((d) => attachmentView(d.id, d.data));
+  }
+
+  /** An attachment's extracted text (#45), a stretch at a time. */
+  async getAttachmentText(args: { id: string; offset?: number; limit?: number }) {
+    const doc = await this.attachments().doc(args.id).get();
+    if (!doc.exists) throw new ToolError(`no attachment ${args.id}`);
+    const data = doc.data()!;
+    const textPath = this.ownText(args.id, data['textPath']);
+    if (textPath === undefined) {
+      const why =
+        data['importError'] ?? (data['kind'] === 'image' ? 'it is a photo' : 'not read yet');
+      throw new ToolError(`no text for ${args.id}: ${String(why)}`);
+    }
+    const text = await this.readText(textPath);
+    const offset = Math.max(0, args.offset ?? 0);
+    const limit = Math.min(Math.max(1, args.limit ?? 20_000), 100_000);
+    const end = Math.min(text.length, offset + limit);
+    return {
+      ...attachmentView(doc.id, data),
+      text: text.slice(offset, end),
+      offset,
+      total: text.length,
+      ...(end < text.length ? { nextOffset: end } : {}),
+    };
+  }
+
+  /**
+   * An attachment's text file, only if it lies in that attachment's own
+   * folder: the owner's app can write the record, and the bucket is
+   * read here with the server's rights (review on #99).
+   */
+  private ownText(id: string, path: unknown): string | undefined {
+    const folder = `${paths.attachmentFiles(this.uid, id)}/`;
+    return typeof path === 'string' && path.startsWith(folder) && !path.includes('..')
+      ? path
+      : undefined;
+  }
+
+  /** Searches the text of PDFs and saved pages (#45): every word must appear. */
+  async searchAttachments(args: { query: string; limit?: number }) {
+    const words = args.query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) throw new ToolError('query must have a word');
+    const snap = await this.attachments().get();
+    const withText = snap.docs.flatMap((d) => {
+      const path = this.ownText(d.id, d.data()['textPath']);
+      return path === undefined ? [] : [{ id: d.id, data: d.data(), path }];
+    });
+    withText.sort(
+      (a, b) => (millis(b.data['createdAt']) ?? 0) - (millis(a.data['createdAt']) ?? 0),
+    );
+    const limit = args.limit ?? 10;
+    const found: Data[] = [];
+    // A few at a time, newest first, until enough are found (review on #99).
+    for (let i = 0; i < withText.length && found.length < limit; i += 8) {
+      const batch = withText.slice(i, i + 8);
+      const texts = await Promise.all(batch.map((d) => this.readText(d.path).catch(() => '')));
+      batch.forEach((d, k) => {
+        const text = texts[k];
+        if (found.length >= limit) return;
+        if (!matchesSearch({ title: String(d.data['name'] ?? ''), body: text }, args.query)) return;
+        const at = Math.max(0, text.toLowerCase().indexOf(words[0]));
+        const snippet = text
+          .slice(Math.max(0, at - 120), at + 200)
+          .replace(/\s+/g, ' ')
+          .trim();
+        found.push({ ...attachmentView(d.id, d.data), snippet });
+      });
+    }
+    return found;
   }
 
   async checkItem(args: { id: string; item: string }) {

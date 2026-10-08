@@ -1,11 +1,12 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from 'firebase-functions/v2';
-import { onDocumentDeleted } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentDeleted } from 'firebase-functions/v2/firestore';
 import { defineString } from 'firebase-functions/params';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
+import { importLink, publicFetch } from './import';
 import { processUpload } from './process';
-import { removeFiles, sharpThumbnail, storageStore } from './storage-store';
+import { importStore, pdfText, removeFiles, sharpThumbnail, storageStore } from './storage-store';
 
 /**
  * The default bucket's region: a Storage trigger must run where its
@@ -14,7 +15,7 @@ import { removeFiles, sharpThumbnail, storageStore } from './storage-store';
  */
 const storageRegion = defineString('STORAGE_REGION', { default: 'us-central1' });
 
-/** A file landed: check its bytes, and give a photo a thumbnail (#44). */
+/** A file landed: check its bytes, give a photo a thumbnail (#44), read a PDF's text (#45). */
 export const attachmentUploaded = onObjectFinalized(
   { memory: '512MiB', region: storageRegion },
   async (event) => {
@@ -26,6 +27,7 @@ export const attachmentUploaded = onObjectFinalized(
       event.data.contentType,
       event.data.metadata,
       (message, detail) => logger.warn(message, detail),
+      pdfText,
     );
     if (outcome !== 'skipped') logger.info('attachmentUploaded', { outcome });
   },
@@ -37,5 +39,23 @@ export const attachmentDeleted = onDocumentDeleted(
   async (event) => {
     const { uid, attachmentId } = event.params;
     await removeFiles(getStorage().bucket(), uid, attachmentId);
+  },
+);
+
+/** A link saved to read later: fetch its page or PDF (#48). */
+export const attachmentCreated = onDocumentCreated(
+  { document: 'users/{uid}/attachments/{attachmentId}', memory: '512MiB', timeoutSeconds: 60 },
+  async (event) => {
+    const record = event.data?.data();
+    if (!record) return;
+    const { uid, attachmentId } = event.params;
+    const outcome = await importLink(
+      importStore(getStorage().bucket(), getFirestore()),
+      publicFetch,
+      uid,
+      attachmentId,
+      record,
+    );
+    if (outcome !== 'skipped') logger.info('attachmentCreated', { outcome });
   },
 );

@@ -1,6 +1,7 @@
 // What happens to a file once it lands in Storage (#44): its bytes are
-// checked against its declared type, and an image gets a thumbnail its
-// record names. Over a small store interface, so it runs in specs
+// checked against its declared type, an image gets a thumbnail its
+// record names, and a PDF's text is extracted into a file beside it
+// (#45). Over a small store interface, so it runs in specs
 // without Storage (storage-store.ts is the real one).
 import { SNIFF_BYTES, isDeclared, sniffType } from '@mossgoblin/schema';
 
@@ -21,6 +22,16 @@ export function placeOf(path: string): FilePlace | undefined {
   return m ? { uid: m[1], id: m[2], name: m[3] } : undefined;
 }
 
+/** The prefix for extracted text, beside the PDF it came from (#45). */
+export const TEXT_PREFIX = 'text_';
+/** The most text kept for one file, in characters. */
+export const MAX_TEXT = 2_000_000;
+
+export function textPathFor(place: FilePlace): string {
+  const base = place.name.replace(/\.[A-Za-z0-9]+$/, '');
+  return `users/${place.uid}/attachments/${place.id}/${TEXT_PREFIX}${base}.txt`;
+}
+
 export function thumbPathFor(place: FilePlace): string {
   const base = place.name.replace(/\.[A-Za-z0-9]+$/, '');
   return `users/${place.uid}/attachments/${place.id}/${THUMB_PREFIX}${base}.webp`;
@@ -30,12 +41,20 @@ export interface UploadStore {
   /** The first `n` bytes of a file. */
   head(path: string, n: number): Promise<Uint8Array>;
   read(path: string): Promise<Uint8Array>;
-  write(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  /** Writes a file this function makes, marked with `metadata` so it is skipped. */
+  write(
+    path: string,
+    bytes: Uint8Array,
+    contentType: string,
+    metadata: Record<string, string>,
+  ): Promise<void>;
   remove(path: string): Promise<void>;
   /** Corrects a file's stored content type to what its bytes are. */
   setContentType(path: string, contentType: string): Promise<void>;
   /** Sets the attachment record's `thumbPath`, if the record is there. */
   setThumb(uid: string, id: string, thumbPath: string): Promise<void>;
+  /** Sets the attachment record's `textPath` and `pages`, if the record is there. */
+  setText(uid: string, id: string, text: { textPath: string; pages?: number }): Promise<void>;
   /** Deletes an attachment's record (its files go with it). */
   removeRecord(uid: string, id: string): Promise<void>;
 }
@@ -43,10 +62,15 @@ export interface UploadStore {
 /** Shrinks an image to a thumbnail, or throws for one it cannot read. */
 export type Thumbnailer = (bytes: Uint8Array) => Promise<Uint8Array>;
 
-export type UploadOutcome = 'thumbnailed' | 'kept' | 'removed' | 'skipped';
+/** A PDF's text, page by page, and how many pages it has (#45). */
+export type TextExtractor = (bytes: Uint8Array) => Promise<{ text: string; pages: number }>;
+
+export type UploadOutcome = 'thumbnailed' | 'texted' | 'kept' | 'removed' | 'skipped';
 
 /** Object metadata that marks a thumbnail this function wrote. */
 export const THUMB_METADATA = { mossgoblinThumbnail: 'true' };
+/** Object metadata that marks extracted text this function wrote. */
+export const TEXT_METADATA = { mossgoblinText: 'true' };
 
 /**
  * A file landed. Bytes that are none of the types the app keeps (HTML or
@@ -62,12 +86,16 @@ export async function processUpload(
   contentType: string | undefined,
   metadata: Record<string, string> | undefined,
   warn: (message: string, detail?: unknown) => void = () => undefined,
+  extract?: TextExtractor,
 ): Promise<UploadOutcome> {
   const place = placeOf(path);
   // Not an attachment, or a thumbnail this function wrote (marked by
   // metadata only it sets, not by a name an upload could take).
   if (!place) return 'skipped';
   if (place.name.startsWith(THUMB_PREFIX) && metadata?.['mossgoblinThumbnail'] === 'true') {
+    return 'skipped';
+  }
+  if (place.name.startsWith(TEXT_PREFIX) && metadata?.['mossgoblinText'] === 'true') {
     return 'skipped';
   }
   const head = await store.head(path, SNIFF_BYTES);
@@ -82,11 +110,26 @@ export async function processUpload(
     warn('relabelled a file by its bytes', { path, contentType, actual });
     await store.setContentType(path, actual);
   }
+  if (actual === 'application/pdf') {
+    if (!extract) return 'kept';
+    try {
+      const { text, pages } = await extract(await store.read(path));
+      const textPath = textPathFor(place);
+      const bytes = new TextEncoder().encode(text.slice(0, MAX_TEXT));
+      await store.write(textPath, bytes, 'text/plain; charset=utf-8', TEXT_METADATA);
+      await store.setText(place.uid, place.id, { textPath, pages });
+      return 'texted';
+    } catch (err) {
+      // A scan with no text layer, or a PDF pdf.js cannot read.
+      warn('no text', { path, err: String(err) });
+      return 'kept';
+    }
+  }
   if (!actual.startsWith('image/')) return 'kept';
   try {
     const thumb = await thumbnail(await store.read(path));
     const thumbPath = thumbPathFor(place);
-    await store.write(thumbPath, thumb, 'image/webp');
+    await store.write(thumbPath, thumb, 'image/webp', THUMB_METADATA);
     await store.setThumb(place.uid, place.id, thumbPath);
     return 'thumbnailed';
   } catch (err) {

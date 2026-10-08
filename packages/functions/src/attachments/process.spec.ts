@@ -1,7 +1,15 @@
 import sharp from 'sharp';
 import { describe, expect, it, vi } from 'vitest';
-import { THUMB_SIZE, type UploadStore, placeOf, processUpload, thumbPathFor } from './process';
-import { sharpThumbnail } from './storage-store';
+import {
+  TEXT_METADATA,
+  THUMB_METADATA,
+  THUMB_SIZE,
+  type UploadStore,
+  placeOf,
+  processUpload,
+  thumbPathFor,
+} from './process';
+import { pdfText, sharpThumbnail } from './storage-store';
 
 const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 const WEBP = new TextEncoder().encode('RIFF\u0001\u0002\u0003\u0004WEBPVP8 rest');
@@ -16,6 +24,7 @@ function store(file: Uint8Array) {
     remove: vi.fn(async () => undefined),
     setContentType: vi.fn(async () => undefined),
     setThumb: vi.fn(async () => undefined),
+    setText: vi.fn(async () => undefined),
     removeRecord: vi.fn(async () => undefined),
   } satisfies UploadStore;
 }
@@ -26,7 +35,12 @@ describe('processUpload', () => {
     const thumb = vi.fn(async () => Uint8Array.from([1, 2, 3]));
     expect(await processUpload(s, thumb, PATH, 'image/jpeg', {})).toBe('thumbnailed');
     const thumbPath = 'users/u1/attachments/a1/thumb_menu.webp';
-    expect(s.write).toHaveBeenCalledWith(thumbPath, Uint8Array.from([1, 2, 3]), 'image/webp');
+    expect(s.write).toHaveBeenCalledWith(
+      thumbPath,
+      Uint8Array.from([1, 2, 3]),
+      'image/webp',
+      THUMB_METADATA,
+    );
     expect(s.setThumb).toHaveBeenCalledWith('u1', 'a1', thumbPath);
     expect(s.remove).not.toHaveBeenCalled();
     expect(s.setContentType).not.toHaveBeenCalled();
@@ -63,6 +77,36 @@ describe('processUpload', () => {
     expect(
       await processUpload(pdf, vi.fn(), 'users/u1/attachments/a2/doc.pdf', 'application/pdf', {}),
     ).toBe('kept');
+  });
+
+  it('reads a PDF’s text into a file beside it, named on its record (#45)', async () => {
+    const pdf = store(new TextEncoder().encode('%PDF-1.7 and more bytes'));
+    const extract = vi.fn(async () => ({ text: 'Dinner\n\nDessert', pages: 2 }));
+    const path = 'users/u1/attachments/a2/menu.pdf';
+    expect(await processUpload(pdf, vi.fn(), path, 'application/pdf', {}, undefined, extract)).toBe(
+      'texted',
+    );
+    const textPath = 'users/u1/attachments/a2/text_menu.txt';
+    expect(pdf.write).toHaveBeenCalledWith(
+      textPath,
+      new TextEncoder().encode('Dinner\n\nDessert'),
+      'text/plain; charset=utf-8',
+      TEXT_METADATA,
+    );
+    expect(pdf.setText).toHaveBeenCalledWith('u1', 'a2', { textPath, pages: 2 });
+    // One it cannot read is kept, without text.
+    const unreadable = store(new TextEncoder().encode('%PDF-1.7 broken'));
+    const failing = vi.fn(async () => {
+      throw new Error('Invalid PDF structure');
+    });
+    expect(
+      await processUpload(unreadable, vi.fn(), path, 'application/pdf', {}, undefined, failing),
+    ).toBe('kept');
+    expect(unreadable.setText).not.toHaveBeenCalled();
+    // Its own text file is left alone.
+    expect(await processUpload(pdf, vi.fn(), textPath, 'text/plain', TEXT_METADATA)).toBe(
+      'skipped',
+    );
   });
 
   it('leaves alone its own thumbnails and files outside attachments', async () => {
@@ -105,5 +149,33 @@ describe('sharpThumbnail', () => {
     expect(meta.format).toBe('webp');
     expect(meta.width).toBe(THUMB_SIZE);
     expect(meta.height).toBe(THUMB_SIZE / 2);
+  });
+});
+
+describe('pdfText', () => {
+  it('reads each page’s text', async () => {
+    const page = (text: string) => `BT /F1 12 Tf 20 100 Td (${text}) Tj ET`;
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 7 0 R >> >> >>',
+      `<< /Length ${page('Dinner menu').length} >>\nstream\n${page('Dinner menu')}\nendstream`,
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 6 0 R /Resources << /Font << /F1 7 0 R >> >> >>',
+      `<< /Length ${page('Dessert').length} >>\nstream\n${page('Dessert')}\nendstream`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ];
+    let body = '%PDF-1.4\n';
+    const offsets: number[] = [];
+    objects.forEach((o, i) => {
+      offsets.push(body.length);
+      body += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    });
+    const xref = body.length;
+    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (const o of offsets) body += `${String(o).padStart(10, '0')} 00000 n \n`;
+    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+    const { text, pages } = await pdfText(new TextEncoder().encode(body));
+    expect(pages).toBe(2);
+    expect(text).toBe('Dinner menu\n\nDessert');
   });
 });
