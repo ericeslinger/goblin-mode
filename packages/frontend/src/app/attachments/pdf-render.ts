@@ -27,10 +27,11 @@ export async function openPdf(url: string, into: HTMLElement): Promise<OpenPdf> 
   const pdf = await task.promise;
   const width = Math.max(into.clientWidth, 320);
   const ratio = window.devicePixelRatio || 1;
-  const drawn = new Map<HTMLCanvasElement, number>();
+  /** Pages being drawn or drawn, with the draw in progress if any. */
+  const drawn = new Map<HTMLCanvasElement, { cancel(): void } | undefined>();
   const draw = async (canvas: HTMLCanvasElement, n: number) => {
     if (drawn.has(canvas)) return;
-    drawn.set(canvas, n);
+    drawn.set(canvas, undefined);
     const page = await pdf.getPage(n);
     const viewport = page.getViewport({
       scale: (width / page.getViewport({ scale: 1 }).width) * ratio,
@@ -38,9 +39,17 @@ export async function openPdf(url: string, into: HTMLElement): Promise<OpenPdf> 
     if (!drawn.has(canvas)) return;
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
-    await page.render({ canvas, viewport }).promise;
+    const render = page.render({ canvas, viewport });
+    drawn.set(canvas, render);
+    try {
+      await render.promise;
+    } catch (err) {
+      // Scrolled away mid-draw: cancelled on purpose.
+      if ((err as { name?: string }).name !== 'RenderingCancelledException') throw err;
+    }
   };
   const clear = (canvas: HTMLCanvasElement) => {
+    drawn.get(canvas)?.cancel();
     drawn.delete(canvas);
     // A zero-sized canvas gives its pixels back; the box keeps its place.
     canvas.width = 0;
@@ -50,24 +59,34 @@ export async function openPdf(url: string, into: HTMLElement): Promise<OpenPdf> 
     (entries) => {
       for (const entry of entries) {
         const canvas = entry.target as HTMLCanvasElement;
-        if (entry.isIntersecting) void draw(canvas, Number(canvas.dataset['page']));
-        else clear(canvas);
+        if (entry.isIntersecting) {
+          draw(canvas, Number(canvas.dataset['page'])).catch((err) =>
+            console.error('could not draw a PDF page', err),
+          );
+        } else clear(canvas);
       }
     },
     // On screen, or within a screen of it.
     { root: into.closest('dialog'), rootMargin: '100% 0px' },
   );
-  for (let n = 1; n <= Math.min(pdf.numPages, MAX_PAGES); n++) {
-    const page = await pdf.getPage(n);
-    const box = page.getViewport({ scale: 1 });
-    const canvas = document.createElement('canvas');
-    canvas.dataset['page'] = String(n);
-    canvas.style.width = '100%';
-    canvas.style.aspectRatio = `${box.width} / ${box.height}`;
-    canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', `Page ${n}`);
-    into.append(canvas);
-    observer.observe(canvas);
+  try {
+    for (let n = 1; n <= Math.min(pdf.numPages, MAX_PAGES); n++) {
+      const page = await pdf.getPage(n);
+      const box = page.getViewport({ scale: 1 });
+      const canvas = document.createElement('canvas');
+      canvas.dataset['page'] = String(n);
+      canvas.style.width = '100%';
+      canvas.style.aspectRatio = `${box.width} / ${box.height}`;
+      canvas.setAttribute('role', 'img');
+      canvas.setAttribute('aria-label', `Page ${n}`);
+      into.append(canvas);
+      observer.observe(canvas);
+    }
+  } catch (err) {
+    // Laying the pages out failed: let the document go, then say so.
+    observer.disconnect();
+    void task.destroy();
+    throw err;
   }
   return {
     pages: pdf.numPages,
