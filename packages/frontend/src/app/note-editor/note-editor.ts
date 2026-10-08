@@ -57,37 +57,65 @@ interface FormatAction {
   run: (editor: NoteEditor, pick: (kind: FileKind) => void) => void;
 }
 
+/** Several actions behind one ribbon button (Eric, 2026-10-08). */
+interface FormatGroup {
+  name: string;
+  actions: FormatAction[];
+}
+
 /**
  * The formatting actions, shared by the touch ribbon (#77) and the
  * desktop toolbar (2026-10-07, Eric: lists and the rest by mouse).
- * Image insert joins them with attachments (M4).
+ * Image insert joins them with attachments (M4). On the ribbon a group
+ * is one button: a tap runs the choice it shows (the first, until a
+ * hold picks another); the desktop toolbar has room to show them all.
  */
-const FORMAT_ACTIONS: FormatAction[] = [
-  { label: '☐', name: 'Checklist item', keys: 'Mod+Enter', run: (e) => e.toggleTask() },
+const FORMAT_GROUPS: (FormatAction | FormatGroup)[] = [
   {
-    label: 'B',
-    name: 'Bold',
-    keys: 'Mod+B',
-    style: { fontWeight: '700' },
-    run: (e) => e.toggleBold(),
+    name: 'Lists',
+    actions: [
+      { label: '☐', name: 'Checklist item', keys: 'Mod+Enter', run: (e) => e.toggleTask() },
+      { label: '•', name: 'Bulleted list', run: (e) => e.bulletList() },
+      { label: '1.', name: 'Numbered list', run: (e) => e.numberedList() },
+    ],
   },
   {
-    label: 'I',
-    name: 'Italic',
-    keys: 'Mod+I',
-    style: { fontStyle: 'italic' },
-    run: (e) => e.toggleItalic(),
+    name: 'Style',
+    actions: [
+      {
+        label: 'B',
+        name: 'Bold',
+        keys: 'Mod+B',
+        style: { fontWeight: '700' },
+        run: (e) => e.toggleBold(),
+      },
+      {
+        label: 'I',
+        name: 'Italic',
+        keys: 'Mod+I',
+        style: { fontStyle: 'italic' },
+        run: (e) => e.toggleItalic(),
+      },
+      { label: '[[', name: 'Insert link', keys: 'Mod+K', run: (e) => e.insertWikiLink() },
+    ],
   },
-  { label: '[[', name: 'Insert link', keys: 'Mod+K', run: (e) => e.insertWikiLink() },
-  { label: '•', name: 'Bulleted list', run: (e) => e.bulletList() },
-  { label: '1.', name: 'Numbered list', run: (e) => e.numberedList() },
   { label: '⇤', name: 'Outdent', keys: 'Mod+[', run: (e) => e.outdent() },
   { label: '⇥', name: 'Indent', keys: 'Mod+]', run: (e) => e.indent() },
-  // A camera or a photo (#44); the picker offers both on a phone.
-  { label: '🖼', name: 'Insert image', immediate: true, run: (_e, pick) => pick('photo') },
-  // A PDF (#45), shown as a chip that opens the document viewer.
-  { label: '📄', name: 'Attach PDF', immediate: true, run: (_e, pick) => pick('pdf') },
+  {
+    name: 'Insert',
+    actions: [
+      // A camera or a photo (#44); the picker offers both on a phone.
+      { label: '🖼', name: 'Insert image', immediate: true, run: (_e, pick) => pick('photo') },
+      // A PDF (#45), shown as a chip that opens the document viewer.
+      { label: '📄', name: 'Attach PDF', immediate: true, run: (_e, pick) => pick('pdf') },
+    ],
+  },
 ];
+
+/** Every action, flat, for the desktop toolbar. */
+const FORMAT_ACTIONS: FormatAction[] = FORMAT_GROUPS.flatMap((item) =>
+  'actions' in item ? item.actions : [item],
+);
 
 /**
  * The Angular face of @mossgoblin/editor: text in, changes out, mode from
@@ -520,13 +548,22 @@ export class NoteEditorComponent {
         const editor = this.editor;
         // The ribbon over the keyboard (#77). Image insert joins it with
         // attachments (M4).
+        const bind = (action: FormatAction) => ({
+          ...action,
+          run: () => action.run(editor, (kind) => this.pick(kind)),
+        });
         this.bar = createAccessoryBar(editor, [
-          ...FORMAT_ACTIONS.map((action) => ({
-            ...action,
-            run: () => action.run(editor, (kind) => this.pick(kind)),
-          })),
-          // Hides the keyboard; pinned so a narrow phone always shows it.
-          { label: 'Done', pinned: true, run: () => editor.view.contentDOM.blur() },
+          ...FORMAT_GROUPS.map((item) =>
+            'actions' in item ? { name: item.name, actions: item.actions.map(bind) } : bind(item),
+          ),
+          // Hides the keyboard, as the iPad and Android keyboards draw it;
+          // pinned so a phone that still scrolls the row always shows it.
+          {
+            label: '⌨︎',
+            name: 'Hide keyboard',
+            pinned: true,
+            run: () => editor.view.contentDOM.blur(),
+          },
         ]);
       }
       if (untracked(this.autofocus)) this.editor.focus();

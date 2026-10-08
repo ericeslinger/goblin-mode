@@ -790,6 +790,48 @@ first. Insert image is the last action (#44, below). Desktop keys: Mod-b,
 Mod-i, Mod-] and Mod-[, which always take the key (Mod-[ is the
 browser's Back).
 
+**Ribbon refit (Eric, 2026-10-08).** The row of ten was too wide for
+a phone, a drag to scroll it pressed the button the drag started on
+(the buttons acted on `pointerdown`), the raw buttons looked like no
+other editor's bar, and Done said nothing about what it did. Mobile
+editors settle on a few large buttons that group by kind, with the
+rest a swipe or a tap away (Apple Notes puts lists, indent and style
+behind a toolbar that adapts to the selection; Keep puts styles behind
+one `A`); a hold that reveals a button's variants is a familiar
+accelerator (keyboards, KDE's split buttons on touch) as long as the
+button also shows that it has some. So:
+
+- **Six buttons** fit 360px with no scrolling: Lists, Style, Outdent,
+  Indent, Insert, Hide keyboard. A group's button runs the choice it
+  shows (checklist, bold, image at first; each is the one Eric reaches
+  for most). Holding it (`HOLD_MS`, 450) opens a menu of its choices
+  above the bar, each with its name; picking one runs it and makes it
+  the button's choice, which lasts while the note is open. A small
+  `▾` in the button's corner says there is a hold, and the button is
+  `aria-haspopup="menu"`, with `title` saying "Hold for lists". A
+  keyboard opens the menu with an arrow key. The desktop toolbar keeps
+  every action flat; it has the room.
+- **A tap is a tap** when the finger lifts within `TAP_SLOP_PX` (10)
+  of where it landed, with no `pointercancel` (the browser taking the
+  pan, which `touch-action: pan-x` lets it do). The action runs on the
+  lift, a frame on as before; a picker still runs on the click, for
+  the activation. A hold that opened a menu swallows the lift and the
+  click after it. The row still scrolls when it must (large text, a
+  narrower phone), with Hide keyboard pinned at the end.
+- **Looks like a bar**: a surface with a top rule, flat buttons that
+  share the width, pressed and open states, all from the `--mg-*`
+  tokens with neutral fallbacks, in a stylesheet the bar adds once.
+  Long presses no longer select a label or open the context menu.
+- **Hide keyboard** (`⌨︎`) replaces Done; it still only blurs the
+  editor.
+
+Checked by the bar's unit tests (tap, drag, hold, pick, close) and the
+ribbon journey, which holds Bold for Italic and Checklist item for
+Numbered list, drags along the row, and measures that nothing
+overflows at 360px. Unverified on a phone until Eric tries it: that a
+real hold opens the menu rather than the text-selection callout, and
+that `pan-x` and the prevented `pointerdown` get along on iOS.
+
 **Finding the keyboard (2026-10-07).** The viewport meta asks for
 `interactive-widget=overlays-content`, so on Android Chrome the
 keyboard is drawn over the page and neither viewport shrinks; the
