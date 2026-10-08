@@ -1043,6 +1043,26 @@ is slow.
   gives the functions emulator as `OWNER_UID` (`.env.local`, written
   for the run and deleted after).
 
+**Server instructions carry the procedure (#104, #105, #107,
+2026-10-08).** A Claude chat that has only the connector, not this
+repo, never saw the garden-this skill or the data's conventions, so the
+instructions now say them. They carry: the project page sections
+(Overview, Working notes, Tasks, Ideas, Open questions, Decisions,
+Links); the "garden this" procedure (find the project, list the
+candidate decisions, ideas and questions, file nothing without a yes,
+`capture` once per item with `timeZone` and `source`, then say what
+was filed, one line each); concept ids as `c-<slug>`; the `✳ Claude:`
+mark on Claude's own text; `titleSource` as `words`, `llm` or `user`;
+and that Right Now is the reminders screen. The skill stays as the
+repo-side pointer, with only the repo's project, the end-of-session
+offer and the secrets rule. Loose notes (#107): a note gardened in the
+app is linked to no project, so the instructions tell Claude to check
+`list_notes` or `search_notes` before taking a project page as
+complete. The app-side project picker the issue offered instead is not
+built: it needs UI, a choice of project and a journey, for a gap one
+sentence of instructions closes. Revisit if loose notes keep going
+missing.
+
 **Organize tools and What Claude changed (#34, 2026-10-07).** Seven
 more tools, replacing the Phase 2 list above (`add_synonym` became
 `refile`; `record_activity` is not a tool, since every write records

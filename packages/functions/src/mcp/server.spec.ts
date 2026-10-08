@@ -83,6 +83,24 @@ describe('the MCP server', () => {
     expect(INSTRUCTIONS).toMatch(/word for word/);
   });
 
+  it('carries the conventions and procedures a chat without the repo cannot guess', () => {
+    // Project page shape and the garden-this procedure (#104).
+    expect(INSTRUCTIONS).toMatch(
+      /Overview, Working notes, Tasks, Ideas, Open questions, Decisions and Links/,
+    );
+    expect(INSTRUCTIONS).toMatch(/file nothing without his yes/);
+    expect(INSTRUCTIONS).toMatch(/capture once per\s+item/);
+    expect(INSTRUCTIONS).toMatch(/timeZone and source/);
+    expect(INSTRUCTIONS).toMatch(/what was filed, one line each/);
+    // Naming conventions (#105).
+    expect(INSTRUCTIONS).toMatch(/c-<slug>, e\.g\. c-mossgoblin/);
+    expect(INSTRUCTIONS).toContain('✳ Claude:');
+    expect(INSTRUCTIONS).toMatch(/titleSource .* words .* llm .* user/);
+    expect(INSTRUCTIONS).toMatch(/Right Now, the reminders screen/);
+    // Loose notes (#107).
+    expect(INSTRUCTIONS).toMatch(/linked to no project.*list_notes or search_notes/);
+  });
+
   it('passes validated arguments to the tools and returns their result as JSON', async () => {
     const { client, tools } = await connect();
     const result = await client.callTool({ name: 'search_notes', arguments: { query: 'milk' } });
