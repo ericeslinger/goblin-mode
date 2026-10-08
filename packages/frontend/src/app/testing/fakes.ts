@@ -147,6 +147,7 @@ export class FakeAttachments {
   readonly arrived = signal(0);
   readonly urls = new Map<string, string>();
   resolve = (id: string) => this.urls.get(id);
+  full = vi.fn(async (id: string): Promise<string | undefined> => this.urls.get(id));
   readonly struggling = signal(false);
   readonly inMemory = signal(false);
   inspect = vi.fn(async (_file: File): Promise<{ type: string } | { error: string }> => ({

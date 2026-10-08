@@ -20,8 +20,8 @@ import { type QueuedUpload, UPLOAD_QUEUE, type UploadQueue, memoryQueue } from '
 export interface AttachmentsApi {
   /** Writes an attachment's record (through the offline cache). */
   record(path: string, data: Record<string, unknown>): void;
-  /** The Storage path an attachment's record names, if it has one. */
-  filePath(path: string): Promise<string | undefined>;
+  /** The Storage paths an attachment's record names: its file, and its thumbnail. */
+  files(path: string): Promise<{ path?: string; thumbPath?: string }>;
   upload(path: string, blob: Blob, contentType: string): Promise<void>;
   download(path: string): Promise<Blob>;
   serverTime(): unknown;
@@ -34,10 +34,10 @@ export const ATTACHMENTS_API = new InjectionToken<AttachmentsApi>('attachments-a
     return {
       // A merge: the server may have added the thumbnail already.
       record: (path, data) => void setDoc(doc(fb.db, path), data, { merge: true }).catch(report),
-      filePath: async (path) => {
+      files: async (path) => {
         const snap = await getDoc(doc(fb.db, path));
-        const file = snap.get('path');
-        return typeof file === 'string' ? file : undefined;
+        const text = (v: unknown) => (typeof v === 'string' ? v : undefined);
+        return { path: text(snap.get('path')), thumbPath: text(snap.get('thumbPath')) };
       },
       upload: async (path, blob, contentType) =>
         void (await uploadBytes(ref(fb.storage, path), blob, { contentType })),
@@ -83,8 +83,13 @@ export class AttachmentsService {
   /** Swapped for memory if the device's store fails (quota, private mode). */
   private queue: UploadQueue = inject(UPLOAD_QUEUE);
   private readonly urls$ = inject(OBJECT_URLS);
-  /** Object URLs by attachment id: the device's copy, or a download. */
+  /**
+   * Object URLs to draw each image inline: the device's own copy, or a
+   * download (the thumbnail when there is one).
+   */
   private readonly urls = new Map<string, string>();
+  /** Full-size downloads, for the viewer, where `urls` holds a thumbnail. */
+  private readonly fullUrls = new Map<string, string>();
   private readonly loading = new Set<string>();
   /** When a fetch last failed, so redraws do not retry it at once. */
   private readonly failedAt = new Map<string, number>();
@@ -155,7 +160,9 @@ export class AttachmentsService {
    */
   async attach(file: File, id: string, type: string, noteId?: string): Promise<void> {
     // Shown at once, while it is stored.
-    this.urls.set(id, this.urls$.create(file));
+    const local = this.urls$.create(file);
+    this.urls.set(id, local);
+    this.fullUrls.set(id, local);
     this.arrived.update((n) => n + 1);
     const item: QueuedUpload = {
       id,
@@ -193,6 +200,27 @@ export class AttachmentsService {
     if (url) return url;
     void this.fetch(id);
     return undefined;
+  }
+
+  /**
+   * The full-size image for the viewer: the device's copy if it has one,
+   * else downloaded now. Undefined when it cannot be had (offline).
+   */
+  async full(id: string): Promise<string | undefined> {
+    const known = this.fullUrls.get(id);
+    if (known) return known;
+    const uid = this.auth.user()?.uid;
+    if (!uid) return undefined;
+    try {
+      const { path } = await this.api.files(`${paths.attachments(uid)}/${id}`);
+      if (!path) return undefined;
+      const url = this.urls$.create(await this.api.download(path));
+      this.fullUrls.set(id, url);
+      return url;
+    } catch (err) {
+      console.warn('full image not available', err);
+      return undefined;
+    }
   }
 
   /** Uploads whatever is queued, once at a time. */
@@ -235,7 +263,11 @@ export class AttachmentsService {
   private async restore(): Promise<void> {
     const items = await this.queue.all();
     for (const item of items) {
-      if (!this.urls.has(item.id)) this.urls.set(item.id, this.urls$.create(item.blob));
+      if (!this.urls.has(item.id)) {
+        const local = this.urls$.create(item.blob);
+        this.urls.set(item.id, local);
+        this.fullUrls.set(item.id, local);
+      }
     }
     if (items.length) {
       this.waiting.update((s) => new Set([...s, ...items.map((i) => i.id)]));
@@ -276,10 +308,13 @@ export class AttachmentsService {
     if (Date.now() - (this.failedAt.get(id) ?? -Infinity) < RETRY_MS) return;
     this.loading.add(id);
     try {
-      const path = await this.api.filePath(`${paths.attachments(uid)}/${id}`);
+      const files = await this.api.files(`${paths.attachments(uid)}/${id}`);
+      // Inline, the thumbnail when the server has made one (#44).
+      const path = files.thumbPath ?? files.path;
       if (!path) throw new Error('no record');
-      const blob = await this.api.download(path);
-      this.urls.set(id, this.urls$.create(blob));
+      const url = this.urls$.create(await this.api.download(path));
+      this.urls.set(id, url);
+      if (!files.thumbPath) this.fullUrls.set(id, url);
       this.arrived.update((n) => n + 1);
     } catch (err) {
       // Offline, or not uploaded yet from another device: tried again

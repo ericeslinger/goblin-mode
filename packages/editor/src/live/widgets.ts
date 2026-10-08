@@ -124,7 +124,7 @@ export class ImageWidget extends WidgetType {
     if (open) {
       img.addEventListener('click', (e) => {
         e.preventDefault();
-        open(src, this.alt);
+        open(src, this.alt, this.url);
       });
     }
     return img;
