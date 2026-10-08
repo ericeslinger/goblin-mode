@@ -12,6 +12,7 @@ function fakeTools() {
       throw new ToolError('no note n9');
     }),
     createNote: vi.fn(async () => ({ id: 'n2', title: 'Hi' })),
+    createConcept: vi.fn(async () => ({ id: 'c-kiln', title: 'Kiln', type: 'project' })),
     updateNote: vi.fn(async () => ({ id: 'n1', updated: [] })),
     listReminders: vi.fn(async () => []),
     createReminder: vi.fn(async () => ({})),
@@ -48,6 +49,7 @@ describe('the MCP server', () => {
       'add_lines',
       'archive_note',
       'check_item',
+      'create_concept',
       'create_note',
       'create_reminder',
       'get_backlinks',

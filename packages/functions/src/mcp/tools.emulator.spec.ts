@@ -275,6 +275,50 @@ describe('organizing tools', () => {
     expect((await runs()).map((r) => r['summary'])).toEqual(['Merged 2 notes into one']);
   });
 
+  it('creates a concept links can reach, refusing a name already taken', async () => {
+    await eric('a', 'Glaze recipes');
+    const t = ticking();
+    expect(
+      await t.createConcept({
+        name: 'Gradebook',
+        type: 'project',
+        synonyms: ['stubgrub', 'gradint party'],
+        body: 'Part of [[Glaze recipes]].',
+        tags: ['build', 'maintenance'],
+      }),
+    ).toEqual({ id: 'c-gradebook', title: 'Gradebook', type: 'project' });
+    expect(await body('c-gradebook')).toMatchObject({
+      kind: 'concept',
+      title: 'Gradebook',
+      titleSource: 'user',
+      conceptType: 'project',
+      synonyms: ['stubgrub', 'gradint party'],
+      links: ['a'],
+      tags: ['build', 'maintenance'],
+      updatedBy: 'claude',
+    });
+    await expect(t.createConcept({ name: 'gradebook' })).rejects.toThrow('already a name');
+    await expect(t.createConcept({ name: 'Kiln', synonyms: ['Stubgrub'] })).rejects.toThrow(
+      'already a name in the garden: Stubgrub',
+    );
+    await expect(t.createConcept({ name: 'glaze recipes' })).rejects.toThrow('already a name');
+    // Names and tags trimmed and once each; the name is not its own other name.
+    await t.createConcept({
+      name: 'Sprout',
+      synonyms: [' sprout ', 'Sprout lang', 'sprout lang'],
+      tags: ['build ', 'build', ' active'],
+    });
+    expect(await body('c-sprout')).toMatchObject({
+      synonyms: ['Sprout lang'],
+      tags: ['build', 'active'],
+    });
+    await expect(t.createConcept({ name: 'x'.repeat(121) })).rejects.toThrow('at most 120');
+    expect((await runs()).map((r) => r['summary'])).toEqual([
+      'Made Gradebook a project',
+      'Made Sprout a concept',
+    ]);
+  });
+
   it('refiles a concept, refusing names another note answers to', async () => {
     await concept('c-kiln', 'Kiln');
     await eric('a', 'Glaze recipes', { tags: ['clay'] });

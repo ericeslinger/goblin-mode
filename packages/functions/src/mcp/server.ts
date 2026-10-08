@@ -112,6 +112,25 @@ export function buildServer(tools: ToolsApi): McpServer {
   );
 
   server.registerTool(
+    'create_concept',
+    {
+      title: 'Create a concept',
+      description:
+        'A new person, project or other named thing, which [[links]] to its name or other ' +
+        'names then reach. Use names as Eric wrote them. Refused when a name is taken.',
+      inputSchema: {
+        name: z.string().min(1),
+        type: z.enum(['person', 'project', 'other']).optional(),
+        synonyms: z.array(z.string().min(1)).optional(),
+        body: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.createConcept(a)),
+  );
+
+  server.registerTool(
     'update_note',
     {
       title: 'Change a note',

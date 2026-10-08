@@ -13,6 +13,7 @@ import {
   type Recurrence,
   Reminder,
   autoId,
+  conceptId,
   effectiveDue,
   firstOccurrence,
   firstWordsTitle,
@@ -139,6 +140,23 @@ function timesData(t: {
 /** Drops FieldValue.delete() entries, to validate the document as it will be. */
 function withoutDeletes(d: Data): Data {
   return Object.fromEntries(Object.entries(d).filter(([, v]) => !(v instanceof FieldValue)));
+}
+
+/** The longest concept name, and the most other names or tags, create_concept takes. */
+const MAX_NAME = 120;
+const MAX_NAMES = 20;
+
+/** Trimmed, non-empty, each once (by its normalized form). */
+function unique(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return values
+    .map((v) => v.trim())
+    .filter((v) => {
+      const key = normalizeName(v);
+      if (!v || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 export class NotesTools {
@@ -274,6 +292,65 @@ export class NotesTools {
     batch.set(...this.activity('create_note', 'Wrote a new note', [touched(id, data)]));
     await batch.commit();
     return { id, title: data.title };
+  }
+
+  /**
+   * A new concept (a person, project or other named thing), with the id
+   * the app would give it, so `[[name]]` links find it. Refused when the
+   * name or another of its names is already a note's.
+   */
+  async createConcept(args: {
+    name: string;
+    type?: ConceptType;
+    synonyms?: string[];
+    body?: string;
+    tags?: string[];
+  }) {
+    const name = args.name.trim();
+    if (!name) throw new ToolError('name must not be empty');
+    if (name.length > MAX_NAME) throw new ToolError(`a name is at most ${MAX_NAME} characters`);
+    const key = normalizeName(name);
+    const synonyms = unique(args.synonyms ?? []).filter((s) => normalizeName(s) !== key);
+    const tags = unique(args.tags ?? []);
+    if (synonyms.length > MAX_NAMES || tags.length > MAX_NAMES)
+      throw new ToolError(`at most ${MAX_NAMES} other names and ${MAX_NAMES} tags`);
+    if (synonyms.some((s) => s.length > MAX_NAME))
+      throw new ToolError(`a name is at most ${MAX_NAME} characters`);
+    const names = await this.names();
+    const id = conceptId(name);
+    const taken = [name, ...synonyms].filter((n) => names.has(normalizeName(n)));
+    if (taken.length) throw new ToolError(`already a name in the garden: ${taken.join(', ')}`);
+    const now = Timestamp.fromMillis(this.now());
+    const body = args.body ?? '';
+    const data = Note.parse({
+      kind: 'concept',
+      body,
+      title: name,
+      // A concept's name is Eric's: a settle never retitles it.
+      titleSource: 'user',
+      conceptType: args.type ?? 'other',
+      synonyms,
+      links: resolveLinks(targetsOf(body), names),
+      tags,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'claude',
+      deviceId: CLAUDE_DEVICE,
+    });
+    const ref = this.notes().doc(id);
+    await this.db.runTransaction(async (tx) => {
+      if ((await tx.get(ref)).exists) throw new ToolError(`${name} is already a concept (${id})`);
+      tx.set(ref, data);
+      tx.set(
+        ...this.activity(
+          'create_concept',
+          `Made ${data.title} a ${data.conceptType === 'other' ? 'concept' : data.conceptType}`,
+          [touched(id, data)],
+        ),
+      );
+    });
+    return { id, title: data.title, type: data.conceptType };
   }
 
   async updateNote(args: {
