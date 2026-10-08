@@ -35,6 +35,9 @@ export function keyLabel(keys: string, mac: boolean): string {
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
+/** What a file picker offers: photos, or PDFs (#45). */
+type FileKind = 'photo' | 'pdf';
+
 interface FormatAction {
   label: string;
   name: string;
@@ -43,8 +46,8 @@ interface FormatAction {
   style?: { fontWeight?: string; fontStyle?: string };
   /** Runs on the tap itself: it opens a file picker. */
   immediate?: boolean;
-  /** `pickImage` opens the file picker (Insert image). */
-  run: (editor: NoteEditor, pickImage: () => void) => void;
+  /** `pick` opens a file picker: photos (Insert image) or PDFs (Attach PDF). */
+  run: (editor: NoteEditor, pick: (kind: FileKind) => void) => void;
 }
 
 /**
@@ -74,7 +77,9 @@ const FORMAT_ACTIONS: FormatAction[] = [
   { label: '⇤', name: 'Outdent', keys: 'Mod+[', run: (e) => e.outdent() },
   { label: '⇥', name: 'Indent', keys: 'Mod+]', run: (e) => e.indent() },
   // A camera or a photo (#44); the picker offers both on a phone.
-  { label: '🖼', name: 'Insert image', immediate: true, run: (_e, pick) => pick() },
+  { label: '🖼', name: 'Insert image', immediate: true, run: (_e, pick) => pick('photo') },
+  // A PDF (#45), shown as a chip that opens the document viewer.
+  { label: '📄', name: 'Attach PDF', immediate: true, run: (_e, pick) => pick('pdf') },
 ];
 
 /**
@@ -105,12 +110,19 @@ const FORMAT_ACTIONS: FormatAction[] = [
       </div>
     }
     <div #host class="host"></div>
-    <input #picker type="file" accept="image/*" hidden (change)="picked(picker)" />
+    <input #picker type="file" accept="image/*" hidden (change)="picked(picker, 'photo')" />
+    <input
+      #pdfPicker
+      type="file"
+      accept="application/pdf"
+      hidden
+      (change)="picked(pdfPicker, 'pdf')"
+    />
     @if (problem(); as message) {
       <p class="note-status" role="alert">{{ message }}</p>
     } @else if (attachments.waiting().size; as count) {
       <p class="note-status" role="status">
-        {{ count === 1 ? '1 photo' : count + ' photos' }} waiting to upload{{
+        {{ count === 1 ? '1 file' : count + ' files' }} waiting to upload{{
           attachments.struggling() ? '; uploads are failing, still trying' : ''
         }}{{ attachments.inMemory() ? ' (kept only until this page closes)' : '' }}
       </p>
@@ -125,6 +137,26 @@ const FORMAT_ACTIONS: FormatAction[] = [
       @if (viewing(); as image) {
         <img [src]="image.src" [alt]="image.alt" />
         <button type="button" class="close" (click)="viewer.close()">Close</button>
+      }
+    </dialog>
+    <dialog
+      #fileViewer
+      class="viewer document"
+      [attr.aria-label]="document()?.name || 'Document'"
+      (close)="closeDocument()"
+    >
+      @if (document(); as doc) {
+        <div class="document-bar">
+          <span class="document-name">{{ doc.name }}</span>
+          @if (doc.url) {
+            <a [href]="doc.url" [attr.download]="doc.name">Save</a>
+          }
+          <button type="button" class="close" (click)="fileViewer.close()">Close</button>
+        </div>
+        @if (doc.status) {
+          <p class="document-status" role="status">{{ doc.status }}</p>
+        }
+        <div #pages class="pages"></div>
       }
     </dialog>
   `,
@@ -176,6 +208,44 @@ const FORMAT_ACTIONS: FormatAction[] = [
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+    .viewer.document[open] {
+      display: block;
+      overflow-y: auto;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    .document-bar {
+      position: sticky;
+      top: 0;
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-2);
+      background: var(--surface);
+      border-bottom: var(--border) solid var(--rule);
+    }
+    .document-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .document-bar a {
+      color: var(--accent);
+    }
+    .document-bar .close {
+      position: static;
+    }
+    .document-status {
+      padding: var(--space-2);
+      color: var(--quiet);
+    }
+    .pages {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      padding: var(--space-2);
     }
     .viewer img {
       max-width: 100%;
@@ -232,6 +302,15 @@ export class NoteEditorComponent {
   /** Why the last photo could not be attached. */
   protected readonly problem = signal<string | undefined>(undefined);
   private readonly picker = viewChild.required<ElementRef<HTMLInputElement>>('picker');
+  private readonly pdfPicker = viewChild.required<ElementRef<HTMLInputElement>>('pdfPicker');
+  private readonly fileViewer = viewChild.required<ElementRef<HTMLDialogElement>>('fileViewer');
+  private readonly pages = viewChild<ElementRef<HTMLElement>>('pages');
+  /** The PDF the viewer holds, let go when it closes. */
+  private openDoc?: { close(): void };
+  /** The document open in the viewer (#45). */
+  protected readonly document = signal<
+    { id: string; name: string; url?: string; status?: string } | undefined
+  >(undefined);
   private readonly viewer = viewChild.required<ElementRef<HTMLDialogElement>>('viewer');
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private editor?: NoteEditor;
@@ -253,6 +332,7 @@ export class NoteEditorComponent {
         openLink: (target) => this.linkOpen.emit(target),
         resolveAttachment: (id) => this.attachments.resolve(id),
         openImage: (src, alt, url) => void this.openViewer(src, alt, url),
+        openFile: (id, name) => void this.openDocument(id, name),
         suggestLinks: (query) => untracked(this.suggestLinks)?.(query) ?? [],
         mode: untracked(this.modes.mode),
         onChange: (text) => this.textChange.emit(text),
@@ -264,7 +344,7 @@ export class NoteEditorComponent {
         this.bar = createAccessoryBar(editor, [
           ...FORMAT_ACTIONS.map((action) => ({
             ...action,
-            run: () => action.run(editor, () => this.pickImage()),
+            run: () => action.run(editor, (kind) => this.pick(kind)),
           })),
           // Hides the keyboard; pinned so a narrow phone always shows it.
           { label: 'Done', pinned: true, run: () => editor.view.contentDOM.blur() },
@@ -355,13 +435,13 @@ export class NoteEditorComponent {
   /** A toolbar click: the action, then back to typing. */
   protected format(action: FormatAction): void {
     if (!this.editor) return;
-    action.run(this.editor, () => this.pickImage());
+    action.run(this.editor, (kind) => this.pick(kind));
     if (!action.immediate) this.editor.focus();
   }
 
-  private pickImage(): void {
+  private pick(kind: FileKind): void {
     this.problem.set(undefined);
-    this.picker().nativeElement.click();
+    (kind === 'pdf' ? this.pdfPicker() : this.picker()).nativeElement.click();
   }
 
   /**
@@ -369,17 +449,17 @@ export class NoteEditorComponent {
    * anything is awaited, so it lands in this note even if another opens
    * meanwhile; then the files are kept on the device.
    */
-  protected async picked(input: HTMLInputElement): Promise<void> {
+  protected async picked(input: HTMLInputElement, kind: FileKind = 'photo'): Promise<void> {
     const files = [...(input.files ?? [])];
     input.value = '';
     const noteId = untracked(this.noteId);
     const shown = this.shownId;
     // What each file really is (a moment's read of its first bytes).
     const looked = await Promise.all(
-      files.map(async (f) => [f, await this.attachments.inspect(f)] as const),
+      files.map(async (f) => [f, await this.attachments.inspect(f, kind)] as const),
     );
     if (this.shownId !== shown) {
-      this.problem.set('Another note opened before the photo went in. Please add it again.');
+      this.problem.set('Another note opened before the file went in. Please add it again.');
       return;
     }
     const kept: Promise<void>[] = [];
@@ -389,13 +469,14 @@ export class NoteEditorComponent {
         continue;
       }
       const id = this.attachments.newId();
-      this.editor?.insertImage(id, captionFor(file.name));
+      if (kind === 'pdf') this.editor?.insertFile(id, file.name);
+      else this.editor?.insertImage(id, captionFor(file.name));
       kept.push(this.attachments.attach(file, id, found.type, noteId));
     }
     this.editor?.focus();
     const results = await Promise.allSettled(kept);
     if (results.some((r) => r.status === 'rejected')) {
-      this.problem.set('This device could not keep a photo. Please add it again.');
+      this.problem.set('This device could not keep a file. Please add it again.');
     }
   }
 
@@ -409,6 +490,63 @@ export class NoteEditorComponent {
     if (!url.startsWith('attachment:')) return;
     const full = await this.attachments.full(url.slice('attachment:'.length));
     if (full && this.viewing()?.src === src) this.viewing.set({ src: full, alt });
+  }
+
+  /**
+   * Opens a PDF (#45): the device's copy or a download, drawn by pdf.js,
+   * which loads only now. Offline and not on this device, it says so.
+   */
+  private async openDocument(id: string, name: string): Promise<void> {
+    this.document.set({ id, name, status: 'Opening…' });
+    this.fileViewer().nativeElement.showModal();
+    const open = () => this.document()?.id === id;
+    const url = await this.attachments.full(id);
+    if (!open()) return;
+    if (!url) {
+      this.document.set({
+        id,
+        name,
+        status: 'This file is not on this device, and it cannot be fetched now.',
+      });
+      return;
+    }
+    this.document.set({ id, name, url, status: 'Drawing pages…' });
+    try {
+      const { openPdf, MAX_PAGES } = await import('../attachments/pdf-render');
+      const into = this.pages()?.nativeElement;
+      if (!into || !open()) return;
+      const pdf = await openPdf(url, into);
+      if (!open()) {
+        pdf.close();
+        return;
+      }
+      this.openDoc = pdf;
+      this.document.set({
+        id,
+        name,
+        url,
+        status:
+          pdf.pages > MAX_PAGES
+            ? `First ${MAX_PAGES} of ${pdf.pages} pages; save it to read the rest.`
+            : undefined,
+      });
+    } catch (err) {
+      console.error('could not draw the PDF', err);
+      if (open()) {
+        this.document.set({
+          id,
+          name,
+          url,
+          status: 'This PDF could not be shown here; save it to open it.',
+        });
+      }
+    }
+  }
+
+  protected closeDocument(): void {
+    this.openDoc?.close();
+    this.openDoc = undefined;
+    this.document.set(undefined);
   }
 
   /** A click on the dark space around the image closes the viewer. */

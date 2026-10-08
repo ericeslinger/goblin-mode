@@ -50,6 +50,28 @@ describe('images (#44)', () => {
   });
 });
 
+describe('files (#45)', () => {
+  it('inserts a file link on its own line, and draws it as a chip that opens it', () => {
+    const openFile = vi.fn();
+    const e = make('Taxes', { openFile });
+    e.view.dispatch({ selection: { anchor: 5 } });
+    e.insertFile('f1', 'return [2026].pdf');
+    expect(e.getText()).toBe('Taxes\n[return  2026 .pdf](attachment:f1)\n');
+    const chip = e.view.dom.querySelector('button.mg-file') as HTMLButtonElement;
+    expect(chip.textContent).toContain('return  2026 .pdf');
+    chip.click();
+    expect(openFile).toHaveBeenCalledWith('f1', 'return  2026 .pdf');
+    // On its own line, the link shows as typed, to be edited.
+    e.view.dispatch({ selection: { anchor: 8 } });
+    expect(e.view.dom.querySelector('button.mg-file')).toBeNull();
+  });
+
+  it('leaves ordinary links as links', () => {
+    const e = make('see [site](https://example.com)\n');
+    expect(e.view.dom.querySelector('button.mg-file')).toBeNull();
+  });
+});
+
 describe('createNoteEditor', () => {
   it('opens with the caret at the end of the note', () => {
     const e = make('one\ntwo');

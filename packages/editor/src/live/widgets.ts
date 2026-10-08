@@ -131,6 +131,35 @@ export class ImageWidget extends WidgetType {
   }
 }
 
+/** A file kept in the garden (#45), drawn as a chip that opens it. */
+export class FileWidget extends WidgetType {
+  constructor(
+    readonly id: string,
+    readonly name: string,
+    readonly hooks: NoteEditorHooks,
+  ) {
+    super();
+  }
+
+  override eq(other: FileWidget): boolean {
+    return other.id === this.id && other.name === this.name;
+  }
+
+  toDOM(): HTMLElement {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'mg-file';
+    chip.textContent = `\u{1F4C4} ${this.name || 'file'}`;
+    chip.setAttribute('aria-label', `Open ${this.name || 'file'}`);
+    chip.addEventListener('mousedown', (e) => e.preventDefault());
+    chip.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.hooks.openFile?.(this.id, this.name);
+    });
+    return chip;
+  }
+}
+
 /** A list item's `-`, `*` or `+`, drawn as a bullet off the edited line. */
 export class BulletWidget extends WidgetType {
   override eq(): boolean {

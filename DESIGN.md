@@ -683,6 +683,30 @@ credentials (a failed download is retried after 30 seconds). A tap on
 a photo opens it full screen (a native `dialog`). Photos are only ever
 shown as `img`.
 
+**PDFs (#45, part 1, 2026-10-08).** Attach PDF (ribbon and toolbar)
+opens a picker for PDFs only, so the photo picker keeps offering the
+camera. A PDF goes through the same checks and queue as a photo (its
+bytes must be a PDF; its record's kind is `pdf`) and into the note as
+`[name.pdf](attachment:<id>)`, a link, which live preview draws as a
+chip; `attachmentIds` counts these links too. A tap opens a document
+viewer: the device's copy or a download, drawn page by page into
+canvases by pdf.js (first 50 pages), with Save for the file itself.
+pdf.js and its worker are a lazy chunk, loaded when a PDF is first
+opened; the service worker prefetches them with the rest of the app,
+so a PDF on the device opens offline. Pages are laid out at once but
+drawn only on screen or within a screen of it, and cleared when they
+scroll further away, so a phone holds a few pages' pixels, not fifty
+(review on #94). Owed: the pages are canvases, so a screen reader gets
+"Page n" and no text, and text cannot be selected or found; Save is the
+way out until pdf.js's text layer joins, with find-in-PDF below.
+
+**PDF text (Eric, 2026-10-08).** Searching every PDF's text is
+server-only: the text is extracted on upload and kept where only the
+server and Claude's search read it, never synced to devices, since
+many PDFs' text on every device would be large. Searching within one
+PDF happens on the device, while it is open in the viewer, from the
+text pdf.js reads anyway.
+
 **On the server (#44, 2026-10-08).** A browser labels a file by its
 name, so a WebP saved as `.jpg` arrives as a JPEG. The app reads each
 photo's first bytes before keeping it (`sniffType`, shared with the

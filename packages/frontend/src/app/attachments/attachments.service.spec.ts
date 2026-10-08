@@ -124,6 +124,19 @@ describe('AttachmentsService', () => {
     expect(await service.inspect(big)).toEqual({ error: 'That photo is over 25 MB.' });
   });
 
+  it('takes a PDF only where a PDF is asked for (#45)', async () => {
+    const { service, queue } = setup();
+    const pdf = new File(['%PDF-1.4 rest'], 'menu.pdf', { type: 'application/pdf' });
+    expect(await service.inspect(pdf, 'pdf')).toEqual({ type: 'application/pdf' });
+    expect(await service.inspect(pdf, 'photo')).toHaveProperty('error');
+    const jpeg = new File([Uint8Array.from([0xff, 0xd8, 0xff, 0xe0])], 'a.pdf', {
+      type: 'application/pdf',
+    });
+    expect(await service.inspect(jpeg, 'pdf')).toEqual({ error: 'That file is not a PDF.' });
+    await service.attach(pdf, 'p9', 'application/pdf');
+    expect(queue.items.get('p9')).toMatchObject({ contentType: 'application/pdf' });
+  });
+
   it('keeps a photo as the type its bytes are', async () => {
     const { service, queue } = setup();
     await service.attach(photo('menu.jpg', 'image/jpeg'), 't1', 'image/webp');

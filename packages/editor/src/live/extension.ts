@@ -6,7 +6,7 @@ import type { Root } from 'mdast';
 import { parseNote } from '../grammar/parse';
 import { computeDecorations, type DecorationSpec, type Mode } from './decorations';
 import { hooksFacet, type NoteEditorHooks } from './hooks';
-import { BulletWidget, CheckboxWidget, ImageWidget, WikiLinkWidget } from './widgets';
+import { BulletWidget, CheckboxWidget, FileWidget, ImageWidget, WikiLinkWidget } from './widgets';
 
 export const setMode = StateEffect.define<Mode>();
 /** Draws images again: an attachment's file became available. */
@@ -58,6 +58,10 @@ function toDecoration(spec: DecorationSpec, hooks: NoteEditorHooks): Range<Decor
     case 'image':
       return Decoration.replace({
         widget: new ImageWidget(spec.url, spec.alt, hooks),
+      }).range(spec.from, spec.to);
+    case 'file':
+      return Decoration.replace({
+        widget: new FileWidget(spec.id, spec.name, hooks),
       }).range(spec.from, spec.to);
   }
 }
