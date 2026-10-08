@@ -123,6 +123,7 @@ describe('NoteEditorComponent', () => {
     let update!: (state: {
       status: 'requested' | 'working' | 'done' | 'failed';
       noteId?: string;
+      startedAt?: number;
     }) => void;
     fake.transcribe.mockImplementation((_id, u) => {
       update = u;
@@ -148,6 +149,15 @@ describe('NoteEditorComponent', () => {
     expect(fake.transcribe).toHaveBeenCalledWith('p1', expect.any(Function));
     await fixture.whenStable();
     expect(el.textContent).toContain('Claude is transcribing');
+    const again = () =>
+      [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Try again');
+    update({ status: 'working', startedAt: Date.now() - 60_000 });
+    await fixture.whenStable();
+    expect(again()).toBeUndefined();
+    // Stuck past ten minutes: it may be asked again (review on #102).
+    update({ status: 'working', startedAt: Date.now() - 11 * 60_000 });
+    await fixture.whenStable();
+    expect(again()).toBeDefined();
     update({ status: 'done', noteId: 'n9' });
     await fixture.whenStable();
     const router = TestBed.inject(Router);

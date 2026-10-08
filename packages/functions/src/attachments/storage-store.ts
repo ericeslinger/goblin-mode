@@ -131,7 +131,11 @@ export function transcribeStore(
         tx.set(usageRef, { transcriptions: used + 1 }, { merge: true });
         tx.set(
           ref,
-          { transcribe: 'working', updatedAt: FieldValue.serverTimestamp() },
+          {
+            transcribe: 'working',
+            transcribeStartedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
           { merge: true },
         );
         return { status: 'claimed' as const, record };

@@ -311,7 +311,11 @@ original embedded, then a line marking what follows as Claude's
 transcription. Eric's own notes on it, added below, stay his. The
 record ends `done` with `transcriptNoteId`, or `failed` with
 `transcribeError`, which the viewer shows; with no federation set up
-it says so.
+it says so. Review on #102: a transcription cut off at the reply's
+length says so on its last line; PDFs go up to 20 MB and 100 pages; a
+claim records `transcribeStartedAt`, and the viewer offers Try again
+on one still working after ten minutes; once the note is written the
+record is never marked failed, so asking again cannot write it twice.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a

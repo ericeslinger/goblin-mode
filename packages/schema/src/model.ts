@@ -321,6 +321,8 @@ export const Attachment = z.object({
    */
   transcribe: z.enum(['requested', 'working', 'done', 'failed']).optional(),
   transcriptNoteId: z.string().optional(),
+  /** When the function claimed it: one stuck 'working' long can be asked again. */
+  transcribeStartedAt: Timestamp.optional(),
   transcribeError: z.string().optional(),
   /** The reading queue: saved to read later (#48), and whether it was. */
   toRead: z.boolean(),

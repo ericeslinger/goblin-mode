@@ -60,7 +60,12 @@ export interface Transcription {
   status: 'requested' | 'working' | 'done' | 'failed';
   noteId?: string;
   error?: string;
+  /** When the server began, in milliseconds. */
+  startedAt?: number;
 }
+
+/** After this long 'working', the viewer offers to ask again (review on #102). */
+export const STUCK_MS = 10 * 60 * 1000;
 
 /** Makes object URLs; a seam for specs (happy-dom has none). */
 export const OBJECT_URLS = new InjectionToken<{ create(blob: Blob): string }>('object-urls', {
@@ -248,6 +253,9 @@ export class AttachmentsService {
     this.api.record(path, { transcribe: 'requested', updatedAt: this.api.serverTime() });
     return this.api.watch(path, (data) => {
       const status = data?.['transcribe'];
+      const started = (
+        data?.['transcribeStartedAt'] as { toMillis?: () => number } | undefined
+      )?.toMillis?.();
       update({
         status:
           status === 'done' || status === 'failed' || status === 'working' ? status : 'requested',
@@ -257,6 +265,7 @@ export class AttachmentsService {
         ...(typeof data?.['transcribeError'] === 'string'
           ? { error: data['transcribeError'] }
           : {}),
+        ...(started === undefined ? {} : { startedAt: started }),
       });
     });
   }

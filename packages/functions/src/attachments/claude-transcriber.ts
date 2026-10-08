@@ -1,5 +1,5 @@
 import { type FederationConfig, claudeClient } from '../notes/claude-titler';
-import type { Transcriber } from './transcribe';
+import { CUT_OFF, type Transcriber } from './transcribe';
 
 /** Reading handwriting and receipts well is worth a mid-size model. */
 export const TRANSCRIBE_MODEL = 'claude-sonnet-5-5';
@@ -24,13 +24,15 @@ export function claudeTranscriber(config: FederationConfig): Transcriber {
         : ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } } as const);
     const message = await client.messages.create({
       model: TRANSCRIBE_MODEL,
-      max_tokens: 8000,
+      max_tokens: 16000,
       system: SYSTEM,
       messages: [{ role: 'user', content: [file, { type: 'text', text: 'Transcribe this.' }] }],
     });
-    return message.content
+    const text = message.content
       .map((block) => (block.type === 'text' ? block.text : ''))
       .join('')
       .trim();
+    // Cut off: said, so a part is never taken for the whole (review on #102).
+    return message.stop_reason === 'max_tokens' ? `${text}\n\n${CUT_OFF}` : text;
   };
 }

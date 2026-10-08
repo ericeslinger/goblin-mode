@@ -103,4 +103,35 @@ describe('transcript helpers', () => {
     expect(dayOf(NOW)).toBe('2026-10-08');
     expect(transcriptBody('a', 'a [b] c', 'image', ' x ')).toContain('![a b c](attachment:a)');
   });
+
+  it('never calls a transcription failed once its note is written (review on #102)', async () => {
+    const s = store({ status: 'claimed', record: photo });
+    s.finish.mockRejectedValueOnce(new Error('contention')).mockResolvedValue(undefined);
+    expect(
+      await transcribe(
+        s,
+        vi.fn(async () => 'words'),
+        vi.fn(async () => Uint8Array.from([1])),
+        'u1',
+        'a1',
+        NOW,
+      ),
+    ).toBe('done');
+    expect(s.writeNote).toHaveBeenCalledOnce();
+    expect(s.finish).toHaveBeenLastCalledWith('u1', 'a1', {
+      transcribe: 'done',
+      transcriptNoteId: 'n9',
+    });
+  });
+
+  it('turns away a PDF too long for Claude', async () => {
+    const s = store({
+      status: 'claimed',
+      record: { kind: 'pdf', name: 'Book', path: 'p', pages: 300, transcribe: 'requested' },
+    });
+    const claude = vi.fn();
+    expect(await transcribe(s, claude, vi.fn(), 'u1', 'a1', NOW)).toBe('failed');
+    expect(claude).not.toHaveBeenCalled();
+    expect(String(s.finish.mock.calls[0][2]['transcribeError'])).toContain('100 pages');
+  });
 });

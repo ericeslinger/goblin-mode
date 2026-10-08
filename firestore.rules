@@ -72,7 +72,7 @@ service cloud.firestore {
 
     function isValidAttachment(data) {
       return data.keys().hasAll(['kind', 'name', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
-        && data.keys().hasOnly(['kind', 'name', 'noteId', 'path', 'url', 'driveFileId', 'contentType', 'size', 'width', 'height', 'thumbPath', 'textPath', 'pages', 'importError', 'transcribe', 'transcriptNoteId', 'transcribeError', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
+        && data.keys().hasOnly(['kind', 'name', 'noteId', 'path', 'url', 'driveFileId', 'contentType', 'size', 'width', 'height', 'thumbPath', 'textPath', 'pages', 'importError', 'transcribe', 'transcriptNoteId', 'transcribeStartedAt', 'transcribeError', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
         && (data.kind is string && data.kind in ['image', 'pdf', 'link', 'drive'])
         && data.name is string
         && (!('noteId' in data) || data.noteId is string)
@@ -89,6 +89,7 @@ service cloud.firestore {
         && (!('importError' in data) || data.importError is string)
         && (!('transcribe' in data) || (data.transcribe is string && data.transcribe in ['requested', 'working', 'done', 'failed']))
         && (!('transcriptNoteId' in data) || data.transcriptNoteId is string)
+        && (!('transcribeStartedAt' in data) || data.transcribeStartedAt is timestamp)
         && (!('transcribeError' in data) || data.transcribeError is string)
         && data.toRead is bool
         && data.read is bool

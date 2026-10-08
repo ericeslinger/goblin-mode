@@ -26,6 +26,7 @@ export interface TranscribeRecord {
   kind?: unknown;
   name?: unknown;
   path?: unknown;
+  pages?: unknown;
   transcribe?: unknown;
 }
 
@@ -51,8 +52,15 @@ export interface TranscribeStore {
 
 export type TranscribeOutcome = 'done' | 'failed' | 'capped' | 'skipped';
 
-/** The longest PDF Claude is sent, in bytes. */
-export const MAX_TRANSCRIBE_PDF = 30 * 1024 * 1024;
+/**
+ * The largest PDF Claude is sent, in bytes: base64 grows it by a third,
+ * and a request must stay under 32 MB (review on #102).
+ */
+export const MAX_TRANSCRIBE_PDF = 20 * 1024 * 1024;
+/** The most pages Claude reads of a PDF. */
+export const MAX_TRANSCRIBE_PAGES = 100;
+/** Said below a transcription that ran out of room. */
+export const CUT_OFF = '[The transcription stops here: the rest did not fit in one go.]';
 
 /** The note: what it transcribes, the original, and the words marked as Claude's. */
 export function transcriptBody(
@@ -106,20 +114,26 @@ export async function transcribe(
   }
   const { record } = claim;
   const name = typeof record.name === 'string' ? record.name : '';
+  let noteId: string | undefined;
   try {
     const kind = record.kind === 'pdf' ? 'pdf' : record.kind === 'image' ? 'image' : undefined;
     if (!kind || typeof record.path !== 'string') throw new Error('only photos and PDFs');
     const bytes = await store.read(record.path);
     let input: TranscribeInput;
     if (kind === 'pdf') {
-      if (bytes.length > MAX_TRANSCRIBE_PDF) throw new Error('the PDF is over 30 MB');
+      if (typeof record.pages === 'number' && record.pages > MAX_TRANSCRIBE_PAGES) {
+        throw new Error(`Claude reads PDFs of up to ${MAX_TRANSCRIBE_PAGES} pages`);
+      }
+      if (bytes.length > MAX_TRANSCRIBE_PDF) {
+        throw new Error('Claude reads PDFs of up to 20 MB and 100 pages');
+      }
       input = { kind, bytes, mediaType: 'application/pdf' };
     } else {
       input = { kind, bytes: await prepImage(bytes), mediaType: 'image/jpeg' };
     }
     const text = await transcriber(input);
     if (!text.trim()) throw new Error('no text was found');
-    const noteId = await store.writeNote(
+    noteId = await store.writeNote(
       uid,
       transcriptBody(id, name, kind, text),
       `Transcription of ${name || kind}`.slice(0, 120),
@@ -127,6 +141,14 @@ export async function transcribe(
     await store.finish(uid, id, { transcribe: 'done', transcriptNoteId: noteId });
     return 'done';
   } catch (err) {
+    // The note is written: never say it failed, or Try again writes it
+    // twice (review on #102).
+    if (noteId) {
+      await store
+        .finish(uid, id, { transcribe: 'done', transcriptNoteId: noteId })
+        .catch(() => undefined);
+      return 'done';
+    }
     await store.finish(uid, id, {
       transcribe: 'failed',
       transcribeError: err instanceof Error ? err.message : String(err),

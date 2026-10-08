@@ -5,6 +5,7 @@ import {
   ElementRef,
   afterNextRender,
   booleanAttribute,
+  computed,
   effect,
   inject,
   input,
@@ -23,6 +24,7 @@ import {
 import { Router } from '@angular/router';
 import {
   AttachmentsService,
+  STUCK_MS,
   type Transcription,
   captionFor,
 } from '../attachments/attachments.service';
@@ -155,6 +157,11 @@ const FORMAT_ACTIONS: FormatAction[] = [
                 }
                 @default {
                   <span role="status">Claude is transcribing…</span>
+                  @if (stuck()) {
+                    <button type="button" (click)="startTranscription(transcription()!.id)">
+                      Try again
+                    </button>
+                  }
                 }
               }
             } @else {
@@ -190,6 +197,11 @@ const FORMAT_ACTIONS: FormatAction[] = [
               }
               @default {
                 <span role="status">Claude is transcribing…</span>
+                @if (stuck()) {
+                  <button type="button" (click)="startTranscription(transcription()!.id)">
+                    Try again
+                  </button>
+                }
               }
             }
           } @else {
@@ -406,6 +418,15 @@ export class NoteEditorComponent {
     undefined,
   );
   private stopWatching?: () => void;
+  /** Working for so long the function must have stopped: it may be asked again. */
+  protected readonly stuck = computed(() => {
+    const state = this.transcription()?.state;
+    return (
+      state?.status === 'working' &&
+      state.startedAt !== undefined &&
+      Date.now() - state.startedAt > STUCK_MS
+    );
+  });
   private readonly router = inject(Router);
   /** Why the last photo could not be attached. */
   protected readonly problem = signal<string | undefined>(undefined);
