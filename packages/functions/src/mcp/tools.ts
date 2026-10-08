@@ -142,6 +142,23 @@ function withoutDeletes(d: Data): Data {
   return Object.fromEntries(Object.entries(d).filter(([, v]) => !(v instanceof FieldValue)));
 }
 
+/** The longest concept name, and the most other names or tags, create_concept takes. */
+const MAX_NAME = 120;
+const MAX_NAMES = 20;
+
+/** Trimmed, non-empty, each once (by its normalized form). */
+function unique(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return values
+    .map((v) => v.trim())
+    .filter((v) => {
+      const key = normalizeName(v);
+      if (!v || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 export class NotesTools {
   constructor(
     private readonly db: Firestore,
@@ -291,9 +308,17 @@ export class NotesTools {
   }) {
     const name = args.name.trim();
     if (!name) throw new ToolError('name must not be empty');
+    if (name.length > MAX_NAME) throw new ToolError(`a name is at most ${MAX_NAME} characters`);
+    const key = normalizeName(name);
+    const synonyms = unique(args.synonyms ?? []).filter((s) => normalizeName(s) !== key);
+    const tags = unique(args.tags ?? []);
+    if (synonyms.length > MAX_NAMES || tags.length > MAX_NAMES)
+      throw new ToolError(`at most ${MAX_NAMES} other names and ${MAX_NAMES} tags`);
+    if (synonyms.some((s) => s.length > MAX_NAME))
+      throw new ToolError(`a name is at most ${MAX_NAME} characters`);
     const names = await this.names();
     const id = conceptId(name);
-    const taken = [name, ...(args.synonyms ?? [])].filter((n) => names.has(normalizeName(n)));
+    const taken = [name, ...synonyms].filter((n) => names.has(normalizeName(n)));
     if (taken.length) throw new ToolError(`already a name in the garden: ${taken.join(', ')}`);
     const now = Timestamp.fromMillis(this.now());
     const body = args.body ?? '';
@@ -304,9 +329,9 @@ export class NotesTools {
       // A concept's name is Eric's: a settle never retitles it.
       titleSource: 'user',
       conceptType: args.type ?? 'other',
-      synonyms: [...new Set((args.synonyms ?? []).map((s) => s.trim()).filter(Boolean))],
+      synonyms,
       links: resolveLinks(targetsOf(body), names),
-      tags: args.tags ?? [],
+      tags,
       archived: false,
       createdAt: now,
       updatedAt: now,

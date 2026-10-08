@@ -79,12 +79,13 @@ the Storage bucket must allow your domain. Once, as a project owner,
 with `<bucket>` from `gcloud storage buckets list`:
 
 ```bash
-echo '[{"origin": ["https://<APP_DOMAIN>"], "method": ["GET"], "maxAgeSeconds": 3600}]' > cors.json
+echo '[{"origin": ["https://<APP_DOMAIN>"], "method": ["GET"], "responseHeader": ["Authorization", "Content-Type"], "maxAgeSeconds": 3600}]' > cors.json
 gcloud storage buckets update gs://<bucket> --cors-file=cors.json
 ```
 
 Without it a photo shows only on the device that took it, until that
-device's copy is gone; elsewhere its caption shows instead.
+device's copy is gone; elsewhere its caption shows instead. To check:
+a photo taken on the phone shows in a browser tab on another device.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
