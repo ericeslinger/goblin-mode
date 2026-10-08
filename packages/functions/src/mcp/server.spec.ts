@@ -30,6 +30,7 @@ function fakeTools() {
     addLines: vi.fn(async () => ({})),
     checkItem: vi.fn(async () => ({})),
     uncheckItem: vi.fn(async () => ({})),
+    capture: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -48,6 +49,7 @@ describe('the MCP server', () => {
     expect(names).toEqual([
       'add_lines',
       'archive_note',
+      'capture',
       'check_item',
       'create_concept',
       'create_note',

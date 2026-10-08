@@ -35,6 +35,20 @@ import { TemplateHeader } from '../templates/template-header';
 import { TemplatesService } from '../templates/templates.service';
 
 /**
+ * What a share brings, one line each: the title, unless the text has it,
+ * then the text, then the link, unless the text has it.
+ */
+export function sharedText(title: string | null, text: string | null, url: string | null): string {
+  const body = text?.trim() ?? '';
+  const lines = [
+    ...(title?.trim() && !body.includes(title.trim()) ? [title.trim()] : []),
+    ...(body ? [body] : []),
+    ...(url?.trim() && !body.includes(url.trim()) ? [url.trim()] : []),
+  ];
+  return lines.join('\n');
+}
+
+/**
  * The launch screen: a cursor in a note on top, Right Now below, and
  * on wide screens the notes list beside it, with Right Now on top of
  * the list. Signed out, only sign-in.
@@ -164,6 +178,13 @@ export class Launch {
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
       const id = params.get('note');
       if (id) void this.router.navigate(['/n', id], { replaceUrl: true });
+      // Text shared from another app (#42): a new note holding it.
+      const shared = sharedText(params.get('title'), params.get('text'), params.get('url'));
+      if (shared) {
+        this.capture.newNote();
+        this.capture.replace(shared);
+        void this.router.navigate(['/'], { replaceUrl: true });
+      }
       // A reminder's link (#40): to a template, it means a new entry.
       const routed = this.route.snapshot.paramMap.get('id');
       if (params.get('from') === 'reminder' && routed) this.entryFrom.set(routed);

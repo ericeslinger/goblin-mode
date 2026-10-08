@@ -16,6 +16,8 @@ export const INSTRUCTIONS = [
     'under What Claude changed. To suggest instead of change, use suggest_changes.',
   'When Eric asks for something a template covers (his shopping list, a journal entry), use ' +
     'list_templates and use_template, and follow its Instructions for Claude.',
+  'When Eric says "garden this", file what he means with capture: his words verbatim under ' +
+    'the project, ideas with your one-line summary.',
 ].join('\n');
 
 const projectKind = z.enum(['build', 'content']);
@@ -360,6 +362,31 @@ export function buildServer(tools: ToolsApi): McpServer {
       annotations: write,
     },
     run((a) => tools.addLines(a)),
+  );
+
+  server.registerTool(
+    'capture',
+    {
+      title: 'Garden this',
+      description:
+        'When Eric says "garden this" (or asks to file something from the chat): file his words ' +
+        'under a project, word for word. kind idea: a new note with your one-line summary above ' +
+        "his words, listed under the project's Ideas. kind decision: a dated line under " +
+        "Decisions. kind question: a line under Open questions. Pass the chat's link as source " +
+        'when there is one, his time zone for the date, and remind for "remind me". Never ' +
+        'reword text: summarize only in summary. The project is an id or a name.',
+      inputSchema: {
+        project: z.string().min(1),
+        kind: z.enum(['idea', 'decision', 'question']),
+        text: z.string().min(1),
+        summary: z.string().min(1).max(200).optional(),
+        source: z.string().min(1).optional(),
+        timeZone: z.string().optional(),
+        remind: z.object({ text: z.string().min(1), dueAt: z.string().optional() }).optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.capture(a)),
   );
 
   server.registerTool(

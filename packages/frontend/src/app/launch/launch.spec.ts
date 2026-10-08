@@ -13,7 +13,7 @@ import {
   remindersTestProviders,
 } from '../testing/fakes';
 import { CaptureService } from '../capture/capture.service';
-import { Launch } from './launch';
+import { Launch, sharedText } from './launch';
 
 async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: string } = {}) {
   localStorage.clear();
@@ -277,6 +277,28 @@ describe('Launch', () => {
     await go('/n/t9?from=reminder');
     expect(notes.create).toHaveBeenCalledTimes(2);
     expect(notes.create.mock.calls[1][2]).toEqual({ fromTemplate: 't9' });
+  });
+
+  it('makes a new note of text shared from another app (#42)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n7', 'Before')]);
+    const { el, go, url } = await render({ notes, url: '/n/n7' });
+    await go(
+      '/?title=Seeds&text=what%20if%20seeds%20talked&url=https%3A%2F%2Fclaude.ai%2Fchat%2F1',
+    );
+    expect(url()).toBe('/');
+    expect(el.querySelector('.cm-content')?.textContent).toContain('what if seeds talked');
+    expect(TestBed.inject(CaptureService).current()).toBe(
+      'Seeds\nwhat if seeds talked\nhttps://claude.ai/chat/1',
+    );
+  });
+
+  it('shares text without repeating a title or link it already holds', () => {
+    expect(sharedText('Seeds', 'Seeds that talk https://x.test', 'https://x.test')).toBe(
+      'Seeds that talk https://x.test',
+    );
+    expect(sharedText(null, null, 'https://x.test')).toBe('https://x.test');
+    expect(sharedText(null, ' ', null)).toBe('');
   });
 
   it('offers no template menu when there are no templates', async () => {

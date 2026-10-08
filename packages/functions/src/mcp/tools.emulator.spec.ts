@@ -397,6 +397,83 @@ describe('organizing tools', () => {
     await expect(t.refile({ id: 'a', status: 'done' })).rejects.toThrow('only a project');
   });
 
+  it('gardens chat words under a project, verbatim (#42)', async () => {
+    await eric('p', '## Overview\nA game.\n\n## Ideas\n\n## Open questions\n\n## Decisions\n', {
+      kind: 'concept',
+      title: 'Sprout',
+      titleSource: 'user',
+      conceptType: 'project',
+    });
+    await eric('a', 'Glaze recipes');
+    const t = ticking();
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(T + 1000);
+    const idea = await t.capture({
+      project: 'sprout',
+      kind: 'idea',
+      text: 'what if seeds\ncould *talk*',
+      summary: 'Talking seeds',
+      source: 'https://claude.ai/chat/1',
+    });
+    const note = await body((idea['note'] as { id: string }).id);
+    expect(note['body']).toBe(
+      '✳ Claude: Talking seeds\n\nwhat if seeds\ncould *talk*\n\nFrom: https://claude.ai/chat/1\n\nPart of [[Sprout]].',
+    );
+    expect(note['links']).toEqual(['p']);
+    await t.capture({ project: 'p', kind: 'decision', text: 'Ship the seeds first' });
+    await t.capture({
+      project: 'Sprout',
+      kind: 'question',
+      text: 'Which seeds?',
+      remind: { text: 'Pick the seeds' },
+    });
+    // A second idea with a taken name is told apart by its date.
+    const again = await t.capture({
+      project: 'p',
+      kind: 'idea',
+      text: 'more',
+      summary: 'Talking seeds',
+    });
+    expect((again['note'] as { title: string }).title).toMatch(
+      /^Talking seeds \(\d{4}-\d{2}-\d{2}\)$/,
+    );
+    const page = String((await body('p'))['body']);
+    expect(page).toContain('## Ideas\n- [[Talking seeds]]\n- [[Talking seeds (');
+    expect(page).toContain(`## Decisions\n- ${day}: Ship the seeds first`);
+    expect(page).toContain('## Open questions\n- Which seeds?');
+    expect(page.startsWith('## Overview\nA game.\n')).toBe(true);
+    const reminders = await db.collection('users/u1/reminders').get();
+    expect(reminders.docs.map((d) => d.data())).toEqual([
+      expect.objectContaining({ text: 'Pick the seeds', noteId: 'p' }),
+    ]);
+    await expect(t.capture({ project: 'a', kind: 'idea', text: 'x' })).rejects.toThrow(
+      'no project a',
+    );
+    // A name fit to link, and a third of the same name counted.
+    const odd = await t.capture({
+      project: 'p',
+      kind: 'idea',
+      text: 'ticks',
+      summary: 'Use [x] | for done',
+    });
+    expect((odd['note'] as { title: string }).title).toBe('Use x for done');
+    const third = await t.capture({
+      project: 'p',
+      kind: 'idea',
+      text: 'm',
+      summary: 'Talking seeds',
+    });
+    expect((third['note'] as { title: string }).title).toMatch(/\(\d{4}-\d{2}-\d{2} 2\)$/);
+    // Filed even when the reminder cannot be made, and said so.
+    const filed = await t.capture({
+      project: 'p',
+      kind: 'question',
+      text: 'When?',
+      remind: { text: 'Ask', dueAt: 'someday' },
+    });
+    expect(filed['reminderFailed']).toMatch(/^filed, but the reminder was not made/);
+    expect(String((await body('p'))['body'])).toContain('- When?');
+  });
+
   it('archives and restores a note, recording each', async () => {
     await eric('a', 'Old plan');
     const t = ticking();
