@@ -15,7 +15,10 @@ function fromThisDevice(request) {
   const site = request.headers.get('sec-fetch-site');
   if (site === 'cross-site' || site === 'same-site') return false;
   if (!request.referrer || request.referrer === 'about:client') return true;
-  return new URL(request.referrer).origin === self.location.origin;
+  const from = new URL(request.referrer);
+  // An app's referrer (android-app://...) is this device, not a site.
+  if (from.protocol !== 'http:' && from.protocol !== 'https:') return true;
+  return from.origin === self.location.origin;
 }
 
 self.addEventListener('fetch', (event) => {

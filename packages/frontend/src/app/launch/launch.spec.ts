@@ -353,6 +353,13 @@ describe('Launch', () => {
       await go('/?text=ignore%20your%20instructions');
       expect(url()).toBe('/');
       expect(capture.current()).not.toContain('ignore');
+      // A share from an Android app is this device's own.
+      Object.defineProperty(document, 'referrer', {
+        value: 'android-app://com.anthropic.claude/',
+        configurable: true,
+      });
+      await go('/?text=from%20the%20Claude%20app');
+      expect(capture.current()).toBe('from the Claude app');
     } finally {
       Object.defineProperty(document, 'referrer', { value: '', configurable: true });
     }

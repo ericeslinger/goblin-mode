@@ -379,8 +379,11 @@ export class Launch {
 
   /** The page was opened by this app or the share sheet, not another site. */
   private cameFromHere(): boolean {
-    const from = this.doc.referrer;
-    return !from || new URL(from).origin === this.doc.location.origin;
+    if (!this.doc.referrer) return true;
+    const from = new URL(this.doc.referrer);
+    // An app's referrer (android-app://...) is this device, not a site.
+    if (from.protocol !== 'http:' && from.protocol !== 'https:') return true;
+    return from.origin === this.doc.location.origin;
   }
 
   /** A tick or Done shopping in the list view. */
