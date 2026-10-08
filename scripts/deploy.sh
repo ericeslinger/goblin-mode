@@ -26,6 +26,13 @@ cd "$(dirname "$0")/.."
 : "${APP_DOMAIN:?set APP_DOMAIN}"
 : "${CLOUDFLARE_API_TOKEN:?set CLOUDFLARE_API_TOKEN}"
 
+# A Google region is like us-east1, with no hyphen before the number;
+# a wrong one fails only at the functions step, after rules have shipped.
+if [ -n "${STORAGE_REGION:-}" ] && ! [[ "$STORAGE_REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]]; then
+  echo "error: STORAGE_REGION '$STORAGE_REGION' is not a region name like us-east1" >&2
+  exit 1
+fi
+
 # Fail here, not in every browser: the config must parse and name this project.
 node -e '
   const c = JSON.parse(process.env.FIREBASE_WEB_CONFIG);
