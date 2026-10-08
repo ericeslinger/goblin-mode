@@ -5,12 +5,19 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { NOW, RANDOM_BYTES } from '../platform/platform';
 import { FakeReadingApi, fakeFirebase } from '../testing/fakes';
-import { READING_API, ReadingService, WAITED_MS, linkOf } from './reading.service';
+import {
+  PENDING_LINKS_KEY,
+  READING_API,
+  ReadingService,
+  WAITED_MS,
+  linkOf,
+} from './reading.service';
 
 const NOW_MS = Date.parse('2026-10-08T12:00:00Z');
 const stamp = (ms: number) => ({ toMillis: () => ms });
 
 function setup() {
+  localStorage.clear();
   const api = new FakeReadingApi();
   const user = signal<User | null | undefined>({ uid: 'u1' } as User);
   TestBed.configureTestingModule({
@@ -95,9 +102,14 @@ describe('ReadingService', () => {
     TestBed.tick();
     const id = reading.save('https://example.com/later');
     expect(api.set).not.toHaveBeenCalled();
+    // On the device, so a reload before sign-in keeps it.
+    expect(JSON.parse(localStorage.getItem(PENDING_LINKS_KEY)!)).toEqual([
+      { id, url: 'https://example.com/later' },
+    ]);
     user.set({ uid: 'u1' } as User);
     TestBed.tick();
     expect(api.set.mock.lastCall![1]).toBe(`users/u1/attachments/${id}`);
+    expect(localStorage.getItem(PENDING_LINKS_KEY)).toBeNull();
   });
 
   it('knows a link', () => {

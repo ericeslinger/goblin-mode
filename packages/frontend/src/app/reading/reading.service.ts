@@ -20,7 +20,11 @@ import {
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { LocalStore } from '../platform/local-store';
 import { NOW, RANDOM_BYTES } from '../platform/platform';
+
+/** Links saved before the account was known, kept on the device. */
+export const PENDING_LINKS_KEY = 'goblin.pendingLinks';
 
 /** A week: what has waited this long unread is mentioned in Right Now. */
 export const WAITED_MS = 7 * 24 * 60 * 60 * 1000;
@@ -105,6 +109,7 @@ export class ReadingService {
   private readonly api = inject(READING_API);
   private readonly now = inject(NOW);
   private readonly random = inject(RANDOM_BYTES);
+  private readonly store = inject(LocalStore);
 
   private readonly items = signal<ReadingItem[]>([]);
   /** Newest first. */
@@ -129,7 +134,8 @@ export class ReadingService {
       this.uid = uid;
       this.items.set([]);
       if (!uid) return;
-      for (const { id, url } of this.waiting.splice(0)) this.write(uid, id, url);
+      for (const { id, url } of this.waiting()) this.write(uid, id, url);
+      this.store.remove(PENDING_LINKS_KEY);
       this.stop = this.api.listen(
         this.fb.db,
         paths.attachments(uid),
@@ -150,15 +156,18 @@ export class ReadingService {
     if (!url) return undefined;
     const id = autoId(this.random);
     const uid = this.auth.user()?.uid;
-    if (uid) this.write(uid, id, url);
-    else this.waiting.push({ id, url });
+    if (uid) this.write(uid, id, url.toString());
+    // Kept on the device, so a reload before sign-in loses nothing (review on #100).
+    else this.store.set(PENDING_LINKS_KEY, [...this.waiting(), { id, url: url.toString() }]);
     return id;
   }
 
   /** Links saved before the account was known. */
-  private waiting: { id: string; url: URL }[] = [];
+  private waiting(): { id: string; url: string }[] {
+    return this.store.get<{ id: string; url: string }[]>(PENDING_LINKS_KEY) ?? [];
+  }
 
-  private write(uid: string, id: string, url: URL): void {
+  private write(uid: string, id: string, url: string): void {
     const now = this.api.serverTime();
     void this.api
       .set(
@@ -166,8 +175,8 @@ export class ReadingService {
         `${paths.attachments(uid)}/${id}`,
         {
           kind: 'link',
-          name: url.toString(),
-          url: url.toString(),
+          name: url,
+          url,
           toRead: true,
           read: false,
           createdAt: now,

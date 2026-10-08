@@ -169,7 +169,9 @@ const FORMAT_ACTIONS: FormatAction[] = [
                   }
                 </span>
               } @else {
-                <span class="found">Not found</span>
+                <span class="found">{{
+                  f.partial ? 'Not found in the first ' + f.partial + ' pages' : 'Not found'
+                }}</span>
               }
             }
           </form>
@@ -357,7 +359,7 @@ export class NoteEditorComponent {
   /** A PDF is drawn: it can be searched. */
   protected readonly openPages = signal(false);
   /** The pages the last find matched. */
-  protected readonly found = signal<{ pages: number[] } | undefined>(undefined);
+  protected readonly found = signal<{ pages: number[]; partial?: number } | undefined>(undefined);
   /** The document open in the viewer (#45). */
   protected readonly document = signal<
     { id: string; name: string; url?: string; status?: string } | undefined
@@ -674,7 +676,9 @@ export class NoteEditorComponent {
     if (!doc || !query.trim()) return;
     const pages = await doc.find(query);
     if (doc !== this.openDoc) return;
-    this.found.set({ pages });
+    // Only laid-out pages are searched: a longer PDF says so (review on #100).
+    const { MAX_PAGES } = await import('../attachments/pdf-render');
+    this.found.set({ pages, ...(doc.pages > MAX_PAGES ? { partial: MAX_PAGES } : {}) });
     if (pages.length) doc.show(pages[0]);
   }
 

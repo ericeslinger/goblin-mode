@@ -138,9 +138,15 @@ export class Reading {
 
   /** A PDF with no note: its file, from the device or a download. */
   protected async open(item: ReadingItem): Promise<void> {
+    // The tab opens within the tap, as phones require, then gets the file
+    // once it is ready (review on #100).
+    const tab = window.open('about:blank', '_blank');
     const url = await this.attachments.full(item.id);
-    if (url) window.open(url, '_blank', 'noopener');
-    else this.status.set('This PDF is not on this device yet. Try again online.');
+    if (url && tab) tab.location.href = url;
+    else {
+      tab?.close();
+      this.status.set('This PDF is not on this device yet. Try again online.');
+    }
   }
 
   protected meta(item: ReadingItem): string {
