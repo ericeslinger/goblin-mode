@@ -149,7 +149,11 @@ export class FakeAttachments {
   resolve = (id: string) => this.urls.get(id);
   readonly struggling = signal(false);
   readonly inMemory = signal(false);
-  check = vi.fn((_file: File): string | undefined => undefined);
+  inspect = vi.fn(async (_file: File): Promise<{ type: string } | { error: string }> => ({
+    type: 'image/png',
+  }));
   newId = () => 'img1';
-  attach = vi.fn(async (_file: File, _id: string, _noteId?: string): Promise<void> => undefined);
+  attach = vi.fn(
+    async (_file: File, _id: string, _type: string, _noteId?: string): Promise<void> => undefined,
+  );
 }

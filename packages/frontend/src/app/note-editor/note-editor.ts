@@ -376,16 +376,24 @@ export class NoteEditorComponent {
     const files = [...(input.files ?? [])];
     input.value = '';
     const noteId = untracked(this.noteId);
+    const shown = this.shownId;
+    // What each file really is (a moment's read of its first bytes).
+    const looked = await Promise.all(
+      files.map(async (f) => [f, await this.attachments.inspect(f)] as const),
+    );
+    if (this.shownId !== shown) {
+      this.problem.set('Another note opened before the photo went in. Please add it again.');
+      return;
+    }
     const kept: Promise<void>[] = [];
-    for (const file of files) {
-      const error = this.attachments.check(file);
-      if (error) {
-        this.problem.set(error);
+    for (const [file, found] of looked) {
+      if ('error' in found) {
+        this.problem.set(found.error);
         continue;
       }
       const id = this.attachments.newId();
       this.editor?.insertImage(id, captionFor(file.name));
-      kept.push(this.attachments.attach(file, id, noteId));
+      kept.push(this.attachments.attach(file, id, found.type, noteId));
     }
     this.editor?.focus();
     const results = await Promise.allSettled(kept);
