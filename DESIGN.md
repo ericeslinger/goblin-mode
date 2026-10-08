@@ -703,8 +703,11 @@ kept; a record the phone never completes stays holding only
 app, which readers ignore. HEIC, which the image library cannot
 decode, keeps no thumbnail. `attachmentDeleted` removes an
 attachment's files when its record is deleted. A Storage trigger
-deploys in the default bucket's location, which must suit the
-functions' region (us-central1 for a US bucket). The app still shows
+runs in its bucket's region, so `attachmentUploaded` deploys to
+`STORAGE_REGION` (a deploy variable, default us-central1; Eric's
+bucket is us-east1) while the other functions stay in us-central1;
+the deploy keeps an image clean-up policy in each (2026-10-08, after
+the first deploy refused a us-central1 trigger on a us-east1 bucket). The app still shows
 the full photo inline; using the thumbnail there is its own change.
 
 **Room above the keyboard (2026-10-07).** The keyboard and the ribbon

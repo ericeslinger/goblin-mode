@@ -46,10 +46,14 @@ const TYPES = [
         </ul>
         <label>
           <span class="visually-hidden">Add another name</span>
+          <!-- Added on change, which comes on Enter and on leaving the field:
+               Android keyboards send no Enter keydown while composing, and
+               closing the keyboard is how a phone finishes (Eric, 2026-10-08). -->
           <input
             #other
             placeholder="Add a name"
-            (keydown.enter)="add(other.value); other.value = ''"
+            enterkeyhint="done"
+            (change)="add(other.value); other.value = ''"
           />
         </label>
       </div>

@@ -69,8 +69,33 @@ fi
 # 1 asking for one. setpolicy --force only creates or updates the policy;
 # it is not `deploy --force`, which would also delete functions that
 # vanished from the code without asking.
+# Every region with functions: us-central1, and the Storage trigger's
+# region (STORAGE_REGION, the bucket's) when it differs.
 region="us-central1"
-npx firebase functions:artifacts:setpolicy --project "$project" --location "$region" \
-  --days 7 --force
+regions="$region"
+if [ -n "${STORAGE_REGION:-}" ] && [ "$STORAGE_REGION" != "$region" ]; then
+  regions="$regions $STORAGE_REGION"
+fi
+setpolicies() {
+  for r in $regions; do
+    npx firebase functions:artifacts:setpolicy --project "$project" --location "$r" \
+      --days 7 --force
+  done
+}
+# A region's repository exists only after its first deploy. setpolicy
+# says so and exits 0 today, but this pass must never stop the deploy
+# that would create it; the pass after a failed deploy stays strict.
+setpolicies || echo "note: a clean-up policy could not be set yet; set after the deploy"
 
-npx firebase deploy --only functions --non-interactive --project "$project"
+log="$(mktemp)"
+if ! npx firebase deploy --only functions --non-interactive --project "$project" 2>&1 | tee "$log"; then
+  # The first deploy to a new region deploys, then stops for the policy
+  # its new repository lacks: set it now and carry on (2026-10-08). This
+  # matches firebase-tools' own message (promptForCleanupPolicyDays,
+  # non-interactive); if its wording changes, the deploy stops as before.
+  if grep -q "Functions successfully deployed but could not set up cleanup policy" "$log"; then
+    setpolicies
+  else
+    exit 1
+  fi
+fi

@@ -38,6 +38,10 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   await concept.getByRole('textbox', { name: 'Add another name' }).fill('Vik');
   await concept.getByRole('textbox', { name: 'Add another name' }).press('Enter');
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('Vik');
+  // A phone finishes by leaving the field, with no Enter (2026-10-08).
+  await concept.getByRole('textbox', { name: 'Add another name' }).fill('V. Rao');
+  await concept.getByRole('combobox', { name: 'Type' }).focus();
+  await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('V. Rao');
 
   const linkedFrom = page.getByRole('region', { name: 'Linked from' });
   await expect(linkedFrom).toContainText('Ask [[Vikas]] about the kiln.');
