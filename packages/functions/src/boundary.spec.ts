@@ -13,9 +13,17 @@ const EXPORTS = [
   'sendDuePush',
   'reminderScheduled',
   'reminderWake',
+  'attachmentUploaded',
+  'attachmentDeleted',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));
+// A storage trigger reads its default bucket from here when it loads,
+// as a deploy provides.
+process.env['FIREBASE_CONFIG'] ??= JSON.stringify({
+  projectId: 'demo-boundary',
+  storageBucket: 'demo-boundary.appspot.com',
+});
 
 describe('functions boundary', () => {
   it('exports exactly the registered functions', async () => {

@@ -74,6 +74,16 @@ itself (functions queue wakes as it). Without the API or
 already shipped); without the last two it deploys, and pushes still
 go, up to an hour late, from the hourly `sendDuePush`.
 
+The photo checker and thumbnailer (`attachmentUploaded`) is a Cloud
+Storage trigger. Once, a project owner grants the Cloud Storage service
+agent `roles/pubsub.publisher`:
+
+```bash
+gcloud projects add-iam-policy-binding <project> \
+  --member=serviceAccount:service-<number>@gs-project-accounts.iam.gserviceaccount.com \
+  --role=roles/pubsub.publisher
+```
+
 Photos (#44) are downloaded by the app with the owner's credentials, so
 the Storage bucket must allow your domain. Once, as a project owner,
 with `<bucket>` from `gcloud storage buckets list`:

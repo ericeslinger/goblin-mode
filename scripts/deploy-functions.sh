@@ -51,7 +51,9 @@ mkdir -p "$stage/lib"
 cp "$bundle" "$stage/lib/"
 cp "$manifest" "$stage/package.json"
 (cd "$stage" && npm install --omit=dev --no-audit --no-fund --loglevel=error >/dev/null)
-(cd "$stage" && node -e "
+# A storage trigger reads its default bucket from FIREBASE_CONFIG when
+# it loads, as the deploy provides; a placeholder stands in here.
+(cd "$stage" && FIREBASE_CONFIG='{"projectId":"demo-dry-run","storageBucket":"demo-dry-run.appspot.com"}' node -e "
   const fns = require('./lib/index.js');
   const names = Object.keys(fns);
   if (names.length === 0) { console.error('error: bundle exports no functions'); process.exit(1); }

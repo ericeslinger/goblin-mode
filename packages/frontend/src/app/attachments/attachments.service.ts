@@ -32,7 +32,8 @@ export const ATTACHMENTS_API = new InjectionToken<AttachmentsApi>('attachments-a
   factory: () => {
     const fb = inject(FIREBASE);
     return {
-      record: (path, data) => void setDoc(doc(fb.db, path), data).catch(report),
+      // A merge: the server may have added the thumbnail already.
+      record: (path, data) => void setDoc(doc(fb.db, path), data, { merge: true }).catch(report),
       filePath: async (path) => {
         const snap = await getDoc(doc(fb.db, path));
         const file = snap.get('path');

@@ -7,9 +7,9 @@ import { OWNER } from '../src/personas';
 // after a reload. A mouse context: the toolbar holds Insert image.
 test.use({ isMobile: false, hasTouch: false, viewport: { width: 1200, height: 800 } });
 
-// A 2x2 red PNG.
+// A 4x4 red PNG, valid enough for the thumbnail function to read.
 const PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMAAAA4KAQGdUvGsAAAAAElFTkSuQmCC',
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVQImWM4Y2wMRwzEcQD7ExMhwLzAsQAAAABJRU5ErkJggg==',
   'base64',
 );
 

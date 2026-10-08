@@ -681,9 +681,19 @@ the note says how many photos are waiting. Until then the editor shows
 the device's copy; after, a copy downloaded with the owner's
 credentials (a failed download is retried after 30 seconds). A tap on
 a photo opens it full screen (a native `dialog`). Photos are only ever
-shown as `img`. The thumbnail function, a check of each upload's bytes
-and the clean-up of a deleted attachment's files follow in their own
-change.
+shown as `img`.
+
+**On the server (#44, 2026-10-08).** `attachmentUploaded`, a Storage
+trigger, reads each new file's first bytes: one that is not the type it
+declared (HTML labelled a JPEG) is deleted, since the rules can only
+check the label (review on #43). A photo then gets a WebP thumbnail,
+at most 640 px, turned upright, beside it as `thumb_<name>.webp` (the
+owner-read rule covers it), and its record gets `thumbPath`. The
+record write is a merge, and so is the app's, so a thumbnail made
+before the phone's record lands is kept. HEIC, which the image library
+cannot decode, keeps no thumbnail. `attachmentDeleted` removes an
+attachment's files when its record is deleted. The app still shows the
+full photo inline; using the thumbnail there is its own change.
 
 **Room above the keyboard (2026-10-07).** The keyboard and the ribbon
 overlay the page, so in a long note the ribbon sat on the line being
