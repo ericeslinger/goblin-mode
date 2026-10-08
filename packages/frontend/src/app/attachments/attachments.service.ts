@@ -14,7 +14,7 @@ import { getBlob, ref, uploadBytes } from 'firebase/storage';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
-import { type QueuedUpload, UPLOAD_QUEUE } from './upload-queue';
+import { type QueuedUpload, UPLOAD_QUEUE, type UploadQueue, memoryQueue } from './upload-queue';
 
 /** The Firebase calls attachments make; a seam for specs. */
 export interface AttachmentsApi {
@@ -63,8 +63,6 @@ export function captionFor(name: string): string {
   return name.replace(/\.[A-Za-z0-9]+$/, '') || 'image';
 }
 
-export type AttachResult = { id: string; caption: string } | { error: string };
-
 /**
  * Images attached to notes (#44). Attaching keeps the file on the
  * device at once (IndexedDB) and writes its record through Firestore's
@@ -77,7 +75,8 @@ export class AttachmentsService {
   private readonly auth = inject(AuthService);
   private readonly notes = inject(NotesService);
   private readonly api = inject(ATTACHMENTS_API);
-  private readonly queue = inject(UPLOAD_QUEUE);
+  /** Swapped for memory if the device's store fails (quota, private mode). */
+  private queue: UploadQueue = inject(UPLOAD_QUEUE);
   private readonly urls$ = inject(OBJECT_URLS);
   /** Object URLs by attachment id: the device's copy, or a download. */
   private readonly urls = new Map<string, string>();
@@ -85,10 +84,15 @@ export class AttachmentsService {
   /** When a fetch last failed, so redraws do not retry it at once. */
   private readonly failedAt = new Map<string, number>();
   private draining?: Promise<void>;
+  /** Failed upload attempts in a row, for the back-off. */
+  private failures = 0;
+  private retry?: ReturnType<typeof setTimeout>;
   /** Ids attached here and not yet uploaded. */
   readonly waiting = signal<ReadonlySet<string>>(new Set());
   /** Bumped when an image's URL becomes available, so editors redraw. */
   readonly arrived = signal(0);
+  /** Uploads have failed a few times running; still being retried. */
+  readonly struggling = signal(false);
 
   constructor() {
     // Signed in: show what is still queued, and send it.
@@ -106,44 +110,69 @@ export class AttachmentsService {
     const win = inject(DOCUMENT).defaultView;
     const online = () => void this.drain().catch(report);
     win?.addEventListener('online', online);
-    inject(DestroyRef).onDestroy(() => win?.removeEventListener('online', online));
+    inject(DestroyRef).onDestroy(() => {
+      win?.removeEventListener('online', online);
+      clearTimeout(this.retry);
+    });
   }
 
-  /**
-   * Keeps `file` for note `noteId`: on the device first, then its
-   * record, then (when it can) Storage. Resolves once the file is safe
-   * on the device, with the id to put in the note.
-   */
-  async attach(file: File, noteId?: string): Promise<AttachResult> {
+  /** Why `file` cannot be attached, or undefined if it can. */
+  check(file: File): string | undefined {
     if (
       !(ATTACHMENT_TYPES as readonly string[]).includes(file.type) ||
       file.type === 'application/pdf'
     ) {
-      return {
-        error: 'That file is not a photo this app can keep (JPEG, PNG, WebP, GIF or HEIC).',
-      };
+      return 'That file is not a photo this app can keep (JPEG, PNG, WebP, GIF or HEIC).';
     }
-    if (file.size > MAX_ATTACHMENT_BYTES) {
-      return { error: 'That photo is over 25 MB.' };
-    }
-    const id = this.notes.newId();
-    const size = await imageSize(file);
+    if (file.size > MAX_ATTACHMENT_BYTES) return 'That photo is over 25 MB.';
+    return undefined;
+  }
+
+  /** A new attachment id, made on the device. */
+  newId(): string {
+    return this.notes.newId();
+  }
+
+  /**
+   * Keeps `file` as attachment `id` of note `noteId`: on the device
+   * first, then its record, then (when it can) Storage. The caller puts
+   * the id in the note before awaiting this, so the photo lands in the
+   * note it was taken for. Resolves once the file is safe on the device;
+   * rejects only if this device can keep it nowhere.
+   */
+  async attach(file: File, id: string, noteId?: string): Promise<void> {
+    const error = this.check(file);
+    if (error) throw new Error(error);
+    // Shown at once, while it is stored.
+    this.urls.set(id, this.urls$.create(file));
+    this.arrived.update((n) => n + 1);
     const item: QueuedUpload = {
       id,
       name: safeName(file.name),
       contentType: file.type,
       size: file.size,
-      ...size,
+      ...(await imageSize(file)),
       ...(noteId ? { noteId } : {}),
       blob: file,
       recorded: false,
     };
-    await this.queue.put(item);
-    this.urls.set(id, this.urls$.create(file));
+    await this.keep(item);
     this.waiting.update((s) => new Set(s).add(id));
     this.writeRecord(item);
     void this.drain().catch(report);
-    return { id, caption: captionFor(file.name) };
+  }
+
+  /** Into the queue; if the device's store fails, into memory instead. */
+  private async keep(item: QueuedUpload): Promise<void> {
+    try {
+      await this.queue.put(item);
+    } catch (err) {
+      console.error('could not keep the photo on the device; keeping it in memory', err);
+      const queued = await this.queue.all().catch(() => [] as QueuedUpload[]);
+      this.queue = memoryQueue();
+      for (const q of queued) await this.queue.put(q);
+      await this.queue.put(item);
+    }
   }
 
   /** The image's URL now, if there is one; otherwise starts fetching it. */
@@ -163,13 +192,16 @@ export class AttachmentsService {
   private async send(): Promise<void> {
     const uid = this.auth.user()?.uid;
     if (!uid || !navigator.onLine) return;
+    clearTimeout(this.retry);
+    let failed = false;
     for (const item of await this.queue.all()) {
       if (!item.recorded) this.writeRecord(item);
       try {
         await this.api.upload(this.filePath(uid, item), item.blob, item.contentType);
       } catch (err) {
-        // Kept in the queue: tried again when back online or next launch.
+        // Kept in the queue, and tried again after a back-off.
         console.error('upload failed', err);
+        failed = true;
         continue;
       }
       await this.queue.remove(item.id);
@@ -178,6 +210,12 @@ export class AttachmentsService {
         next.delete(item.id);
         return next;
       });
+    }
+    this.failures = failed ? this.failures + 1 : 0;
+    this.struggling.set(this.failures >= STRUGGLING_AFTER);
+    if (failed) {
+      const wait = Math.min(RETRY_MS * 2 ** (this.failures - 1), MAX_RETRY_MS);
+      this.retry = setTimeout(() => void this.drain().catch(report), wait);
     }
   }
 
@@ -242,8 +280,11 @@ export class AttachmentsService {
   }
 }
 
-/** How long after a failed fetch an image is tried again. */
+/** How long after a failed fetch or upload it is tried again (doubling). */
 const RETRY_MS = 30_000;
+const MAX_RETRY_MS = 10 * 60_000;
+/** Failed upload rounds in a row before the note says uploads are failing. */
+const STRUGGLING_AFTER = 3;
 
 /** A photo's pixel size, when the browser can decode it (not HEIC everywhere). */
 async function imageSize(file: Blob): Promise<{ width?: number; height?: number }> {

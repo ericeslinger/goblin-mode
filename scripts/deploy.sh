@@ -32,6 +32,12 @@ node -e '
   if (c.projectId !== process.env.FIREBASE_PROJECT_ID) {
     console.error(`error: FIREBASE_WEB_CONFIG is for ${c.projectId}, not ${process.env.FIREBASE_PROJECT_ID}`);
     process.exit(1);
+  }
+  // Photos (#44) upload to the default bucket; without it every upload
+  // fails and photos wait on the device forever.
+  if (!c.storageBucket) {
+    console.error("error: FIREBASE_WEB_CONFIG has no storageBucket (Project settings, Your apps)");
+    process.exit(1);
   }'
 web_config="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.env.FIREBASE_WEB_CONFIG)))')"
 push_key="$(node -e 'process.stdout.write(JSON.stringify(process.env.WEB_PUSH_PUBLIC_KEY || null))')"

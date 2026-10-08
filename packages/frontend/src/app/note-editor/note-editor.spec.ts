@@ -46,6 +46,21 @@ describe('keyLabel', () => {
 });
 
 describe('NoteEditorComponent', () => {
+  it('puts a chosen photo in the note before its file is kept (#44)', async () => {
+    const { fixture } = await render();
+    const fake = TestBed.inject(AttachmentsService) as unknown as FakeAttachments;
+    let keep!: () => void;
+    fake.attach.mockImplementation(() => new Promise<void>((done) => (keep = done)));
+    const input = fixture.nativeElement.querySelector('input[type=file]') as HTMLInputElement;
+    const file = new File(['x'], 'menu.png', { type: 'image/png' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    input.dispatchEvent(new Event('change'));
+    // In the note at once, while the file is still being kept.
+    expect(fixture.componentInstance.changes.at(-1)).toContain('![menu](attachment:img1)');
+    expect(fake.attach).toHaveBeenCalledWith(file, 'img1', 'a');
+    keep();
+  });
+
   it('gives a mouse a toolbar with one tab stop, moved by arrow keys', async () => {
     const { fixture } = await render();
     fixture.detectChanges();

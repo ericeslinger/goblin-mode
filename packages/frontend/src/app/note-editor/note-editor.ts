@@ -20,7 +20,7 @@ import {
   createNoteEditor,
   type NoteEditor,
 } from '@mossgoblin/editor';
-import { AttachmentsService } from '../attachments/attachments.service';
+import { AttachmentsService, captionFor } from '../attachments/attachments.service';
 import { EditorModeService } from './editor-mode.service';
 
 /** Touch screens get the keyboard accessory bar instead of shortcuts. */
@@ -110,7 +110,9 @@ const FORMAT_ACTIONS: FormatAction[] = [
       <p class="note-status" role="alert">{{ message }}</p>
     } @else if (attachments.waiting().size; as count) {
       <p class="note-status" role="status">
-        {{ count === 1 ? '1 photo' : count + ' photos' }} waiting to upload
+        {{ count === 1 ? '1 photo' : count + ' photos' }} waiting to upload{{
+          attachments.struggling() ? '; uploads are failing, still trying' : ''
+        }}
       </p>
     }
     <dialog
@@ -365,19 +367,31 @@ export class NoteEditorComponent {
     this.picker().nativeElement.click();
   }
 
-  /** Photos chosen: kept on the device, then put in the note at the cursor. */
+  /**
+   * Photos chosen: each goes in the note at the cursor at once, before
+   * anything is awaited, so it lands in this note even if another opens
+   * meanwhile; then the files are kept on the device.
+   */
   protected async picked(input: HTMLInputElement): Promise<void> {
     const files = [...(input.files ?? [])];
     input.value = '';
+    const noteId = untracked(this.noteId);
+    const kept: Promise<void>[] = [];
     for (const file of files) {
-      const result = await this.attachments.attach(file, untracked(this.noteId));
-      if ('error' in result) {
-        this.problem.set(result.error);
+      const error = this.attachments.check(file);
+      if (error) {
+        this.problem.set(error);
         continue;
       }
-      this.editor?.insertImage(result.id, result.caption);
+      const id = this.attachments.newId();
+      this.editor?.insertImage(id, captionFor(file.name));
+      kept.push(this.attachments.attach(file, id, noteId));
     }
     this.editor?.focus();
+    const results = await Promise.allSettled(kept);
+    if (results.some((r) => r.status === 'rejected')) {
+      this.problem.set('This device could not keep a photo. Please add it again.');
+    }
   }
 
   /** A click on the dark space around the image closes the viewer. */

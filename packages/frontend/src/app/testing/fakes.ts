@@ -147,8 +147,8 @@ export class FakeAttachments {
   readonly arrived = signal(0);
   readonly urls = new Map<string, string>();
   resolve = (id: string) => this.urls.get(id);
-  attach = vi.fn(
-    async (_file: File, _noteId?: string) =>
-      ({ id: 'img1', caption: 'photo' }) as { id: string; caption: string } | { error: string },
-  );
+  readonly struggling = signal(false);
+  check = vi.fn((_file: File): string | undefined => undefined);
+  newId = () => 'img1';
+  attach = vi.fn(async (_file: File, _id: string, _noteId?: string): Promise<void> => undefined);
 }

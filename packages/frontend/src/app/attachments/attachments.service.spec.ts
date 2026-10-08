@@ -46,9 +46,14 @@ function setup(queued: QueuedUpload[] = []) {
     user.set({ uid: 'u1' } as User);
     TestBed.tick();
     await service.drain();
-    await new Promise((done) => setTimeout(done));
+    await flush();
   };
   return { service, queue, api, signIn };
+}
+
+/** Lets pending promise chains settle, with real or fake timers. */
+async function flush() {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
 const photo = (name = 'Dinner menu.jpg', type = 'image/jpeg', size = 3) =>
@@ -57,8 +62,9 @@ const photo = (name = 'Dinner menu.jpg', type = 'image/jpeg', size = 3) =>
 describe('AttachmentsService', () => {
   it('keeps a photo taken before sign-in on the device, then records and uploads it', async () => {
     const { service, queue, api, signIn } = setup();
-    const result = await service.attach(photo(), 'n1');
-    expect(result).toEqual({ id: 'new1', caption: 'Dinner menu' });
+    const id = service.newId();
+    expect(id).toBe('new1');
+    await service.attach(photo(), id, 'n1');
     // On the device at once, shown from there, and waiting.
     expect(queue.items.get('new1')).toMatchObject({ name: 'Dinner-menu.jpg', noteId: 'n1' });
     expect(service.resolve('new1')).toBe('blob:local/1');
@@ -83,7 +89,7 @@ describe('AttachmentsService', () => {
     const { service, queue, api, signIn } = setup();
     api.upload.mockRejectedValueOnce(new Error('offline'));
     await signIn();
-    await service.attach(photo());
+    await service.attach(photo(), 'p1');
     await service.drain();
     expect(queue.items.size).toBe(1);
     window.dispatchEvent(new Event('online'));
@@ -96,12 +102,52 @@ describe('AttachmentsService', () => {
 
   it('turns away files that are not photos, or too big', async () => {
     const { service, queue } = setup();
-    expect(await service.attach(photo('page.svg', 'image/svg+xml'))).toHaveProperty('error');
-    expect(await service.attach(photo('doc.pdf', 'application/pdf'))).toHaveProperty('error');
+    expect(service.check(photo('page.svg', 'image/svg+xml'))).toMatch(/not a photo/);
+    expect(service.check(photo('doc.pdf', 'application/pdf'))).toMatch(/not a photo/);
     const big = photo();
     Object.defineProperty(big, 'size', { value: 26 * 1024 * 1024 });
-    expect(await service.attach(big)).toHaveProperty('error');
+    expect(service.check(big)).toMatch(/25 MB/);
+    expect(service.check(photo())).toBeUndefined();
+    await expect(service.attach(big, 'x')).rejects.toThrow();
     expect(queue.items.size).toBe(0);
+  });
+
+  it('keeps a photo in memory when the device store fails', async () => {
+    const { service, queue, api, signIn } = setup();
+    queue.put = async () => {
+      throw new Error('quota');
+    };
+    await signIn();
+    await service.attach(photo(), 'm1');
+    expect(service.waiting().has('m1')).toBe(true);
+    await service.drain();
+    expect(api.upload).toHaveBeenCalledWith(
+      'users/u1/attachments/m1/Dinner-menu.jpg',
+      expect.any(File),
+      'image/jpeg',
+    );
+    expect(service.waiting().size).toBe(0);
+  });
+
+  it('retries failed uploads with a back-off, and says when they keep failing', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, api, signIn } = setup();
+      api.upload.mockRejectedValue(new Error('denied'));
+      await signIn();
+      await service.attach(photo(), 'f1');
+      await service.drain();
+      expect(service.struggling()).toBe(false);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.struggling()).toBe(true);
+      api.upload.mockResolvedValue(undefined);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(service.waiting().size).toBe(0);
+      expect(service.struggling()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows photos still queued from an earlier visit', async () => {
@@ -125,7 +171,7 @@ describe('AttachmentsService', () => {
     api.filePath.mockResolvedValue('users/u1/attachments/a9/x.jpg');
     const before = service.arrived();
     expect(service.resolve('a9')).toBeUndefined();
-    await new Promise((done) => setTimeout(done));
+    await flush();
     expect(api.download).toHaveBeenCalledWith('users/u1/attachments/a9/x.jpg');
     expect(service.arrived()).toBe(before + 1);
     expect(service.resolve('a9')).toMatch(/^blob:local\//);
