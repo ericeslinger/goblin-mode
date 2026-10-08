@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { ProposalsService } from '../claude/proposals.service';
 import { NotesService } from '../notes/notes.service';
+import { ReadingService } from '../reading/reading.service';
 import { LENSES, inLens, lensId } from './lenses';
 import { NoteList } from './note-list';
 
@@ -21,6 +22,12 @@ import { NoteList } from './note-list';
       <h1>Notes</h1>
       <p class="more">
         <a routerLink="/map">See the whole garden as a map</a>
+        <a routerLink="/reading"
+          >Reading queue
+          @if (reading.unread().length) {
+            <span class="count">{{ reading.unread().length }} to read</span>
+          }
+        </a>
         <a routerLink="/activity"
           >What Claude changed
           @if (proposals.open()) {
@@ -75,6 +82,7 @@ import { NoteList } from './note-list';
 export class Browse {
   private readonly notes = inject(NotesService);
   protected readonly proposals = inject(ProposalsService);
+  protected readonly reading = inject(ReadingService);
   protected readonly lens = toSignal(
     inject(ActivatedRoute).paramMap.pipe(map((p) => lensId(p.get('lens')))),
     { initialValue: lensId(undefined) },

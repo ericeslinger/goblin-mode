@@ -1,7 +1,9 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { type ProposalRecord, ProposalsService } from '../claude/proposals.service';
+import { ReadingService } from '../reading/reading.service';
 import { NotesService } from '../notes/notes.service';
 import { FakeNotes, noteRecord, FakeProposals } from '../testing/fakes';
 import { Browse } from './browse';
@@ -14,6 +16,7 @@ describe('Browse', () => {
       imports: [Browse],
       providers: [
         provideRouter([]),
+        { provide: ReadingService, useValue: { unread: signal([]) } },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
       ],
@@ -37,6 +40,7 @@ describe('Browse', () => {
       imports: [Browse],
       providers: [
         provideRouter([]),
+        { provide: ReadingService, useValue: { unread: signal([]) } },
         { provide: NotesService, useValue: new FakeNotes() },
         { provide: ProposalsService, useValue: proposals },
       ],
@@ -59,6 +63,7 @@ describe('Browse', () => {
           { path: 'browse', component: Browse },
           { path: 'browse/:lens', component: Browse },
         ]),
+        { provide: ReadingService, useValue: { unread: signal([]) } },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
       ],

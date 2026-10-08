@@ -43,6 +43,10 @@ export const routes: Routes = [
     path: 'activity',
     loadComponent: () => import('./claude/activity').then((m) => m.Activity),
   },
+  {
+    path: 'reading',
+    loadComponent: () => import('./reading/reading').then((m) => m.Reading),
+  },
   { path: 'history', loadComponent: () => import('./history/history').then((m) => m.History) },
   {
     path: 'oauth/authorize',

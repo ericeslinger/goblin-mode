@@ -1,5 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { ReadingService } from '../reading/reading.service';
 import { ReminderRow } from './reminder-row';
 import { RemindersService } from './reminders.service';
 import { UndoBar } from './undo-bar';
@@ -31,6 +32,11 @@ export const PANEL_ITEMS = 3;
     @if (more() > 0) {
       <a routerLink="/right-now" class="more">{{ more() }} more</a>
     }
+    @if (reading.waited().length; as waited) {
+      <a routerLink="/reading" class="waited"
+        >{{ waited === 1 ? '1 thing' : waited + ' things' }} saved to read a week ago or more</a
+      >
+    }
   `,
   styles: `
     h2 {
@@ -49,6 +55,11 @@ export const PANEL_ITEMS = 3;
     .muted {
       color: var(--quiet);
     }
+    .waited {
+      display: block;
+      margin-top: 8px;
+      color: var(--accent);
+    }
     .more {
       display: inline-block;
       margin-top: 8px;
@@ -57,6 +68,7 @@ export const PANEL_ITEMS = 3;
   `,
 })
 export class RightNowPanel {
+  protected readonly reading = inject(ReadingService);
   private readonly reminders = inject(RemindersService);
   protected readonly shown = computed(() => this.reminders.due().slice(0, PANEL_ITEMS));
   protected readonly more = computed(() => this.reminders.due().length - this.shown().length);

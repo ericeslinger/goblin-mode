@@ -44,6 +44,14 @@ test('a PDF attached offline shows as a chip and opens in the document viewer', 
   await expect(viewer).toBeVisible();
   await expect(viewer.getByRole('img', { name: 'Page 1' })).toBeVisible({ timeout: 15_000 });
   await expect(viewer.getByRole('link', { name: 'Save' })).toBeVisible();
+  // Find in this PDF (#45), on the device.
+  const find = viewer.getByRole('searchbox', { name: 'Find in this PDF' });
+  await find.fill('SOUP');
+  await find.press('Enter');
+  await expect(viewer.getByRole('button', { name: '1', exact: true })).toBeVisible();
+  await find.fill('lobster');
+  await find.press('Enter');
+  await expect(viewer.getByText('Not found')).toBeVisible();
   const { violations } = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
