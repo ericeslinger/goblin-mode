@@ -424,9 +424,15 @@ export class NoteEditorComponent {
     return (
       state?.status === 'working' &&
       state.startedAt !== undefined &&
-      Date.now() - state.startedAt > STUCK_MS
+      this.clock() - state.startedAt > STUCK_MS
     );
   });
+  /**
+   * Ticks while a transcription is followed: a stuck record never
+   * changes, so time alone must bring Try again (review on #102).
+   */
+  private readonly clock = signal(Date.now());
+  private clockTimer?: ReturnType<typeof setInterval>;
   private readonly router = inject(Router);
   /** Why the last photo could not be attached. */
   protected readonly problem = signal<string | undefined>(undefined);
@@ -755,12 +761,16 @@ export class NoteEditorComponent {
   protected startTranscription(id: string): void {
     this.stopTranscription();
     this.transcription.set({ id, state: { status: 'requested' } });
+    this.clock.set(Date.now());
+    this.clockTimer = setInterval(() => this.clock.set(Date.now()), 30_000);
     this.stopWatching = this.attachments.transcribe(id, (state) => {
       if (this.transcription()?.id === id) this.transcription.set({ id, state });
     });
   }
 
   protected stopTranscription(): void {
+    clearInterval(this.clockTimer);
+    this.clockTimer = undefined;
     this.stopWatching?.();
     this.stopWatching = undefined;
     this.transcription.set(undefined);

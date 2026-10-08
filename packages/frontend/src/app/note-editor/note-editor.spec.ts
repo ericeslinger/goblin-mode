@@ -145,6 +145,9 @@ describe('NoteEditorComponent', () => {
     const button = [...el.querySelectorAll('button')].find(
       (b) => b.textContent?.trim() === 'Transcribe',
     )!;
+    // Only the viewer's clock and Date: the rest of the test runs on real time.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    onTestFinished(() => void vi.useRealTimers());
     button.click();
     expect(fake.transcribe).toHaveBeenCalledWith('p1', expect.any(Function));
     await fixture.whenStable();
@@ -154,8 +157,12 @@ describe('NoteEditorComponent', () => {
     update({ status: 'working', startedAt: Date.now() - 60_000 });
     await fixture.whenStable();
     expect(again()).toBeUndefined();
-    // Stuck past ten minutes: it may be asked again (review on #102).
-    update({ status: 'working', startedAt: Date.now() - 11 * 60_000 });
+    // Stuck past ten minutes: it may be asked again, with no further
+    // change to the record (review on #102).
+    update({ status: 'working', startedAt: Date.now() });
+    await fixture.whenStable();
+    expect(again()).toBeUndefined();
+    vi.advanceTimersByTime(11 * 60_000);
     await fixture.whenStable();
     expect(again()).toBeDefined();
     update({ status: 'done', noteId: 'n9' });
