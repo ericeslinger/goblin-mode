@@ -390,6 +390,70 @@ export function buildServer(tools: ToolsApi): McpServer {
   );
 
   server.registerTool(
+    'add_attachment',
+    {
+      title: 'Save a link to read later',
+      description:
+        '"Save this paper for me": keeps a link in the reading queue. A page is fetched and ' +
+        'kept as its title and text; a link to a PDF becomes that PDF, its text read. noteId ' +
+        'ties it to a note. The text arrives a moment later, through get_attachment_text.',
+      inputSchema: {
+        url: z.string().min(1),
+        title: z.string().min(1).optional(),
+        noteId: z.string().min(1).optional(),
+        toRead: z.boolean().optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.addAttachment(a)),
+  );
+
+  server.registerTool(
+    'list_reading_queue',
+    {
+      title: 'List the reading queue',
+      description:
+        'PDFs and links saved to read later, newest first, unread only unless includeRead.',
+      inputSchema: { includeRead: z.boolean().optional() },
+      annotations: read,
+    },
+    run((a) => tools.listReadingQueue(a)),
+  );
+
+  server.registerTool(
+    'get_attachment_text',
+    {
+      title: 'Read an attachment',
+      description:
+        'The text of a PDF or saved page, as extracted on the server: offset and limit page ' +
+        'through a long one (nextOffset is where the next stretch starts). Quote it as it is.',
+      inputSchema: {
+        id: z.string().min(1),
+        offset: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(100_000).optional(),
+      },
+      annotations: read,
+    },
+    run((a) => tools.getAttachmentText(a)),
+  );
+
+  server.registerTool(
+    'search_attachments',
+    {
+      title: 'Search PDFs and saved pages',
+      description:
+        'Full-text search across the text of every PDF and saved page (every word must ' +
+        'appear), with a snippet around the first match. Notes are searched by search_notes.',
+      inputSchema: {
+        query: z.string().min(1),
+        limit: z.number().int().min(1).max(50).optional(),
+      },
+      annotations: read,
+    },
+    run((a) => tools.searchAttachments(a)),
+  );
+
+  server.registerTool(
     'check_item',
     {
       title: 'Tick an item',

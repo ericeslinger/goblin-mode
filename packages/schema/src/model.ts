@@ -306,6 +306,14 @@ export const Attachment = z.object({
   height: z.number().optional(),
   /** A smaller image a function makes on upload (#44). */
   thumbPath: z.string().optional(),
+  /**
+   * PDFs and imported links: their text, extracted by a function into a
+   * file beside the attachment (#45, server only), and a PDF's pages.
+   */
+  textPath: z.string().optional(),
+  pages: z.number().optional(),
+  /** Links: why the page could not be imported, if it could not (#48). */
+  importError: z.string().optional(),
   /** The reading queue: saved to read later (#48), and whether it was. */
   toRead: z.boolean(),
   read: z.boolean(),

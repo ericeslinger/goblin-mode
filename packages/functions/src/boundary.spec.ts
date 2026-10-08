@@ -15,6 +15,7 @@ const EXPORTS = [
   'reminderWake',
   'attachmentUploaded',
   'attachmentDeleted',
+  'attachmentCreated',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

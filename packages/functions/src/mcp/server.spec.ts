@@ -31,6 +31,10 @@ function fakeTools() {
     checkItem: vi.fn(async () => ({})),
     uncheckItem: vi.fn(async () => ({})),
     capture: vi.fn(async () => ({})),
+    addAttachment: vi.fn(async () => ({})),
+    listReadingQueue: vi.fn(async () => []),
+    getAttachmentText: vi.fn(async () => ({})),
+    searchAttachments: vi.fn(async () => []),
   } satisfies ToolsApi;
 }
 
@@ -47,6 +51,7 @@ describe('the MCP server', () => {
     const { client } = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual([
+      'add_attachment',
       'add_lines',
       'archive_note',
       'capture',
@@ -54,15 +59,18 @@ describe('the MCP server', () => {
       'create_concept',
       'create_note',
       'create_reminder',
+      'get_attachment_text',
       'get_backlinks',
       'get_note',
       'link_notes',
       'list_concepts',
       'list_notes',
+      'list_reading_queue',
       'list_reminders',
       'list_templates',
       'merge_notes',
       'refile',
+      'search_attachments',
       'search_notes',
       'split_note',
       'suggest_changes',

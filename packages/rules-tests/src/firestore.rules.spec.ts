@@ -167,6 +167,12 @@ describe('client-written collections: notes, reminders, devices, settings, attac
         createdBy: 'claude',
       }),
     );
+    // Marked read after the server added its text (#45, #48).
+    await assertSucceeds(
+      ref.set({ ...attachment(), textPath: 'users/owner/attachments/a1/text_page.txt', pages: 3 }),
+    );
+    await assertSucceeds(ref.set({ read: true, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ pages: 'three' }, { merge: true }));
   });
 
   it('keeps settings to one doc, app, holding a known theme and mode', async () => {

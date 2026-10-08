@@ -1,8 +1,10 @@
 import { paths } from '@mossgoblin/schema';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import type { Bucket } from '@google-cloud/storage';
+import { dirname } from 'node:path';
+import type { ImportStore } from './import';
 import sharp from 'sharp';
-import { THUMB_METADATA, THUMB_SIZE, type Thumbnailer, type UploadStore } from './process';
+import { THUMB_SIZE, type TextExtractor, type Thumbnailer, type UploadStore } from './process';
 
 /** The UploadStore over a Storage bucket and Firestore, as the admin SDK. */
 export function storageStore(bucket: Bucket, db: Firestore): UploadStore {
@@ -15,12 +17,13 @@ export function storageStore(bucket: Bucket, db: Firestore): UploadStore {
       const [bytes] = await bucket.file(path).download();
       return bytes;
     },
-    // Only thumbnails are written here, marked so the trigger skips them.
-    write: (path, bytes, contentType) =>
+    // Only files this function makes are written here (thumbnails,
+    // extracted text), marked so the trigger skips them.
+    write: (path, bytes, contentType, metadata) =>
       bucket.file(path).save(Buffer.from(bytes), {
         contentType,
         resumable: false,
-        metadata: { metadata: THUMB_METADATA },
+        metadata: { metadata },
       }),
     remove: async (path) => void (await bucket.file(path).delete({ ignoreNotFound: true })),
     setContentType: async (path, contentType) =>
@@ -29,10 +32,30 @@ export function storageStore(bucket: Bucket, db: Firestore): UploadStore {
       void (await db.doc(`${paths.attachments(uid)}/${id}`).delete()),
     // A merge: the record may not have synced from the phone yet, and
     // the phone's own write merges too, so neither loses the other's.
+    setText: async (uid, id, text) =>
+      void (await db
+        .doc(`${paths.attachments(uid)}/${id}`)
+        .set({ ...text, updatedAt: FieldValue.serverTimestamp() }, { merge: true })),
     setThumb: async (uid, id, thumbPath) =>
       void (await db
         .doc(`${paths.attachments(uid)}/${id}`)
         .set({ thumbPath, updatedAt: FieldValue.serverTimestamp() }, { merge: true })),
+  };
+}
+
+/** The real store behind link import (#48). */
+export function importStore(bucket: Bucket, db: Firestore): ImportStore {
+  return {
+    write: (path, bytes, contentType, metadata) =>
+      bucket.file(path).save(Buffer.from(bytes), {
+        contentType,
+        resumable: false,
+        ...(metadata ? { metadata: { metadata } } : {}),
+      }),
+    update: async (uid, id, fields) =>
+      void (await db
+        .doc(`${paths.attachments(uid)}/${id}`)
+        .set({ ...fields, updatedAt: FieldValue.serverTimestamp() }, { merge: true })),
   };
 }
 
@@ -48,3 +71,34 @@ export const sharpThumbnail: Thumbnailer = async (bytes) =>
     .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
     .webp({ quality: 70 })
     .toBuffer();
+
+/**
+ * A PDF's text, read by pdf.js (#45): each page's lines, pages apart by
+ * a blank line. Loaded only when a PDF arrives.
+ */
+export const pdfText: TextExtractor = async (bytes) => {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const task = getDocument({
+    data: new Uint8Array(bytes),
+    disableFontFace: true,
+    useSystemFonts: false,
+    // The 14 standard fonts' metrics, shipped with pdf.js.
+    standardFontDataUrl: `${dirname(require.resolve('pdfjs-dist/package.json'))}/standard_fonts/`,
+  });
+  try {
+    const doc = await task.promise;
+    const pages: string[] = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const content = await (await doc.getPage(n)).getTextContent();
+      pages.push(
+        content.items
+          .map((item) => ('str' in item ? item.str + (item.hasEOL ? '\n' : '') : ''))
+          .join('')
+          .trim(),
+      );
+    }
+    return { text: pages.join('\n\n'), pages: doc.numPages };
+  } finally {
+    await task.destroy();
+  }
+};

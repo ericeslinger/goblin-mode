@@ -72,7 +72,7 @@ service cloud.firestore {
 
     function isValidAttachment(data) {
       return data.keys().hasAll(['kind', 'name', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
-        && data.keys().hasOnly(['kind', 'name', 'noteId', 'path', 'url', 'driveFileId', 'contentType', 'size', 'width', 'height', 'thumbPath', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
+        && data.keys().hasOnly(['kind', 'name', 'noteId', 'path', 'url', 'driveFileId', 'contentType', 'size', 'width', 'height', 'thumbPath', 'textPath', 'pages', 'importError', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
         && (data.kind is string && data.kind in ['image', 'pdf', 'link', 'drive'])
         && data.name is string
         && (!('noteId' in data) || data.noteId is string)
@@ -84,6 +84,9 @@ service cloud.firestore {
         && (!('width' in data) || data.width is number)
         && (!('height' in data) || data.height is number)
         && (!('thumbPath' in data) || data.thumbPath is string)
+        && (!('textPath' in data) || data.textPath is string)
+        && (!('pages' in data) || data.pages is number)
+        && (!('importError' in data) || data.importError is string)
         && data.toRead is bool
         && data.read is bool
         && data.createdAt is timestamp
