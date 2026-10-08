@@ -48,7 +48,12 @@ Also create a Google service account named `goblin-titles` in the
 project, with `roles/datastore.user`, and let the deploy service
 account act as it (`roles/iam.serviceAccountUser` on it): `noteTitle`
 always runs as that account, even with titles off. DESIGN.md, Titles,
-covers the Claude side.
+covers the Claude side. `attachmentTranscribe` (#47) runs as it too
+and reads the photo or PDF, so also grant it
+`roles/storage.objectViewer` on the default bucket
+(`gcloud storage buckets add-iam-policy-binding gs://<bucket>
+--member=serviceAccount:goblin-titles@<project>.iam.gserviceaccount.com
+--role=roles/storage.objectViewer`).
 
 The deploy account cannot change project IAM, so the first deploy of
 the Firestore-triggered functions stops and asks a project owner to

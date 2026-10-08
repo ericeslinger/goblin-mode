@@ -3,6 +3,7 @@ import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import type { Bucket } from '@google-cloud/storage';
 import { dirname } from 'node:path';
 import type { ImportStore } from './import';
+import type { ImagePrep, TranscribeStore } from './transcribe';
 import sharp from 'sharp';
 import { THUMB_SIZE, type TextExtractor, type Thumbnailer, type UploadStore } from './process';
 
@@ -102,3 +103,48 @@ export const pdfText: TextExtractor = async (bytes) => {
     await task.destroy();
   }
 };
+
+/** A photo as Claude reads it well: upright JPEG, at most 2400 px a side. */
+export const prepForClaude: ImagePrep = async (bytes) =>
+  sharp(bytes)
+    .rotate()
+    .resize(2400, 2400, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+
+/** The real store behind transcription (#47). */
+export function transcribeStore(
+  bucket: Bucket,
+  db: Firestore,
+  writeNote: (uid: string, body: string, title: string) => Promise<string>,
+): TranscribeStore {
+  return {
+    claim: (uid, id, day, cap) =>
+      db.runTransaction(async (tx) => {
+        const ref = db.doc(`${paths.attachments(uid)}/${id}`);
+        const usageRef = db.doc(paths.usage(uid, day));
+        const [doc, usage] = await Promise.all([tx.get(ref), tx.get(usageRef)]);
+        const record = doc.data();
+        if (!record || record['transcribe'] !== 'requested') return { status: 'skip' as const };
+        const used = Number(usage.data()?.['transcriptions'] ?? 0);
+        if (used >= cap) return { status: 'capped' as const };
+        tx.set(usageRef, { transcriptions: used + 1 }, { merge: true });
+        tx.set(
+          ref,
+          {
+            transcribe: 'working',
+            transcribeStartedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+        return { status: 'claimed' as const, record };
+      }),
+    read: async (path) => (await bucket.file(path).download())[0],
+    finish: async (uid, id, fields) =>
+      void (await db
+        .doc(`${paths.attachments(uid)}/${id}`)
+        .set({ ...fields, updatedAt: FieldValue.serverTimestamp() }, { merge: true })),
+    writeNote,
+  };
+}

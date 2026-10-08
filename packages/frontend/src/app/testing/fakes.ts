@@ -8,6 +8,7 @@ import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import type { ProposalRecord } from '../claude/proposals.service';
 import type { NoteRecord, NotesService } from '../notes/notes.service';
+import type { Transcription } from '../attachments/attachments.service';
 
 export function fakeFirebase(usingEmulators: boolean): FirebaseHandles {
   return { app: {}, auth: {}, db: {}, storage: {}, usingEmulators } as unknown as FirebaseHandles;
@@ -186,4 +187,5 @@ export class FakeAttachments {
   attach = vi.fn(
     async (_file: File, _id: string, _type: string, _noteId?: string): Promise<void> => undefined,
   );
+  transcribe = vi.fn((_id: string, _update: (state: Transcription) => void) => () => undefined);
 }

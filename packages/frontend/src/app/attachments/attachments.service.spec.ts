@@ -30,6 +30,10 @@ function setup(queued: QueuedUpload[] = []) {
     upload: vi.fn(async () => undefined),
     download: vi.fn(async (_path: string) => new Blob(['x'])),
     serverTime: () => 'now',
+    watch: vi.fn(
+      (_path: string, _next: (data: Record<string, unknown> | undefined) => void) => () =>
+        undefined,
+    ),
   };
   let made = 0;
   TestBed.configureTestingModule({
@@ -258,6 +262,36 @@ describe('AttachmentsService', () => {
     await service.attach(photo(), 'd1', 'image/jpeg');
     expect(await service.full('d1')).toBe(service.resolve('d1'));
     expect(api.download).not.toHaveBeenCalled();
+  });
+});
+
+describe('transcribe (#47)', () => {
+  it('asks on the record, then follows it to the note Claude wrote', async () => {
+    const { service, api, signIn } = setup();
+    await signIn();
+    const states: unknown[] = [];
+    service.transcribe('a1', (s) => states.push(s));
+    expect(api.record).toHaveBeenCalledWith('users/u1/attachments/a1', {
+      transcribe: 'requested',
+      updatedAt: 'now',
+    });
+    const next = api.watch.mock.calls[0][1];
+    next({ transcribe: 'working' });
+    next({ transcribe: 'done', transcriptNoteId: 'n9' });
+    expect(states).toEqual([{ status: 'working' }, { status: 'done', noteId: 'n9' }]);
+  });
+
+  it('waits for a file still uploading, and for sign-in', async () => {
+    const { service, api, signIn } = setup();
+    const states: unknown[] = [];
+    service.transcribe('a1', (s) => states.push(s));
+    expect(states[0]).toMatchObject({ status: 'failed', error: 'Sign in to transcribe.' });
+    api.upload.mockRejectedValue(new Error('offline'));
+    await signIn();
+    await service.attach(photo(), 'q1', 'image/jpeg');
+    service.transcribe('q1', (s) => states.push(s));
+    expect(states[1]).toMatchObject({ status: 'failed' });
+    expect(api.watch).not.toHaveBeenCalled();
   });
 });
 

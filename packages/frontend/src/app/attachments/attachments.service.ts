@@ -9,7 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { MAX_ATTACHMENT_BYTES, SNIFF_BYTES, paths, sniffType } from '@mossgoblin/schema';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getBlob, ref, uploadBytes } from 'firebase/storage';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
@@ -25,6 +25,8 @@ export interface AttachmentsApi {
   upload(path: string, blob: Blob, contentType: string): Promise<void>;
   download(path: string): Promise<Blob>;
   serverTime(): unknown;
+  /** Follows a record's fields as they change; returns how to stop. */
+  watch(path: string, next: (data: Record<string, unknown> | undefined) => void): () => void;
 }
 
 export const ATTACHMENTS_API = new InjectionToken<AttachmentsApi>('attachments-api', {
@@ -43,9 +45,27 @@ export const ATTACHMENTS_API = new InjectionToken<AttachmentsApi>('attachments-a
         void (await uploadBytes(ref(fb.storage, path), blob, { contentType })),
       download: (path) => getBlob(ref(fb.storage, path)),
       serverTime: () => serverTimestamp(),
+      watch: (path, next) =>
+        onSnapshot(
+          doc(fb.db, path),
+          (snap) => next(snap.data()),
+          (err) => report(err),
+        ),
     };
   },
 });
+
+/** How a transcription (#47) is going, as the viewer shows it. */
+export interface Transcription {
+  status: 'requested' | 'working' | 'done' | 'failed';
+  noteId?: string;
+  error?: string;
+  /** When the server began, in milliseconds. */
+  startedAt?: number;
+}
+
+/** After this long 'working', the viewer offers to ask again (review on #102). */
+export const STUCK_MS = 10 * 60 * 1000;
 
 /** Makes object URLs; a seam for specs (happy-dom has none). */
 export const OBJECT_URLS = new InjectionToken<{ create(blob: Blob): string }>('object-urls', {
@@ -214,6 +234,42 @@ export class AttachmentsService {
    * The full-size image for the viewer: the device's copy if it has one,
    * else downloaded now. Undefined when it cannot be had (offline).
    */
+  /**
+   * Asks for a transcription of attachment `id` (#47): Claude reads it on
+   * the server and writes a note. `update` hears how it goes; the
+   * returned function stops listening.
+   */
+  transcribe(id: string, update: (state: Transcription) => void): () => void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) {
+      update({ status: 'failed', error: 'Sign in to transcribe.' });
+      return () => undefined;
+    }
+    if (this.waiting().has(id)) {
+      update({ status: 'failed', error: 'This file has not uploaded yet; try again once it has.' });
+      return () => undefined;
+    }
+    const path = `${paths.attachments(uid)}/${id}`;
+    this.api.record(path, { transcribe: 'requested', updatedAt: this.api.serverTime() });
+    return this.api.watch(path, (data) => {
+      const status = data?.['transcribe'];
+      const started = (
+        data?.['transcribeStartedAt'] as { toMillis?: () => number } | undefined
+      )?.toMillis?.();
+      update({
+        status:
+          status === 'done' || status === 'failed' || status === 'working' ? status : 'requested',
+        ...(typeof data?.['transcriptNoteId'] === 'string'
+          ? { noteId: data['transcriptNoteId'] }
+          : {}),
+        ...(typeof data?.['transcribeError'] === 'string'
+          ? { error: data['transcribeError'] }
+          : {}),
+        ...(started === undefined ? {} : { startedAt: started }),
+      });
+    });
+  }
+
   async full(id: string): Promise<string | undefined> {
     const known = this.fullUrls.get(id);
     if (known) return known;

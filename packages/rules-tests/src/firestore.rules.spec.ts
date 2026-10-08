@@ -173,6 +173,10 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     );
     await assertSucceeds(ref.set({ read: true, updatedAt: now() }, { merge: true }));
     await assertFails(ref.set({ pages: 'three' }, { merge: true }));
+    // Asking for a transcription (#47); the day's count is the server's.
+    await assertSucceeds(ref.set({ transcribe: 'requested', updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ transcribe: 'please' }, { merge: true }));
+    await assertFails(owner().doc('users/owner/usage/2026-10-08').set({ transcriptions: 0 }));
   });
 
   it('keeps settings to one doc, app, holding a known theme and mode', async () => {
