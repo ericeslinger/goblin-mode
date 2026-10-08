@@ -309,12 +309,19 @@ export class AttachmentsService {
     this.loading.add(id);
     try {
       const files = await this.api.files(`${paths.attachments(uid)}/${id}`);
-      // Inline, the thumbnail when the server has made one (#44).
-      const path = files.thumbPath ?? files.path;
-      if (!path) throw new Error('no record');
-      const url = this.urls$.create(await this.api.download(path));
+      if (!files.path && !files.thumbPath) throw new Error('no record');
+      // Inline, the thumbnail when the server has made one (#44); the
+      // photo itself if there is none, or it cannot be had.
+      let blob: Blob | undefined;
+      if (files.thumbPath) blob = await this.api.download(files.thumbPath).catch(() => undefined);
+      const thumb = blob !== undefined;
+      if (!blob) {
+        if (!files.path) throw new Error('no file');
+        blob = await this.api.download(files.path);
+      }
+      const url = this.urls$.create(blob);
       this.urls.set(id, url);
-      if (!files.thumbPath) this.fullUrls.set(id, url);
+      if (!thumb) this.fullUrls.set(id, url);
       this.arrived.update((n) => n + 1);
     } catch (err) {
       // Offline, or not uploaded yet from another device: tried again
