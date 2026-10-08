@@ -68,4 +68,27 @@ describe('Reading', () => {
     expect(input.value).toBe('');
     expect(el.querySelector('[role=status]')!.textContent).toContain('Saved');
   });
+
+  it('opens a PDF in a tab made within the tap, and says why it cannot', async () => {
+    const { el, fixture } = await render([{ id: 'p', kind: 'pdf', name: 'Paper', read: false }]);
+    const fake = TestBed.inject(AttachmentsService) as unknown as FakeAttachments;
+    const tab = { location: { href: '' }, close: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
+    fake.full.mockResolvedValue('blob:local/1');
+    el.querySelector<HTMLButtonElement>('button.name')!.click();
+    await vi.waitFor(() => expect(tab.location.href).toBe('blob:local/1'));
+    // A blocked tab, with the file at hand.
+    open.mockReturnValue(null);
+    el.querySelector<HTMLButtonElement>('button.name')!.click();
+    await fixture.whenStable();
+    await vi.waitFor(() =>
+      expect(el.querySelector('[role=status]')?.textContent).toContain('blocked the new tab'),
+    );
+    // No file to be had: the tab closes.
+    open.mockReturnValue(tab as unknown as Window);
+    fake.full.mockResolvedValue(undefined);
+    el.querySelector<HTMLButtonElement>('button.name')!.click();
+    await vi.waitFor(() => expect(tab.close).toHaveBeenCalled());
+    open.mockRestore();
+  });
 });

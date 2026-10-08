@@ -31,12 +31,16 @@ export function driveFile(url: string): DriveFile | undefined {
   if (u.protocol !== 'https:') return undefined;
   const id = (s: string | undefined | null) => (s && /^[\w-]{10,}$/.test(s) ? s : undefined);
   if (u.hostname === 'docs.google.com') {
-    const m = /^\/(document|spreadsheets|presentation|forms|drawings)\/d\/([^/]+)/.exec(u.pathname);
+    // An account segment (u/0/) may come before d/ (review on #101).
+    const m =
+      /^\/(document|spreadsheets|presentation|forms|drawings)\/(?:u\/\d+\/)?d\/([^/]+)/.exec(
+        u.pathname,
+      );
     const found = id(m?.[2]);
     return found ? { id: found, kind: DOCS_KINDS[m![1]], url } : undefined;
   }
   if (u.hostname === 'drive.google.com') {
-    const file = /^\/file\/d\/([^/]+)/.exec(u.pathname)?.[1];
+    const file = /^\/file\/(?:u\/\d+\/)?d\/([^/]+)/.exec(u.pathname)?.[1];
     const folder = /^\/drive\/(?:u\/\d+\/)?folders\/([^/]+)/.exec(u.pathname)?.[1];
     const open = u.pathname === '/open' ? u.searchParams.get('id') : undefined;
     const found = id(file ?? open);

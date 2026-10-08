@@ -16,6 +16,9 @@ describe('driveFile', () => {
     );
     expect(driveFile(`https://drive.google.com/file/d/${ID}/view?usp=sharing`)?.id).toBe(ID);
     expect(driveFile(`https://drive.google.com/open?id=${ID}`)?.id).toBe(ID);
+    // With an account segment.
+    expect(driveFile(`https://docs.google.com/document/u/0/d/${ID}/edit`)?.id).toBe(ID);
+    expect(driveFile(`https://drive.google.com/file/u/1/d/${ID}/view`)?.id).toBe(ID);
     expect(driveFile(`https://drive.google.com/drive/u/0/folders/${ID}`)).toMatchObject({
       id: ID,
       kind: 'Drive folder',
