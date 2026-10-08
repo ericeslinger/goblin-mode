@@ -217,7 +217,14 @@ a question a line under Open questions, and `remind` adds a reminder
 linked to the project. The repo skill `.claude/skills/garden-this`
 tells Claude Code to offer this at the end of a session. Text shared
 from another app (the manifest's `share_target`, GET to `/` with
-title, text and url) opens as a new note holding it.
+title, text and url) opens as a new note holding it. An idea's note
+and its line under Ideas are one transaction, so a retry never files
+twice; its name drops brackets and bars, and a taken one gets the
+date, then a count. A reminder that cannot be made is reported, not
+thrown, since the words are already filed (review on #97). Chrome
+picks up a changed manifest for an installed PWA on its own schedule,
+usually within a day, so Share to Mossgoblin may take that long to
+appear.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a

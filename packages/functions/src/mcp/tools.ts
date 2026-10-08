@@ -35,6 +35,7 @@ import {
   type DocumentReference,
   FieldValue,
   type Firestore,
+  type Transaction,
   Timestamp,
 } from 'firebase-admin/firestore';
 import { randomFillSync } from 'node:crypto';
@@ -930,9 +931,11 @@ export class NotesTools {
     id: string,
     tool: string,
     edit: (body: string, title: string) => { body: string; summary: string } | undefined,
+    /** Names known before the run, and writes that land with it (capture). */
+    opts: { names?: Map<string, string>; also?: (tx: Transaction) => void } = {},
   ) {
     const ref = this.notes().doc(id);
-    const names = await this.names();
+    const names = opts.names ?? (await this.names());
     return this.db.runTransaction(async (tx) => {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${id}`);
@@ -948,6 +951,7 @@ export class NotesTools {
       };
       if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(result.body);
       Note.parse({ ...current, ...update });
+      opts.also?.(tx);
       tx.update(ref, update);
       tx.set(...this.activity(tool, result.summary, [touched(id, current)]));
       return { id, changed: true, body: result.body };
@@ -994,20 +998,62 @@ export class NotesTools {
     const done: Data = { project: { id: projectId, title: projectTitle } };
     const lines = text.split('\n');
     if (args.kind === 'idea') {
-      const summary = args.summary?.replace(/\s+/g, ' ').trim();
-      let title = summary || firstWordsTitle(text);
-      // Listed by name, so the name must be this note's alone.
-      if (index.has(normalizeName(title))) title = `${title} (${this.today(args.timeZone)})`;
+      // Brackets, bars and line breaks would break the [[link]] to it.
+      const summary = args.summary
+        ?.replace(/\[\[|\]\]|[[\]|]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const base =
+        summary ||
+        firstWordsTitle(text)
+          .replace(/[[\]|]/g, '')
+          .trim() ||
+        'Idea';
+      let title = base;
+      for (let n = 1; index.has(normalizeName(title)); n++) {
+        title = `${base} (${this.today(args.timeZone)}${n > 1 ? ` ${n}` : ''})`;
+      }
       const body = [
         ...(summary ? [`✳ Claude: ${summary}`, ''] : []),
         text,
         '',
         ...(args.source ? [`From: ${args.source.trim()}`, ''] : []),
-        `Part of [[${projectTitle}]].`,
+        ...(linkable(projectTitle) ? [`Part of [[${projectTitle}]].`] : []),
       ].join('\n');
-      const note = await this.createNote({ body, title });
-      await this.addLines({ id: projectId, lines: [`- [[${note.title}]]`], heading: 'Ideas' });
-      done['note'] = note;
+      const now = Timestamp.fromMillis(this.now());
+      const id = newId();
+      const data = Note.parse({
+        kind: 'text',
+        body,
+        title,
+        titleSource: 'llm',
+        links: resolveLinks(targetsOf(body), index),
+        tags: [],
+        archived: false,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: 'claude',
+        deviceId: CLAUDE_DEVICE,
+      });
+      // The note and its line under Ideas land together, or neither does,
+      // so a retry never makes a second copy (review on #97).
+      const names = new Map(index).set(normalizeName(title), id);
+      await this.editBody(
+        projectId,
+        'capture',
+        (current) => ({
+          body: addLines(current, [`- [[${title}]]`], 'Ideas'),
+          summary: `Gardened an idea under ${projectTitle}: ${title}`,
+        }),
+        {
+          names,
+          also: (tx) => {
+            tx.set(this.notes().doc(id), data);
+            tx.set(...this.activity('capture', 'Wrote a new note', [touched(id, data)]));
+          },
+        },
+      );
+      done['note'] = { id, title };
     } else if (args.kind === 'decision') {
       const [first, ...rest] = lines;
       const dated = [`- ${this.today(args.timeZone)}: ${first}`, ...rest.map((l) => `  ${l}`)];
@@ -1018,12 +1064,19 @@ export class NotesTools {
       await this.addLines({ id: projectId, lines: listed, heading: 'Open questions' });
     }
     if (args.remind) {
-      done['reminder'] = await this.createReminder({
-        text: args.remind.text,
-        dueAt: args.remind.dueAt,
-        timeZone: args.timeZone,
-        noteId: projectId,
-      });
+      // Filed already: a reminder that fails is said, not thrown, so a
+      // retry does not file the words twice.
+      try {
+        done['reminder'] = await this.createReminder({
+          text: args.remind.text,
+          dueAt: args.remind.dueAt,
+          timeZone: args.timeZone,
+          noteId: projectId,
+        });
+      } catch (err) {
+        if (!(err instanceof ToolError)) throw err;
+        done['reminderFailed'] = `filed, but the reminder was not made: ${err.message}`;
+      }
     }
     return done;
   }

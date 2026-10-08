@@ -448,6 +448,30 @@ describe('organizing tools', () => {
     await expect(t.capture({ project: 'a', kind: 'idea', text: 'x' })).rejects.toThrow(
       'no project a',
     );
+    // A name fit to link, and a third of the same name counted.
+    const odd = await t.capture({
+      project: 'p',
+      kind: 'idea',
+      text: 'ticks',
+      summary: 'Use [x] | for done',
+    });
+    expect((odd['note'] as { title: string }).title).toBe('Use x for done');
+    const third = await t.capture({
+      project: 'p',
+      kind: 'idea',
+      text: 'm',
+      summary: 'Talking seeds',
+    });
+    expect((third['note'] as { title: string }).title).toMatch(/\(\d{4}-\d{2}-\d{2} 2\)$/);
+    // Filed even when the reminder cannot be made, and said so.
+    const filed = await t.capture({
+      project: 'p',
+      kind: 'question',
+      text: 'When?',
+      remind: { text: 'Ask', dueAt: 'someday' },
+    });
+    expect(filed['reminderFailed']).toMatch(/^filed, but the reminder was not made/);
+    expect(String((await body('p'))['body'])).toContain('- When?');
   });
 
   it('archives and restores a note, recording each', async () => {
