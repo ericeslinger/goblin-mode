@@ -683,6 +683,19 @@ credentials (a failed download is retried after 30 seconds). A tap on
 a photo opens it full screen (a native `dialog`). Photos are only ever
 shown as `img`.
 
+**PDFs (#45, part 1, 2026-10-08).** Attach PDF (ribbon and toolbar)
+opens a picker for PDFs only, so the photo picker keeps offering the
+camera. A PDF goes through the same checks and queue as a photo (its
+bytes must be a PDF; its record's kind is `pdf`) and into the note as
+`[name.pdf](attachment:<id>)`, a link, which live preview draws as a
+chip; `attachmentIds` counts these links too. A tap opens a document
+viewer: the device's copy or a download, drawn page by page into
+canvases by pdf.js (first 50 pages), with Save for the file itself.
+pdf.js and its worker are a lazy chunk, loaded when a PDF is first
+opened; the service worker prefetches them with the rest of the app,
+so a PDF on the device opens offline. Its text, extracted on upload and
+searched with notes, is part 2: it needs a place in the stored schema.
+
 **On the server (#44, 2026-10-08).** A browser labels a file by its
 name, so a WebP saved as `.jpg` arrives as a JPEG. The app reads each
 photo's first bytes before keeping it (`sniffType`, shared with the

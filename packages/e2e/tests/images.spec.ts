@@ -34,7 +34,7 @@ test('a photo attached offline shows at once and uploads when back online', asyn
   const photo = page.getByRole('img', { name: 'menu' });
   await expect(photo).toBeVisible();
   const waiting = page.getByRole('status').filter({ hasText: 'waiting to upload' });
-  await expect(waiting).toHaveText('1 photo waiting to upload');
+  await expect(waiting).toHaveText('1 file waiting to upload');
 
   await context.setOffline(false);
   await expect(waiting).toBeHidden({ timeout: 15_000 });

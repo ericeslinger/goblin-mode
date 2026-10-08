@@ -133,13 +133,21 @@ export class AttachmentsService {
    * labels a WebP saved as .jpg a JPEG, and the server would correct it
    * anyway. An error for anything that is not a photo the app keeps.
    */
-  async inspect(file: File): Promise<{ type: string } | { error: string }> {
-    if (file.size > MAX_ATTACHMENT_BYTES) return { error: 'That photo is over 25 MB.' };
+  async inspect(
+    file: File,
+    want: 'photo' | 'pdf' = 'photo',
+  ): Promise<{ type: string } | { error: string }> {
+    const what = want === 'pdf' ? 'PDF' : 'photo';
+    if (file.size > MAX_ATTACHMENT_BYTES) return { error: `That ${what} is over 25 MB.` };
     const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
     const type = sniffType(head);
-    if (!type?.startsWith('image/')) {
+    const fits = want === 'pdf' ? type === 'application/pdf' : type?.startsWith('image/');
+    if (!type || !fits) {
       return {
-        error: 'That file is not a photo this app can keep (JPEG, PNG, WebP, GIF or HEIC).',
+        error:
+          want === 'pdf'
+            ? 'That file is not a PDF.'
+            : 'That file is not a photo this app can keep (JPEG, PNG, WebP, GIF or HEIC).',
       };
     }
     return { type };
@@ -169,7 +177,7 @@ export class AttachmentsService {
       name: safeName(file.name),
       contentType: type,
       size: file.size,
-      ...(await imageSize(file)),
+      ...(type.startsWith('image/') ? await imageSize(file) : {}),
       ...(noteId ? { noteId } : {}),
       blob: file,
       recorded: false,
@@ -285,7 +293,7 @@ export class AttachmentsService {
     if (!uid) return;
     const now = this.api.serverTime();
     this.api.record(`${paths.attachments(uid)}/${item.id}`, {
-      kind: 'image',
+      kind: item.contentType === 'application/pdf' ? 'pdf' : 'image',
       name: item.name,
       path: this.filePath(uid, item),
       contentType: item.contentType,

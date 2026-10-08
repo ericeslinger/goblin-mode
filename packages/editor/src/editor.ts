@@ -67,6 +67,8 @@ export interface NoteEditor {
    * typing carries on below; undoable like typing.
    */
   insertImage(id: string, caption: string): void;
+  /** Puts `[name](attachment:<id>)` on a line of its own, as insertImage (#45). */
+  insertFile(id: string, name: string): void;
   /** Toolbar actions. */
   toggleTask(): void;
   insertWikiLink(): void;
@@ -90,7 +92,7 @@ function readOnlyExtension(readOnly: boolean) {
 }
 
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
-  const { openLink, resolveAttachment, suggestLinks, openImage } = options;
+  const { openLink, resolveAttachment, suggestLinks, openImage, openFile } = options;
   const editing = new Compartment();
   let inset = 0;
   /** How much of the editor's visible box lies at or below `y`. */
@@ -127,7 +129,7 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         spellcheck: 'true',
       }),
       placeholder(options.placeholder ?? ''),
-      hooksFacet.of({ openLink, resolveAttachment, suggestLinks, openImage }),
+      hooksFacet.of({ openLink, resolveAttachment, suggestLinks, openImage, openFile }),
       linkAutocomplete,
       livePreview(options.mode ?? 'live'),
       noteTheme,
@@ -141,6 +143,24 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
     ],
   });
   const view = new EditorView({ state, parent: options.parent });
+
+  /** Markdown-safe text for a caption or name. */
+  const clean = (text: string) => text.replace(/[[\]\n]/g, ' ').trim();
+  /** `line` on a line of its own at the cursor, the cursor on the line after. */
+  const insertLine = (markdown: string) => {
+    const { state } = view;
+    const head = state.selection.main.head;
+    const line = state.doc.lineAt(head);
+    // Its own line: after this one's text, before the rest of it.
+    const before = head > line.from ? '\n' : '';
+    const insert = `${before}${markdown}\n`;
+    view.dispatch({
+      changes: { from: head, insert },
+      selection: { anchor: head + insert.length },
+      scrollIntoView: true,
+      userEvent: 'input',
+    });
+  };
 
   return {
     view,
@@ -189,22 +209,8 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
       }
     },
     refreshImages: () => view.dispatch({ effects: refreshImages.of(null) }),
-    insertImage(id, caption) {
-      const { state } = view;
-      const head = state.selection.main.head;
-      const line = state.doc.lineAt(head);
-      const alt = caption.replace(/[[\]\n]/g, ' ').trim();
-      const image = `![${alt}](attachment:${id})`;
-      // Its own line: after this one's text, before the rest of it.
-      const before = head > line.from ? '\n' : '';
-      const insert = `${before}${image}\n`;
-      view.dispatch({
-        changes: { from: head, insert },
-        selection: { anchor: head + insert.length },
-        scrollIntoView: true,
-        userEvent: 'input',
-      });
-    },
+    insertImage: (id, caption) => insertLine(`![${clean(caption)}](attachment:${id})`),
+    insertFile: (id, name) => insertLine(`[${clean(name)}](attachment:${id})`),
     toggleTask: () => void toggleTaskLine(view),
     toggleBold: () => void toggleMark('*')(view),
     toggleItalic: () => void toggleMark('_')(view),

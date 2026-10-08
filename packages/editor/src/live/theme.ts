@@ -52,6 +52,16 @@ export const noteTheme = EditorView.theme({
   '.mg-bullet': { color: 'var(--mg-quiet, inherit)', fontWeight: '700' },
   '.mg-list-number, .mg-list-marker': { color: 'var(--mg-quiet, inherit)' },
   '.mg-image': { maxWidth: '100%', display: 'block', margin: '4px 0' },
+  '.mg-file': {
+    font: 'inherit',
+    color: 'var(--ink, inherit)',
+    background: 'var(--chip-bg, transparent)',
+    border: '1px solid var(--rule, currentColor)',
+    borderRadius: '999px',
+    padding: '2px 10px',
+    margin: '2px 0',
+    cursor: 'pointer',
+  },
   // The `[[` suggestions.
   '.cm-tooltip': {
     color: 'var(--mg-ink, inherit)',

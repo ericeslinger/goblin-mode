@@ -20,8 +20,10 @@ describe('tasks', () => {
 });
 
 describe('attachmentIds', () => {
-  it('collects attachment: images only', () => {
-    const root = parseNote('![page 1](attachment:abc) ![web](https://x.test/a.png)');
-    expect(attachmentIds(root)).toEqual(['abc']);
+  it('collects attachment: images and files, in order, and nothing else', () => {
+    const root = parseNote(
+      '![page 1](attachment:abc) ![web](https://x.test/a.png) [taxes.pdf](attachment:def) [site](https://x.test)',
+    );
+    expect(attachmentIds(root)).toEqual(['abc', 'def']);
   });
 });

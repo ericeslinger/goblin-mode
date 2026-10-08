@@ -51,6 +51,22 @@ Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect ??= () => new DOMRect();
 
 describe('NoteEditorComponent', () => {
+  it('puts a chosen PDF in the note as a file link (#45)', async () => {
+    const { fixture } = await render();
+    const fake = TestBed.inject(AttachmentsService) as unknown as FakeAttachments;
+    fake.inspect.mockResolvedValue({ type: 'application/pdf' });
+    const input = fixture.nativeElement.querySelector(
+      'input[accept="application/pdf"]',
+    ) as HTMLInputElement;
+    const file = new File(['%PDF-1.4'], 'menu.pdf', { type: 'application/pdf' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    input.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(fake.attach).toHaveBeenCalled());
+    expect(fake.inspect).toHaveBeenCalledWith(file, 'pdf');
+    expect(fixture.componentInstance.changes.at(-1)).toContain('[menu.pdf](attachment:img1)');
+    expect(fake.attach).toHaveBeenCalledWith(file, 'img1', 'application/pdf', 'a');
+  });
+
   it('puts a chosen photo in the note before its file is kept (#44)', async () => {
     const { fixture } = await render();
     const fake = TestBed.inject(AttachmentsService) as unknown as FakeAttachments;

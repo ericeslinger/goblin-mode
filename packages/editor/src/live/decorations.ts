@@ -7,6 +7,7 @@
 // construct is hidden, and widgets replace it, unless the selection is
 // on one of its lines: there it shows as typed, so it can be edited.
 import type { Nodes, Root } from 'mdast';
+import { ATTACHMENT_SCHEME } from '../grammar/extract';
 
 export type Mode = 'live' | 'source';
 
@@ -17,7 +18,8 @@ export type DecorationSpec =
   | { kind: 'checkbox'; from: number; to: number; checked: boolean; toggleAt: number }
   | { kind: 'bullet'; from: number; to: number }
   | { kind: 'wikiLink'; from: number; to: number; target: string; alias?: string }
-  | { kind: 'image'; from: number; to: number; url: string; alt: string };
+  | { kind: 'image'; from: number; to: number; url: string; alt: string }
+  | { kind: 'file'; from: number; to: number; id: string; name: string };
 
 const TASK_MARKER = /^([-*+]|\d+[.)])[ \t]+\[([ xX])\]/;
 const LIST_MARKER = /^([-*+]|\d+[.)])/;
@@ -106,6 +108,18 @@ export function computeDecorations(
         break;
       }
       case 'link': {
+        // A file kept in the garden (#45): a chip that opens it.
+        if (node.url.startsWith(ATTACHMENT_SCHEME) && live && !isActive(node)) {
+          const name = node.children.map((c) => ('value' in c ? c.value : '')).join('');
+          specs.push({
+            kind: 'file',
+            from,
+            to,
+            id: node.url.slice(ATTACHMENT_SCHEME.length),
+            name,
+          });
+          return;
+        }
         specs.push({ kind: 'mark', from, to, className: 'mg-link' });
         // Only bracketed links have syntax to hide; autolinks do not.
         if (live && !isActive(node) && text[from] === '[') hideAroundChildren(node);

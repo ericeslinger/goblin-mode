@@ -1,6 +1,6 @@
 // Facts about a note that other parts of the app need without rendering
 // it: what it links to, which tasks it holds, which attachments it uses.
-import type { Image, ListItem, Root } from 'mdast';
+import type { ListItem, Root } from 'mdast';
 import { toString } from 'mdast-util-to-string';
 import { visit } from 'unist-util-visit';
 import type { WikiLink } from './wikilink';
@@ -37,11 +37,16 @@ export function tasks(root: Root): Task[] {
   return found;
 }
 
-/** Ids from `![caption](attachment:<id>)` images. */
+/**
+ * Ids from `![caption](attachment:<id>)` images and `[name](attachment:<id>)`
+ * files (#45), in order.
+ */
 export function attachmentIds(root: Root): string[] {
   const ids: string[] = [];
-  visit(root, 'image', (node: Image) => {
-    if (node.url.startsWith(ATTACHMENT_SCHEME)) ids.push(node.url.slice(ATTACHMENT_SCHEME.length));
+  visit(root, (node) => {
+    if ((node.type === 'image' || node.type === 'link') && node.url.startsWith(ATTACHMENT_SCHEME)) {
+      ids.push(node.url.slice(ATTACHMENT_SCHEME.length));
+    }
   });
   return ids;
 }

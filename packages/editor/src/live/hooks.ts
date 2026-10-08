@@ -16,6 +16,8 @@ export interface NoteEditorHooks {
    * (maybe a thumbnail); `url` is the markdown's, e.g. `attachment:<id>`.
    */
   openImage?: (src: string, alt: string, url: string) => void;
+  /** A file chip was tapped (#45): show attachment `id`, named `name`. */
+  openFile?: (id: string, name: string) => void;
 }
 
 export const hooksFacet = Facet.define<NoteEditorHooks, NoteEditorHooks>({
