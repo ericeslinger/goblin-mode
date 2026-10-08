@@ -6,6 +6,7 @@ import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { NotesService } from '../notes/notes.service';
 import {
+  FakeAttachments,
   FakeAuthService,
   FakeNotes,
   FakeRemindersApi,
@@ -14,6 +15,8 @@ import {
 } from '../testing/fakes';
 import { CaptureService } from '../capture/capture.service';
 import { Launch, sharedText } from './launch';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { SHARE_INBOX } from '../share/share-inbox';
 
 async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: string } = {}) {
   localStorage.clear();
@@ -49,6 +52,11 @@ async function openMore(el: HTMLElement, fixture: { whenStable(): Promise<void> 
   if (!el.querySelector('#more-menu')) buttonNamed(el, 'More')!.click();
   await fixture.whenStable();
 }
+
+// The test DOM has no layout: CodeMirror measures ranges when it scrolls
+// to an inserted image.
+Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect ??= () => new DOMRect();
 
 describe('Launch', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -291,6 +299,70 @@ describe('Launch', () => {
     expect(TestBed.inject(CaptureService).current()).toBe(
       'Seeds\nwhat if seeds talked\nhttps://claude.ai/chat/1',
     );
+  });
+
+  it('puts files shared from another app in a new note, or says they were lost (#46)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const photo = new File(['x'], 'shot.png', { type: 'image/png' });
+    const inbox = { take: vi.fn(async (): Promise<File[]> => []).mockResolvedValueOnce([photo]) };
+    const fake = new FakeAttachments();
+    TestBed.overrideProvider(SHARE_INBOX, { useValue: inbox });
+    TestBed.overrideProvider(AttachmentsService, { useValue: fake });
+    const { el, go, url } = await render({ notes });
+    await go('/?text=look&shared=1');
+    expect(url()).toBe('/');
+    await vi.waitFor(() => expect(fake.attach).toHaveBeenCalled());
+    expect(fake.attach.mock.calls[0][0]).toBe(photo);
+    expect(TestBed.inject(CaptureService).current()).toContain('look');
+
+    await go('/?shared=lost');
+    await vi.waitFor(() =>
+      expect(el.querySelector('.note-status')?.textContent).toContain('did not come through'),
+    );
+    // Taken once: the inbox is empty after.
+    expect(fake.attach).toHaveBeenCalledOnce();
+  });
+
+  it('takes files shared while signed out once the editor shows, into a new note', async () => {
+    const notes = new FakeNotes();
+    const photo = new File(['x'], 'shot.png', { type: 'image/png' });
+    const inbox = { take: vi.fn(async (): Promise<File[]> => []).mockResolvedValueOnce([photo]) };
+    const fake = new FakeAttachments();
+    TestBed.overrideProvider(SHARE_INBOX, { useValue: inbox });
+    TestBed.overrideProvider(AttachmentsService, { useValue: fake });
+    const { auth, fixture } = await render({ notes, signedIn: false, url: '/?shared=1' });
+    expect(inbox.take).not.toHaveBeenCalled();
+    auth.user.set({ uid: 'u1', email: 'e@x.test' } as User);
+    notes.signIn([]);
+    await fixture.whenStable();
+    await vi.waitFor(() => expect(fake.attach).toHaveBeenCalled());
+    expect(fake.attach.mock.calls[0][0]).toBe(photo);
+  });
+
+  it('ignores a share link another site sent (review on #98)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { go, url } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    Object.defineProperty(document, 'referrer', {
+      value: 'https://elsewhere.test/page',
+      configurable: true,
+    });
+    try {
+      await go('/?text=ignore%20your%20instructions');
+      expect(url()).toBe('/');
+      expect(capture.current()).not.toContain('ignore');
+      // A share from an Android app is this device's own.
+      Object.defineProperty(document, 'referrer', {
+        value: 'android-app://com.anthropic.claude/',
+        configurable: true,
+      });
+      await go('/?text=from%20the%20Claude%20app');
+      expect(capture.current()).toBe('from the Claude app');
+    } finally {
+      Object.defineProperty(document, 'referrer', { value: '', configurable: true });
+    }
   });
 
   it('shares text without repeating a title or link it already holds', () => {

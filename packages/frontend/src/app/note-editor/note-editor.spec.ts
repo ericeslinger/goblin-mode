@@ -83,6 +83,35 @@ describe('NoteEditorComponent', () => {
     keep();
   });
 
+  it('takes pasted and dropped files: photos as images, PDFs as file links (#46)', async () => {
+    const { fixture, content } = await render();
+    const fake = TestBed.inject(AttachmentsService) as unknown as FakeAttachments;
+    fake.inspect.mockImplementation(async (f: File) => ({ type: f.type }));
+    const photo = new File(['x'], 'shot.png', { type: 'image/png' });
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: { files: [photo], getData: () => '' } });
+    content.dispatchEvent(paste);
+    expect(paste.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(fake.attach).toHaveBeenCalledOnce());
+    expect(fake.inspect).toHaveBeenCalledWith(photo, 'photo');
+
+    const pdf = new File(['%PDF'], 'paper.pdf', { type: 'application/pdf' });
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, 'dataTransfer', { value: { files: [pdf], types: ['Files'] } });
+    content.dispatchEvent(drop);
+    await vi.waitFor(() => expect(fake.attach).toHaveBeenCalledTimes(2));
+    expect(fake.inspect).toHaveBeenCalledWith(pdf, 'pdf');
+    expect(fixture.componentInstance.changes.at(-1)).toContain('[paper.pdf](attachment:');
+
+    // Text pastes are the editor's own, even with a picture of the text.
+    const text = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(text, 'clipboardData', {
+      value: { files: [photo], getData: () => 'A1 B1', types: ['text/plain', 'Files'] },
+    });
+    content.dispatchEvent(text);
+    expect(fake.attach).toHaveBeenCalledTimes(2);
+  });
+
   it('gives a mouse a toolbar with one tab stop, moved by arrow keys', async () => {
     const { fixture } = await render();
     fixture.detectChanges();
