@@ -47,10 +47,13 @@ describe('ConceptHeader', () => {
 
     const other = el.querySelector<HTMLInputElement>('.synonyms input')!;
     other.value = 'Furnace';
-    other.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    // On Enter, or on leaving the field, as a phone keyboard does.
+    other.dispatchEvent(new Event('change'));
     expect(notes.updateConcept).toHaveBeenLastCalledWith('c-kiln', {
       synonyms: ['Oven', 'Furnace'],
     });
+    expect(other.value).toBe('');
+    expect(other.getAttribute('enterkeyhint')).toBe('done');
 
     el.querySelector<HTMLButtonElement>('[aria-label="Remove Oven"]')!.click();
     expect(notes.updateConcept).toHaveBeenLastCalledWith('c-kiln', { synonyms: [] });
