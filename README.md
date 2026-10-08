@@ -42,6 +42,7 @@ and variables, Actions); nothing in the code names a deployment.
 | `ANTHROPIC_ORGANIZATION_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_WORKSPACE_ID` | variable, optional | Only if the federation rule covers several workspaces |
+| `STORAGE_REGION` | variable, optional | The default Storage bucket's region, e.g. `us-east1` (`gcloud storage buckets describe gs://<bucket> --format='value(location)'`, lower case); default `us-central1` |
 
 Also create a Google service account named `goblin-titles` in the
 project, with `roles/datastore.user`, and let the deploy service

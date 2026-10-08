@@ -60,7 +60,7 @@ functions_env="packages/functions/.env.$FIREBASE_PROJECT_ID"
 trap 'rm -f "$functions_env"' EXIT
 : > "$functions_env"
 for name in OWNER_UID ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID \
-  ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_WORKSPACE_ID; do
+  ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_WORKSPACE_ID STORAGE_REGION; do
   if [ -n "${!name:-}" ]; then printf '%s=%s\n' "$name" "${!name}" >> "$functions_env"; fi
 done
 bash scripts/deploy-functions.sh --project "$FIREBASE_PROJECT_ID"
