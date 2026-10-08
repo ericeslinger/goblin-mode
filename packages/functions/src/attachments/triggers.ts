@@ -9,8 +9,8 @@ import { removeFiles, sharpThumbnail, storageStore } from './storage-store';
 
 /**
  * The default bucket's region: a Storage trigger must run where its
- * bucket is (Eric's is us-east1, 2026-10-08), while the other functions
- * stay in us-central1. From the deploy's STORAGE_REGION variable.
+ * bucket is, while the other functions stay in us-central1. From the
+ * deploy's STORAGE_REGION variable (README, Run your own).
  */
 const storageRegion = defineString('STORAGE_REGION', { default: 'us-central1' });
 

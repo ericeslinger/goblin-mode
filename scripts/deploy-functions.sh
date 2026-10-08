@@ -78,18 +78,21 @@ if [ -n "${STORAGE_REGION:-}" ] && [ "$STORAGE_REGION" != "$region" ]; then
 fi
 setpolicies() {
   for r in $regions; do
-    # A region's repository exists only after its first deploy; until
-    # then this says so and does nothing.
     npx firebase functions:artifacts:setpolicy --project "$project" --location "$r" \
       --days 7 --force
   done
 }
-setpolicies
+# A region's repository exists only after its first deploy. setpolicy
+# says so and exits 0 today, but this pass must never stop the deploy
+# that would create it; the pass after a failed deploy stays strict.
+setpolicies || echo "note: a clean-up policy could not be set yet; set after the deploy"
 
 log="$(mktemp)"
 if ! npx firebase deploy --only functions --non-interactive --project "$project" 2>&1 | tee "$log"; then
   # The first deploy to a new region deploys, then stops for the policy
-  # its new repository lacks: set it now and carry on (2026-10-08).
+  # its new repository lacks: set it now and carry on (2026-10-08). This
+  # matches firebase-tools' own message (promptForCleanupPolicyDays,
+  # non-interactive); if its wording changes, the deploy stops as before.
   if grep -q "Functions successfully deployed but could not set up cleanup policy" "$log"; then
     setpolicies
   else
