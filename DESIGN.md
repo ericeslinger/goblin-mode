@@ -245,7 +245,7 @@ are dropped. A share must come from this device: `sw.js` and the
 Worker refuse a POST whose `Sec-Fetch-Site` is cross-site or
 same-site, or whose referrer is another origin, and the app ignores
 `?text=` opened from another site's page, so a page cannot plant
-text Claude would later read. Android's share sheet sends none of
+text Claude would later read. Android's share sheet should send none of
 those; that, and the move of every installed copy from
 `ngsw-worker.js` to `sw.js` (same scope, caches and push
 subscription), want a check on the phone after the deploy.
