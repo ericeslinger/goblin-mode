@@ -7,40 +7,74 @@ GlobalWorkerOptions.workerPort ??= new Worker(new URL('./pdf.worker', import.met
   type: 'module',
 });
 
-/** The most pages drawn at once; a longer PDF says how many more there are. */
+/** The most pages a viewer lays out; a longer PDF says how many more there are. */
 export const MAX_PAGES = 50;
 
+/** An open PDF in a viewer: its page count, and how to let it go. */
+export interface OpenPdf {
+  pages: number;
+  close(): void;
+}
+
 /**
- * Draws each page of the PDF at `url` into `into`, as wide as it is, one
- * canvas per page. Resolves with the page count; stops early if `live`
- * turns false (the viewer closed).
+ * Lays out each page of the PDF at `url` in `into`, as wide as it is,
+ * and draws a page only while it is on screen or near it, clearing it
+ * again when it scrolls well away: a phone tab holds a few pages' pixels,
+ * not fifty (review on #94). Call `close` when the viewer closes.
  */
-export async function renderPdf(
-  url: string,
-  into: HTMLElement,
-  live: () => boolean = () => true,
-): Promise<number> {
+export async function openPdf(url: string, into: HTMLElement): Promise<OpenPdf> {
   const task = getDocument({ url });
   const pdf = await task.promise;
-  try {
-    const width = Math.max(into.clientWidth, 320);
-    const scale = window.devicePixelRatio || 1;
-    for (let n = 1; n <= Math.min(pdf.numPages, MAX_PAGES) && live(); n++) {
-      const page = await pdf.getPage(n);
-      const unscaled = page.getViewport({ scale: 1 });
-      const viewport = page.getViewport({ scale: (width / unscaled.width) * scale });
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      canvas.style.width = '100%';
-      canvas.setAttribute('role', 'img');
-      canvas.setAttribute('aria-label', `Page ${n}`);
-      into.append(canvas);
-      await page.render({ canvas, viewport }).promise;
-    }
-    return pdf.numPages;
-  } finally {
-    // Ends the document and its worker.
-    void task.destroy();
+  const width = Math.max(into.clientWidth, 320);
+  const ratio = window.devicePixelRatio || 1;
+  const drawn = new Map<HTMLCanvasElement, number>();
+  const draw = async (canvas: HTMLCanvasElement, n: number) => {
+    if (drawn.has(canvas)) return;
+    drawn.set(canvas, n);
+    const page = await pdf.getPage(n);
+    const viewport = page.getViewport({
+      scale: (width / page.getViewport({ scale: 1 }).width) * ratio,
+    });
+    if (!drawn.has(canvas)) return;
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    await page.render({ canvas, viewport }).promise;
+  };
+  const clear = (canvas: HTMLCanvasElement) => {
+    drawn.delete(canvas);
+    // A zero-sized canvas gives its pixels back; the box keeps its place.
+    canvas.width = 0;
+    canvas.height = 0;
+  };
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        const canvas = entry.target as HTMLCanvasElement;
+        if (entry.isIntersecting) void draw(canvas, Number(canvas.dataset['page']));
+        else clear(canvas);
+      }
+    },
+    // On screen, or within a screen of it.
+    { root: into.closest('dialog'), rootMargin: '100% 0px' },
+  );
+  for (let n = 1; n <= Math.min(pdf.numPages, MAX_PAGES); n++) {
+    const page = await pdf.getPage(n);
+    const box = page.getViewport({ scale: 1 });
+    const canvas = document.createElement('canvas');
+    canvas.dataset['page'] = String(n);
+    canvas.style.width = '100%';
+    canvas.style.aspectRatio = `${box.width} / ${box.height}`;
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', `Page ${n}`);
+    into.append(canvas);
+    observer.observe(canvas);
   }
+  return {
+    pages: pdf.numPages,
+    close() {
+      observer.disconnect();
+      // Ends this document; the shared worker stays for the next one.
+      void task.destroy();
+    },
+  };
 }

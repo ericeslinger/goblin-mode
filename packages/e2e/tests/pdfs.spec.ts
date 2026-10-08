@@ -51,4 +51,15 @@ test('a PDF attached offline shows as a chip and opens in the document viewer', 
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
   await viewer.getByRole('button', { name: 'Close' }).click();
   await expect(viewer).toBeHidden();
+
+  // Again in the same session: the shared pdf.js worker outlives a
+  // closed document (review on #94), and the page is really drawn.
+  await page.getByRole('button', { name: 'Open menu.pdf' }).click();
+  const pageOne = viewer.getByRole('img', { name: 'Page 1' });
+  await expect(pageOne).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(() => pageOne.evaluate((c) => (c as HTMLCanvasElement).width), { timeout: 15_000 })
+    .toBeGreaterThan(0);
+  await viewer.getByRole('button', { name: 'Close' }).click();
+  await expect(viewer).toBeHidden();
 });

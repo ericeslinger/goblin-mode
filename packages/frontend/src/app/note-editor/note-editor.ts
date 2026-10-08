@@ -143,7 +143,7 @@ const FORMAT_ACTIONS: FormatAction[] = [
       #fileViewer
       class="viewer document"
       [attr.aria-label]="document()?.name || 'Document'"
-      (close)="document.set(undefined)"
+      (close)="closeDocument()"
     >
       @if (document(); as doc) {
         <div class="document-bar">
@@ -305,6 +305,8 @@ export class NoteEditorComponent {
   private readonly pdfPicker = viewChild.required<ElementRef<HTMLInputElement>>('pdfPicker');
   private readonly fileViewer = viewChild.required<ElementRef<HTMLDialogElement>>('fileViewer');
   private readonly pages = viewChild<ElementRef<HTMLElement>>('pages');
+  /** The PDF the viewer holds, let go when it closes. */
+  private openDoc?: { close(): void };
   /** The document open in the viewer (#45). */
   protected readonly document = signal<
     { id: string; name: string; url?: string; status?: string } | undefined
@@ -510,31 +512,41 @@ export class NoteEditorComponent {
     }
     this.document.set({ id, name, url, status: 'Drawing pages…' });
     try {
-      const { renderPdf, MAX_PAGES } = await import('../attachments/pdf-render');
+      const { openPdf, MAX_PAGES } = await import('../attachments/pdf-render');
       const into = this.pages()?.nativeElement;
       if (!into || !open()) return;
-      const count = await renderPdf(url, into, open);
-      if (open()) {
-        this.document.set({
-          id,
-          name,
-          url,
-          status:
-            count > MAX_PAGES
-              ? `First ${MAX_PAGES} of ${count} pages; save it to read the rest.`
-              : undefined,
-        });
+      const pdf = await openPdf(url, into);
+      if (!open()) {
+        pdf.close();
+        return;
       }
+      this.openDoc = pdf;
+      this.document.set({
+        id,
+        name,
+        url,
+        status:
+          pdf.pages > MAX_PAGES
+            ? `First ${MAX_PAGES} of ${pdf.pages} pages; save it to read the rest.`
+            : undefined,
+      });
     } catch (err) {
       console.error('could not draw the PDF', err);
-      if (open())
+      if (open()) {
         this.document.set({
           id,
           name,
           url,
           status: 'This PDF could not be shown here; save it to open it.',
         });
+      }
     }
+  }
+
+  protected closeDocument(): void {
+    this.openDoc?.close();
+    this.openDoc = undefined;
+    this.document.set(undefined);
   }
 
   /** A click on the dark space around the image closes the viewer. */
