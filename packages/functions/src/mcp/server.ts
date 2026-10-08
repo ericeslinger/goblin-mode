@@ -92,7 +92,9 @@ export function buildServer(tools: ToolsApi): McpServer {
     'get_note',
     {
       title: 'Read a note',
-      description: 'One note in full, with its links and the notes that link to it.',
+      description:
+        'One note in full, with its links and the notes that link to it. driveFiles lists the ' +
+        'Google Drive files it links to, by id: open them with the Google Drive connector.',
       inputSchema: { id: z.string().min(1) },
       annotations: read,
     },

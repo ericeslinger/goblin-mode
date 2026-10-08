@@ -46,6 +46,18 @@ describe('computeDecorations in live mode', () => {
     expect(covered(text, specs(text, 'live'), 'hide')).toEqual(['[', '](https://x.test)']);
   });
 
+  it('draws a Google Drive link as a Drive chip, named or by its kind (#50)', () => {
+    const doc = 'https://docs.google.com/document/d/1AbCdEfGhIjKlMn/edit';
+    const text = `Plan: ${doc}\n[budget](https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMn/edit)`;
+    const list = specs(text, 'live');
+    expect(list.filter((s) => s.kind === 'drive').map((s) => 'label' in s && s.label)).toEqual([
+      'Google Doc',
+      'budget',
+    ]);
+    // As typed on the line being edited.
+    expect(specs(text, 'live', [1]).filter((s) => s.kind === 'drive')).toHaveLength(1);
+  });
+
   it('draws wiki links, images and task checkboxes as widgets', () => {
     const text = '- [ ] call [[Vikas|vik]]\n- [x] done\n\n![page](attachment:abc)';
     const list = specs(text, 'live');

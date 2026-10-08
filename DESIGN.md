@@ -287,6 +287,15 @@ itself and lists the pages that hold every word, scrolling to the
 first: finding in one open PDF never needs the server (Eric,
 2026-10-08).
 
+**Google Drive links (#50, 2026-10-08).** A note keeps a Drive link as
+written; no Drive API or scope is used. `driveFile` (editor grammar)
+reads the file id from `docs.google.com/<kind>/d/<id>`,
+`drive.google.com/file/d/<id>`, `open?id=` and folder links, and the
+editor draws such a link, off the edited line, as a chip named by its
+text or its kind (Google Doc, Sheet, and so on) that opens Drive in a
+new tab. MCP `get_note` returns `driveFiles` with each id, so Claude
+opens the same file through its Google Drive connector.
+
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
 `[[name]]` inside code is not a link). Notes written before this keep

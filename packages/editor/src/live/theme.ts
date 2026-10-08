@@ -62,6 +62,7 @@ export const noteTheme = EditorView.theme({
     margin: '2px 0',
     cursor: 'pointer',
   },
+  '.mg-drive': { textDecoration: 'none', display: 'inline-block' },
   // The `[[` suggestions.
   '.cm-tooltip': {
     color: 'var(--mg-ink, inherit)',
