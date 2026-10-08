@@ -819,6 +819,7 @@ itself; `import_url` waits for M4):
 | `merge_notes` | Joins notes into a new one, archiving the originals |
 | `refile` | Concept type and other names; tags on any note |
 | `archive_note` | Archives or restores |
+| `create_concept` | A new person, project or other concept, with the id the app gives a `[[name]]`; refused if a name is taken (Eric, 2026-10-08: his projects list) |
 
 - **Verbatim, by construction.** `split_note` takes the parts as text
   and accepts them only if they are the note itself, in order, cut

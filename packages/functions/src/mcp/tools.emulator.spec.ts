@@ -275,6 +275,36 @@ describe('organizing tools', () => {
     expect((await runs()).map((r) => r['summary'])).toEqual(['Merged 2 notes into one']);
   });
 
+  it('creates a concept links can reach, refusing a name already taken', async () => {
+    await eric('a', 'Glaze recipes');
+    const t = ticking();
+    expect(
+      await t.createConcept({
+        name: 'Gradebook',
+        type: 'project',
+        synonyms: ['stubgrub', 'gradint party'],
+        body: 'Part of [[Glaze recipes]].',
+        tags: ['build', 'maintenance'],
+      }),
+    ).toEqual({ id: 'c-gradebook', title: 'Gradebook', type: 'project' });
+    expect(await body('c-gradebook')).toMatchObject({
+      kind: 'concept',
+      title: 'Gradebook',
+      titleSource: 'user',
+      conceptType: 'project',
+      synonyms: ['stubgrub', 'gradint party'],
+      links: ['a'],
+      tags: ['build', 'maintenance'],
+      updatedBy: 'claude',
+    });
+    await expect(t.createConcept({ name: 'gradebook' })).rejects.toThrow('already a name');
+    await expect(t.createConcept({ name: 'Kiln', synonyms: ['Stubgrub'] })).rejects.toThrow(
+      'already a name in the garden: Stubgrub',
+    );
+    await expect(t.createConcept({ name: 'glaze recipes' })).rejects.toThrow('already a name');
+    expect((await runs()).map((r) => r['summary'])).toEqual(['Made Gradebook a project']);
+  });
+
   it('refiles a concept, refusing names another note answers to', async () => {
     await concept('c-kiln', 'Kiln');
     await eric('a', 'Glaze recipes', { tags: ['clay'] });

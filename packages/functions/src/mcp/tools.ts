@@ -13,6 +13,7 @@ import {
   type Recurrence,
   Reminder,
   autoId,
+  conceptId,
   effectiveDue,
   firstOccurrence,
   firstWordsTitle,
@@ -274,6 +275,57 @@ export class NotesTools {
     batch.set(...this.activity('create_note', 'Wrote a new note', [touched(id, data)]));
     await batch.commit();
     return { id, title: data.title };
+  }
+
+  /**
+   * A new concept (a person, project or other named thing), with the id
+   * the app would give it, so `[[name]]` links find it. Refused when the
+   * name or another of its names is already a note's.
+   */
+  async createConcept(args: {
+    name: string;
+    type?: ConceptType;
+    synonyms?: string[];
+    body?: string;
+    tags?: string[];
+  }) {
+    const name = args.name.trim();
+    if (!name) throw new ToolError('name must not be empty');
+    const names = await this.names();
+    const id = conceptId(name);
+    const taken = [name, ...(args.synonyms ?? [])].filter((n) => names.has(normalizeName(n)));
+    if (taken.length) throw new ToolError(`already a name in the garden: ${taken.join(', ')}`);
+    const now = Timestamp.fromMillis(this.now());
+    const body = args.body ?? '';
+    const data = Note.parse({
+      kind: 'concept',
+      body,
+      title: name,
+      // A concept's name is Eric's: a settle never retitles it.
+      titleSource: 'user',
+      conceptType: args.type ?? 'other',
+      synonyms: [...new Set((args.synonyms ?? []).map((s) => s.trim()).filter(Boolean))],
+      links: resolveLinks(targetsOf(body), names),
+      tags: args.tags ?? [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'claude',
+      deviceId: CLAUDE_DEVICE,
+    });
+    const ref = this.notes().doc(id);
+    await this.db.runTransaction(async (tx) => {
+      if ((await tx.get(ref)).exists) throw new ToolError(`${name} is already a concept (${id})`);
+      tx.set(ref, data);
+      tx.set(
+        ...this.activity(
+          'create_concept',
+          `Made ${data.title} a ${data.conceptType === 'other' ? 'concept' : data.conceptType}`,
+          [touched(id, data)],
+        ),
+      );
+    });
+    return { id, title: data.title, type: data.conceptType };
   }
 
   async updateNote(args: {
