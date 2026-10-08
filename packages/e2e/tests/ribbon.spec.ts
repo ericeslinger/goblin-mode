@@ -42,8 +42,18 @@ test('the ribbon formats as you write: checklist, bold, lists and levels', async
     page.evaluate(
       () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
     );
+  const button = (name: string) => ribbon.getByRole('button', { name, exact: true });
   const tap = async (name: string) => {
-    await ribbon.getByRole('button', { name, exact: true }).click();
+    await button(name).click();
+    await settle();
+  };
+  // A hold on a group's button offers its other choices (2026-10-08).
+  const hold = async (name: string, menu: string, choice: string) => {
+    await button(name).click({ delay: 700 });
+    const choices = page.getByRole('menu', { name: menu });
+    await expect(choices).toBeVisible();
+    await choices.getByRole('menuitemradio', { name: choice }).click();
+    await expect(choices).toBeHidden();
     await settle();
   };
   const enter = async () => {
@@ -63,27 +73,44 @@ test('the ribbon formats as you write: checklist, bold, lists and levels', async
   await tap('Indent');
   await enter();
   await tap('Outdent');
-  await page.keyboard.type('bread');
+  await page.keyboard.type('bread ');
+  await hold('Bold', 'Style', 'Italic');
+  await page.keyboard.type('soon');
+  await page.keyboard.press('End');
+  // The choice sticks: the button is Italic now, and Bold is in its menu.
+  await expect(button('Italic')).toBeVisible();
+  await expect(button('Bold')).toHaveCount(0);
   await enter();
   await enter();
   await page.keyboard.type('Steps');
-  await tap('Numbered list');
-  await expect(ribbon.getByRole('button', { name: 'Italic', exact: true })).toBeVisible();
+  await hold('Checklist item', 'Lists', 'Numbered list');
+  await expect(button('Numbered list')).toBeVisible();
   const { violations } = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
   const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
-  // Done stays in view on a narrow phone, though the row scrolls.
+  // Six buttons fit a narrow phone without scrolling, Hide keyboard last.
   await page.setViewportSize({ width: 360, height: 780 });
-  await expect(ribbon.getByRole('button', { name: 'Done', exact: true })).toBeInViewport();
-  await tap('Done');
+  await expect(button('Hide keyboard')).toBeInViewport();
+  expect(await ribbon.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  // A drag along the row presses nothing (2026-10-08: it pressed the
+  // button the drag started on).
+  const box = (await button('Indent').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await settle();
+  await tap('Hide keyboard');
   await expect(ribbon).toBeHidden();
   await letItSave(page);
 
   await (await openMore(page)).getByRole('button', { name: 'Source' }).click();
   await expect(note(page)).toHaveText(
-    ['Groceries', '- [ ] milk *fresh*', '  - [ ] eggs', '- [ ] bread', '', '1. Steps'].join(''),
+    ['Groceries', '- [ ] milk *fresh*', '  - [ ] eggs', '- [ ] bread _soon_', '', '1. Steps'].join(
+      '',
+    ),
   );
 });
 

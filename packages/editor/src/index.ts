@@ -10,6 +10,8 @@ export {
   KEYBOARD_MIN_PX,
   type AccessoryAction,
   type AccessoryBar,
+  type AccessoryGroup,
+  type AccessoryItem,
   type KeyboardGeometry,
 } from './accessory-bar';
 export { computeDecorations, type DecorationSpec, type Mode } from './live/decorations';
