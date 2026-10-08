@@ -43,6 +43,24 @@ export const ConceptType = z.enum(['person', 'project', 'other']);
 export type ConceptType = z.infer<typeof ConceptType>;
 
 /**
+ * What a project needs (#41, Eric 2026-10-08): build, Claude work
+ * (code, tooling); content, Eric writes and Claude does not.
+ */
+export const ProjectKind = z.enum(['build', 'content']);
+export type ProjectKind = z.infer<typeof ProjectKind>;
+
+/** Where a project stands (#41, Eric's six). */
+export const ProjectStatus = z.enum([
+  'active',
+  'nearly-done',
+  'maintenance',
+  'waiting',
+  'done',
+  'new',
+]);
+export type ProjectStatus = z.infer<typeof ProjectStatus>;
+
+/**
  * How a template is used (#36): living, one note reused (the shopping
  * list); entry, a new note each time (a journal entry).
  */
@@ -62,6 +80,13 @@ export const Note = z.object({
   titleSource: TitleSource,
   /** Only on concepts. People and projects will extend this later. */
   conceptType: ConceptType.optional(),
+  /**
+   * Only on projects (#41): the project this one belongs to. Grouping,
+   * never ordering or dependency: sub-projects run side by side.
+   */
+  parent: z.string().optional(),
+  projectKind: ProjectKind.optional(),
+  projectStatus: ProjectStatus.optional(),
   synonyms: z.array(z.string()).optional(),
   /** Ids of notes this note links to. */
   links: z.array(z.string()),

@@ -331,7 +331,7 @@ describe('organizing tools', () => {
       }),
     ).toEqual({
       id: 'c-kiln',
-      changed: ['filed as a project', 'added another name: The kiln'],
+      changed: ['filed as a project', 'added the project sections', 'added another name: The kiln'],
       refused: ['glaze recipes'],
     });
     expect(await body('c-kiln')).toMatchObject({ conceptType: 'project', synonyms: ['The kiln'] });
@@ -341,9 +341,55 @@ describe('organizing tools', () => {
     await t.refile({ id: 'a', addTags: ['pottery'], removeTags: ['clay'] });
     expect((await body('a'))['tags']).toEqual(['pottery']);
     expect((await runs()).map((r) => r['summary'])).toEqual([
-      'Refiled Kiln: filed as a project; added another name: The kiln',
+      'Refiled Kiln: filed as a project; added the project sections; added another name: The kiln',
       'Refiled Glaze recipes: tagged pottery; untagged clay',
     ]);
+  });
+
+  it('files projects under projects with a kind and status, keeping text verbatim (#41)', async () => {
+    await eric('a', 'Kiln firing log');
+    const t = ticking();
+    await t.createConcept({ name: 'Sprout', type: 'project', kind: 'build', status: 'active' });
+    await t.createConcept({
+      name: 'Sprout docs',
+      type: 'project',
+      parent: 'c-sprout',
+      kind: 'content',
+      status: 'new',
+      body: 'Write the *guide* first.',
+    });
+    const docs = await body('c-sprout-docs');
+    expect(docs).toMatchObject({
+      parent: 'c-sprout',
+      projectKind: 'content',
+      projectStatus: 'new',
+    });
+    expect(docs['body']).toMatch(
+      /^## Overview\n\nWrite the \*guide\* first\.\n\n## Working notes\n/,
+    );
+    expect(docs['body']).toContain('## Links');
+    await expect(t.createConcept({ name: 'Moss', parent: 'c-sprout' })).rejects.toThrow(
+      'only a project',
+    );
+    await expect(
+      t.createConcept({ name: 'Moss', type: 'project', parent: 'c-nope' }),
+    ).rejects.toThrow('no project c-nope');
+    // Not under itself, nor under a project under it.
+    await expect(t.refile({ id: 'c-sprout', parent: 'c-sprout-docs' })).rejects.toThrow(
+      'cannot go under itself',
+    );
+    expect(await t.refile({ id: 'c-sprout-docs', status: 'waiting', parent: null })).toMatchObject({
+      changed: ['moved to the top level', 'status waiting'],
+    });
+    const moved = await body('c-sprout-docs');
+    expect(moved['parent']).toBeUndefined();
+    expect(moved['body']).toBe(docs['body']);
+    const listed = await t.listConcepts({ type: 'project' });
+    expect(listed.find((c) => c.id === 'c-sprout')).toMatchObject({
+      kind: 'build',
+      status: 'active',
+    });
+    await expect(t.refile({ id: 'a', status: 'done' })).rejects.toThrow('only a project');
   });
 
   it('archives and restores a note, recording each', async () => {

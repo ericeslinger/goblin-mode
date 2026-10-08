@@ -101,6 +101,8 @@ export interface NewReminder {
   /** Milliseconds, or undefined for Someday. */
   dueAt?: number;
   repeat?: Recurrence['freq'];
+  /** The note it belongs to: a project's task (#41). */
+  noteId?: string;
 }
 
 function millis(v: unknown): number | undefined {
@@ -214,6 +216,7 @@ export class RemindersService {
       data['nextFireAt'] = this.api.timestamp(dueAt);
     }
     if (recurrence) data['recurrence'] = recurrence;
+    if (input.noteId) data['noteId'] = input.noteId;
     const id = autoId(this.random);
     this.write(id, data, false);
     this.clock.set(now);

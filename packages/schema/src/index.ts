@@ -10,3 +10,4 @@ export * from './templates';
 export * from './merge';
 export * from './checklist';
 export * from './sniff';
+export * from './projects';
