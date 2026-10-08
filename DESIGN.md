@@ -226,6 +226,18 @@ picks up a changed manifest for an installed PWA on its own schedule,
 usually within a day, so Share to Mossgoblin may take that long to
 appear.
 
+**Sharing files in (#46, 2026-10-08).** The manifest's share target
+is a multipart POST to `/share`, taking title, text, url and files
+(images and PDFs). The app's service worker is `sw.js`: it answers
+that POST itself, keeps the files in the `mossgoblin-share` cache,
+and redirects to `/?title&text&url&shared=<n>`; then it imports
+Angular's `ngsw-worker.js` for everything else. Launch opens a new
+note with the words and puts the files in through the same path as
+the attach button. A share that reaches the Cloudflare Worker before
+the service worker is installed keeps its words; its files cannot be
+kept there, so the app says to share them again. In the editor, a
+pasted or dropped image or PDF goes in the same way.
+
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
 `[[name]]` inside code is not a link). Notes written before this keep

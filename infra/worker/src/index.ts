@@ -27,9 +27,33 @@ export function functionFor(pathname: string): string | undefined {
   return undefined;
 }
 
+/**
+ * A share (#46) that reached the server: the app's service worker was
+ * not installed yet to take it. The words and link go on to the app in
+ * the query; files cannot be kept here, so the page says to share again.
+ */
+export async function shareFallback(request: Request): Promise<Response> {
+  const params = new URLSearchParams();
+  try {
+    const form = await request.formData();
+    for (const key of ['title', 'text', 'url']) {
+      const value = form.get(key);
+      if (typeof value === 'string' && value.trim()) params.set(key, value);
+    }
+    if (form.getAll('files').some((f) => typeof f !== 'string')) params.set('shared', 'lost');
+  } catch {
+    // Not a form: open the app all the same.
+  }
+  const target = new URL(`/?${params}`, request.url);
+  return Response.redirect(target.toString(), 303);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === '/share') {
+      return request.method === 'POST' ? shareFallback(request) : env.ASSETS.fetch(request);
+    }
     const fn = functionFor(url.pathname);
     if (!fn) return env.ASSETS.fetch(request);
     if (!env.FUNCTIONS_ORIGIN)

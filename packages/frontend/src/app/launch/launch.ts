@@ -1,6 +1,8 @@
 import {
   Component,
   DestroyRef,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -32,6 +34,7 @@ import { RightNowPanel } from '../reminders/right-now-panel';
 import { ListView } from '../shopping/list-view';
 import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
 import { TemplateHeader } from '../templates/template-header';
+import { SHARE_INBOX } from '../share/share-inbox';
 import { TemplatesService } from '../templates/templates.service';
 
 /**
@@ -133,6 +136,8 @@ export class Launch {
 
   /** A template a reminder opened, waiting for the notes to load. */
   private readonly entryFrom = signal<string | undefined>(undefined);
+  private readonly shareInbox = inject(SHARE_INBOX);
+  private readonly injector = inject(Injector);
   protected readonly previousOpen = signal(false);
   protected readonly templatesOpen = signal(false);
   /** The More menu (#78): everything but writing, one tap away. */
@@ -178,12 +183,22 @@ export class Launch {
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
       const id = params.get('note');
       if (id) void this.router.navigate(['/n', id], { replaceUrl: true });
-      // Text shared from another app (#42): a new note holding it.
+      // Shared from another app (#42, #46): a new note holding the words,
+      // the link and the files.
       const shared = sharedText(params.get('title'), params.get('text'), params.get('url'));
-      if (shared) {
+      const files = params.get('shared');
+      if (shared || files) {
         this.capture.newNote();
-        this.capture.replace(shared);
-        void this.router.navigate(['/'], { replaceUrl: true });
+        if (shared) this.capture.replace(shared);
+        void this.router.navigate(['/'], { replaceUrl: true }).then(() => {
+          if (files === 'lost') {
+            this.linkStatus.set('The shared files did not come through. Please share them again.');
+          }
+        });
+        // Once the editor is drawn: on a cold start this runs first.
+        if (files && files !== 'lost') {
+          afterNextRender(() => void this.takeSharedFiles(), { injector: this.injector });
+        }
       }
       // A reminder's link (#40): to a template, it means a new entry.
       const routed = this.route.snapshot.paramMap.get('id');
@@ -314,6 +329,15 @@ export class Launch {
    */
   protected addProjectSections(): void {
     this.capture.replace(withProjectSections(this.capture.current()));
+  }
+
+  /** Files sw.js kept from a share go into the new note (#46). */
+  private async takeSharedFiles(): Promise<void> {
+    // Signed out there is no note to put them in: they wait in the inbox.
+    const editor = this.editor();
+    if (!editor) return;
+    const files = await this.shareInbox.take();
+    if (files.length) await editor.addFiles(files);
   }
 
   /** A tick or Done shopping in the list view. */

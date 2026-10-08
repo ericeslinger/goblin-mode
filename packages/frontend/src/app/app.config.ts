@@ -18,7 +18,8 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideRouter(routes),
     { provide: FIREBASE, useFactory: () => initFirebase(location.hostname) },
-    provideServiceWorker('ngsw-worker.js', {
+    // sw.js takes shared files (#46), then loads Angular's ngsw-worker.js.
+    provideServiceWorker('sw.js', {
       enabled: !isDevMode(),
       registrationStrategy: 'registerWhenStable:30000',
     }),

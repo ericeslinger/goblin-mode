@@ -323,6 +323,41 @@ export class NoteEditorComponent {
   private shownId?: string;
 
   constructor() {
+    // Pasting or dropping files puts them in the note (#46). Listened for
+    // before the editor's own handlers, which would take a paste as text.
+    afterNextRender(() => {
+      const host = this.host().nativeElement;
+      const files = (data: DataTransfer | null) => [...(data?.files ?? [])];
+      host.addEventListener(
+        'paste',
+        (event) => {
+          const found = files(event.clipboardData);
+          if (!found.length || untracked(this.readOnly)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          void this.addFiles(found);
+        },
+        true,
+      );
+      host.addEventListener(
+        'dragover',
+        (event) => {
+          if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+        },
+        true,
+      );
+      host.addEventListener(
+        'drop',
+        (event) => {
+          const found = files(event.dataTransfer);
+          if (!found.length || untracked(this.readOnly)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          void this.addFiles(found);
+        },
+        true,
+      );
+    });
     afterNextRender(() => {
       this.shownId = untracked(this.noteId);
       this.editor = createNoteEditor({
@@ -340,6 +375,7 @@ export class NoteEditorComponent {
         mode: untracked(this.modes.mode),
         onChange: (text) => this.textChange.emit(text),
       });
+      this.markReady();
       if (this.touch) {
         const editor = this.editor;
         // The ribbon over the keyboard (#77). Image insert joins it with
@@ -455,18 +491,42 @@ export class NoteEditorComponent {
   protected async picked(input: HTMLInputElement, kind: FileKind = 'photo'): Promise<void> {
     const files = [...(input.files ?? [])];
     input.value = '';
+    await this.addFiles(files, () => kind);
+  }
+
+  /**
+   * Files from elsewhere (#46): pasted, dropped, or shared from another
+   * app. A PDF goes in as a file chip, anything else as a photo; what is
+   * neither is refused with a reason.
+   */
+  addFiles(
+    files: readonly File[],
+    kindOf: (file: File) => FileKind = (f) =>
+      f.type === 'application/pdf' || /\.pdf$/i.test(f.name) ? 'pdf' : 'photo',
+  ): Promise<void> {
+    // Shared files can come before the editor is made.
+    return this.ready.then(() => this.insertFiles(files, kindOf));
+  }
+
+  private markReady!: () => void;
+  private readonly ready = new Promise<void>((done) => (this.markReady = done));
+
+  private async insertFiles(
+    files: readonly File[],
+    kindOf: (file: File) => FileKind,
+  ): Promise<void> {
     const noteId = untracked(this.noteId);
     const shown = this.shownId;
     // What each file really is (a moment's read of its first bytes).
     const looked = await Promise.all(
-      files.map(async (f) => [f, await this.attachments.inspect(f, kind)] as const),
+      files.map(async (f) => [f, kindOf(f), await this.attachments.inspect(f, kindOf(f))] as const),
     );
     if (this.shownId !== shown) {
       this.problem.set('Another note opened before the file went in. Please add it again.');
       return;
     }
     const kept: Promise<void>[] = [];
-    for (const [file, found] of looked) {
+    for (const [file, kind, found] of looked) {
       if ('error' in found) {
         this.problem.set(found.error);
         continue;
