@@ -11,6 +11,8 @@ export interface NoteEditorHooks {
   suggestLinks?: (query: string) => { name: string; kind: string }[];
   /** Turns an attachment id into an image URL, if it is available. */
   resolveAttachment?: (id: string) => string | undefined;
+  /** An image was tapped: show it whole (#44). */
+  openImage?: (src: string, alt: string) => void;
 }
 
 export const hooksFacet = Facet.define<NoteEditorHooks, NoteEditorHooks>({

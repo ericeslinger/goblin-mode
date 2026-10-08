@@ -2,6 +2,8 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import type { EditorView } from '@codemirror/view';
+import { AttachmentsService } from '../attachments/attachments.service';
+import { FakeAttachments } from '../testing/fakes';
 import { EditorModeService } from './editor-mode.service';
 import { keyLabel, NoteEditorComponent } from './note-editor';
 
@@ -25,7 +27,10 @@ class Host {
 
 async function render() {
   localStorage.clear();
-  await TestBed.configureTestingModule({ imports: [Host] }).compileComponents();
+  await TestBed.configureTestingModule({
+    imports: [Host],
+    providers: [{ provide: AttachmentsService, useValue: new FakeAttachments() }],
+  }).compileComponents();
   const fixture = TestBed.createComponent(Host);
   document.body.appendChild(fixture.nativeElement);
   await fixture.whenStable();

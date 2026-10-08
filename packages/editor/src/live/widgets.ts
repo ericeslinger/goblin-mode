@@ -85,24 +85,31 @@ export class WikiLinkWidget extends WidgetType {
 }
 
 export class ImageWidget extends WidgetType {
+  /**
+   * Resolved when the widget is made, so one made after an attachment's
+   * file arrives (`refreshImages`) differs and is drawn again.
+   */
+  readonly src: string | undefined;
+
   constructor(
     readonly url: string,
     readonly alt: string,
     readonly hooks: NoteEditorHooks,
   ) {
     super();
+    this.src = safeImageSrc(
+      url.startsWith(ATTACHMENT_SCHEME)
+        ? hooks.resolveAttachment?.(url.slice(ATTACHMENT_SCHEME.length))
+        : url,
+    );
   }
 
   override eq(other: ImageWidget): boolean {
-    return other.url === this.url && other.alt === this.alt;
+    return other.url === this.url && other.alt === this.alt && other.src === this.src;
   }
 
   toDOM(): HTMLElement {
-    const src = safeImageSrc(
-      this.url.startsWith(ATTACHMENT_SCHEME)
-        ? this.hooks.resolveAttachment?.(this.url.slice(ATTACHMENT_SCHEME.length))
-        : this.url,
-    );
+    const src = this.src;
     if (!src) {
       const caption = document.createElement('span');
       caption.className = 'mg-attachment-placeholder';
@@ -113,6 +120,13 @@ export class ImageWidget extends WidgetType {
     img.className = 'mg-image';
     img.src = src;
     img.alt = this.alt;
+    const open = this.hooks.openImage;
+    if (open) {
+      img.addEventListener('click', (e) => {
+        e.preventDefault();
+        open(src, this.alt);
+      });
+    }
     return img;
   }
 }

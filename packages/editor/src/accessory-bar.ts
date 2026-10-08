@@ -22,6 +22,12 @@ export interface AccessoryAction {
   style?: Partial<Pick<CSSStyleDeclaration, 'fontWeight' | 'fontStyle'>>;
   /** Kept in view at the end when the row scrolls (Done). */
   pinned?: boolean;
+  /**
+   * Runs on the click itself, not a frame after pointerdown: opening a
+   * file picker needs the tap's user activation, which a touch
+   * pointerdown does not give (Insert image).
+   */
+  immediate?: boolean;
   run: () => void;
 }
 
@@ -119,11 +125,12 @@ export function createAccessoryBar(
     }
     button.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      later(action.run);
+      if (!action.immediate) later(action.run);
     });
-    // Keyboard and assistive-tech activation, which has no pointerdown.
     button.addEventListener('click', (e) => {
-      if ((e as MouseEvent).detail === 0) later(action.run);
+      if (action.immediate) action.run();
+      // Keyboard and assistive-tech activation, which has no pointerdown.
+      else if ((e as MouseEvent).detail === 0) later(action.run);
     });
     bar.append(button);
   }

@@ -8,6 +8,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from 'firebase/firestore';
+import { type FirebaseStorage, connectStorageEmulator, getStorage } from 'firebase/storage';
 import { EMULATOR_PORTS } from '../environments/emulator-ports';
 import { EMULATOR_PROJECT_ID, PRODUCTION_FIREBASE_CONFIG } from '../environments/firebase-config';
 
@@ -15,6 +16,8 @@ export interface FirebaseHandles {
   app: FirebaseApp;
   auth: Auth;
   db: Firestore;
+  /** Attachment files (#44). */
+  storage: FirebaseStorage;
   usingEmulators: boolean;
 }
 
@@ -38,7 +41,12 @@ export function configFor(
   production: FirebaseOptions | null = PRODUCTION_FIREBASE_CONFIG,
 ): FirebaseOptions {
   if (isLocalHost(hostname)) {
-    return { projectId: EMULATOR_PROJECT_ID, apiKey: 'emulator-api-key', authDomain: hostname };
+    return {
+      projectId: EMULATOR_PROJECT_ID,
+      apiKey: 'emulator-api-key',
+      authDomain: hostname,
+      storageBucket: `${EMULATOR_PROJECT_ID}.appspot.com`,
+    };
   }
   if (!production) {
     throw new Error('This build has no Firebase config; deploy it with scripts/deploy.sh.');
@@ -61,5 +69,7 @@ export function initFirebase(hostname: string): FirebaseHandles {
     });
     connectFirestoreEmulator(db, '127.0.0.1', EMULATOR_PORTS.firestore);
   }
-  return { app, auth, db, usingEmulators };
+  const storage = getStorage(app);
+  if (usingEmulators) connectStorageEmulator(storage, '127.0.0.1', EMULATOR_PORTS.storage);
+  return { app, auth, db, storage, usingEmulators };
 }
