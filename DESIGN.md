@@ -644,7 +644,7 @@ with Done pinned at its end. Each is
 one transaction, undone in one step, and a marker put in where the
 cursor is lands before what is typed next. Taps act a frame later, so
 an Enter or Backspace CodeMirror is still holding back on Android lands
-first. Image insert joins with attachments (M4). Desktop keys: Mod-b,
+first. Insert image is the last action (#44, below). Desktop keys: Mod-b,
 Mod-i, Mod-] and Mod-[, which always take the key (Mod-[ is the
 browser's Back).
 
@@ -667,6 +667,23 @@ keyboard to ride on, so the same actions (less Done) sit in a toolbar
 over the note; each button's tooltip names its key. Buttons keep focus
 in the note (mousedown is prevented, and a keyboard click returns
 focus), so typing carries on where it was.
+
+**Photos (#44, 2026-10-08).** Insert image (ribbon and toolbar) opens
+the device's picker, which offers the camera on a phone; it runs on the
+tap itself, since a picker needs the tap's user activation. A chosen
+photo (JPEG, PNG, WebP, GIF or HEIC, up to 25 MB) is kept on the device
+first, in an IndexedDB queue, then its `attachments` record is written
+through Firestore's offline cache, and `![name](attachment:<id>)` goes
+in on its own line, the cursor below it. The queue uploads to
+`users/{uid}/attachments/{id}/{name}` when the device is online and
+signed in (on sign-in, on the `online` event, after each attach), and
+the note says how many photos are waiting. Until then the editor shows
+the device's copy; after, a copy downloaded with the owner's
+credentials (a failed download is retried after 30 seconds). A tap on
+a photo opens it full screen (a native `dialog`). Photos are only ever
+shown as `img`. The thumbnail function, a check of each upload's bytes
+and the clean-up of a deleted attachment's files follow in their own
+change.
 
 **Room above the keyboard (2026-10-07).** The keyboard and the ribbon
 overlay the page, so in a long note the ribbon sat on the line being

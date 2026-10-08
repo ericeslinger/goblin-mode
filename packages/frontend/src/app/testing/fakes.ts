@@ -9,7 +9,7 @@ import type { ProposalRecord } from '../claude/proposals.service';
 import type { NoteRecord } from '../notes/notes.service';
 
 export function fakeFirebase(usingEmulators: boolean): FirebaseHandles {
-  return { app: {}, auth: {}, db: {}, usingEmulators } as unknown as FirebaseHandles;
+  return { app: {}, auth: {}, db: {}, storage: {}, usingEmulators } as unknown as FirebaseHandles;
 }
 
 /** A stand-in for AuthService with a settable user. */
@@ -139,4 +139,17 @@ export class FakeProposals {
   readonly open = computed(() => this.list().filter((p) => p.status === 'open').length);
   accept = vi.fn((_id: string) => undefined);
   dismiss = vi.fn((_id: string) => undefined);
+}
+
+/** A stand-in for AttachmentsService: nothing queued, no files. */
+export class FakeAttachments {
+  readonly waiting = signal<ReadonlySet<string>>(new Set());
+  readonly arrived = signal(0);
+  readonly urls = new Map<string, string>();
+  resolve = (id: string) => this.urls.get(id);
+  readonly struggling = signal(false);
+  readonly inMemory = signal(false);
+  check = vi.fn((_file: File): string | undefined => undefined);
+  newId = () => 'img1';
+  attach = vi.fn(async (_file: File, _id: string, _noteId?: string): Promise<void> => undefined);
 }

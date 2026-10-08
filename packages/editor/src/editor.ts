@@ -11,7 +11,7 @@ import {
 } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import type { Mode } from './live/decorations';
-import { livePreview, modeField, setMode } from './live/extension';
+import { livePreview, modeField, refreshImages, setMode } from './live/extension';
 import { hooksFacet, type NoteEditorHooks } from './live/hooks';
 import {
   continueList,
@@ -59,6 +59,14 @@ export interface NoteEditor {
    * nothing covers it.
    */
   setCoveredFrom(y: number | undefined): void;
+  /** Draws images again: an attachment's file became available. */
+  refreshImages(): void;
+  /**
+   * Puts `![caption](attachment:<id>)` on a line of its own at the
+   * cursor, and the cursor on the line after it, so the image shows and
+   * typing carries on below; undoable like typing.
+   */
+  insertImage(id: string, caption: string): void;
   /** Toolbar actions. */
   toggleTask(): void;
   insertWikiLink(): void;
@@ -82,7 +90,7 @@ function readOnlyExtension(readOnly: boolean) {
 }
 
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
-  const { openLink, resolveAttachment, suggestLinks } = options;
+  const { openLink, resolveAttachment, suggestLinks, openImage } = options;
   const editing = new Compartment();
   let inset = 0;
   /** How much of the editor's visible box lies at or below `y`. */
@@ -119,7 +127,7 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         spellcheck: 'true',
       }),
       placeholder(options.placeholder ?? ''),
-      hooksFacet.of({ openLink, resolveAttachment, suggestLinks }),
+      hooksFacet.of({ openLink, resolveAttachment, suggestLinks, openImage }),
       linkAutocomplete,
       livePreview(options.mode ?? 'live'),
       noteTheme,
@@ -179,6 +187,23 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
       if (grew && view.hasFocus) {
         view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head) });
       }
+    },
+    refreshImages: () => view.dispatch({ effects: refreshImages.of(null) }),
+    insertImage(id, caption) {
+      const { state } = view;
+      const head = state.selection.main.head;
+      const line = state.doc.lineAt(head);
+      const alt = caption.replace(/[[\]\n]/g, ' ').trim();
+      const image = `![${alt}](attachment:${id})`;
+      // Its own line: after this one's text, before the rest of it.
+      const before = head > line.from ? '\n' : '';
+      const insert = `${before}${image}\n`;
+      view.dispatch({
+        changes: { from: head, insert },
+        selection: { anchor: head + insert.length },
+        scrollIntoView: true,
+        userEvent: 'input',
+      });
     },
     toggleTask: () => void toggleTaskLine(view),
     toggleBold: () => void toggleMark('*')(view),

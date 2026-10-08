@@ -20,6 +20,7 @@ import {
   createNoteEditor,
   type NoteEditor,
 } from '@mossgoblin/editor';
+import { AttachmentsService, captionFor } from '../attachments/attachments.service';
 import { EditorModeService } from './editor-mode.service';
 
 /** Touch screens get the keyboard accessory bar instead of shortcuts. */
@@ -40,7 +41,10 @@ interface FormatAction {
   /** The desktop key as the editor binds it (`Mod` is Ctrl, or ⌘ on a Mac). */
   keys?: string;
   style?: { fontWeight?: string; fontStyle?: string };
-  run: (editor: NoteEditor) => void;
+  /** Runs on the tap itself: it opens a file picker. */
+  immediate?: boolean;
+  /** `pickImage` opens the file picker (Insert image). */
+  run: (editor: NoteEditor, pickImage: () => void) => void;
 }
 
 /**
@@ -69,6 +73,8 @@ const FORMAT_ACTIONS: FormatAction[] = [
   { label: '1.', name: 'Numbered list', run: (e) => e.numberedList() },
   { label: '⇤', name: 'Outdent', keys: 'Mod+[', run: (e) => e.outdent() },
   { label: '⇥', name: 'Indent', keys: 'Mod+]', run: (e) => e.indent() },
+  // A camera or a photo (#44); the picker offers both on a phone.
+  { label: '🖼', name: 'Insert image', immediate: true, run: (_e, pick) => pick() },
 ];
 
 /**
@@ -99,6 +105,28 @@ const FORMAT_ACTIONS: FormatAction[] = [
       </div>
     }
     <div #host class="host"></div>
+    <input #picker type="file" accept="image/*" hidden (change)="picked(picker)" />
+    @if (problem(); as message) {
+      <p class="note-status" role="alert">{{ message }}</p>
+    } @else if (attachments.waiting().size; as count) {
+      <p class="note-status" role="status">
+        {{ count === 1 ? '1 photo' : count + ' photos' }} waiting to upload{{
+          attachments.struggling() ? '; uploads are failing, still trying' : ''
+        }}{{ attachments.inMemory() ? ' (kept only until this page closes)' : '' }}
+      </p>
+    }
+    <dialog
+      #viewer
+      class="viewer"
+      aria-label="Image"
+      (close)="viewing.set(undefined)"
+      (click)="closeViewer($event)"
+    >
+      @if (viewing(); as image) {
+        <img [src]="image.src" [alt]="image.alt" />
+        <button type="button" class="close" (click)="viewer.close()">Close</button>
+      }
+    </dialog>
   `,
   styles: `
     :host {
@@ -128,6 +156,43 @@ const FORMAT_ACTIONS: FormatAction[] = [
     }
     .tools button:hover {
       border-color: var(--accent);
+    }
+    .note-status {
+      margin: var(--space-1) 0 0;
+      color: var(--quiet);
+      font-size: 14px;
+    }
+    .viewer {
+      max-width: 100vw;
+      max-height: 100vh;
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: rgb(0 0 0 / 0.9);
+    }
+    .viewer[open] {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .viewer img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .viewer .close {
+      position: absolute;
+      top: var(--space-2);
+      right: var(--space-2);
+      min-height: 44px;
+      padding: 0 var(--space-3);
+      font: inherit;
+      color: var(--ink);
+      background: var(--surface);
+      border: 0;
+      border-radius: var(--radius-pill);
     }
   `,
 })
@@ -161,6 +226,13 @@ export class NoteEditorComponent {
   protected readonly active = signal(0);
   private readonly tools = viewChildren<ElementRef<HTMLButtonElement>>('tool');
   private readonly modes = inject(EditorModeService);
+  protected readonly attachments = inject(AttachmentsService);
+  /** The image shown full screen, if any. */
+  protected readonly viewing = signal<{ src: string; alt: string } | undefined>(undefined);
+  /** Why the last photo could not be attached. */
+  protected readonly problem = signal<string | undefined>(undefined);
+  private readonly picker = viewChild.required<ElementRef<HTMLInputElement>>('picker');
+  private readonly viewer = viewChild.required<ElementRef<HTMLDialogElement>>('viewer');
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   private editor?: NoteEditor;
   private bar?: AccessoryBar;
@@ -179,6 +251,11 @@ export class NoteEditorComponent {
         placeholder: untracked(this.placeholder),
         readOnly: untracked(this.readOnly),
         openLink: (target) => this.linkOpen.emit(target),
+        resolveAttachment: (id) => this.attachments.resolve(id),
+        openImage: (src, alt) => {
+          this.viewing.set({ src, alt });
+          this.viewer().nativeElement.showModal();
+        },
         suggestLinks: (query) => untracked(this.suggestLinks)?.(query) ?? [],
         mode: untracked(this.modes.mode),
         onChange: (text) => this.textChange.emit(text),
@@ -188,12 +265,21 @@ export class NoteEditorComponent {
         // The ribbon over the keyboard (#77). Image insert joins it with
         // attachments (M4).
         this.bar = createAccessoryBar(editor, [
-          ...FORMAT_ACTIONS.map((action) => ({ ...action, run: () => action.run(editor) })),
+          ...FORMAT_ACTIONS.map((action) => ({
+            ...action,
+            run: () => action.run(editor, () => this.pickImage()),
+          })),
           // Hides the keyboard; pinned so a narrow phone always shows it.
           { label: 'Done', pinned: true, run: () => editor.view.contentDOM.blur() },
         ]);
       }
       if (untracked(this.autofocus)) this.editor.focus();
+    });
+
+    // A photo's file arrived (downloaded, or restored from the queue).
+    effect(() => {
+      this.attachments.arrived();
+      this.editor?.refreshImages();
     });
 
     effect(() => {
@@ -272,8 +358,45 @@ export class NoteEditorComponent {
   /** A toolbar click: the action, then back to typing. */
   protected format(action: FormatAction): void {
     if (!this.editor) return;
-    action.run(this.editor);
-    this.editor.focus();
+    action.run(this.editor, () => this.pickImage());
+    if (!action.immediate) this.editor.focus();
+  }
+
+  private pickImage(): void {
+    this.problem.set(undefined);
+    this.picker().nativeElement.click();
+  }
+
+  /**
+   * Photos chosen: each goes in the note at the cursor at once, before
+   * anything is awaited, so it lands in this note even if another opens
+   * meanwhile; then the files are kept on the device.
+   */
+  protected async picked(input: HTMLInputElement): Promise<void> {
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    const noteId = untracked(this.noteId);
+    const kept: Promise<void>[] = [];
+    for (const file of files) {
+      const error = this.attachments.check(file);
+      if (error) {
+        this.problem.set(error);
+        continue;
+      }
+      const id = this.attachments.newId();
+      this.editor?.insertImage(id, captionFor(file.name));
+      kept.push(this.attachments.attach(file, id, noteId));
+    }
+    this.editor?.focus();
+    const results = await Promise.allSettled(kept);
+    if (results.some((r) => r.status === 'rejected')) {
+      this.problem.set('This device could not keep a photo. Please add it again.');
+    }
+  }
+
+  /** A click on the dark space around the image closes the viewer. */
+  protected closeViewer(event: MouseEvent): void {
+    if (event.target === this.viewer().nativeElement) this.viewer().nativeElement.close();
   }
 
   /**

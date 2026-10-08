@@ -9,6 +9,8 @@ import { hooksFacet, type NoteEditorHooks } from './hooks';
 import { BulletWidget, CheckboxWidget, ImageWidget, WikiLinkWidget } from './widgets';
 
 export const setMode = StateEffect.define<Mode>();
+/** Draws images again: an attachment's file became available. */
+export const refreshImages = StateEffect.define<null>();
 
 export const modeField = StateField.define<Mode>({
   create: () => 'live',
@@ -77,7 +79,7 @@ function build(state: EditorState): DecorationSet {
 const decorationsField = StateField.define<DecorationSet>({
   create: build,
   update(decorations, tr) {
-    const modeChanged = tr.effects.some((e) => e.is(setMode));
+    const modeChanged = tr.effects.some((e) => e.is(setMode) || e.is(refreshImages));
     return tr.docChanged || tr.selection || modeChanged ? build(tr.state) : decorations;
   },
   provide: (field) => EditorView.decorations.from(field),

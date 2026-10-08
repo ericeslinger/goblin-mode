@@ -99,6 +99,25 @@ describe('createAccessoryBar', () => {
     }
   });
 
+  it('runs an immediate action on the click itself, for a file picker', () => {
+    const parent = document.createElement('div');
+    document.body.append(parent);
+    const editor = createNoteEditor({ parent });
+    const run = vi.fn();
+    const bar = createAccessoryBar(editor, [
+      { label: '+', name: 'Insert image', immediate: true, run },
+    ]);
+    const button = bar.element.querySelector('button')!;
+    const down = new Event('pointerdown', { cancelable: true });
+    button.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(run).not.toHaveBeenCalled();
+    button.dispatchEvent(new MouseEvent('click', { detail: 1 }));
+    expect(run).toHaveBeenCalledOnce();
+    bar.destroy();
+    editor.destroy();
+  });
+
   it('stays hidden without an open keyboard', () => {
     const parent = document.createElement('div');
     document.body.append(parent);

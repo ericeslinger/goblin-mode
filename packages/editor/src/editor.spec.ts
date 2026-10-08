@@ -16,6 +16,40 @@ function make(text: string, extra: Partial<Parameters<typeof createNoteEditor>[0
   return editor;
 }
 
+describe('images (#44)', () => {
+  it('inserts an attachment on a line of its own, and undoes it in one step', () => {
+    const e = make('Dinner');
+    e.view.dispatch({ selection: { anchor: 3 } });
+    e.insertImage('a1', 'menu [draft]');
+    expect(e.getText()).toBe('Din\n![menu  draft](attachment:a1)\nner');
+    undo(e.view);
+    expect(e.getText()).toBe('Dinner');
+    e.view.dispatch({ selection: { anchor: 6 } });
+    e.insertImage('a2', 'photo');
+    expect(e.getText()).toBe('Dinner\n![photo](attachment:a2)\n');
+    // The cursor is below the image, so it shows.
+    expect(e.view.state.selection.main.head).toBe(e.getText().length);
+  });
+
+  it('draws an attachment once its file arrives, and opens it on a tap', () => {
+    let url: string | undefined;
+    const openImage = vi.fn();
+    const e = make('note\n![menu](attachment:a1)\n', {
+      resolveAttachment: () => url,
+      openImage,
+    });
+    e.view.dispatch({ selection: { anchor: 0 } });
+    expect(e.view.dom.querySelector('img.mg-image')).toBeNull();
+    expect(e.view.dom.querySelector('.mg-attachment-placeholder')?.textContent).toBe('menu');
+    url = 'blob:http://localhost/x';
+    e.refreshImages();
+    const img = e.view.dom.querySelector('img.mg-image') as HTMLImageElement;
+    expect(img.src).toBe(url);
+    img.click();
+    expect(openImage).toHaveBeenCalledWith(url, 'menu');
+  });
+});
+
 describe('createNoteEditor', () => {
   it('opens with the caret at the end of the note', () => {
     const e = make('one\ntwo');
