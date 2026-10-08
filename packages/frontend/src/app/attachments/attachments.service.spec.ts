@@ -26,9 +26,9 @@ function setup(queued: QueuedUpload[] = []) {
   for (const item of queued) queue.items.set(item.id, item);
   const api = {
     record: vi.fn(),
-    filePath: vi.fn(async (_path: string): Promise<string | undefined> => undefined),
+    files: vi.fn(async (_path: string): Promise<{ path?: string; thumbPath?: string }> => ({})),
     upload: vi.fn(async () => undefined),
-    download: vi.fn(async () => new Blob(['x'])),
+    download: vi.fn(async (_path: string) => new Blob(['x'])),
     serverTime: () => 'now',
   };
   let made = 0;
@@ -187,7 +187,7 @@ describe('AttachmentsService', () => {
   it('downloads a photo from another device once, and says when it arrives', async () => {
     const { service, api, signIn } = setup();
     await signIn();
-    api.filePath.mockResolvedValue('users/u1/attachments/a9/x.jpg');
+    api.files.mockResolvedValue({ path: 'users/u1/attachments/a9/x.jpg' });
     const before = service.arrived();
     expect(service.resolve('a9')).toBeUndefined();
     await flush();
@@ -195,6 +195,56 @@ describe('AttachmentsService', () => {
     expect(service.arrived()).toBe(before + 1);
     expect(service.resolve('a9')).toMatch(/^blob:local\//);
     expect(api.download).toHaveBeenCalledOnce();
+    // No thumbnail: the same download is the full photo.
+    expect(await service.full('a9')).toBe(service.resolve('a9'));
+    expect(api.download).toHaveBeenCalledOnce();
+  });
+
+  it('draws the thumbnail inline, and fetches the full photo for the viewer', async () => {
+    const { service, api, signIn } = setup();
+    await signIn();
+    api.files.mockResolvedValue({
+      path: 'users/u1/attachments/a8/x.jpg',
+      thumbPath: 'users/u1/attachments/a8/thumb_x.webp',
+    });
+    service.resolve('a8');
+    await flush();
+    expect(api.download).toHaveBeenLastCalledWith('users/u1/attachments/a8/thumb_x.webp');
+    const inline = service.resolve('a8');
+    const full = await service.full('a8');
+    expect(api.download).toHaveBeenLastCalledWith('users/u1/attachments/a8/x.jpg');
+    expect(full).not.toBe(inline);
+    // Once.
+    expect(await service.full('a8')).toBe(full);
+    expect(api.download).toHaveBeenCalledTimes(2);
+  });
+
+  it('draws the photo itself when its thumbnail cannot be had', async () => {
+    const { service, api, signIn } = setup();
+    await signIn();
+    api.files.mockResolvedValue({
+      path: 'users/u1/attachments/a7/x.jpg',
+      thumbPath: 'users/u1/attachments/a7/thumb_x.webp',
+    });
+    api.download.mockImplementation(async (path: string) => {
+      if (path.includes('thumb_')) throw new Error('not found');
+      return new Blob(['full']);
+    });
+    service.resolve('a7');
+    await flush();
+    expect(api.download).toHaveBeenLastCalledWith('users/u1/attachments/a7/x.jpg');
+    const inline = service.resolve('a7');
+    expect(inline).toMatch(/^blob:local\//);
+    // That is the full photo, so the viewer needs no second download.
+    expect(await service.full('a7')).toBe(inline);
+    expect(api.download).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the device its own full copy, both inline and whole', async () => {
+    const { service, api } = setup();
+    await service.attach(photo(), 'd1', 'image/jpeg');
+    expect(await service.full('d1')).toBe(service.resolve('d1'));
+    expect(api.download).not.toHaveBeenCalled();
   });
 });
 

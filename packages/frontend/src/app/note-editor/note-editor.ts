@@ -252,10 +252,7 @@ export class NoteEditorComponent {
         readOnly: untracked(this.readOnly),
         openLink: (target) => this.linkOpen.emit(target),
         resolveAttachment: (id) => this.attachments.resolve(id),
-        openImage: (src, alt) => {
-          this.viewing.set({ src, alt });
-          this.viewer().nativeElement.showModal();
-        },
+        openImage: (src, alt, url) => void this.openViewer(src, alt, url),
         suggestLinks: (query) => untracked(this.suggestLinks)?.(query) ?? [],
         mode: untracked(this.modes.mode),
         onChange: (text) => this.textChange.emit(text),
@@ -400,6 +397,18 @@ export class NoteEditorComponent {
     if (results.some((r) => r.status === 'rejected')) {
       this.problem.set('This device could not keep a photo. Please add it again.');
     }
+  }
+
+  /**
+   * Shows an image whole: what is drawn at once (maybe its thumbnail),
+   * then the full photo when it arrives, if the viewer is still open on it.
+   */
+  private async openViewer(src: string, alt: string, url: string): Promise<void> {
+    this.viewing.set({ src, alt });
+    this.viewer().nativeElement.showModal();
+    if (!url.startsWith('attachment:')) return;
+    const full = await this.attachments.full(url.slice('attachment:'.length));
+    if (full && this.viewing()?.src === src) this.viewing.set({ src: full, alt });
   }
 
   /** A click on the dark space around the image closes the viewer. */

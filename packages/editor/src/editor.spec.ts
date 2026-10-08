@@ -46,7 +46,7 @@ describe('images (#44)', () => {
     const img = e.view.dom.querySelector('img.mg-image') as HTMLImageElement;
     expect(img.src).toBe(url);
     img.click();
-    expect(openImage).toHaveBeenCalledWith(url, 'menu');
+    expect(openImage).toHaveBeenCalledWith(url, 'menu', 'attachment:a1');
   });
 });
 
