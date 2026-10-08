@@ -42,7 +42,7 @@ export class FakeNotes {
   settle = vi.fn((_id: string, _opts?: { edited?: boolean }) => undefined);
   readonly names = computed(() => nameIndex(this.notes()));
   plantConcepts = vi.fn((_body: string) => undefined);
-  createConcept = vi.fn((name: string) => conceptId(name));
+  createConcept = vi.fn((name: string, _type?: 'other' | 'mood') => conceptId(name));
   updateConcept = vi.fn(
     (_id: string, _change: Parameters<NotesService['updateConcept']>[1]) => [] as string[],
   );

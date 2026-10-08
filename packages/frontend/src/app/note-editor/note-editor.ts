@@ -285,6 +285,8 @@ export class NoteEditorComponent {
   readonly readOnly = input(false);
   /** Names a `[[` can complete to (the host ranks them). */
   readonly suggestLinks = input<(query: string) => { name: string; kind: string }[]>();
+  /** Moods a Moods line can complete to (#40). */
+  readonly suggestMoods = input<(query: string) => string[]>();
   readonly textChange = output<string>();
   /** A wiki link was tapped; carries its target name. */
   readonly linkOpen = output<string>();
@@ -334,6 +336,7 @@ export class NoteEditorComponent {
         openImage: (src, alt, url) => void this.openViewer(src, alt, url),
         openFile: (id, name) => void this.openDocument(id, name),
         suggestLinks: (query) => untracked(this.suggestLinks)?.(query) ?? [],
+        suggestMoods: (query) => untracked(this.suggestMoods)?.(query) ?? [],
         mode: untracked(this.modes.mode),
         onChange: (text) => this.textChange.emit(text),
       });

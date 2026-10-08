@@ -1,3 +1,4 @@
+import { moodLine } from '@mossgoblin/schema';
 import type { NoteRecord } from '../notes/notes.service';
 
 /** Ways to look at the garden (#31); each has its own URL, /browse/<id>. */
@@ -6,6 +7,7 @@ export const LENSES = [
   { id: 'concepts', label: 'Concepts' },
   { id: 'people', label: 'People' },
   { id: 'projects', label: 'Projects' },
+  { id: 'journal', label: 'Journal' },
   { id: 'tags', label: 'Tags' },
   { id: 'archived', label: 'Archived' },
 ] as const;
@@ -32,6 +34,11 @@ export function inLens(lens: LensId, n: NoteRecord): boolean {
       return concept(n) && n.conceptType === 'person';
     case 'projects':
       return concept(n) && n.conceptType === 'project';
+    case 'journal':
+      // Feelings entries (#40): notes with a Moods line.
+      return (
+        note(n) && n.kind !== 'concept' && n.body.split('\n').some((l) => moodLine(l) !== undefined)
+      );
     case 'tags':
       return note(n) && (n.tags?.length ?? 0) > 0;
     case 'archived':

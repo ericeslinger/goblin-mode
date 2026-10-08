@@ -16,6 +16,7 @@ import {
   checklist,
   normalizeName,
   suggestLinks,
+  suggestMoods,
   withProjectSections,
 } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
@@ -112,8 +113,12 @@ export class Launch {
 
   /** Names a `[[` can complete to: concepts, synonyms, note titles. */
   protected readonly suggest = (query: string) => suggestLinks(query, this.notes.notes());
+  /** Moods for a Moods line (#40): those starting with what is typed first. */
+  protected readonly suggestMood = (query: string) => suggestMoods(query, this.notes.notes());
   private readonly editor = viewChild(NoteEditorComponent);
 
+  /** A template a reminder opened, waiting for the notes to load. */
+  private readonly entryFrom = signal<string | undefined>(undefined);
   protected readonly previousOpen = signal(false);
   protected readonly templatesOpen = signal(false);
   /** The More menu (#78): everything but writing, one tap away. */
@@ -141,6 +146,10 @@ export class Launch {
       const id = params.get('id');
       if (id) this.capture.openNote(id);
       else this.capture.openHome();
+      // From one reminder's link to another, the query does not change.
+      if (id && this.route.snapshot.queryParamMap.get('from') === 'reminder') {
+        this.entryFrom.set(id);
+      }
     });
     // Back after five minutes away opens a fresh capture note; the URL
     // follows, so a reload or back does not land on the old note.
@@ -155,6 +164,21 @@ export class Launch {
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
       const id = params.get('note');
       if (id) void this.router.navigate(['/n', id], { replaceUrl: true });
+      // A reminder's link (#40): to a template, it means a new entry.
+      const routed = this.route.snapshot.paramMap.get('id');
+      if (params.get('from') === 'reminder' && routed) this.entryFrom.set(routed);
+    });
+    effect(() => {
+      const id = this.entryFrom();
+      if (!id || !this.notes.loaded()) return;
+      // Kept until the note arrives: a template not synced here yet still
+      // gets its entry when it does (review on #96).
+      const note = this.notes.find(id);
+      if (!note) return;
+      untracked(() => {
+        this.entryFrom.set(undefined);
+        if (note.kind === 'template') void this.fromTemplate(id, { replaceUrl: true });
+      });
     });
 
     // A tap outside More closes it.
@@ -238,14 +262,17 @@ export class Launch {
   }
 
   /** Opens a template's note: its living note, or a fresh entry (#38). */
-  protected async fromTemplate(templateId: string): Promise<void> {
+  protected async fromTemplate(
+    templateId: string,
+    { replaceUrl = false }: { replaceUrl?: boolean } = {},
+  ): Promise<void> {
     this.templatesOpen.set(false);
     const note = this.templates.use(templateId);
     if (!note) return;
     this.capture.openNote(note.id, note.text);
     this.editor()?.load(note.id, note.text);
     this.editor()?.focus();
-    await this.router.navigate(['/n', note.id]);
+    await this.router.navigate(['/n', note.id], { replaceUrl });
   }
 
   /** After a choice in More that stays here, the cursor goes back to the note. */

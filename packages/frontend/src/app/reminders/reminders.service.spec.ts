@@ -94,6 +94,18 @@ describe('RemindersService', () => {
     });
   });
 
+  it('adds at once when first made to add, before its listener starts (#40)', () => {
+    const api = new FakeRemindersApi();
+    TestBed.configureTestingModule({
+      providers: [
+        ...remindersTestProviders(api, () => NOW),
+        { provide: AuthService, useValue: { user: signal({ uid: 'u1' } as User) } },
+      ],
+    });
+    TestBed.inject(RemindersService).add({ text: 'Feelings', repeat: 'daily', at: '08:00' });
+    expect(api.set.mock.lastCall![1]).toMatch(/^users\/u1\/reminders\//);
+  });
+
   it('adds a Someday reminder with no times, and ignores empty text', () => {
     const { reminders, api } = setup();
     reminders.add({ text: '   ' });
@@ -121,6 +133,12 @@ describe('RemindersService', () => {
       dueAt: tomorrow9,
       nextFireAt: tomorrow9,
       recurrence: { freq: 'weekdays', time: '09:00' },
+    });
+    // A time of day without a date, linked to a note (#40).
+    reminders.add({ text: 'Feelings', repeat: 'daily', at: '18:30', noteId: 't1' });
+    expect(lastWrite(api).data).toMatchObject({
+      recurrence: { freq: 'daily', time: '18:30' },
+      noteId: 't1',
     });
   });
 

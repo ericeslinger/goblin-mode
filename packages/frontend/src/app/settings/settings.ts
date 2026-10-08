@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { moodLine } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
@@ -63,6 +64,9 @@ import { ThemePicker } from '../theme/theme-picker';
           <button type="button" (click)="newTemplate('living')">New living template</button>
           @if (!hasShoppingList()) {
             <button type="button" (click)="newShoppingList()">Add a shopping list</button>
+          }
+          @if (!hasFeelingsJournal()) {
+            <button type="button" (click)="newFeelingsJournal()">Add a feelings journal</button>
           }
         </div>
       }
@@ -129,6 +133,18 @@ export class Settings {
   protected readonly hasShoppingList = computed(() =>
     this.templates.templates().some((t) => t.title === 'Shopping list'),
   );
+
+  /** A template with a Moods line is a journal, whatever it is called (review on #96). */
+  protected readonly hasFeelingsJournal = computed(() =>
+    this.templates
+      .templates()
+      .some((t) => t.body.split('\n').some((line) => moodLine(line) !== undefined)),
+  );
+
+  /** The feelings journal template and its three reminders (#40), opened to look over. */
+  protected newFeelingsJournal(): void {
+    void this.router.navigate(['/n', this.templates.createFeelingsJournal()]);
+  }
 
   /** The shopping list template, opened to look over. */
   protected newShoppingList(): void {

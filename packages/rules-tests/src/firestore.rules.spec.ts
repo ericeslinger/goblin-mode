@@ -110,6 +110,9 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     const { deviceId: _dropped, ...missing } = note() as Record<string, unknown>;
     await assertFails(ref.set(missing));
     await assertSucceeds(ref.set({ ...note(), conceptType: 'person', synonyms: ['vik'] }));
+    // Moods are concepts too (#40).
+    await assertSucceeds(ref.set({ ...note(), kind: 'concept', conceptType: 'mood' }));
+    await assertFails(ref.set({ ...note(), kind: 'concept', conceptType: 'feeling' }));
   });
 
   it('accepts a project with a parent, a kind and a known status (#41)', async () => {

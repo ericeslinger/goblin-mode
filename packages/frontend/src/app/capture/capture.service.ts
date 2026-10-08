@@ -1,6 +1,6 @@
 import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, effect, inject, signal, untracked } from '@angular/core';
-import { merge3, shouldStartFreshNote } from '@mossgoblin/schema';
+import { merge3, shouldStartFreshNote, templateParts } from '@mossgoblin/schema';
 import { NotesService } from '../notes/notes.service';
 import { LocalStore } from '../platform/local-store';
 import { NOW } from '../platform/platform';
@@ -308,6 +308,12 @@ export class CaptureService {
       if (this.notes.exists(id)) this.notes.remove(id);
       return;
     }
+    // An entry left as its template's skeleton held nothing of Eric's: a
+    // reminder tapped and dismissed must not leave one behind (#40).
+    if (this.isBareEntry(id)) {
+      this.notes.remove(id);
+      return;
+    }
     // Leaving a note settles it (Eric, 2026-10-06): New, another note,
     // a restore elsewhere, or a fresh note after five minutes away.
     // Before the notes load, hold it on the device like the launch case.
@@ -316,6 +322,14 @@ export class CaptureService {
       // New names linked here become concepts (#29).
       if (!this.untouched) this.notes.plantConcepts(this.body);
     } else if (this.notes.exists(id) || !this.untouched) this.store.set(PENDING_SETTLE_KEY, id);
+  }
+
+  /** A note made from an entry template whose text is still the skeleton. */
+  private isBareEntry(id: string): boolean {
+    const from = this.notes.find(id)?.fromTemplate;
+    const template = from === undefined ? undefined : this.notes.find(from);
+    if (template?.kind !== 'template' || template.templateMode === 'living') return false;
+    return this.body.trim() === templateParts(template.body).skeleton.trim();
   }
 
   private show(note: OpenNote): void {

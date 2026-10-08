@@ -283,6 +283,28 @@ describe('CaptureService', () => {
     expect(capture.open()).toEqual({ id: 'e1', text: 'Journal\nMood:' });
   });
 
+  it('removes an entry left as its template’s skeleton, and keeps one written in (#40)', () => {
+    const { capture, notes } = setup();
+    const template = 'Feelings\nMoods: \n\n## Instructions for Claude\nQuote him.';
+    notes.signIn([
+      { ...noteRecord('t1', template), kind: 'template' },
+      { ...noteRecord('t2', 'List'), kind: 'template', templateMode: 'living' },
+      { ...noteRecord('e1', 'Feelings\nMoods:'), fromTemplate: 't1' },
+      { ...noteRecord('e2', 'Feelings\nMoods:'), fromTemplate: 't1' },
+      { ...noteRecord('l1', 'List'), fromTemplate: 't2' },
+    ]);
+    capture.openNote('e1');
+    capture.newNote();
+    expect(notes.remove).toHaveBeenCalledWith('e1');
+    capture.openNote('e2');
+    capture.onText('Feelings\nMoods: [[calm]]');
+    capture.newNote();
+    // A living template's note is its one note, kept however bare.
+    capture.openNote('l1');
+    capture.newNote();
+    expect(notes.remove).toHaveBeenCalledOnce();
+  });
+
   it('keeps a template emptied by typing', () => {
     const { capture, notes } = setup();
     notes.signIn([{ ...noteRecord('t1', 'Journal'), kind: 'template' }]);

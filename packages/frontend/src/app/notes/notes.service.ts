@@ -17,6 +17,7 @@ import {
   canParent,
   conceptId,
   firstWordsTitle,
+  moodTargets,
   nameIndex,
   normalizeName,
   paths,
@@ -44,6 +45,8 @@ import { ONLINE, RANDOM_BYTES } from '../platform/platform';
 
 /** Names linked before their concept could be made (needs the server). */
 export const PENDING_CONCEPTS_KEY = 'goblin.pendingConcepts';
+/** The ids among them to make as moods (#40). */
+export const PENDING_MOODS_KEY = 'goblin.pendingMoods';
 
 /** A note as the app lists and opens it. */
 export interface NoteRecord {
@@ -59,7 +62,7 @@ export interface NoteRecord {
   fromTemplate?: string;
   /** A concept's other names. */
   synonyms?: string[];
-  /** A concept's type: 'person', 'project' or 'other'. */
+  /** A concept's type: 'person', 'project', 'mood' or 'other'. */
   conceptType?: string;
   /** A project's parent project (#41). */
   parent?: string;
@@ -330,12 +333,14 @@ export class NotesService {
   /**
    * Makes the concepts a body links to by names nothing answers to yet
    * (stub concepts, #29): kind 'concept', the name as written, no text.
+   * A name linked on a Moods line is made a mood (#40).
    */
   plantConcepts(body: string): void {
     const names = this.names();
+    const moods = new Set(moodTargets(body).map(normalizeName));
     for (const target of wikiLinkTargets(parseNote(body))) {
       if (names.has(normalizeName(target))) continue;
-      this.createConcept(target);
+      this.createConcept(target, moods.has(normalizeName(target)) ? 'mood' : 'other');
     }
   }
 
@@ -347,13 +352,15 @@ export class NotesService {
    * notes have loaded and the device is online, the name waits on the
    * device and is made then.
    */
-  createConcept(name: string): string {
+  createConcept(name: string, type: 'other' | 'mood' = 'other'): string {
     const id = conceptId(name);
     if (this.exists(id)) return id;
     const pending = this.store.get<string[]>(PENDING_CONCEPTS_KEY) ?? [];
     if (!pending.some((n) => conceptId(n) === id)) {
       this.store.set(PENDING_CONCEPTS_KEY, [...pending, name.trim()]);
     }
+    const moods = this.store.get<string[]>(PENDING_MOODS_KEY) ?? [];
+    if (type === 'mood' && !moods.includes(id)) this.store.set(PENDING_MOODS_KEY, [...moods, id]);
     this.makePendingConcepts();
     return id;
   }
@@ -377,7 +384,9 @@ export class NotesService {
         title: name,
         // The name is Eric's: a settle never retitles a concept.
         titleSource: 'user',
-        conceptType: 'other',
+        conceptType: (this.store.get<string[]>(PENDING_MOODS_KEY) ?? []).includes(id)
+          ? 'mood'
+          : 'other',
         synonyms: [],
         links: [],
         tags: [],
@@ -401,6 +410,9 @@ export class NotesService {
     const rest = pending.filter((n) => conceptId(n) !== id);
     if (rest.length) this.store.set(PENDING_CONCEPTS_KEY, rest);
     else this.store.remove(PENDING_CONCEPTS_KEY);
+    const moods = (this.store.get<string[]>(PENDING_MOODS_KEY) ?? []).filter((m) => m !== id);
+    if (moods.length) this.store.set(PENDING_MOODS_KEY, moods);
+    else this.store.remove(PENDING_MOODS_KEY);
   }
 
   /**

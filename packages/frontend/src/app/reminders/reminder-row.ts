@@ -30,7 +30,9 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
     >
       <span class="what">
         @if (r.noteId) {
-          <a class="text" [routerLink]="['/n', r.noteId]">{{ r.text }}</a>
+          <a class="text" [routerLink]="['/n', r.noteId]" [queryParams]="{ from: 'reminder' }">{{
+            r.text
+          }}</a>
         } @else {
           <span class="text">{{ r.text }}</span>
         }

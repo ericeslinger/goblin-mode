@@ -6,7 +6,13 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { fakeFirebase } from '../testing/fakes';
 import { ONLINE } from '../platform/platform';
-import { NOTES_API, type NotesApi, NotesService, PENDING_CONCEPTS_KEY } from './notes.service';
+import {
+  NOTES_API,
+  type NotesApi,
+  NotesService,
+  PENDING_CONCEPTS_KEY,
+  PENDING_MOODS_KEY,
+} from './notes.service';
 
 function setup() {
   localStorage.clear();
@@ -159,6 +165,24 @@ describe('NotesService', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+  });
+
+  it('makes a new name on a Moods line a mood, even made later (#40)', async () => {
+    const { notes, api, signIn, push, online } = setup();
+    signIn('u1');
+    online.set(false);
+    push([{ id: 'c-calm', data: { body: '', title: 'calm', kind: 'concept' } }]);
+    notes.plantConcepts('Feelings\nMoods: [[calm]], [[Wistful]]\nThought of [[Kiln]].');
+    expect(api.createIfAbsent).not.toHaveBeenCalled();
+    online.set(true);
+    notes.makePendingConcepts();
+    const made = Object.fromEntries(
+      api.createIfAbsent.mock.calls.map(([, path, data]) => [path, data['conceptType']]),
+    );
+    expect(made).toEqual({ 'users/u1/notes/c-wistful': 'mood', 'users/u1/notes/c-kiln': 'other' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(localStorage.getItem(PENDING_MOODS_KEY)).toBeNull();
   });
 
   it('keeps a name waiting when the server cannot be reached', async () => {

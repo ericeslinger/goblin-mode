@@ -11,3 +11,4 @@ export * from './merge';
 export * from './checklist';
 export * from './sniff';
 export * from './projects';
+export * from './journal';

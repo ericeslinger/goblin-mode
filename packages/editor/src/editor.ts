@@ -92,7 +92,7 @@ function readOnlyExtension(readOnly: boolean) {
 }
 
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
-  const { openLink, resolveAttachment, suggestLinks, openImage, openFile } = options;
+  const { openLink, resolveAttachment, suggestLinks, suggestMoods, openImage, openFile } = options;
   const editing = new Compartment();
   let inset = 0;
   /** How much of the editor's visible box lies at or below `y`. */
@@ -133,7 +133,14 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         tabindex: '0',
       }),
       placeholder(options.placeholder ?? ''),
-      hooksFacet.of({ openLink, resolveAttachment, suggestLinks, openImage, openFile }),
+      hooksFacet.of({
+        openLink,
+        resolveAttachment,
+        suggestLinks,
+        suggestMoods,
+        openImage,
+        openFile,
+      }),
       linkAutocomplete,
       livePreview(options.mode ?? 'live'),
       noteTheme,

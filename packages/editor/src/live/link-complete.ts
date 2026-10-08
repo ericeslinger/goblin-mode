@@ -9,6 +9,7 @@ import {
 } from '@codemirror/autocomplete';
 import type { EditorView } from '@codemirror/view';
 import { hooksFacet } from './hooks';
+import { moodCompletions } from './mood-complete';
 
 /** An open wiki link before the cursor: `[[` and the name so far. */
 const OPEN_LINK = /\[\[[^[\]\n|]*$/;
@@ -40,7 +41,7 @@ export function linkCompletions(context: CompletionContext): CompletionResult | 
 }
 
 export const linkAutocomplete = autocompletion({
-  override: [linkCompletions],
+  override: [linkCompletions, moodCompletions],
   activateOnTyping: true,
   // Nothing is picked until chosen (arrow keys or a tap), so Enter
   // still starts a new line (review on #65).

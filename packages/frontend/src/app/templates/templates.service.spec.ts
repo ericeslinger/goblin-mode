@@ -1,13 +1,14 @@
 import { TestBed } from '@angular/core/testing';
-import { templateParts } from '@mossgoblin/schema';
+import { FEELINGS_TEMPLATE, templateParts } from '@mossgoblin/schema';
 import { NotesService } from '../notes/notes.service';
+import { RemindersService } from '../reminders/reminders.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
 import { NEW_TEMPLATE, SHOPPING_LIST, TemplatesService } from './templates.service';
 
 const SHOPPING =
   'Shopping list\n## Produce\n\n## Instructions for Claude\nStart from the meal plan.';
 
-function setup() {
+function setup(reminders: unknown = {}) {
   const notes = new FakeNotes();
   notes.signIn([
     { ...noteRecord('t1', SHOPPING), kind: 'template', templateMode: 'living' },
@@ -15,7 +16,12 @@ function setup() {
     { ...noteRecord('t3', 'Old'), kind: 'template', archived: true },
     noteRecord('n1', 'A note'),
   ]);
-  TestBed.configureTestingModule({ providers: [{ provide: NotesService, useValue: notes }] });
+  TestBed.configureTestingModule({
+    providers: [
+      { provide: NotesService, useValue: notes },
+      { provide: RemindersService, useValue: reminders },
+    ],
+  });
   return { notes, templates: TestBed.inject(TemplatesService) };
 }
 
@@ -62,5 +68,20 @@ describe('TemplatesService', () => {
     const { skeleton, instructions } = templateParts(SHOPPING_LIST);
     expect(skeleton).toContain('## Produce\n\n## Butcher\n\n## Dry goods');
     expect(instructions).toContain('add_lines');
+  });
+
+  it('makes the feelings journal: an entry template and three daily reminders to it (#40)', () => {
+    const reminders = { add: vi.fn() };
+    const { notes, templates } = setup(reminders);
+    const id = templates.createFeelingsJournal();
+    expect(notes.create).toHaveBeenCalledWith(id, FEELINGS_TEMPLATE, {
+      kind: 'template',
+      templateMode: 'entry',
+    });
+    expect(reminders.add.mock.calls.map(([r]) => r)).toEqual([
+      { text: 'Feelings journal: breakfast', repeat: 'daily', at: '08:00', noteId: id },
+      { text: 'Feelings journal: lunch', repeat: 'daily', at: '12:30', noteId: id },
+      { text: 'Feelings journal: dinner', repeat: 'daily', at: '18:30', noteId: id },
+    ]);
   });
 });

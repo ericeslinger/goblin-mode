@@ -90,7 +90,7 @@ interface Note {
   body: string;                 // markdown-lite
   title: string;                // shown title
   titleSource: 'words' | 'llm' | 'user';
-  conceptType?: 'person' | 'project' | 'other';  // kind == 'concept'
+  conceptType?: 'person' | 'project' | 'mood' | 'other';  // kind == 'concept'
   synonyms?: string[];          // kind == 'concept'
   parent?: string;              // conceptType == 'project' (#41)
   projectKind?: 'build' | 'content';
@@ -194,6 +194,19 @@ picks the parent (never the project itself or one under it,
 `canParent`), kind and status, and lists the projects one level
 under it. Browse, Projects, shows the tree with a status filter; a
 project whose parent is filtered out stands at the top.
+
+**Feelings journal (#40, Eric, 2026-10-08).** Moods are concepts of
+type `mood`, not tags. Settings, Add a feelings journal, makes an
+entry template (`FEELINGS_TEMPLATE`, with a `Moods:` line) and three
+daily reminders linked to it, at breakfast, lunch and dinner
+(`FEELINGS_TIMES`). A reminder's link and its push carry
+`?from=reminder`, and a reminder to a template opens a new entry from
+it, in place of the link. On a Moods line, typing a mood offers the
+moods used before and the typed name as a new one; picking writes it
+as a `[[link]]` followed by a comma. A name first linked on a Moods
+line is made a concept of type mood (`moodTargets`), so a mood's
+page lists every entry naming it. Browse, Journal, lists notes with a
+Moods line, each with its date and moods.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a

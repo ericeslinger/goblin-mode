@@ -1,6 +1,7 @@
-import { Injectable, computed, inject } from '@angular/core';
-import { templateParts } from '@mossgoblin/schema';
+import { Injectable, Injector, computed, inject } from '@angular/core';
+import { FEELINGS_TEMPLATE, FEELINGS_TIMES, templateParts } from '@mossgoblin/schema';
 import { NotesService } from '../notes/notes.service';
+import { RemindersService } from '../reminders/reminders.service';
 
 /** What a new template starts as: a name to change, and the section for Claude. */
 export const NEW_TEMPLATE =
@@ -35,6 +36,8 @@ export const SHOPPING_LIST = [
 @Injectable({ providedIn: 'root' })
 export class TemplatesService {
   private readonly notes = inject(NotesService);
+  /** Reminders only when a journal is made, so templates need no reminder store. */
+  private readonly injector = inject(Injector);
 
   /** Live templates, by name. */
   readonly templates = computed(() =>
@@ -48,6 +51,21 @@ export class TemplatesService {
   createShoppingList(): string {
     const id = this.notes.newId();
     this.notes.create(id, SHOPPING_LIST, { kind: 'template', templateMode: 'living' });
+    return id;
+  }
+
+  /**
+   * The feelings journal (#40): an entry template with a Moods line, and
+   * a daily reminder at breakfast, lunch and dinner that opens a new
+   * entry. Returns the template's id.
+   */
+  createFeelingsJournal(): string {
+    const id = this.notes.newId();
+    this.notes.create(id, FEELINGS_TEMPLATE, { kind: 'template', templateMode: 'entry' });
+    const reminders = this.injector.get(RemindersService);
+    for (const { time, text } of FEELINGS_TIMES) {
+      reminders.add({ text, repeat: 'daily', at: time, noteId: id });
+    }
     return id;
   }
 

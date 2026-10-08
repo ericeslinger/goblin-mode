@@ -117,6 +117,7 @@
         [base]="capture.open().base"
         [readOnly]="waiting()"
         [suggestLinks]="suggest"
+        [suggestMoods]="suggestMood"
         (textChange)="capture.onText($event)"
         (linkOpen)="followLink($event)"
       />

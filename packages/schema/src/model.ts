@@ -39,7 +39,7 @@ export type Timestamp = z.infer<typeof Timestamp>;
 export const NoteKind = z.enum(['text', 'sketch', 'concept', 'template']);
 export type NoteKind = z.infer<typeof NoteKind>;
 
-export const ConceptType = z.enum(['person', 'project', 'other']);
+export const ConceptType = z.enum(['person', 'project', 'mood', 'other']);
 export type ConceptType = z.infer<typeof ConceptType>;
 
 /**
