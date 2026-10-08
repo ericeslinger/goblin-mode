@@ -965,6 +965,78 @@ export class NotesTools {
     }));
   }
 
+  /**
+   * Files something said in a chat under a project (#42), keeping the
+   * words verbatim. An idea becomes its own note, a summary line marked
+   * as Claude's above the words and the source below, listed under the
+   * project's Ideas; a decision is a dated line under Decisions; a
+   * question a line under Open questions. `remind` adds a reminder
+   * linked to the project.
+   */
+  async capture(args: {
+    project: string;
+    kind: 'idea' | 'decision' | 'question';
+    text: string;
+    summary?: string;
+    source?: string;
+    timeZone?: string;
+    remind?: { text: string; dueAt?: string };
+  }) {
+    const text = args.text.trim();
+    if (!text) throw new ToolError('text must not be empty');
+    const index = await this.names();
+    const projectId = index.get(normalizeName(args.project)) ?? args.project;
+    const snap = await this.notes().doc(projectId).get();
+    const project = snap.data();
+    if (!snap.exists || project?.['conceptType'] !== 'project' || project['archived'] === true)
+      throw new ToolError(`no project ${args.project}; list_concepts with type project names them`);
+    const projectTitle = String(project['title'] ?? '');
+    const done: Data = { project: { id: projectId, title: projectTitle } };
+    const lines = text.split('\n');
+    if (args.kind === 'idea') {
+      const summary = args.summary?.replace(/\s+/g, ' ').trim();
+      let title = summary || firstWordsTitle(text);
+      // Listed by name, so the name must be this note's alone.
+      if (index.has(normalizeName(title))) title = `${title} (${this.today(args.timeZone)})`;
+      const body = [
+        ...(summary ? [`✳ Claude: ${summary}`, ''] : []),
+        text,
+        '',
+        ...(args.source ? [`From: ${args.source.trim()}`, ''] : []),
+        `Part of [[${projectTitle}]].`,
+      ].join('\n');
+      const note = await this.createNote({ body, title });
+      await this.addLines({ id: projectId, lines: [`- [[${note.title}]]`], heading: 'Ideas' });
+      done['note'] = note;
+    } else if (args.kind === 'decision') {
+      const [first, ...rest] = lines;
+      const dated = [`- ${this.today(args.timeZone)}: ${first}`, ...rest.map((l) => `  ${l}`)];
+      await this.addLines({ id: projectId, lines: dated, heading: 'Decisions' });
+    } else {
+      const [first, ...rest] = lines;
+      const listed = [`- ${first}`, ...rest.map((l) => `  ${l}`)];
+      await this.addLines({ id: projectId, lines: listed, heading: 'Open questions' });
+    }
+    if (args.remind) {
+      done['reminder'] = await this.createReminder({
+        text: args.remind.text,
+        dueAt: args.remind.dueAt,
+        timeZone: args.timeZone,
+        noteId: projectId,
+      });
+    }
+    return done;
+  }
+
+  /** Today's date, YYYY-MM-DD, in `timeZone` (UTC if none). */
+  private today(timeZone?: string): string {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone ?? 'UTC' }).format(this.now());
+    } catch {
+      throw new ToolError(`unknown time zone ${timeZone}`);
+    }
+  }
+
   async checkItem(args: { id: string; item: string }) {
     return this.setItem(args, true);
   }
