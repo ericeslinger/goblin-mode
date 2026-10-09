@@ -4,7 +4,8 @@ import { type NotesTools, ToolError } from './tools';
 
 /** What every Claude conversation using the connector is told. */
 export const INSTRUCTIONS = [
-  "Mossgoblin is Eric's notes app: quick notes, and reminders shown in Right Now.",
+  "Mossgoblin is Eric's notes app: quick notes, and reminders shown in Right Now, the " +
+    'reminders screen.',
   "Keep Eric's paragraphs word for word. You may add your own text, re-file, tag, link, " +
     'split, merge and archive, but never reword what he wrote unless he asks you to.',
   'Prefer archiving to deleting; there is no delete tool.',
@@ -16,8 +17,18 @@ export const INSTRUCTIONS = [
     'under What Claude changed. To suggest instead of change, use suggest_changes.',
   'When Eric asks for something a template covers (his shopping list, a journal entry), use ' +
     'list_templates and use_template, and follow its Instructions for Claude.',
-  'When Eric says "garden this", file what he means with capture: his words verbatim under ' +
-    'the project, ideas with your one-line summary.',
+  'Concept ids are c-<slug>, e.g. c-mossgoblin. A project is a concept whose page has the ' +
+    'sections Overview, Working notes, Tasks, Ideas, Open questions, Decisions and Links.',
+  'Start any text of your own that you write by hand into a note (update_note, add_lines, ' +
+    "create_note) with '✳ Claude:' so Eric can tell it from his; capture adds the mark to its " +
+    "summary itself. A note's titleSource says where its title came from: words (Eric's first " +
+    'words), llm (a title the server gave it) or user (Eric set it; you cannot change it).',
+  'When Eric says "garden this": find the project with list_concepts, then list the candidate ' +
+    'decisions, ideas and questions and file nothing without his yes. Call capture once per ' +
+    'item, his words verbatim, ideas with your one-line summary, with timeZone and source (the ' +
+    'chat link). Then say what was filed, one line each.',
+  'Notes made in the app can be loose, linked to no project, so before taking a project page ' +
+    'as complete, check list_notes or search_notes too.',
 ].join('\n');
 
 const projectKind = z.enum(['build', 'content']);
