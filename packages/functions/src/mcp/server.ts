@@ -19,8 +19,9 @@ export const INSTRUCTIONS = [
     'list_templates and use_template, and follow its Instructions for Claude.',
   'Concept ids are c-<slug>, e.g. c-mossgoblin. A project is a concept whose page has the ' +
     'sections Overview, Working notes, Tasks, Ideas, Open questions, Decisions and Links.',
-  "Start any text of your own that you write into a note with '✳ Claude:' so Eric can tell it " +
-    "from his. A note's titleSource says where its title came from: words (Eric's first " +
+  'Start any text of your own that you write by hand into a note (update_note, add_lines, ' +
+    "create_note) with '✳ Claude:' so Eric can tell it from his; capture adds the mark to its " +
+    "summary itself. A note's titleSource says where its title came from: words (Eric's first " +
     'words), llm (a title the server gave it) or user (Eric set it; you cannot change it).',
   'When Eric says "garden this": find the project with list_concepts, then list the candidate ' +
     'decisions, ideas and questions and file nothing without his yes. Call capture once per ' +

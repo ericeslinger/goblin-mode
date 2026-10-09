@@ -94,7 +94,9 @@ describe('the MCP server', () => {
     expect(INSTRUCTIONS).toMatch(/what was filed, one line each/);
     // Naming conventions (#105).
     expect(INSTRUCTIONS).toMatch(/c-<slug>, e\.g\. c-mossgoblin/);
-    expect(INSTRUCTIONS).toContain('✳ Claude:');
+    expect(INSTRUCTIONS).toMatch(
+      /by hand .* with '✳ Claude:' .*; capture adds the mark to its summary/,
+    );
     expect(INSTRUCTIONS).toMatch(/titleSource .* words .* llm .* user/);
     expect(INSTRUCTIONS).toMatch(/Right Now, the reminders screen/);
     // Loose notes (#107).
