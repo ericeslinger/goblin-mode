@@ -46,6 +46,12 @@ stack playbook and the `house-style` plugin (enabled in
   your own), so a fork deploys by setting variables. Prose may describe
   Eric's deployment; values committed before 2026-10-06 remain in git
   history.
+- **MCP docs move with the tools (2026-10-09).** A change that adds,
+  removes or renames an MCP tool, or changes what one accepts, updates
+  `INSTRUCTIONS` in `packages/functions/src/mcp/server.ts`, the tool
+  table in DESIGN.md and `.claude/skills/garden-this` in the same
+  change. `mcp/tools-table.spec.ts` (in `npm run gate`) fails when the
+  table and the registered tools differ; the other two are on you.
 - **Ids are derived or generated client-side**, never typed by hand, so
   a note exists the moment it is created offline.
 
