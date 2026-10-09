@@ -99,6 +99,13 @@ describe('the MCP server', () => {
     );
     expect(INSTRUCTIONS).toMatch(/titleSource .* words .* llm .* user/);
     expect(INSTRUCTIONS).toMatch(/Right Now, the reminders screen/);
+    // Lists, attachments and concepts (#106).
+    expect(INSTRUCTIONS).toMatch(
+      /add_lines, check_item and uncheck_item rather than rewriting it with update_note/,
+    );
+    expect(INSTRUCTIONS).toMatch(/search_attachments and get_attachment_text/);
+    expect(INSTRUCTIONS).toMatch(/list_reading_queue .* add_attachment/);
+    expect(INSTRUCTIONS).toMatch(/create_concept makes a new person, project or other concept/);
     // Loose notes (#107).
     expect(INSTRUCTIONS).toMatch(/linked to no project.*list_notes or search_notes/);
   });
