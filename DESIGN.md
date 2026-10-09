@@ -972,20 +972,54 @@ Firebase Google sign-in:
    token. Tokens are random, stored hashed under `oauth/`, revocable.
 
 The owner uid is a function parameter (`OWNER_UID`, a GitHub
-variable; Deploy configuration); any other account is refused. MVP tools:
+variable; Deploy configuration); any other account is refused. Claude
+has full read-write access (2026-10-05); the rule that it keeps your
+paragraphs verbatim is in the tool descriptions, and merges archive
+originals instead of deleting.
 
-| Tool | Does |
-| --- | --- |
-| `search_notes` | Full-text-ish search over titles, bodies, synonyms |
-| `list_notes` | Recent notes, optionally since a time |
-| `get_note` | One note with its links and backlinks |
-| `create_note`, `update_note` | Write notes (`updatedBy: 'claude'`) |
-| `list_reminders`, `create_reminder`, `update_reminder` | Right Now |
+**The tools (2026-10-09, #106).** One table lists every tool the
+server registers; the entries named in the last column hold the
+detail. It replaces the MVP table and the Phase 2 list this section
+used to lead with (`add_synonym` became `refile`; `record_activity` is
+not a tool, since every write records itself; `import_url` waits for
+M4). The table is checked by `mcp/tools-table.spec.ts`, which fails
+if the server registers a tool the table lacks or the table names one
+the server does not register, so a tool change updates the table in
+the same change (CLAUDE.md, Invariants). Keep the marker comment above
+the table: the spec reads the first column of the table that follows
+it, one backticked tool name per row.
 
-Phase 2 adds `merge_notes`, `archive_note`, `add_synonym`,
-`import_url`, `record_activity`. Claude has full read-write access
-(2026-10-05); the rule that it keeps your paragraphs verbatim is in the
-tool descriptions, and merges archive originals instead of deleting.
+<!-- mcp-tools-table -->
+
+| Tool | Does | Detail |
+| --- | --- | --- |
+| `search_notes` | Notes whose title, text or synonyms hold every word of a query | Search paragraph below |
+| `list_notes` | Recent notes, newest first, optionally since a time | Search paragraph below |
+| `get_note` | One note in full with its links, backlinks and Drive files | Links and concepts (#28) |
+| `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
+| `create_concept` | A new person, project or other concept; refused if a name is taken | Organize tools (#34), Projects (#41) |
+| `update_note` | Replaces a note's text; `add_lines` is preferred for lists | Safe co-editing (#37) |
+| `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
+| `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
+| `link_notes` | Adds a `See also [[...]]` line at the end of a note | Organize tools (#34) |
+| `split_note` | Cuts a note into pieces, refusing any rewording | Organize tools (#34) |
+| `merge_notes` | Joins notes into a new one, archiving the originals | Organize tools (#34) |
+| `refile` | Concept type and other names; tags on any note | Organize tools (#34) |
+| `archive_note` | Archives or restores a note | Organize tools (#34) |
+| `suggest_changes` | Stores link, merge and refile suggestions for Eric to accept | Nightly suggestions (#35) |
+| `list_templates` | Templates with their Instructions for Claude and skeleton | Using templates (#38) |
+| `use_template` | Opens a template's note to work in | Using templates (#38) |
+| `add_lines` | Adds lines under a heading, without rewriting the body | Safe co-editing (#37) |
+| `check_item` | Ticks a checklist item, by its text | Safe co-editing (#37) |
+| `uncheck_item` | Unticks a checklist item, by its text | Safe co-editing (#37) |
+| `capture` | Files chat words under a project, verbatim ("garden this") | Garden this (#42) |
+| `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
+| `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
+| `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |
+| `search_attachments` | Full-text search across every PDF and saved page | Attachment text, server half (#45) |
+| `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |
+| `create_reminder` | A reminder, with a time, a repeat or Someday | Right Now (as built) |
+| `update_reminder` | Changes, moves, snoozes or finishes a reminder | Right Now (as built) |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it
@@ -1064,20 +1098,14 @@ sentence of instructions closes. Revisit if loose notes keep going
 missing.
 
 **Organize tools and What Claude changed (#34, 2026-10-07).** Seven
-more tools, replacing the Phase 2 list above (`add_synonym` became
-`refile`; `record_activity` is not a tool, since every write records
-itself; `import_url` waits for M4):
-
-| Tool | Does |
-| --- | --- |
-| `list_concepts` | Concepts with type, other names and link counts |
-| `get_backlinks` | Notes linking here, each with its sentence |
-| `link_notes` | Adds a `See also [[...]]` line at the end of a note |
-| `split_note` | Cuts a note into pieces, refusing any rewording |
-| `merge_notes` | Joins notes into a new one, archiving the originals |
-| `refile` | Concept type and other names; tags on any note |
-| `archive_note` | Archives or restores |
-| `create_concept` | A new person, project or other concept, with the id the app gives a `[[name]]`; refused if a name is taken (Eric, 2026-10-08: his projects list) |
+more tools, replacing the Phase 2 list this section once had
+(`add_synonym` became `refile`; `record_activity` is not a tool, since
+every write records itself; `import_url` waits for M4): `list_concepts`,
+`get_backlinks`, `link_notes`, `split_note`, `merge_notes`, `refile` and
+`archive_note`. `create_concept` followed (Eric, 2026-10-08: his
+projects list); it is refused if a name is taken. Their rows are in the
+tool table at the top of this section (2026-10-09, #106); this entry
+keeps the history.
 
 - **Verbatim, by construction.** `split_note` takes the parts as text
   and accepts them only if they are the note itself, in order, cut
