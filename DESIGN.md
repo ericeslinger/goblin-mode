@@ -682,7 +682,9 @@ says `autocorrect="on"` and `writingsuggestions="true"`: CodeMirror
 turns both off by default, which left a phone keyboard without
 autocorrect (#110). Setext headings are off in the grammar: a lone
 `-` under a line is a list item being typed, not an underline that
-makes the line a heading (#118); headings are `#` lines.
+makes the line a heading (#118). Until text follows it, it stays in
+the line's paragraph as typed. Headings are `#` lines; `Title` over
+`---` is a paragraph and a rule, which no note uses.
 
 **Decision.** Notes are edited with CodeMirror 6 in the style of
 Obsidian, with two modes over the same text: **live preview** (markdown
