@@ -11,6 +11,11 @@ import { remarkSingleStarStrong } from './emphasis';
 import { remarkWikiLinks } from './wikilink';
 
 const processor = unified()
+  // No setext headings: a lone `-` under a line is a list item being
+  // typed, not an underline making the line a heading (#118). It stays
+  // text in that line's paragraph until something follows it. Headings
+  // are `#` lines, as the ribbon writes them.
+  .data('micromarkExtensions', [{ disable: { null: ['setextUnderline'] } }])
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkSingleStarStrong)

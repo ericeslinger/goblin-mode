@@ -93,6 +93,14 @@ describe('createNoteEditor', () => {
     expect(e.view.contentDOM.getAttribute('aria-label')).toBe('New note');
   });
 
+  it('leaves the keyboard its autocorrect and suggestions (#110)', () => {
+    const e = make('');
+    expect(e.view.contentDOM.getAttribute('autocorrect')).toBe('on');
+    expect(e.view.contentDOM.getAttribute('writingsuggestions')).toBe('true');
+    expect(e.view.contentDOM.getAttribute('autocapitalize')).toBe('sentences');
+    expect(e.view.contentDOM.getAttribute('spellcheck')).toBe('true');
+  });
+
   it('can be read-only, and still takes text loaded into it', () => {
     const e = make('', { readOnly: true });
     expect(e.view.state.readOnly).toBe(true);
