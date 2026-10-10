@@ -677,6 +677,13 @@ Bog Goblin and Pixel Mossling, each light and dark.
 
 ## Editor (2026-10-06)
 
+**Keyboard and headings (2026-10-10).** The editor's content element
+says `autocorrect="on"` and `writingsuggestions="true"`: CodeMirror
+turns both off by default, which left a phone keyboard without
+autocorrect (#110). Setext headings are off in the grammar: a lone
+`-` under a line is a list item being typed, not an underline that
+makes the line a heading (#118); headings are `#` lines.
+
 **Decision.** Notes are edited with CodeMirror 6 in the style of
 Obsidian, with two modes over the same text: **live preview** (markdown
 syntax hidden except on the line being edited; links, images and
