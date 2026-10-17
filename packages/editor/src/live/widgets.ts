@@ -38,6 +38,8 @@ export class CheckboxWidget extends WidgetType {
     box.addEventListener('mousedown', (e) => e.preventDefault());
     box.addEventListener('click', (e) => {
       e.preventDefault();
+      // A note shown before it arrives is not to be changed.
+      if (view.state.readOnly) return;
       view.dispatch(toggleTaskAt(view.state, this.toggleAt));
     });
     return box;

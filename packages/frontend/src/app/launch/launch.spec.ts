@@ -14,6 +14,7 @@ import {
   remindersTestProviders,
 } from '../testing/fakes';
 import { CaptureService } from '../capture/capture.service';
+import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
 import { Launch, sharedText } from './launch';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { SHARE_INBOX } from '../share/share-inbox';
@@ -392,6 +393,65 @@ describe('Launch', () => {
     await openMore(el, fixture);
     expect(toggle().textContent?.trim()).toBe('Preview');
     toggle().click();
+  });
+
+  it('views a note, ticking a task from anywhere on its line, and remembers it (2026-10-17)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('shop', 'Shop\n- [ ] eggs')]);
+    const { el, fixture, go } = await render({ notes, url: '/n/shop' });
+    const content = () => el.querySelector('.cm-content')!;
+    buttonNamed(el, 'View')!.click();
+    await fixture.whenStable();
+    expect(content().getAttribute('contenteditable')).toBe('false');
+    expect(el.querySelector('.tools')).toBeNull();
+    content()
+      .querySelectorAll('.cm-line')[1]
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await fixture.whenStable();
+    expect(TestBed.inject(CaptureService).current()).toBe('Shop\n- [x] eggs');
+    // A fresh note is for typing; the viewed one stays viewed.
+    await go('/');
+    expect(content().getAttribute('contenteditable')).toBe('true');
+    expect(buttonNamed(el, 'View')).toBeUndefined();
+    await go('/n/shop');
+    expect(content().getAttribute('contenteditable')).toBe('false');
+    buttonNamed(el, 'Edit')!.click();
+    await fixture.whenStable();
+    expect(content().getAttribute('contenteditable')).toBe('true');
+  });
+
+  it('lists projects as a tree with their open tasks, and opens one', async () => {
+    const notes = new FakeNotes();
+    const project = (id: string, body: string, parent?: string) => ({
+      ...noteRecord(id, body),
+      kind: 'concept' as const,
+      conceptType: 'project' as const,
+      ...(parent ? { parent } : {}),
+    });
+    notes.signIn([
+      project('c-writing', 'Writing\n- [ ] draft\n- [x] outline'),
+      project('c-pottery', 'Pottery'),
+      project('c-glazes', 'Glazes\n- [ ] test tiles', 'c-pottery'),
+      { ...project('c-old', 'Old'), archived: true },
+      { ...project('c-shipped', 'Shipped'), projectStatus: 'done' as const },
+      noteRecord('n1', 'Loose note'),
+    ]);
+    const { el, fixture, url } = await render({ notes });
+    // A project's tasks are reminders linked to it (#41).
+    TestBed.inject(RemindersService).reminders.set([
+      { id: 'r1', text: 'Mix glaze', status: 'open', noteId: 'c-glazes', createdBy: 'user' },
+      { id: 'r2', text: 'Fired', status: 'done', noteId: 'c-glazes', createdBy: 'user' },
+    ] as ReminderRecord[]);
+    buttonNamed(el, 'Projects')!.click();
+    await fixture.whenStable();
+    const items = [...el.querySelectorAll('#project-list button')].map((b) =>
+      b.textContent!.replace(/\s+/g, ' ').trim(),
+    );
+    expect(items).toEqual(['Pottery', 'Glazes 2 open', 'Writing 1 open']);
+    (el.querySelectorAll('#project-list button')[0] as HTMLButtonElement).click();
+    await fixture.whenStable();
+    expect(url()).toBe('/n/c-pottery');
+    expect(el.querySelector('#project-list')).toBeNull();
   });
 
   it('resizes Right Now from its handle, by drag or keys', async () => {

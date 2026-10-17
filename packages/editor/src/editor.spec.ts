@@ -184,3 +184,53 @@ describe('createNoteEditor', () => {
     expect(e.getText()).toBe('- [ ] eggs');
   });
 });
+
+describe('viewing (2026-10-17)', () => {
+  const lines = (e: NoteEditor) => [...e.view.contentDOM.querySelectorAll('.cm-line')];
+  const tap = (el: Element, at = { x: 0, y: 0 }, from = at) => {
+    el.dispatchEvent(
+      new MouseEvent('pointerdown', { bubbles: true, clientX: from.x, clientY: from.y }),
+    );
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: at.x, clientY: at.y }));
+  };
+
+  it('draws every line, the selection’s too, and takes no typing', () => {
+    const e = make('- [ ] eggs\n**milk**', { viewing: true });
+    e.view.dispatch({ selection: { anchor: 0, head: e.getText().length } });
+    expect(e.isViewing()).toBe(true);
+    expect(e.view.contentDOM.getAttribute('contenteditable')).toBe('false');
+    expect(e.view.dom.classList).toContain('mg-viewing');
+    expect(e.view.dom.querySelector('input.mg-checkbox')).not.toBeNull();
+    expect(e.view.contentDOM.textContent).not.toContain('**');
+    e.setViewing(false);
+    expect(e.view.contentDOM.getAttribute('contenteditable')).toBe('true');
+    expect(e.view.contentDOM.textContent).toContain('**');
+  });
+
+  it('ticks a task when its line is tapped anywhere, and only then', () => {
+    const e = make('Shop\n- [ ] eggs\n  - [x] milk\n```\n- [ ] code\n```', { viewing: true });
+    e.view.dispatch({ selection: { anchor: 0 } });
+    tap(lines(e)[1]);
+    expect(e.getText()).toBe('Shop\n- [x] eggs\n  - [x] milk\n```\n- [ ] code\n```');
+    tap(lines(e)[2]);
+    expect(e.getText()).toBe('Shop\n- [x] eggs\n  - [ ] milk\n```\n- [ ] code\n```');
+    // Not a task by the grammar, and not a task at all.
+    tap(lines(e)[4]);
+    tap(lines(e)[0]);
+    // A drag selects; it does not tick.
+    tap(lines(e)[1], { x: 40, y: 0 }, { x: 0, y: 0 });
+    expect(e.getText()).toBe('Shop\n- [x] eggs\n  - [ ] milk\n```\n- [ ] code\n```');
+  });
+
+  it('leaves a tapped line alone while editing, or while read only', () => {
+    const e = make('- [ ] eggs\nnext');
+    e.view.dispatch({ selection: { anchor: e.getText().length } });
+    tap(lines(e)[0]);
+    expect(e.getText()).toBe('- [ ] eggs\nnext');
+    e.setViewing(true);
+    e.setReadOnly(true);
+    tap(lines(e)[0]);
+    (e.view.dom.querySelector('input.mg-checkbox') as HTMLInputElement).click();
+    expect(e.getText()).toBe('- [ ] eggs\nnext');
+  });
+});

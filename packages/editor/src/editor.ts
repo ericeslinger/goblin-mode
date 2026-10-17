@@ -11,7 +11,14 @@ import {
 } from '@codemirror/state';
 import { EditorView, keymap, placeholder } from '@codemirror/view';
 import type { Mode } from './live/decorations';
-import { livePreview, modeField, refreshImages, setMode } from './live/extension';
+import {
+  livePreview,
+  modeField,
+  refreshImages,
+  setMode,
+  setViewing,
+  viewingField,
+} from './live/extension';
 import { hooksFacet, type NoteEditorHooks } from './live/hooks';
 import {
   continueList,
@@ -33,6 +40,8 @@ export interface NoteEditorOptions extends NoteEditorHooks {
   placeholder?: string;
   /** Shown but not editable, e.g. while the note has not arrived. */
   readOnly?: boolean;
+  /** Opens viewing; see `setViewing`. */
+  viewing?: boolean;
   /** Called with the full text after every change. */
   onChange?: (text: string) => void;
 }
@@ -51,6 +60,13 @@ export interface NoteEditor {
   getMode(): Mode;
   setMode(mode: Mode): void;
   setReadOnly(readOnly: boolean): void;
+  /**
+   * Viewing (2026-10-17): every line drawn, none turned back into
+   * source; text can be selected but not typed, so a tap opens no
+   * keyboard, and a tap on a task's line ticks it.
+   */
+  setViewing(viewing: boolean): void;
+  isViewing(): boolean;
   /**
    * Where the window starts being covered (y, px from the top): an
    * on-screen keyboard and the ribbon over it overlay the page. The
@@ -86,14 +102,19 @@ export interface NoteEditor {
 /** Marks text the host loaded (setText), which is not the user typing. */
 const loaded = Annotation.define<boolean>();
 
-/** Both halves of read-only: no edits, and no caret or keyboard input. */
-function readOnlyExtension(readOnly: boolean) {
-  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
+/**
+ * Both halves of read-only: no edits, and no caret or keyboard input.
+ * Viewing takes only the second: its ticks are edits.
+ */
+function readOnlyExtension(readOnly: boolean, viewing: boolean) {
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly && !viewing)];
 }
 
 export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
   const { openLink, resolveAttachment, suggestLinks, suggestMoods, openImage, openFile } = options;
   const editing = new Compartment();
+  let readOnly = options.readOnly ?? false;
+  let viewing = options.viewing ?? false;
   let inset = 0;
   /** How much of the editor's visible box lies at or below `y`. */
   const overlap = (y: number | undefined) => {
@@ -146,9 +167,9 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         openFile,
       }),
       linkAutocomplete,
-      livePreview(options.mode ?? 'live'),
+      livePreview(options.mode ?? 'live', viewing),
       noteTheme,
-      editing.of(readOnlyExtension(options.readOnly ?? false)),
+      editing.of(readOnlyExtension(readOnly, viewing)),
       EditorView.updateListener.of((update) => {
         // Only the user's edits: text the host loads is not reported back,
         // or opening a note would read as typing in it.
@@ -210,9 +231,22 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
     setMode(mode) {
       view.dispatch({ effects: setMode.of(mode) });
     },
-    setReadOnly(readOnly) {
-      view.dispatch({ effects: editing.reconfigure(readOnlyExtension(readOnly)) });
+    setReadOnly(value) {
+      readOnly = value;
+      view.dispatch({ effects: editing.reconfigure(readOnlyExtension(readOnly, viewing)) });
     },
+    setViewing(value) {
+      viewing = value;
+      view.dispatch({
+        effects: [
+          setViewing.of(viewing),
+          editing.reconfigure(readOnlyExtension(readOnly, viewing)),
+        ],
+      });
+      // Lets the keyboard go on a phone.
+      if (viewing) view.contentDOM.blur();
+    },
+    isViewing: () => view.state.field(viewingField),
     setCoveredFrom(y) {
       const px = overlap(y);
       const grew = px > inset;

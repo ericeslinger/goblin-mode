@@ -23,6 +23,7 @@ import {
   withProjectSections,
 } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
+import { projectTree } from '../browse/lenses';
 import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
@@ -31,6 +32,7 @@ import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
 import { EditorModeService } from '../note-editor/editor-mode.service';
 import { NoteEditorComponent } from '../note-editor/note-editor';
+import { RemindersService } from '../reminders/reminders.service';
 import { RightNowPanel } from '../reminders/right-now-panel';
 import { ListView } from '../shopping/list-view';
 import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
@@ -143,6 +145,38 @@ export class Launch {
   /** The note the latest share went into. */
   private shareNote?: string;
   protected readonly previousOpen = signal(false);
+  private readonly reminders = inject(RemindersService);
+  /**
+   * Projects, one tap from any note (2026-10-17): each live project not
+   * done, as a tree, with what is open on it: its tasks (reminders
+   * linked to it) and the unticked boxes on its page.
+   */
+  protected readonly projects = computed(() => {
+    const tasks = new Map<string, number>();
+    for (const r of this.reminders.reminders()) {
+      if (r.noteId && r.status !== 'done') tasks.set(r.noteId, (tasks.get(r.noteId) ?? 0) + 1);
+    }
+    const unticked = (body: string) =>
+      checklist(body).reduce((sum, s) => sum + s.items.filter((i) => !i.done).length, 0);
+    return projectTree(
+      this.notes
+        .notes()
+        .filter(
+          (n) =>
+            n.kind === 'concept' &&
+            n.conceptType === 'project' &&
+            n.projectStatus !== 'done' &&
+            !n.archived,
+        ),
+    ).map(({ note, depth }) => ({
+      note,
+      depth,
+      open: (tasks.get(note.id) ?? 0) + unticked(note.body),
+    }));
+  });
+  protected readonly projectsOpen = signal(false);
+  /** The open note is being viewed, not edited (2026-10-17). */
+  protected readonly viewing = computed(() => this.modes.viewing(this.capture.open().id));
   protected readonly templatesOpen = signal(false);
   /** The More menu (#78): everything but writing, one tap away. */
   protected readonly moreOpen = signal(false);
@@ -295,6 +329,7 @@ export class Launch {
    */
   protected async newNote(): Promise<void> {
     this.previousOpen.set(false);
+    this.projectsOpen.set(false);
     // Saved first, so a note typed a moment ago exists and keeps its URL.
     this.capture.flush();
     const old = this.capture.open().id;
@@ -391,8 +426,17 @@ export class Launch {
     this.capture.replace(change.body, { keep: change.keep });
   }
 
+  /**
+   * Viewing or editing, remembered for this note. Back to editing, the
+   * keyboard waits for a tap where the typing is to go.
+   */
+  protected toggleViewing(): void {
+    this.modes.setViewing(this.capture.open().id, !this.viewing());
+  }
+
   protected openPrevious(id: string): void {
     this.previousOpen.set(false);
+    this.projectsOpen.set(false);
     void this.router.navigate(['/n', id]);
   }
 
