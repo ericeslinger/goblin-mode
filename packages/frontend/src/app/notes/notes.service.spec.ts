@@ -262,6 +262,75 @@ describe('NotesService', () => {
     expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'REMOVED', projectKind: 'content' });
   });
 
+  it('keeps a project’s stages and tags, and an item’s stage (2026-10-17)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      {
+        id: 'pots',
+        data: {
+          body: '',
+          title: 'Pots',
+          kind: 'concept',
+          conceptType: 'project',
+          stages: ['plan', 'bisque'],
+          itemTags: ['gift'],
+        },
+      },
+      { id: 'vase', data: { body: '', title: 'Vase', kind: 'concept', stage: 'bisque' } },
+    ]);
+    expect(notes.find('pots')).toMatchObject({ stages: ['plan', 'bisque'], itemTags: ['gift'] });
+    expect(notes.find('vase')?.stage).toBe('bisque');
+    notes.updateConcept('pots', { stages: [' plan', 'bisque', 'plan', ''], itemTags: ['big'] });
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      stages: ['plan', 'bisque'],
+      itemTags: ['big'],
+    });
+    notes.updateConcept('vase', { stage: 'plan', tags: ['gift'] });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ stage: 'plan', tags: ['gift'] });
+    notes.updateConcept('vase', { stage: null });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ stage: 'REMOVED' });
+  });
+
+  it('makes a new item in a project, or files the concept a name has (2026-10-17)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'pots', data: { body: '', title: 'Pots', kind: 'concept', conceptType: 'project' } },
+      { id: 'c-cup', data: { body: '', title: 'Cup', kind: 'concept', synonyms: ['mug'] } },
+    ]);
+    expect(notes.createItem('pots', 'Teapot', 'plan')).toBe('c-teapot');
+    expect(api.createIfAbsent.mock.lastCall![2]).toMatchObject({
+      title: 'Teapot',
+      conceptType: 'project',
+      parent: 'pots',
+      stage: 'plan',
+    });
+    expect(notes.createItem('pots', 'Mug')).toBe('c-cup');
+    expect(api.set.mock.lastCall![2]).toMatchObject({ conceptType: 'project', parent: 'pots' });
+    expect(notes.createItem('pots', 'pots')).toBeUndefined();
+    api.set.mockClear();
+    push([
+      { id: 'pots', data: { body: '', title: 'Pots', kind: 'concept', conceptType: 'project' } },
+      { id: 'c-vik', data: { body: '', title: 'Vik', kind: 'concept', conceptType: 'person' } },
+      {
+        id: 'c-studio',
+        data: { body: '', title: 'Studio', kind: 'concept', conceptType: 'project' },
+      },
+      {
+        id: 'c-room',
+        data: { body: '', title: 'Room', kind: 'concept', conceptType: 'project', parent: 'pots' },
+      },
+    ]);
+    // A person stays a person; a project never goes under its own child.
+    expect(notes.createItem('pots', 'Vik')).toBeUndefined();
+    expect(notes.createItem('c-room', 'Pots')).toBeUndefined();
+    expect(api.set).not.toHaveBeenCalled();
+    expect(notes.createItem('pots', 'Studio', 'plan')).toBe('c-studio');
+    expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'pots', stage: 'plan' });
+    expect(notes.createItem('pots', '  ')).toBeUndefined();
+  });
+
   it('refuses a name another note already answers to', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

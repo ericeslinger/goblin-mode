@@ -195,6 +195,43 @@ picks the parent (never the project itself or one under it,
 under it. Browse, Projects, shows the tree with a status filter; a
 project whose parent is filtered out stands at the top.
 
+**Stages and items (Eric, 2026-10-17; extends #41, and answers
+"people and project fields" in QUESTIONS.md for projects).** Eric
+uses a project page to track things through stages: each pot in
+pottery moves plan, thrown, trimmed, bisque, glazed. A project's
+stages and the tags its items may carry are data, so a new stage or
+category needs no new app: `stages` (ordered) and `itemTags` on the
+project. Its items are its sub-projects (a pot is a project with
+`parent: c-pottery`, so it has a page that progress notes link to)
+and its tasks (reminders with its `noteId`); each item may have a
+`stage` (a sub-project's on its note, a task's on its reminder) and
+tags (`tags` on either). The header lists both kinds of item as rows
+in stage order (`stageOrder`: the project's order, then a stage the
+project has since dropped, then none, names within), each with a
+stage dropdown, its tags, and a "+ tag" toggle row; a sub-project's
+row also says its status and what is open on it (its tasks and
+unticked boxes), which is how armature's sub-projects show their
+tasks. "+ project" makes a sub-project (`createItem`, made like any
+concept once online; a name a concept already has files that concept
+instead). A stage the project drops stays on its items, shown and
+selectable, never cleared behind Eric's back. Pots were the reason
+for sub-projects over rows on the project's own record: a pot gets a
+page, links and History, and Claude can file to it. Through MCP,
+`create_concept` and `refile` take `stages`, `itemTags` and `stage`,
+and `create_reminder` and `update_reminder` take `stage` and `tags`;
+a stage must be one of the project's, so a typo is refused, naming
+the stages it has.
+
+**Room on a project page (Eric, 2026-10-17).** The header had grown
+until a project's text had no room on a phone. Now only the name and
+type show, with a one-line kind and status and a Details toggle for
+the rest (other names, parent, kind, status, stages, item tags); the
+items stay out, being the page's point. The header scrolls on its own
+past 55% of the screen. Under the note, Linked from folds to one
+button saying how many notes link here, and opens to the list and
+Often together; each note opens folded. The back of the note (#112)
+is still to be designed with Eric and will take these over.
+
 **Feelings journal (#40, Eric, 2026-10-08).** Moods are concepts of
 type `mood`, not tags. Settings, Add a feelings journal, makes an
 entry template (`FEELINGS_TEMPLATE`, with a `Moods:` line) and three
@@ -1036,14 +1073,14 @@ it, one backticked tool name per row.
 | `list_notes` | Recent notes, newest first, optionally since a time | Search paragraph below |
 | `get_note` | One note in full with its links, backlinks and Drive files | Links and concepts (#28) |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
-| `create_concept` | A new person, project or other concept; refused if a name is taken | Organize tools (#34), Projects (#41) |
+| `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage | Organize tools (#34), Projects (#41), Stages and items |
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists | Safe co-editing (#37) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
 | `link_notes` | Adds a `See also [[...]]` line at the end of a note | Organize tools (#34) |
 | `split_note` | Cuts a note into pieces, refusing any rewording | Organize tools (#34) |
 | `merge_notes` | Joins notes into a new one, archiving the originals | Organize tools (#34) |
-| `refile` | Concept type and other names; tags on any note | Organize tools (#34) |
+| `refile` | Concept type and other names; tags on any note; a project's parent, kind, status, stages, item tags and stage | Organize tools (#34), Stages and items |
 | `archive_note` | Archives or restores a note | Organize tools (#34) |
 | `suggest_changes` | Stores link, merge and refile suggestions for Eric to accept | Nightly suggestions (#35) |
 | `list_templates` | Templates with their Instructions for Claude and skeleton | Using templates (#38) |
@@ -1057,8 +1094,8 @@ it, one backticked tool name per row.
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |
 | `search_attachments` | Full-text search across every PDF and saved page | Attachment text, server half (#45) |
 | `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |
-| `create_reminder` | A reminder, with a time, a repeat or Someday | Right Now (as built) |
-| `update_reminder` | Changes, moves, snoozes or finishes a reminder | Right Now (as built) |
+| `create_reminder` | A reminder, with a time, a repeat or Someday; a project task's stage and tags | Right Now (as built), Stages and items |
+| `update_reminder` | Changes, moves, snoozes or finishes a reminder; a project task's stage and tags | Right Now (as built), Stages and items |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it

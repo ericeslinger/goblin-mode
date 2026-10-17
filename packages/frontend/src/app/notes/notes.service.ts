@@ -47,6 +47,9 @@ import { ONLINE, RANDOM_BYTES } from '../platform/platform';
 export const PENDING_CONCEPTS_KEY = 'goblin.pendingConcepts';
 /** The ids among them to make as moods (#40). */
 export const PENDING_MOODS_KEY = 'goblin.pendingMoods';
+/** Items waiting to be made, by id: the project they go in, and their stage. */
+export const PENDING_ITEMS_KEY = 'goblin.pendingItems';
+type PendingItems = Record<string, { parent: string; stage?: string }>;
 
 /** A note as the app lists and opens it. */
 export interface NoteRecord {
@@ -70,6 +73,10 @@ export interface NoteRecord {
   projectKind?: ProjectKind;
   /** A project's status, e.g. 'active' or 'waiting'. */
   projectStatus?: ProjectStatus;
+  /** A project's stages and item tags; a sub-project's stage (2026-10-17). */
+  stages?: string[];
+  itemTags?: string[];
+  stage?: string;
   /** Ids this note links to (DESIGN.md, Links and concepts). */
   links: string[];
   /** e.g. 'feelings'. */
@@ -150,6 +157,9 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(ProjectStatus.safeParse(data['projectStatus']).success
       ? { projectStatus: data['projectStatus'] as ProjectStatus }
       : {}),
+    ...(Array.isArray(data['stages']) ? { stages: data['stages'].map(String) } : {}),
+    ...(Array.isArray(data['itemTags']) ? { itemTags: data['itemTags'].map(String) } : {}),
+    ...(typeof data['stage'] === 'string' ? { stage: data['stage'] } : {}),
     ...(typeof data['templateMode'] === 'string' ? { templateMode: data['templateMode'] } : {}),
     ...(typeof data['fromTemplate'] === 'string' ? { fromTemplate: data['fromTemplate'] } : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
@@ -365,6 +375,33 @@ export class NotesService {
     return id;
   }
 
+  /**
+   * A new item in project `parent` (2026-10-17): a sub-project named
+   * `name`, at `stage`. A name a concept already answers to files that
+   * concept there instead. Made like any concept: once online.
+   */
+  createItem(parent: string, name: string, stage?: string): string | undefined {
+    const trimmed = name.trim();
+    if (!trimmed) return undefined;
+    const known = this.names().get(normalizeName(trimmed));
+    if (known !== undefined) {
+      // Only a project or a plain concept, and only where it may go: a
+      // person stays a person, and a project never goes under its own
+      // sub-project (review on #122).
+      const concept = this.find(known);
+      const type = concept?.conceptType ?? 'other';
+      const projects = this.notes().filter((n) => n.conceptType === 'project');
+      if (concept?.kind !== 'concept' || (type !== 'project' && type !== 'other')) return undefined;
+      if (known === parent || !canParent(known, parent, projects)) return undefined;
+      this.updateConcept(known, { conceptType: 'project', parent, ...(stage ? { stage } : {}) });
+      return known;
+    }
+    const id = conceptId(trimmed);
+    const items = this.store.get<PendingItems>(PENDING_ITEMS_KEY) ?? {};
+    this.store.set(PENDING_ITEMS_KEY, { ...items, [id]: { parent, ...(stage ? { stage } : {}) } });
+    return this.createConcept(trimmed);
+  }
+
   /** Makes the concepts waiting on this device, where it can. */
   makePendingConcepts(): void {
     const uid = this.uid;
@@ -378,15 +415,19 @@ export class NotesService {
       if (this.making.has(id)) continue;
       this.making.add(id);
       const now = this.api.serverTime();
+      const item = (this.store.get<PendingItems>(PENDING_ITEMS_KEY) ?? {})[id];
       const stub = {
         kind: 'concept',
         body: '',
         title: name,
         // The name is Eric's: a settle never retitles a concept.
         titleSource: 'user',
-        conceptType: (this.store.get<string[]>(PENDING_MOODS_KEY) ?? []).includes(id)
-          ? 'mood'
-          : 'other',
+        conceptType: item
+          ? 'project'
+          : (this.store.get<string[]>(PENDING_MOODS_KEY) ?? []).includes(id)
+            ? 'mood'
+            : 'other',
+        ...(item ? { parent: item.parent, ...(item.stage ? { stage: item.stage } : {}) } : {}),
         synonyms: [],
         links: [],
         tags: [],
@@ -413,6 +454,9 @@ export class NotesService {
     const moods = (this.store.get<string[]>(PENDING_MOODS_KEY) ?? []).filter((m) => m !== id);
     if (moods.length) this.store.set(PENDING_MOODS_KEY, moods);
     else this.store.remove(PENDING_MOODS_KEY);
+    const { [id]: _made, ...items } = this.store.get<PendingItems>(PENDING_ITEMS_KEY) ?? {};
+    if (Object.keys(items).length) this.store.set(PENDING_ITEMS_KEY, items);
+    else this.store.remove(PENDING_ITEMS_KEY);
   }
 
   /**
@@ -435,6 +479,12 @@ export class NotesService {
       parent?: string | null;
       projectKind?: ProjectKind;
       projectStatus?: ProjectStatus;
+      /** A project's stages and item tags, in order (2026-10-17). */
+      stages?: string[];
+      itemTags?: string[];
+      /** A sub-project's stage; null clears it. */
+      stage?: string | null;
+      tags?: string[];
     },
   ): string[] {
     const concept = this.find(id);
@@ -478,6 +528,12 @@ export class NotesService {
     }
     if (change.projectKind) update['projectKind'] = change.projectKind;
     if (change.projectStatus) update['projectStatus'] = change.projectStatus;
+    const tidy = (list: string[]) => [...new Set(list.map((n) => n.trim()).filter(Boolean))];
+    if (change.stages) update['stages'] = tidy(change.stages);
+    if (change.itemTags) update['itemTags'] = tidy(change.itemTags);
+    if (change.stage === null) update['stage'] = this.api.removeField();
+    else if (change.stage !== undefined) update['stage'] = change.stage;
+    if (change.tags) update['tags'] = tidy(change.tags);
     if (Object.keys(update).length === 0) return refused;
     const path = paths.note(this.uid, id);
     const stamp = {

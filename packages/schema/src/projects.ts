@@ -72,3 +72,21 @@ export function selfAndDescendants(id: string, projects: readonly Parented[]): S
 export function canParent(id: string, parent: string, projects: readonly Parented[]): boolean {
   return !selfAndDescendants(id, projects).has(parent);
 }
+
+/**
+ * Items in the order of their project's `stages` (2026-10-17): first
+ * stage first, then a stage the project no longer has, then none; by
+ * `name` within a stage. A copy; `items` is left as it was.
+ */
+export function stageOrder<T extends { stage?: string }>(
+  items: readonly T[],
+  stages: readonly string[],
+  name: (item: T) => string,
+): T[] {
+  const rank = (item: T) => {
+    if (item.stage === undefined) return stages.length + 1;
+    const at = stages.indexOf(item.stage);
+    return at === -1 ? stages.length : at;
+  };
+  return [...items].sort((a, b) => rank(a) - rank(b) || name(a).localeCompare(name(b)));
+}

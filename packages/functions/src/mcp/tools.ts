@@ -140,8 +140,19 @@ function reminderView(id: string, d: Data) {
     nextDue: due === undefined ? undefined : new Date(due).toISOString(),
     recurrence: d['recurrence'],
     noteId: d['noteId'],
+    stage: d['stage'],
+    tags: d['tags'],
     createdBy: d['createdBy'],
   };
+}
+
+/** A project's stages or item tags: trimmed, each once, none empty (2026-10-17). */
+function nameList(list: string[]): string[] {
+  const out = unique(list.map((n) => n.trim()).filter(Boolean));
+  if (out.length > MAX_NAMES) throw new ToolError(`at most ${MAX_NAMES} stages or tags`);
+  if (out.some((n) => n.length > MAX_NAME))
+    throw new ToolError(`a stage or tag is at most ${MAX_NAME} characters`);
+  return out;
 }
 
 /** Fields done, snooze and a new time change, as Firestore values. */
@@ -216,6 +227,35 @@ export class NotesTools {
 
   private reminders() {
     return this.db.collection(paths.reminders(this.uid));
+  }
+
+  /**
+   * Refuses `stage` unless project `parent` lists it among its stages
+   * (2026-10-17), naming the ones it has. Read in `tx` when given.
+   */
+  private async checkStage(
+    parent: string | undefined,
+    stage: string | undefined,
+    tx?: Transaction,
+    tags?: string[],
+  ) {
+    if (!parent) throw new ToolError('a stage is a place in a project’s stages; give its project');
+    const ref = this.notes().doc(parent);
+    const doc = tx ? await tx.get(ref) : await ref.get();
+    const itemTags = (doc.data()?.['itemTags'] as string[] | undefined) ?? [];
+    const unknown = (tags ?? []).filter((t) => !itemTags.includes(t));
+    if (unknown.length)
+      throw new ToolError(
+        `${parent} has the item tags ${itemTags.join(', ') || '(none)'}; add ${unknown.join(', ')} with refile first`,
+      );
+    if (stage === undefined) return;
+    const stages = (doc.data()?.['stages'] as string[] | undefined) ?? [];
+    if (!stages.includes(stage))
+      throw new ToolError(
+        stages.length
+          ? `${parent} has the stages ${stages.join(', ')}; add ${stage} with refile first`
+          : `${parent} has no stages yet; set them with refile`,
+      );
   }
 
   /** Every note, with the name index over them (bodies included). */
@@ -350,6 +390,10 @@ export class NotesTools {
     parent?: string;
     kind?: ProjectKind;
     status?: ProjectStatus;
+    /** A project's stages and item tags; an item's stage (2026-10-17). */
+    stages?: string[];
+    itemTags?: string[];
+    stage?: string;
   }) {
     const name = args.name.trim();
     if (!name) throw new ToolError('name must not be empty');
@@ -362,8 +406,12 @@ export class NotesTools {
     if (synonyms.some((s) => s.length > MAX_NAME))
       throw new ToolError(`a name is at most ${MAX_NAME} characters`);
     const project = args.type === 'project';
-    if (!project && (args.parent || args.kind || args.status))
-      throw new ToolError('only a project has a parent, a kind and a status');
+    if (!project && (args.parent || args.kind || args.status || args.stages || args.itemTags))
+      throw new ToolError('only a project has a parent, a kind, a status, stages and item tags');
+    if (args.stage && !args.parent) throw new ToolError('a stage is a place in a parent’s stages');
+    const stages = args.stages && nameList(args.stages);
+    const itemTags = args.itemTags && nameList(args.itemTags);
+    if (args.stage?.trim()) await this.checkStage(args.parent, args.stage.trim());
     const { docs, index: names } = await this.garden();
     if (args.parent && !projectsIn(docs).some((p) => p.id === args.parent))
       throw new ToolError(`no project ${args.parent}`);
@@ -383,6 +431,9 @@ export class NotesTools {
       ...(args.parent ? { parent: args.parent } : {}),
       ...(args.kind ? { projectKind: args.kind } : {}),
       ...(args.status ? { projectStatus: args.status } : {}),
+      ...(stages ? { stages } : {}),
+      ...(itemTags ? { itemTags } : {}),
+      ...(args.stage?.trim() ? { stage: args.stage.trim() } : {}),
       synonyms,
       links: resolveLinks(targetsOf(body), names),
       tags,
@@ -491,6 +542,9 @@ export class NotesTools {
               parent: d.data['parent'] as string | undefined,
               kind: d.data['projectKind'] as string | undefined,
               status: d.data['projectStatus'] as string | undefined,
+              stages: d.data['stages'] as string[] | undefined,
+              itemTags: d.data['itemTags'] as string[] | undefined,
+              stage: d.data['stage'] as string | undefined,
             }
           : {}),
         linkedFrom: counts.get(d.id) ?? 0,
@@ -719,6 +773,11 @@ export class NotesTools {
     parent?: string | null;
     kind?: ProjectKind;
     status?: ProjectStatus;
+    /** A project's stages and item tags, whole (2026-10-17). */
+    stages?: string[];
+    itemTags?: string[];
+    /** An item's stage in its parent; null clears it. */
+    stage?: string | null;
   }) {
     const { index } = await this.garden();
     const ref = this.notes().doc(args.id);
@@ -746,8 +805,16 @@ export class NotesTools {
         }
       }
       const project = (args.type ?? current['conceptType']) === 'project';
-      if (!project && (args.parent !== undefined || args.kind || args.status))
-        throw new ToolError('only a project has a parent, a kind and a status');
+      if (
+        !project &&
+        (args.parent !== undefined ||
+          args.kind ||
+          args.status ||
+          args.stages ||
+          args.itemTags ||
+          args.stage !== undefined)
+      )
+        throw new ToolError('only a project has a parent, a kind, a status, stages and item tags');
       if (args.parent === null || args.parent === '') {
         if (current['parent'] !== undefined) {
           update['parent'] = FieldValue.delete();
@@ -782,6 +849,37 @@ export class NotesTools {
       if (args.status && args.status !== current['projectStatus']) {
         update['projectStatus'] = args.status;
         said.push(`status ${args.status}`);
+      }
+      const same = (a: unknown, b: string[]) => JSON.stringify(a ?? []) === JSON.stringify(b);
+      if (args.stages) {
+        const stages = nameList(args.stages);
+        if (!same(current['stages'], stages)) {
+          update['stages'] = stages;
+          said.push(`stages ${stages.join(' → ') || 'none'}`);
+        }
+      }
+      if (args.itemTags) {
+        const itemTags = nameList(args.itemTags);
+        if (!same(current['itemTags'], itemTags)) {
+          update['itemTags'] = itemTags;
+          said.push(`item tags ${itemTags.join(', ') || 'none'}`);
+        }
+      }
+      const stage = args.stage?.trim();
+      if (stage && stage !== current['stage']) {
+        // Moved to the top level in this same call: no parent's stages to be in.
+        const parent =
+          args.parent === null || args.parent === ''
+            ? undefined
+            : (args.parent ?? (current['parent'] as string | undefined));
+        await this.checkStage(parent, stage, tx);
+      }
+      if ((args.stage === null || stage === '') && current['stage'] !== undefined) {
+        update['stage'] = FieldValue.delete();
+        said.push('no stage');
+      } else if (stage && stage !== current['stage']) {
+        update['stage'] = stage;
+        said.push(`stage ${stage}`);
       }
       const refused: string[] = [];
       if (args.addSynonyms?.length) {
@@ -1271,6 +1369,9 @@ export class NotesTools {
     repeat?: Recurrence['freq'];
     timeZone?: string;
     noteId?: string;
+    /** A project task's stage and tags (2026-10-17). */
+    stage?: string;
+    tags?: string[];
   }) {
     let dueAt = args.dueAt === undefined ? undefined : parseTime(args.dueAt, 'dueAt');
     let recurrence: Recurrence | undefined;
@@ -1288,6 +1389,11 @@ export class NotesTools {
     }
     if (recurrence) data['recurrence'] = recurrence;
     if (args.noteId) data['noteId'] = args.noteId;
+    const tags = args.tags && nameList(args.tags);
+    if (args.stage?.trim() || tags?.length)
+      await this.checkStage(args.noteId, args.stage?.trim() || undefined, undefined, tags);
+    if (args.stage?.trim()) data['stage'] = args.stage.trim();
+    if (tags) data['tags'] = tags;
     Reminder.parse(data);
     const id = newId();
     const batch = this.db.batch();
@@ -1311,6 +1417,9 @@ export class NotesTools {
     done?: boolean;
     snoozeUntil?: string;
     noteId?: string;
+    /** A project task's stage (null clears it) and tags, whole (2026-10-17). */
+    stage?: string | null;
+    tags?: string[];
   }) {
     const ref = this.reminders().doc(args.id);
     return this.db.runTransaction(async (tx) => {
@@ -1327,6 +1436,15 @@ export class NotesTools {
       let update: Data = {};
       if (args.text !== undefined) update['text'] = args.text.trim();
       if (args.noteId !== undefined) update['noteId'] = args.noteId;
+      if (args.stage === null || args.stage?.trim() === '') update['stage'] = FieldValue.delete();
+      const tags = args.tags && nameList(args.tags);
+      const stage = args.stage?.trim() || undefined;
+      if (stage || tags?.length) {
+        const project = (args.noteId ?? current['noteId']) as string | undefined;
+        await this.checkStage(project, stage, tx, tags);
+      }
+      if (stage) update['stage'] = stage;
+      if (tags) update['tags'] = tags;
       if (args.dueAt !== undefined) {
         const due = args.dueAt === null ? undefined : parseTime(args.dueAt, 'dueAt');
         update = { ...update, ...timesData({ status: 'open', dueAt: due, nextFireAt: due }) };

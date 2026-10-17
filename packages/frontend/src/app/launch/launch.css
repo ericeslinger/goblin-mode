@@ -204,6 +204,15 @@
   font-size: 14px;
   color: var(--quiet);
 }
+/* A project with many items scrolls in its own box and leaves the note
+   at least half the room (2026-10-17). */
+.concept-header {
+  display: block;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow: auto;
+}
 .links {
   max-height: 35%;
   overflow: auto;

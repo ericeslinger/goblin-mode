@@ -126,6 +126,26 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...project(), parent: 7 }));
   });
 
+  it('accepts a project’s stages and item tags, and an item’s stage (2026-10-17)', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    const project = () => ({ ...note(), conceptType: 'project' });
+    await assertSucceeds(
+      ref.set({ ...project(), stages: ['plan', 'thrown'], itemTags: ['gift'], stage: 'bisque' }),
+    );
+    await assertFails(ref.set({ ...project(), stages: 'plan' }));
+    await assertFails(ref.set({ ...project(), itemTags: 'gift' }));
+    await assertFails(ref.set({ ...project(), stage: 3 }));
+  });
+
+  it('accepts a project task’s stage and tags (2026-10-17)', async () => {
+    const reminder = valid['users/owner/reminders/r1'];
+    const ref = owner().doc('users/owner/reminders/r1');
+    await assertSucceeds(ref.set({ ...reminder(), noteId: 'p', stage: 'draft', tags: ['urgent'] }));
+    await assertFails(ref.set({ ...reminder(), stage: ['draft'] }));
+    await assertFails(ref.set({ ...reminder(), tags: 'urgent' }));
+  });
+
   it('accepts templates and notes made from them, with known modes only', async () => {
     const note = valid['users/owner/notes/n1'];
     const ref = owner().doc('users/owner/notes/n1');

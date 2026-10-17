@@ -16,6 +16,7 @@ async function makeProject(page: Page, name: string): Promise<void> {
   const concept = page.getByRole('region', { name: 'Concept' });
   await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(name);
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('project');
+  await concept.getByRole('button', { name: 'Details' }).click();
 }
 
 test('a project files under another, with its kind, status and tasks', async ({ page }) => {
@@ -37,6 +38,7 @@ test('a project files under another, with its kind, status and tasks', async ({ 
     'Sprout docs',
   );
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('project');
+  await concept.getByRole('button', { name: 'Details' }).click();
   await concept.getByRole('combobox', { name: 'Parent' }).selectOption({ label: 'Sprout' });
   await concept.getByRole('combobox', { name: 'Status' }).selectOption('waiting');
   await concept.getByRole('textbox', { name: 'Add a task' }).fill('Write the guide');

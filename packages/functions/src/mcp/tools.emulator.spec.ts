@@ -407,6 +407,81 @@ describe('organizing tools', () => {
     await expect(t.refile({ id: 'a', status: 'done' })).rejects.toThrow('only a project');
   });
 
+  it('tracks a project’s items through its stages (2026-10-17)', async () => {
+    const t = ticking();
+    await t.createConcept({
+      name: 'Pottery',
+      type: 'project',
+      stages: [' plan', 'thrown', 'bisque', 'plan'],
+      itemTags: ['gift'],
+    });
+    expect(await body('c-pottery')).toMatchObject({
+      stages: ['plan', 'thrown', 'bisque'],
+      itemTags: ['gift'],
+    });
+    await t.createConcept({
+      name: 'Lovers vase',
+      type: 'project',
+      parent: 'c-pottery',
+      stage: 'bisque',
+    });
+    expect((await body('c-lovers-vase'))['stage']).toBe('bisque');
+    await expect(
+      t.createConcept({ name: 'Cup', type: 'project', parent: 'c-pottery', stage: 'fired' }),
+    ).rejects.toThrow('c-pottery has the stages plan, thrown, bisque');
+    await expect(t.createConcept({ name: 'Cup', type: 'project', stage: 'plan' })).rejects.toThrow(
+      'a stage is a place',
+    );
+
+    expect(
+      await t.refile({ id: 'c-pottery', stages: ['plan', 'thrown', 'bisque', 'glazed'] }),
+    ).toMatchObject({ changed: ['stages plan → thrown → bisque → glazed'] });
+    expect(await t.refile({ id: 'c-lovers-vase', stage: 'glazed' })).toMatchObject({
+      changed: ['stage glazed'],
+    });
+    await expect(t.refile({ id: 'c-lovers-vase', stage: 'fired' })).rejects.toThrow(
+      'add fired with refile first',
+    );
+    // Moved to the top level in the same call: no stages to be in.
+    await expect(t.refile({ id: 'c-lovers-vase', parent: null, stage: 'plan' })).rejects.toThrow(
+      'a stage is a place',
+    );
+    expect(await t.refile({ id: 'c-lovers-vase', stage: null })).toMatchObject({
+      changed: ['no stage'],
+    });
+    expect((await body('c-lovers-vase'))['stage']).toBeUndefined();
+    const listed = await t.listConcepts({ type: 'project' });
+    expect(listed.find((c) => c.id === 'c-pottery')).toMatchObject({
+      stages: ['plan', 'thrown', 'bisque', 'glazed'],
+      itemTags: ['gift'],
+    });
+
+    const task = await t.createReminder({
+      text: 'Order clay',
+      noteId: 'c-pottery',
+      stage: 'plan',
+      tags: ['gift'],
+    });
+    expect(task).toMatchObject({ stage: 'plan', tags: ['gift'] });
+    expect(await t.updateReminder({ id: task.id, stage: 'thrown', tags: [] })).toMatchObject({
+      stage: 'thrown',
+      tags: [],
+    });
+    await expect(t.updateReminder({ id: task.id, stage: 'kiln' })).rejects.toThrow(
+      'c-pottery has the stages',
+    );
+    // Tags come from the project's item tags too.
+    await expect(t.updateReminder({ id: task.id, tags: ['urgent'] })).rejects.toThrow(
+      'c-pottery has the item tags gift; add urgent',
+    );
+    await expect(
+      t.createReminder({ text: 'Buy glaze', noteId: 'c-pottery', tags: ['urgent'] }),
+    ).rejects.toThrow('add urgent with refile first');
+    expect(await t.updateReminder({ id: task.id, stage: null })).toMatchObject({
+      stage: undefined,
+    });
+  });
+
   it('gardens chat words under a project, verbatim (#42)', async () => {
     await eric('p', '## Overview\nA game.\n\n## Ideas\n\n## Open questions\n\n## Decisions\n', {
       kind: 'concept',
