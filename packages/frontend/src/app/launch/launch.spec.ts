@@ -309,9 +309,19 @@ describe('Launch', () => {
     const notes = new FakeNotes();
     const body = 'Packing\n- socks\n\n## Instructions for Claude\nAsk where to first.';
     notes.signIn([{ ...noteRecord('t1', body), kind: 'template' }]);
-    await render({ notes, url: '/n/t1' });
+    const { fixture } = await render({ notes, url: '/n/t1' });
     expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask where to first.');
-    expect(TestBed.inject(CaptureService).current()).toBe('Packing\n- socks\n');
+    // The text keeps the section until the field reads back with it.
+    const capture = TestBed.inject(CaptureService);
+    expect(capture.current()).toBe(body);
+    notes.notes.set([{ ...noteRecord('t1', body), kind: 'template', instructions: 'Other.' }]);
+    await fixture.whenStable();
+    expect(capture.current()).toBe(body);
+    notes.notes.set([
+      { ...noteRecord('t1', body), kind: 'template', instructions: 'Ask where to first.' },
+    ]);
+    await fixture.whenStable();
+    expect(capture.current()).toBe('Packing\n- socks\n');
   });
 
   it('makes the context note when first opened, and says how long it is (#113)', async () => {

@@ -234,16 +234,18 @@ export class Launch {
     });
     // A template from before #111 holds its Instructions for Claude in its
     // text: the first time it is open here, they move to their own field,
-    // word for word, and the text keeps the rest.
+    // word for word, and the text keeps the rest. The field is written
+    // first; the section leaves the text only once the field reads back
+    // holding the same words, so they are never in neither (review on #123).
     effect(() => {
       const note = this.record();
-      if (note?.kind !== 'template' || note.instructions !== undefined || this.waiting()) return;
+      if (note?.kind !== 'template' || this.waiting()) return;
       if (note.id !== this.capture.open().id) return;
       untracked(() => {
         const { skeleton, instructions } = templateParts(this.capture.current());
         if (!instructions) return;
-        this.notes.setInstructions(note.id, instructions);
-        this.capture.replace(`${skeleton}\n`);
+        if (note.instructions === undefined) this.notes.setInstructions(note.id, instructions);
+        else if (note.instructions.trim() === instructions) this.capture.replace(`${skeleton}\n`);
       });
     });
     // Back after five minutes away opens a fresh capture note; the URL
