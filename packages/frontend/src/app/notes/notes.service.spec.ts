@@ -309,6 +309,25 @@ describe('NotesService', () => {
     expect(notes.createItem('pots', 'Mug')).toBe('c-cup');
     expect(api.set.mock.lastCall![2]).toMatchObject({ conceptType: 'project', parent: 'pots' });
     expect(notes.createItem('pots', 'pots')).toBeUndefined();
+    api.set.mockClear();
+    push([
+      { id: 'pots', data: { body: '', title: 'Pots', kind: 'concept', conceptType: 'project' } },
+      { id: 'c-vik', data: { body: '', title: 'Vik', kind: 'concept', conceptType: 'person' } },
+      {
+        id: 'c-studio',
+        data: { body: '', title: 'Studio', kind: 'concept', conceptType: 'project' },
+      },
+      {
+        id: 'c-room',
+        data: { body: '', title: 'Room', kind: 'concept', conceptType: 'project', parent: 'pots' },
+      },
+    ]);
+    // A person stays a person; a project never goes under its own child.
+    expect(notes.createItem('pots', 'Vik')).toBeUndefined();
+    expect(notes.createItem('c-room', 'Pots')).toBeUndefined();
+    expect(api.set).not.toHaveBeenCalled();
+    expect(notes.createItem('pots', 'Studio', 'plan')).toBe('c-studio');
+    expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'pots', stage: 'plan' });
     expect(notes.createItem('pots', '  ')).toBeUndefined();
   });
 

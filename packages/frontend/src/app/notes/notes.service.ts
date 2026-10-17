@@ -385,7 +385,14 @@ export class NotesService {
     if (!trimmed) return undefined;
     const known = this.names().get(normalizeName(trimmed));
     if (known !== undefined) {
-      if (known === parent || this.find(known)?.kind !== 'concept') return undefined;
+      // Only a project or a plain concept, and only where it may go: a
+      // person stays a person, and a project never goes under its own
+      // sub-project (review on #122).
+      const concept = this.find(known);
+      const type = concept?.conceptType ?? 'other';
+      const projects = this.notes().filter((n) => n.conceptType === 'project');
+      if (concept?.kind !== 'concept' || (type !== 'project' && type !== 'other')) return undefined;
+      if (known === parent || !canParent(known, parent, projects)) return undefined;
       this.updateConcept(known, { conceptType: 'project', parent, ...(stage ? { stage } : {}) });
       return known;
     }

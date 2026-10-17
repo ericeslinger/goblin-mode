@@ -442,6 +442,10 @@ describe('organizing tools', () => {
     await expect(t.refile({ id: 'c-lovers-vase', stage: 'fired' })).rejects.toThrow(
       'add fired with refile first',
     );
+    // Moved to the top level in the same call: no stages to be in.
+    await expect(t.refile({ id: 'c-lovers-vase', parent: null, stage: 'plan' })).rejects.toThrow(
+      'a stage is a place',
+    );
     expect(await t.refile({ id: 'c-lovers-vase', stage: null })).toMatchObject({
       changed: ['no stage'],
     });
@@ -466,6 +470,13 @@ describe('organizing tools', () => {
     await expect(t.updateReminder({ id: task.id, stage: 'kiln' })).rejects.toThrow(
       'c-pottery has the stages',
     );
+    // Tags come from the project's item tags too.
+    await expect(t.updateReminder({ id: task.id, tags: ['urgent'] })).rejects.toThrow(
+      'c-pottery has the item tags gift; add urgent',
+    );
+    await expect(
+      t.createReminder({ text: 'Buy glaze', noteId: 'c-pottery', tags: ['urgent'] }),
+    ).rejects.toThrow('add urgent with refile first');
     expect(await t.updateReminder({ id: task.id, stage: null })).toMatchObject({
       stage: undefined,
     });
