@@ -60,6 +60,8 @@ export class FakeNotes {
     },
   );
   setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
+  setInstructions = vi.fn((_id: string, _text: string) => undefined);
+  makeContext = vi.fn(async () => undefined);
   newId = () => `new${++this.n}`;
   deviceId = () => 'here';
   find = (id: string) => this.notes().find((x) => x.id === id);

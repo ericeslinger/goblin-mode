@@ -16,6 +16,9 @@ import { map } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   CONCEPT_PREFIX,
+  CONTEXT_ID,
+  CONTEXT_MAX,
+  templateParts,
   checklist,
   normalizeName,
   suggestLinks,
@@ -26,7 +29,7 @@ import { AuthService } from '../auth.service';
 import { projectTree } from '../browse/lenses';
 import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
-import { NoteLinks } from '../links/note-links';
+import { NoteBack } from '../back/note-back';
 import { CaptureService } from '../capture/capture.service';
 import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
@@ -65,7 +68,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
     RouterLink,
     ConceptHeader,
     NoteEditorComponent,
-    NoteLinks,
+    NoteBack,
     NoteList,
     RightNowPanel,
     ListView,
@@ -128,6 +131,8 @@ export class Launch {
     () => !!this.record()?.fromTemplate && checklist(this.capture.current()).length > 0,
   );
   protected readonly listMode = signal(false);
+  /** The URL names the context note (#113), made on first open. */
+  protected readonly routeIsContext = computed(() => this.routeId() === CONTEXT_ID);
   /** The URL names a concept (its id is derived from its name). */
   protected readonly routeIsConcept = computed(() => !!this.routeId()?.startsWith(CONCEPT_PREFIX));
 
@@ -175,6 +180,9 @@ export class Launch {
     }));
   });
   protected readonly projectsOpen = signal(false);
+  /** The back of the open note is showing (#112); each note opens on its front. */
+  protected readonly back = signal(false);
+  protected readonly contextMax = CONTEXT_MAX;
   /** The open note is being viewed, not edited (2026-10-17). */
   protected readonly viewing = computed(() => this.modes.viewing(this.capture.open().id));
   protected readonly templatesOpen = signal(false);
@@ -189,7 +197,11 @@ export class Launch {
       .notes()
       .filter(
         (n) =>
-          !n.archived && n.kind !== 'template' && n.body.trim() && n.id !== this.capture.open().id,
+          !n.archived &&
+          n.kind !== 'template' &&
+          n.kind !== 'context' &&
+          n.body.trim() &&
+          n.id !== this.capture.open().id,
       )
       .slice(0, 5),
   );
@@ -207,6 +219,34 @@ export class Launch {
       if (id && this.route.snapshot.queryParamMap.get('from') === 'reminder') {
         this.entryFrom.set(id);
       }
+    });
+    // The context note is made the first time it is opened, once online.
+    effect(() => {
+      if (!this.routeIsContext() || !this.waiting() || !this.notes.loaded() || !this.online()) {
+        return;
+      }
+      untracked(() => void this.notes.makeContext().catch((err) => console.warn(err)));
+    });
+    // Each note opens on its front.
+    effect(() => {
+      this.capture.open().id;
+      untracked(() => this.back.set(false));
+    });
+    // A template from before #111 holds its Instructions for Claude in its
+    // text: the first time it is open here, they move to their own field,
+    // word for word, and the text keeps the rest. The field is written
+    // first; the section leaves the text only once the field reads back
+    // holding the same words, so they are never in neither (review on #123).
+    effect(() => {
+      const note = this.record();
+      if (note?.kind !== 'template' || this.waiting()) return;
+      if (note.id !== this.capture.open().id) return;
+      untracked(() => {
+        const { skeleton, instructions } = templateParts(this.capture.current());
+        if (!instructions) return;
+        if (note.instructions === undefined) this.notes.setInstructions(note.id, instructions);
+        else if (note.instructions.trim() === instructions) this.capture.replace(`${skeleton}\n`);
+      });
     });
     // Back after five minutes away opens a fresh capture note; the URL
     // follows, so a reload or back does not land on the old note.

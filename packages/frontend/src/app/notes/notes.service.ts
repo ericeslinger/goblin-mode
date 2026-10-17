@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
+  CONTEXT_ID,
   KEEP_SUFFIX,
   ProjectKind,
   ProjectStatus,
@@ -63,6 +64,8 @@ export interface NoteRecord {
   templateMode?: string;
   /** The template a note was made from. */
   fromTemplate?: string;
+  /** A template's Instructions for Claude, once moved out of its body (#111). */
+  instructions?: string;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -90,6 +93,8 @@ export interface NoteRecord {
   settledAt?: number;
   /** Who wrote it last: a device id (with a restore or keep suffix), or 'merge'. */
   deviceId?: string;
+  /** Whether that was Eric or Claude. */
+  updatedBy?: 'user' | 'claude';
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -162,6 +167,10 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(typeof data['stage'] === 'string' ? { stage: data['stage'] } : {}),
     ...(typeof data['templateMode'] === 'string' ? { templateMode: data['templateMode'] } : {}),
     ...(typeof data['fromTemplate'] === 'string' ? { fromTemplate: data['fromTemplate'] } : {}),
+    ...(typeof data['instructions'] === 'string' ? { instructions: data['instructions'] } : {}),
+    ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
+      ? { updatedBy: data['updatedBy'] }
+      : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
     ...(Array.isArray(data['tags']) && data['tags'].length
       ? { tags: data['tags'].map(String) }
@@ -306,7 +315,12 @@ export class NotesService {
   create(
     id: string,
     body: string,
-    fields: { kind?: 'text' | 'template'; templateMode?: string; fromTemplate?: string } = {},
+    fields: {
+      kind?: 'text' | 'template';
+      templateMode?: string;
+      fromTemplate?: string;
+      instructions?: string;
+    } = {},
   ): void {
     if (!this.uid) throw new Error('create before sign-in');
     const now = this.api.serverTime();
@@ -326,6 +340,45 @@ export class NotesService {
     };
     this.written.add(id);
     this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
+  }
+
+  /**
+   * A template's Instructions for Claude (#111), its own field, never in
+   * the text a note made from it starts with.
+   */
+  setInstructions(id: string, instructions: string): void {
+    if (!this.uid || this.find(id)?.kind !== 'template') return;
+    const update = {
+      instructions,
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+  }
+
+  /**
+   * The context note (#113), made if absent: only if absent, in a
+   * transaction, so it never replaces the one another device or Claude
+   * made. Needs the server; until then, it is made on the next try.
+   */
+  async makeContext(): Promise<void> {
+    if (!this.uid || this.exists(CONTEXT_ID)) return;
+    const now = this.api.serverTime();
+    await this.api.createIfAbsent(this.fb.db, paths.note(this.uid, CONTEXT_ID), {
+      kind: 'context',
+      body: '',
+      title: 'Context for Claude',
+      // Its name is fixed: a settle never retitles it.
+      titleSource: 'user',
+      links: [],
+      tags: [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    });
   }
 
   /** Living or entry, for a template. */
@@ -558,8 +611,10 @@ export class NotesService {
    */
   settle(id: string, { edited = false }: { edited?: boolean } = {}): void {
     if (!this.uid) return;
-    // A template keeps the name its first line gives it.
-    if (this.find(id)?.kind === 'template') return;
+    // A template keeps the name its first line gives it; the context note
+    // keeps its own (#113).
+    const kind = this.find(id)?.kind;
+    if (kind === 'template' || kind === 'context') return;
     if (!edited) {
       const note = this.find(id);
       if (!note?.body.trim()) return;

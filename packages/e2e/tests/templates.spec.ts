@@ -4,9 +4,10 @@ import { connectClaude } from '../src/claude';
 import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
-// Templates (#38): made in Settings, edited like any note; From template
-// starts a fresh entry or reopens the living note; Claude reads the
-// instructions through list_templates and use_template.
+// Templates (#38): made in Settings, edited like any note, with their
+// Instructions for Claude on the back of the note (#111, #112); From
+// template starts a fresh entry or reopens the living note; Claude reads
+// the instructions through list_templates and use_template.
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -18,7 +19,12 @@ async function noSeriousViolations(page: Page): Promise<void> {
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
-async function makeTemplate(page: Page, button: string, lines: string[]): Promise<string> {
+async function makeTemplate(
+  page: Page,
+  button: string,
+  lines: string[],
+  instructions: string,
+): Promise<string> {
   await page.goto('/settings');
   await page.getByRole('button', { name: button, exact: true }).click();
   await expect(page).toHaveURL(/\/n\/\w+$/);
@@ -28,6 +34,11 @@ async function makeTemplate(page: Page, button: string, lines: string[]): Promis
   await page.keyboard.press('Delete');
   await typeLines(page, lines);
   await letItSave(page);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const box = page.getByRole('textbox', { name: 'Instructions for Claude' });
+  await box.fill(instructions);
+  // Saved on leaving the field, as a phone finishes.
+  await box.blur();
   return page.url();
 }
 
@@ -43,21 +54,18 @@ test('templates start a new entry or reopen the living note, and Claude can use 
   page,
 }) => {
   await signInAs(page, OWNER);
-  await makeTemplate(page, 'New template', [
-    'Journal entry',
-    'Mood: ',
-    '',
-    '## Instructions for Claude',
-    'Ask how the day went.',
-  ]);
-  const living = await makeTemplate(page, 'New living template', [
-    'Shopping list',
-    '## Produce',
-    '',
-    '## Instructions for Claude',
+  await makeTemplate(page, 'New template', ['Journal entry', 'Mood: '], 'Ask how the day went.');
+  const living = await makeTemplate(
+    page,
+    'New living template',
+    ['Shopping list', '## Produce'],
     'Start from the meal plan.',
-  ]);
+  );
   await expect(page.getByRole('combobox', { name: 'Each use' })).toHaveValue('living');
+  await noSeriousViolations(page);
+  // The text Eric writes in never holds them.
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
+  await expect(note(page)).not.toContainText('Start from the meal plan');
   expect(living).toBeTruthy();
 
   await page.goto('/settings');

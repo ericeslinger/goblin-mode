@@ -18,8 +18,11 @@ export function lensId(value: string | null | undefined): LensId {
 }
 
 const live = (n: NoteRecord) => !n.archived;
-/** Templates are listed in Settings, not among the notes (#38). */
-const note = (n: NoteRecord) => live(n) && n.kind !== 'template';
+/**
+ * Templates are listed in Settings, not among the notes (#38); so is the
+ * context note (#113).
+ */
+const note = (n: NoteRecord) => live(n) && n.kind !== 'template' && n.kind !== 'context';
 const concept = (n: NoteRecord) => live(n) && n.kind === 'concept';
 
 /** Whether a note shows under a lens. Order is the notes' own (newest first). */

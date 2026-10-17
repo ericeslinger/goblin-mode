@@ -17,6 +17,9 @@ import {
   Reminder,
   autoId,
   conceptId,
+  CONTEXT_ID,
+  CONTEXT_MAX,
+  contextForClaude,
   effectiveDue,
   firstOccurrence,
   firstWordsTitle,
@@ -464,6 +467,8 @@ export class NotesTools {
     title?: string;
     tags?: string[];
     archived?: boolean;
+    /** A template's Instructions for Claude (#111). */
+    instructions?: string;
   }) {
     const ref = this.notes().doc(args.id);
     const names = args.body === undefined ? undefined : await this.names();
@@ -495,12 +500,18 @@ export class NotesTools {
       }
       if (args.tags !== undefined) update['tags'] = args.tags;
       if (args.archived !== undefined) update['archived'] = args.archived;
+      if (args.instructions !== undefined) {
+        if (current['kind'] !== 'template')
+          throw new ToolError('only a template has Instructions for Claude');
+        update['instructions'] = args.instructions.trim();
+      }
       Note.parse({ ...current, ...update });
       tx.update(ref, update);
       const changed = [
         args.body !== undefined && 'text',
         args.title !== undefined && 'title',
         args.tags !== undefined && 'tags',
+        args.instructions !== undefined && 'Instructions for Claude',
       ].filter((x): x is string => !!x);
       const parts = [
         changed.length > 0 &&
@@ -968,6 +979,22 @@ export class NotesTools {
     };
   }
 
+  /**
+   * Eric's Context for Claude (#113): the context note's text as Claude
+   * is given it, cut at CONTEXT_MAX; empty when there is none yet.
+   */
+  async getContext(_args: object = {}) {
+    const doc = await this.notes().doc(CONTEXT_ID).get();
+    const body = doc.exists && doc.get('archived') !== true ? String(doc.get('body') ?? '') : '';
+    return {
+      id: CONTEXT_ID,
+      exists: doc.exists,
+      text: contextForClaude(body),
+      length: body.trim().length,
+      max: CONTEXT_MAX,
+    };
+  }
+
   /** The templates, each with its instructions, mode and schedule (#38). */
   async listTemplates(_args: object = {}) {
     const snap = await this.notes().where('kind', '==', 'template').get();
@@ -975,7 +1002,8 @@ export class NotesTools {
     return snap.docs
       .filter((d) => d.get('archived') !== true)
       .map((d) => {
-        const { skeleton, instructions } = templateParts(String(d.get('body') ?? ''));
+        const field = d.get('instructions') as string | undefined;
+        const { skeleton, instructions } = templateParts(String(d.get('body') ?? ''), field);
         return {
           id: d.id,
           title: String(d.get('title') ?? ''),
@@ -1000,7 +1028,10 @@ export class NotesTools {
     if (!doc.exists || doc.get('kind') !== 'template' || doc.get('archived') === true)
       throw new ToolError(`no template ${args.id}`);
     const template = doc.data()!;
-    const { skeleton, instructions } = templateParts(String(template['body'] ?? ''));
+    const { skeleton, instructions } = templateParts(
+      String(template['body'] ?? ''),
+      template['instructions'] as string | undefined,
+    );
     const mode = template['templateMode'] === 'living' ? 'living' : 'entry';
     const about = { id: doc.id, title: String(template['title'] ?? ''), mode };
     if (mode === 'living') {

@@ -16,7 +16,6 @@ async function makeProject(page: Page, name: string): Promise<void> {
   const concept = page.getByRole('region', { name: 'Concept' });
   await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(name);
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('project');
-  await concept.getByRole('button', { name: 'Details' }).click();
 }
 
 test('a project files under another, with its kind, status and tasks', async ({ page }) => {
@@ -29,6 +28,8 @@ test('a project files under another, with its kind, status and tasks', async ({ 
   // The sections arrive in the text, in order.
   await expect(note(page)).toContainText('Overview');
   await expect(note(page)).toContainText('Open questions');
+  // Kind, status and parent are on the back of the note (#112).
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await concept.getByRole('combobox', { name: 'Kind' }).selectOption('build');
   await concept.getByRole('combobox', { name: 'Status' }).selectOption('active');
   await letItSave(page);
@@ -38,9 +39,10 @@ test('a project files under another, with its kind, status and tasks', async ({ 
     'Sprout docs',
   );
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('project');
-  await concept.getByRole('button', { name: 'Details' }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await concept.getByRole('combobox', { name: 'Parent' }).selectOption({ label: 'Sprout' });
   await concept.getByRole('combobox', { name: 'Status' }).selectOption('waiting');
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
   await concept.getByRole('textbox', { name: 'Add a task' }).fill('Write the guide');
   await concept.getByRole('textbox', { name: 'Add a task' }).press('Enter');
   const tasks = concept.getByRole('list', { name: 'Tasks' });

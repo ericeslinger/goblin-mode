@@ -704,6 +704,48 @@ describe('template tools', () => {
     expect(a.note.id).not.toBe(b.note.id);
     await expect(t.useTemplate({ id: 'n1' })).rejects.toThrow('no template n1');
   });
+
+  it('reads Instructions for Claude from their own field, and sets them (#111)', async () => {
+    await eric('t3', 'Packing\n- socks', {
+      kind: 'template',
+      templateMode: 'entry',
+      instructions: 'Ask where to first.',
+    });
+    const t = ticking();
+    const [listed] = await t.listTemplates();
+    expect(listed).toMatchObject({
+      instructions: 'Ask where to first.',
+      skeleton: 'Packing\n- socks',
+    });
+    expect(await t.useTemplate({ id: 't3' })).toMatchObject({
+      instructions: 'Ask where to first.',
+      note: { body: 'Packing\n- socks' },
+    });
+    await t.updateNote({ id: 't3', instructions: ' Ask about the weather too. ' });
+    expect((await body('t3'))['instructions']).toBe('Ask about the weather too.');
+    await eric('n1', 'Not a template');
+    await expect(t.updateNote({ id: 'n1', instructions: 'x' })).rejects.toThrow(
+      'only a template has Instructions for Claude',
+    );
+  });
+});
+
+describe('context for Claude (#113)', () => {
+  it('reads the context note, cut at its limit, or nothing when there is none', async () => {
+    expect(await tools().getContext()).toMatchObject({ exists: false, text: '', max: 4000 });
+    await eric('context', 'Fish comes most Wednesdays.\n', {
+      kind: 'context',
+      titleSource: 'user',
+    });
+    expect(await tools().getContext()).toMatchObject({
+      id: 'context',
+      exists: true,
+      text: 'Fish comes most Wednesdays.',
+      length: 27,
+    });
+    await db.doc('users/u1/notes/context').update({ body: 'y'.repeat(4100) });
+    expect((await tools().getContext()).text).toMatch(/\[cut at 4000 characters\]$/);
+  });
 });
 
 describe('line tools', () => {

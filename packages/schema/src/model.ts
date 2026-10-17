@@ -36,7 +36,11 @@ export const Timestamp = z.custom<{ seconds: number; nanoseconds: number }>(
 );
 export type Timestamp = z.infer<typeof Timestamp>;
 
-export const NoteKind = z.enum(['text', 'sketch', 'concept', 'template']);
+/**
+ * `context` (#113, 2026-10-17): the one note, at id `context`, whose text
+ * Claude is given on every connection.
+ */
+export const NoteKind = z.enum(['text', 'sketch', 'concept', 'template', 'context']);
 export type NoteKind = z.infer<typeof NoteKind>;
 
 export const ConceptType = z.enum(['person', 'project', 'mood', 'other']);
@@ -102,6 +106,13 @@ export const Note = z.object({
   tags: z.array(z.string()),
   /** Only on templates. Its schedule is a reminder naming it (`template`). */
   templateMode: TemplateMode.optional(),
+  /**
+   * Only on templates (#111, 2026-10-17): how Claude fills in or tidies
+   * notes made from it, kept out of the text Eric writes in. A template
+   * from before still holds an "Instructions for Claude" section in its
+   * body until the app moves it here.
+   */
+  instructions: z.string().optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */

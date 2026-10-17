@@ -22,3 +22,6 @@ Follow them; they are not repeated here.
   set with `refile` and `update_reminder` (server instructions). Moving
   a pot to its next stage is not gardening: do it when Eric asks,
   not as part of filing a session.
+- Eric's Context for Claude (`get_context`, the note with id
+  `context`) comes with the server instructions; read it before
+  gardening. Add to it only when he asks you to remember something.

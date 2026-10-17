@@ -21,11 +21,18 @@
         </button>
       }
       <span class="spacer"></span>
-      @if (viewing() || (capture.current().trim() && !(listable() && listMode()))) {
+      @if (!back() && (viewing() || (capture.current().trim() && !(listable() && listMode())))) {
         <!-- Viewing (2026-10-17): select and tick without the keyboard. The
              label names what a tap switches to, like Source or Preview. -->
         <button type="button" class="link quiet" (click)="toggleViewing()">
           {{ viewing() ? 'Edit' : 'View' }}
+        </button>
+      }
+      @if (record()) {
+        <!-- The back of the note (#112): what is about it, not in it. The
+             label names the side a tap turns to. -->
+        <button type="button" class="link quiet" (click)="back.set(!back())">
+          {{ back() ? 'Front' : 'Back' }}
         </button>
       }
       <!-- The rest is one tap away (#78); the sync dot rides on the button
@@ -68,6 +75,7 @@
                   <a routerLink="/history" [queryParams]="{ note: capture.open().id }">History</a>
                 </li>
               }
+              <li><a routerLink="/n/context">Context for Claude</a></li>
               <li><a routerLink="/settings">Settings</a></li>
             </ul>
           </nav>
@@ -91,7 +99,9 @@
           }
         </ul>
       }
-      @if (record(); as note) {
+      @if (back() && record(); as note) {
+        <app-note-back class="back" [note]="note" />
+      } @else if (record(); as note) {
         @if (note.kind === 'concept') {
           <app-concept-header
             class="concept-header"
@@ -100,6 +110,11 @@
           />
         } @else if (note.kind === 'template') {
           <app-template-header [note]="note" />
+        } @else if (note.kind === 'context') {
+          <p class="note-status">
+            Context for Claude: Claude is given this at the start of every conversation with the
+            garden. {{ capture.current().trim().length }} of {{ contextMax }} characters.
+          </p>
         }
       }
       @if (linkStatus()) {
@@ -107,19 +122,21 @@
       }
       @if (waiting() && notes.loaded()) {
         <p class="note-status" role="status">
-          @if (routeIsConcept()) {
+          @if (routeIsContext()) {
+            Context for Claude. It is made as soon as this device is online.
+          } @else if (routeIsConcept()) {
             A new concept. It is made as soon as this device is online.
           } @else {
             This note hasn’t reached this device yet. It will appear here when it does.
           }
         </p>
       }
-      @if (listable() && listMode()) {
+      @if (listable() && listMode() && !back()) {
         <app-list-view class="list-view" [body]="capture.current()" (edited)="listChange($event)" />
       }
       <app-note-editor
         class="editor"
-        [class.hidden]="listable() && listMode()"
+        [class.hidden]="(listable() && listMode()) || back()"
         label="New note"
         placeholder="Plant a thought"
         autofocus
@@ -132,11 +149,6 @@
         [suggestMoods]="suggestMood"
         (textChange)="capture.onText($event)"
         (linkOpen)="followLink($event)"
-      />
-      <app-note-links
-        class="links"
-        [noteId]="capture.open().id"
-        [concept]="record()?.kind === 'concept'"
       />
       @if (previous().length > 0 || projects().length > 0) {
         <div class="previous">

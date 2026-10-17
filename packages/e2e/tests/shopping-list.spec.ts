@@ -19,7 +19,13 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
   await page.goto('/settings');
   await page.getByRole('button', { name: 'Add a shopping list' }).click();
   await expect(page.getByRole('region', { name: 'Template' })).toBeVisible();
+  // Its mode and Instructions for Claude are on the back (#111, #112).
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Each use' })).toHaveValue('living');
+  await expect(page.getByRole('textbox', { name: 'Instructions for Claude' })).toHaveValue(
+    /Meal plan/,
+  );
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
 
   // "Help me make my grocery list", as Claude carries it out.
   // Once the template made on the phone has reached the server.

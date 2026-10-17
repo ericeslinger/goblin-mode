@@ -28,43 +28,38 @@ const TYPES = [
   selector: 'app-concept-header',
   imports: [NgTemplateOutlet, RouterLink],
   template: `
-    <section class="concept" aria-label="Concept">
-      <div class="row">
-        <label class="name">
-          <span class="visually-hidden">Name</span>
-          <input
-            #name
-            [value]="note().title"
-            (change)="rename(name)"
-            (keydown.enter)="name.blur()"
-          />
-        </label>
-        <label class="type">
-          <span class="visually-hidden">Type</span>
-          <select #type (change)="setType(type.value)">
-            @for (t of types; track t.id) {
-              <option [value]="t.id" [selected]="t.id === kind()">{{ t.label }}</option>
-            }
-          </select>
-        </label>
-      </div>
-      <!-- The settings fold away, so the page's items and text have the
-           room (Eric, 2026-10-17); the back of the note (#112) comes later. -->
-      <div class="summary">
+    <section
+      class="concept"
+      [class.on-back]="side() === 'back'"
+      [attr.aria-label]="side() === 'back' ? 'Concept settings' : 'Concept'"
+    >
+      @if (side() === 'front') {
+        <div class="row">
+          <label class="name">
+            <span class="visually-hidden">Name</span>
+            <input
+              #name
+              [value]="note().title"
+              (change)="rename(name)"
+              (keydown.enter)="name.blur()"
+            />
+          </label>
+          <label class="type">
+            <span class="visually-hidden">Type</span>
+            <select #type (change)="setType(type.value)">
+              @for (t of types; track t.id) {
+                <option [value]="t.id" [selected]="t.id === kind()">{{ t.label }}</option>
+              }
+            </select>
+          </label>
+        </div>
+        <!-- The settings are on the back of the note (#112), so the page's
+           items and text have the room (Eric, 2026-10-17). -->
         @if (summary(); as line) {
-          <span class="meta">{{ line }}</span>
+          <p class="summary meta">{{ line }}</p>
         }
-        <button
-          type="button"
-          class="details-toggle"
-          aria-controls="concept-details"
-          [attr.aria-expanded]="detailsOpen()"
-          (click)="detailsOpen.set(!detailsOpen())"
-        >
-          Details
-        </button>
-      </div>
-      @if (detailsOpen()) {
+      }
+      @if (side() === 'back') {
         <div id="concept-details" class="details">
           <div class="synonyms">
             <span class="label" id="also-called">Also called</span>
@@ -203,7 +198,7 @@ const TYPES = [
           }
         </div>
       }
-      @if (kind() === 'project') {
+      @if (side() === 'front' && kind() === 'project') {
         <div class="children">
           <h2 id="sub-projects">Projects in {{ note().title }}</h2>
           @if (children().length) {
@@ -358,13 +353,14 @@ const TYPES = [
       border-bottom: 1px solid var(--rule);
     }
     .summary {
-      display: flex;
-      gap: var(--space-2);
-      align-items: center;
+      margin: 0;
       padding-bottom: var(--space-2);
       font-size: 14px;
     }
-    .details-toggle,
+    .concept.on-back {
+      padding: 0;
+      border-bottom: 0;
+    }
     .tag-edit,
     .tag {
       font: inherit;
@@ -377,7 +373,6 @@ const TYPES = [
       min-height: 24px;
       cursor: pointer;
     }
-    .details-toggle[aria-expanded='true'],
     .tag[aria-pressed='true'] {
       color: var(--ink);
       background: var(--chip-bg);
@@ -528,6 +523,8 @@ export class ConceptHeader {
   protected readonly notes = inject(NotesService);
   private readonly reminders = inject(RemindersService);
   readonly note = input.required<NoteRecord>();
+  /** The front: name, type and a project's items. The back: its settings (#112). */
+  readonly side = input<'front' | 'back'>('front');
   /** The concept became a project: its text needs the project sections. */
   readonly becameProject = output<void>();
   protected readonly types = TYPES;
@@ -578,7 +575,6 @@ export class ConceptHeader {
 
   protected readonly refusal = signal('');
   /** Name, type, other names and the project's settings: folded by default. */
-  protected readonly detailsOpen = signal(false);
   /** The item whose tags are being changed, if any. */
   protected readonly tagging = signal<string | undefined>(undefined);
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hash } from '../oauth/core';
 import { memoryOAuthStore } from '../oauth/memory-store';
-import { handleMcp } from './http';
+import { contextOrNone, handleMcp, isInitialize } from './http';
 import type { NotesTools } from './tools';
 
 function res() {
@@ -62,6 +62,30 @@ async function call(authorization: string | undefined, method = 'POST') {
   );
   return out;
 }
+
+describe('contextOrNone', () => {
+  it('gives no context, not an error, when the note cannot be read (review on #123)', async () => {
+    const failing = {
+      getContext: async () => {
+        throw new Error('firestore down');
+      },
+    } as unknown as NotesTools;
+    expect(await contextOrNone(failing)).toBe('');
+    const told = {
+      getContext: async () => ({ text: 'Fish on Wednesdays.' }),
+    } as unknown as NotesTools;
+    expect(await contextOrNone(told)).toBe('Fish on Wednesdays.');
+  });
+});
+
+describe('isInitialize', () => {
+  it('finds an initialize request, alone or in a batch (#113)', () => {
+    expect(isInitialize({ jsonrpc: '2.0', id: 1, method: 'initialize' })).toBe(true);
+    expect(isInitialize([{ method: 'tools/list' }, { method: 'initialize' }])).toBe(true);
+    expect(isInitialize({ method: 'tools/call' })).toBe(false);
+    expect(isInitialize(null)).toBe(false);
+  });
+});
 
 describe('handleMcp', () => {
   it('sends anyone without a valid owner token to the OAuth metadata', async () => {

@@ -52,7 +52,7 @@ const touched = (v: unknown) =>
       }))
     : [];
 
-function toRun(id: string, data: Record<string, unknown>): RunRecord {
+export function toRun(id: string, data: Record<string, unknown>): RunRecord {
   return {
     id,
     at: millis(data['at']),
