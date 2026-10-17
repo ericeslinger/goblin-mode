@@ -225,10 +225,10 @@ export class CaptureService {
     else if (this.notes.exists(id)) this.notes.remove(id);
   }
 
-  /** Kinds that stay when emptied: concepts and templates. */
+  /** Kinds that stay when emptied: concepts, templates and the context note. */
   private isKept(id: string): boolean {
     const kind = this.notes.find(id)?.kind;
-    return kind === 'concept' || kind === 'template';
+    return kind === 'concept' || kind === 'template' || kind === 'context';
   }
 
   /** Opens another note (from Previous notes, Browse, a link or a template). */
@@ -329,7 +329,7 @@ export class CaptureService {
     const from = this.notes.find(id)?.fromTemplate;
     const template = from === undefined ? undefined : this.notes.find(from);
     if (template?.kind !== 'template' || template.templateMode === 'living') return false;
-    return this.body.trim() === templateParts(template.body).skeleton.trim();
+    return this.body.trim() === templateParts(template.body, template.instructions).skeleton.trim();
   }
 
   private show(note: OpenNote): void {

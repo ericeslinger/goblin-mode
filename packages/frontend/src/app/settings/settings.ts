@@ -44,8 +44,8 @@ import { ThemePicker } from '../theme/theme-picker';
       @if (auth.user()) {
         <h2 id="templates">Templates</h2>
         <p>
-          A template is a note to start others from, with an Instructions for Claude section that
-          tells Claude how to fill them in.
+          A template is a note to start others from. Its Instructions for Claude, on the back of the
+          note, tell Claude how to fill them in.
         </p>
         @if (templates.templates().length) {
           <ul aria-labelledby="templates" class="templates">
@@ -78,6 +78,10 @@ import { ThemePicker } from '../theme/theme-picker';
         </p>
         <p>
           <code>{{ mcpUrl }}</code>
+        </p>
+        <p>
+          <a routerLink="/n/context">Context for Claude</a>: what Claude should always know about
+          you and the garden, given to it at the start of every conversation.
         </p>
         <p><a routerLink="/activity">What Claude changed</a></p>
         <button type="button" (click)="disconnect()">Disconnect Claude</button>

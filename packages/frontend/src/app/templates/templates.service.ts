@@ -29,6 +29,18 @@ export const SHOPPING_LIST = [
 ].join('\n');
 
 /**
+ * A template's text and fields as made: the instructions, written into
+ * one body above, go in their own field (#111).
+ */
+function made(body: string, templateMode: 'living' | 'entry') {
+  const { skeleton, instructions } = templateParts(body);
+  return {
+    body: `${skeleton}\n`,
+    fields: { kind: 'template' as const, templateMode, instructions },
+  };
+}
+
+/**
  * Templates (#38): notes of kind `template`. Using one opens the note
  * to write in: a living template's one note (made the first time), or
  * a fresh entry. Both start from the skeleton, without the instructions.
@@ -50,7 +62,8 @@ export class TemplatesService {
   /** The shopping list template, a living one; returns its id. */
   createShoppingList(): string {
     const id = this.notes.newId();
-    this.notes.create(id, SHOPPING_LIST, { kind: 'template', templateMode: 'living' });
+    const { body, fields } = made(SHOPPING_LIST, 'living');
+    this.notes.create(id, body, fields);
     return id;
   }
 
@@ -61,7 +74,8 @@ export class TemplatesService {
    */
   createFeelingsJournal(): string {
     const id = this.notes.newId();
-    this.notes.create(id, FEELINGS_TEMPLATE, { kind: 'template', templateMode: 'entry' });
+    const { body, fields } = made(FEELINGS_TEMPLATE, 'entry');
+    this.notes.create(id, body, fields);
     const reminders = this.injector.get(RemindersService);
     for (const { time, text } of FEELINGS_TIMES) {
       reminders.add({ text, repeat: 'daily', at: time, noteId: id });
@@ -72,7 +86,8 @@ export class TemplatesService {
   /** A new template, `mode` living or entry; returns its id. */
   create(mode: 'living' | 'entry'): string {
     const id = this.notes.newId();
-    this.notes.create(id, NEW_TEMPLATE, { kind: 'template', templateMode: mode });
+    const { body, fields } = made(NEW_TEMPLATE, mode);
+    this.notes.create(id, body, fields);
     return id;
   }
 
@@ -90,7 +105,7 @@ export class TemplatesService {
       if (living) return { id: living.id, text: living.body };
     }
     const id = this.notes.newId();
-    const text = templateParts(template.body).skeleton;
+    const text = templateParts(template.body, template.instructions).skeleton;
     this.notes.create(id, text, { fromTemplate: templateId });
     return { id, text };
   }

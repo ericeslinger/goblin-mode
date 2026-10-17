@@ -31,13 +31,25 @@ describe('TemplatesService', () => {
     expect(templates.templates().map((t) => t.id)).toEqual(['t2', 't1']);
   });
 
-  it('makes a template with a section for Claude', () => {
+  it('makes a template with its Instructions for Claude in their own field (#111)', () => {
     const { notes, templates } = setup();
     expect(templates.create('entry')).toBe('new1');
-    expect(notes.create).toHaveBeenCalledWith('new1', NEW_TEMPLATE, {
+    const { skeleton, instructions } = templateParts(NEW_TEMPLATE);
+    expect(notes.create).toHaveBeenCalledWith('new1', `${skeleton}\n`, {
       kind: 'template',
       templateMode: 'entry',
+      instructions,
     });
+    expect(instructions).toContain('How to fill in');
+  });
+
+  it('starts a note from the skeleton when the field holds the instructions (#111)', () => {
+    const { notes, templates } = setup();
+    notes.notes.update((list) => [
+      { ...noteRecord('t4', 'Packing\n- socks'), kind: 'template', instructions: 'Ask first.' },
+      ...list,
+    ]);
+    expect(templates.use('t4')!.text).toBe('Packing\n- socks');
   });
 
   it('opens a living template’s one note, making it from the skeleton the first time', () => {
@@ -61,11 +73,12 @@ describe('TemplatesService', () => {
   it('makes the shopping list, a living template with a section for Claude', () => {
     const { notes, templates } = setup();
     expect(templates.createShoppingList()).toBe('new1');
-    expect(notes.create).toHaveBeenCalledWith('new1', SHOPPING_LIST, {
+    const { skeleton, instructions } = templateParts(SHOPPING_LIST);
+    expect(notes.create).toHaveBeenCalledWith('new1', `${skeleton}\n`, {
       kind: 'template',
       templateMode: 'living',
+      instructions,
     });
-    const { skeleton, instructions } = templateParts(SHOPPING_LIST);
     expect(skeleton).toContain('## Produce\n\n## Butcher\n\n## Dry goods');
     expect(instructions).toContain('add_lines');
   });
@@ -74,9 +87,11 @@ describe('TemplatesService', () => {
     const reminders = { add: vi.fn() };
     const { notes, templates } = setup(reminders);
     const id = templates.createFeelingsJournal();
-    expect(notes.create).toHaveBeenCalledWith(id, FEELINGS_TEMPLATE, {
+    const parts = templateParts(FEELINGS_TEMPLATE);
+    expect(notes.create).toHaveBeenCalledWith(id, `${parts.skeleton}\n`, {
       kind: 'template',
       templateMode: 'entry',
+      instructions: parts.instructions,
     });
     expect(reminders.add.mock.calls.map(([r]) => r)).toEqual([
       { text: 'Feelings journal: breakfast', repeat: 'daily', at: '08:00', noteId: id },

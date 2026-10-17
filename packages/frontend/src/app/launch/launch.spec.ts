@@ -18,6 +18,15 @@ import { RemindersService, type ReminderRecord } from '../reminders/reminders.se
 import { Launch, sharedText } from './launch';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { SHARE_INBOX } from '../share/share-inbox';
+import { ACTIVITY_API, type ActivityApi } from '../claude/activity';
+
+/** No Claude runs yet. */
+const quietActivity: ActivityApi = {
+  listen: (_db, _path, next) => {
+    next([]);
+    return () => undefined;
+  },
+};
 
 async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: string } = {}) {
   localStorage.clear();
@@ -30,6 +39,7 @@ async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: st
       { provide: AuthService, useValue: auth },
       { provide: NotesService, useValue: notes },
       ...remindersTestProviders(new FakeRemindersApi(), () => Date.now()),
+      { provide: ACTIVITY_API, useValue: quietActivity },
     ],
   });
   const harness = await RouterTestingHarness.create();
@@ -252,10 +262,67 @@ describe('Launch', () => {
     await fixture.whenStable();
     const header = el.querySelector('[aria-label="Template"]')!;
     expect(header.textContent).toContain('A template.');
-    const mode = header.querySelector('select')!;
+    // Its mode and instructions are on the back (#111, #112).
+    expect(header.querySelector('select')).toBeNull();
+    buttonNamed(el, 'Back')!.click();
+    await fixture.whenStable();
+    const back = el.querySelector('[aria-label="Back of the note"]')!;
+    const mode = back.querySelector('select')!;
     mode.value = 'living';
     mode.dispatchEvent(new Event('change'));
     expect(notes.setTemplateMode).toHaveBeenCalledWith('t1', 'living');
+    const instructions = back.querySelector('textarea')!;
+    instructions.value = ' Ask about the day. ';
+    instructions.dispatchEvent(new Event('change'));
+    expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask about the day.');
+  });
+
+  it('turns a note to its back and front again, the editor kept (#112)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([
+      { ...noteRecord('n1', 'Kiln day'), tags: ['studio'], createdAt: 1, updatedAt: 2 },
+      noteRecord('n2', 'See [[Kiln day]]'),
+    ]);
+    const { el, fixture, go } = await render({ notes, url: '/n/n1' });
+    const editor = () => el.querySelector('app-note-editor')!;
+    buttonNamed(el, 'Back')!.click();
+    await fixture.whenStable();
+    const back = el.querySelector('[aria-label="Back of the note"]')!;
+    expect(back.textContent).toContain('Made');
+    expect(back.textContent).toContain('What Claude changed');
+    expect(back.textContent).toContain('studio');
+    expect(editor().classList).toContain('hidden');
+    buttonNamed(el, 'Front')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('[aria-label="Back of the note"]')).toBeNull();
+    expect(editor().classList).not.toContain('hidden');
+    // Another note opens on its front.
+    buttonNamed(el, 'Back')!.click();
+    await go('/n/n2');
+    expect(el.querySelector('[aria-label="Back of the note"]')).toBeNull();
+    // A note not made yet has no back.
+    await go('/');
+    expect(buttonNamed(el, 'Back')).toBeUndefined();
+  });
+
+  it('moves a template’s old Instructions for Claude section to its field (#111)', async () => {
+    const notes = new FakeNotes();
+    const body = 'Packing\n- socks\n\n## Instructions for Claude\nAsk where to first.';
+    notes.signIn([{ ...noteRecord('t1', body), kind: 'template' }]);
+    await render({ notes, url: '/n/t1' });
+    expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask where to first.');
+    expect(TestBed.inject(CaptureService).current()).toBe('Packing\n- socks\n');
+  });
+
+  it('makes the context note when first opened, and says how long it is (#113)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { el, fixture } = await render({ notes, url: '/n/context' });
+    expect(el.textContent).toContain('Context for Claude. It is made as soon as');
+    expect(notes.makeContext).toHaveBeenCalled();
+    notes.notes.set([{ ...noteRecord('context', 'Fish comes Wednesdays.'), kind: 'context' }]);
+    await fixture.whenStable();
+    expect(el.textContent).toContain('22 of 4000 characters');
   });
 
   it('opens a new entry when a reminder links to a template (#40)', async () => {
@@ -504,7 +571,15 @@ describe('Launch', () => {
     await openMore(el, fixture);
     expect(more.getAttribute('aria-expanded')).toBe('true');
     const items = [...el.querySelectorAll('#more-menu li')].map((li) => li.textContent?.trim());
-    expect(items).toEqual(['Browse', 'Source', 'Map', 'Copy link', 'History', 'Settings']);
+    expect(items).toEqual([
+      'Browse',
+      'Source',
+      'Map',
+      'Copy link',
+      'History',
+      'Context for Claude',
+      'Settings',
+    ]);
     expect(el.querySelector('#more-menu')?.textContent).toContain('Synced');
     el.querySelector('#more-menu')!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),

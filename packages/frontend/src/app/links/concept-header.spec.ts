@@ -25,9 +25,9 @@ async function render(note: NoteRecord, others: NoteRecord[] = [], tasks: Remind
   fixture.componentInstance.becameProject.subscribe(became);
   await fixture.whenStable();
   const el = fixture.nativeElement as HTMLElement;
-  /** Unfolds the settings (2026-10-17). */
-  const details = async () => {
-    el.querySelector<HTMLButtonElement>('.details-toggle')!.click();
+  /** Turns to the back of the note, where the settings are (#112). */
+  const details = async (side: 'front' | 'back' = 'back') => {
+    fixture.componentRef.setInput('side', side);
     await fixture.whenStable();
   };
   return { el, notes, reminders, became, details, fixture };
@@ -53,15 +53,16 @@ describe('ConceptHeader', () => {
   it('shows the name, type and other names', async () => {
     const { el, details } = await render(kiln);
     expect(el.querySelector('.synonyms')).toBeNull();
-    await details();
     expect(el.querySelector<HTMLInputElement>('.name input')!.value).toBe('Kiln');
     expect(el.querySelector<HTMLSelectElement>('select')!.value).toBe('project');
+    await details();
+    expect(el.querySelector('.name input')).toBeNull();
+    expect(el.querySelector('section')!.getAttribute('aria-label')).toBe('Concept settings');
     expect(el.querySelector('ul')!.textContent).toContain('Oven');
   });
 
   it('renames, retypes, and adds and removes other names', async () => {
     const { el, notes, details } = await render(kiln);
-    await details();
     const name = el.querySelector<HTMLInputElement>('.name input')!;
     name.value = 'The kiln';
     name.dispatchEvent(new Event('change'));
@@ -72,6 +73,7 @@ describe('ConceptHeader', () => {
     type.dispatchEvent(new Event('change'));
     expect(notes.updateConcept).toHaveBeenLastCalledWith('c-kiln', { conceptType: 'person' });
 
+    await details();
     const other = el.querySelector<HTMLInputElement>('.synonyms input')!;
     other.value = 'Furnace';
     // On Enter, or on leaving the field, as a phone keyboard does.
@@ -119,8 +121,9 @@ describe('ConceptHeader', () => {
     const twig = project('twig', 'Twig', { parent: 'leaf' });
     const studio = project('studio', 'Sprout studio');
     const { el, notes, details } = await render(sprout, [leaf, twig, studio]);
-    // Folded, the kind and status are one line.
+    // On the front, the kind and status are one line.
     expect(el.querySelector('.summary')!.textContent).toContain('Build · Active');
+    expect(el.querySelector('.project')).toBeNull();
     await details();
     const [parent, kind, status] = [...el.querySelectorAll<HTMLSelectElement>('.project select')];
     // Not itself, nor anything under it.
@@ -136,6 +139,7 @@ describe('ConceptHeader', () => {
     status.value = 'done';
     status.dispatchEvent(new Event('change'));
     expect(notes.updateConcept).toHaveBeenLastCalledWith('sprout', { projectStatus: 'done' });
+    await details('front');
     // Its sub-projects, one level down, with kind and status.
     const children = el.querySelector('.children')!;
     expect(children.querySelector('h2')!.textContent).toBe('Projects in Sprout');

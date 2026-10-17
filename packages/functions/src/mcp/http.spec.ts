@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hash } from '../oauth/core';
 import { memoryOAuthStore } from '../oauth/memory-store';
-import { handleMcp } from './http';
+import { handleMcp, isInitialize } from './http';
 import type { NotesTools } from './tools';
 
 function res() {
@@ -62,6 +62,15 @@ async function call(authorization: string | undefined, method = 'POST') {
   );
   return out;
 }
+
+describe('isInitialize', () => {
+  it('finds an initialize request, alone or in a batch (#113)', () => {
+    expect(isInitialize({ jsonrpc: '2.0', id: 1, method: 'initialize' })).toBe(true);
+    expect(isInitialize([{ method: 'tools/list' }, { method: 'initialize' }])).toBe(true);
+    expect(isInitialize({ method: 'tools/call' })).toBe(false);
+    expect(isInitialize(null)).toBe(false);
+  });
+});
 
 describe('handleMcp', () => {
   it('sends anyone without a valid owner token to the OAuth metadata', async () => {
