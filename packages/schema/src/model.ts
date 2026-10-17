@@ -87,6 +87,15 @@ export const Note = z.object({
   parent: z.string().optional(),
   projectKind: ProjectKind.optional(),
   projectStatus: ProjectStatus.optional(),
+  /**
+   * Only on projects (Eric, 2026-10-17): the stages the project's items
+   * (its sub-projects and tasks) move through, in order, and the tags
+   * they may carry. Data, so a new stage needs no new app.
+   */
+  stages: z.array(z.string()).optional(),
+  itemTags: z.array(z.string()).optional(),
+  /** Only on a sub-project: where it stands among its parent's `stages`. */
+  stage: z.string().optional(),
   synonyms: z.array(z.string()).optional(),
   /** Ids of notes this note links to. */
   links: z.array(z.string()),
@@ -166,6 +175,13 @@ export const Reminder = z.object({
    * tapping it opens the template's note (#36).
    */
   template: z.string().optional(),
+  /**
+   * A project's task (one with `noteId` naming a project): where it
+   * stands among the project's `stages`, and which of its `itemTags`
+   * it carries (Eric, 2026-10-17).
+   */
+  stage: z.string().optional(),
+  tags: z.array(z.string()).optional(),
   createdBy: Author,
 });
 export type Reminder = z.infer<typeof Reminder>;

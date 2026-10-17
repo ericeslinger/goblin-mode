@@ -45,6 +45,9 @@ export interface ReminderRecord {
   nextFireAt?: number;
   recurrence?: Recurrence;
   noteId?: string;
+  /** A project task's stage and tags (2026-10-17). */
+  stage?: string;
+  tags?: string[];
   createdBy: 'user' | 'claude';
 }
 
@@ -105,6 +108,8 @@ export interface NewReminder {
   at?: string;
   /** The note it belongs to: a project's task (#41). */
   noteId?: string;
+  /** Its stage in that project (2026-10-17). */
+  stage?: string;
 }
 
 function millis(v: unknown): number | undefined {
@@ -121,6 +126,10 @@ function toRecord(id: string, data: Record<string, unknown>): ReminderRecord {
     nextFireAt: millis(data['nextFireAt']),
     recurrence: data['recurrence'] as Recurrence | undefined,
     noteId: typeof data['noteId'] === 'string' ? data['noteId'] : undefined,
+    ...(typeof data['stage'] === 'string' ? { stage: data['stage'] } : {}),
+    ...(Array.isArray(data['tags']) && data['tags'].length
+      ? { tags: data['tags'].map(String) }
+      : {}),
     createdBy: data['createdBy'] === 'claude' ? 'claude' : 'user',
   };
 }
@@ -226,9 +235,22 @@ export class RemindersService {
     }
     if (recurrence) data['recurrence'] = recurrence;
     if (input.noteId) data['noteId'] = input.noteId;
+    if (input.stage) data['stage'] = input.stage;
     const id = autoId(this.random);
     this.write(id, data, false);
     this.clock.set(now);
+  }
+
+  /**
+   * A project task's stage (null clears it) or tags (2026-10-17). Only
+   * those fields are written, so times set elsewhere stay.
+   */
+  setItem(r: ReminderRecord, change: { stage?: string | null; tags?: string[] }): void {
+    const data: Record<string, unknown> = {};
+    if (change.stage === null) data['stage'] = this.api.remove();
+    else if (change.stage !== undefined) data['stage'] = change.stage;
+    if (change.tags) data['tags'] = change.tags;
+    if (Object.keys(data).length) this.write(r.id, data, true);
   }
 
   done(r: ReminderRecord): void {

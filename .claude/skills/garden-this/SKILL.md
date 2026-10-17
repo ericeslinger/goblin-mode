@@ -18,3 +18,7 @@ Follow them; they are not repeated here.
   the decisions and ideas from it. File nothing without a yes.
 - Set `source` to the PR or session link when there is one.
 - Never file secrets, tokens or anything from `.env` files.
+- A project's stages and item tags, and where each item stands, are
+  set with `refile` and `update_reminder` (server instructions). Moving
+  a pot to its next stage is not gardening: do it when Eric asks,
+  not as part of filing a session.

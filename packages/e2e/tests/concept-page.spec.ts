@@ -35,6 +35,8 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   const concept = page.getByRole('region', { name: 'Concept' });
   await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Vikas');
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('person');
+  // The settings are folded under Details (2026-10-17).
+  await concept.getByRole('button', { name: 'Details' }).click();
   await concept.getByRole('textbox', { name: 'Add another name' }).fill('Vik');
   await concept.getByRole('textbox', { name: 'Add another name' }).press('Enter');
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('Vik');
@@ -43,6 +45,8 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   await concept.getByRole('combobox', { name: 'Type' }).focus();
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('V. Rao');
 
+  // Folded too, under how many link here.
+  await page.getByRole('button', { name: 'Linked from 3' }).click();
   const linkedFrom = page.getByRole('region', { name: 'Linked from' });
   await expect(linkedFrom).toContainText('Ask [[Vikas]] about the kiln.');
   await expect(linkedFrom).toContainText('Firing notes');
@@ -72,5 +76,6 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   await letItSave(page);
   await page.reload();
   await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Vikas S.');
+  await concept.getByRole('button', { name: 'Details' }).click();
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('Vik');
 });

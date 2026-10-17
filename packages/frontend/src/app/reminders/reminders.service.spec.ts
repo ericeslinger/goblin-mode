@@ -142,6 +142,23 @@ describe('RemindersService', () => {
     });
   });
 
+  it('gives a project task a stage and tags, writing only those (2026-10-17)', () => {
+    const { reminders, api } = setup();
+    reminders.add({ text: 'mix glaze', noteId: 'pots', stage: 'bisque' });
+    expect(lastWrite(api).data).toMatchObject({ noteId: 'pots', stage: 'bisque' });
+    api.push([reminderDoc('r1', { text: 'mix glaze', stage: 'bisque', tags: ['gift'] })]);
+    const [task] = reminders.reminders();
+    expect(task).toMatchObject({ stage: 'bisque', tags: ['gift'] });
+    reminders.setItem(task, { stage: 'plan', tags: [] });
+    expect(lastWrite(api)).toEqual({
+      path: 'users/u1/reminders/r1',
+      data: { stage: 'plan', tags: [] },
+      merge: true,
+    });
+    reminders.setItem(task, { stage: null });
+    expect(lastWrite(api).data).toEqual({ stage: 'DELETE' });
+  });
+
   it('marks a one-off done, clearing its times, and undoes it', () => {
     const { reminders, api } = setup();
     api.push([

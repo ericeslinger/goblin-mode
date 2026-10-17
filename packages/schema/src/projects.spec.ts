@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { canParent, childrenOf, selfAndDescendants, withProjectSections } from './projects';
+import {
+  canParent,
+  childrenOf,
+  selfAndDescendants,
+  stageOrder,
+  withProjectSections,
+} from './projects';
 
 describe('withProjectSections', () => {
   it('puts existing text under Overview, word for word, then the other sections', () => {
@@ -91,5 +97,26 @@ describe('project tree', () => {
     expect(canParent('armature', 'armature', tree)).toBe(false);
     expect(canParent('rules-ch1', 'site', tree)).toBe(true);
     expect(canParent('sprout', 'armature', tree)).toBe(true);
+  });
+});
+
+describe('stageOrder', () => {
+  it('orders by the project’s stages, a dropped stage then none last, names within', () => {
+    const pots = [
+      { name: 'wounded pot' },
+      { name: 'lovers vase', stage: 'bisque' },
+      { name: 'sgraffito vase', stage: 'bisque' },
+      { name: 'cup', stage: 'plan' },
+      { name: 'bowl', stage: 'fired' },
+    ];
+    const order = stageOrder(pots, ['plan', 'thrown', 'bisque'], (p) => p.name);
+    expect(order.map((p) => p.name)).toEqual([
+      'cup',
+      'lovers vase',
+      'sgraffito vase',
+      'bowl',
+      'wounded pot',
+    ]);
+    expect(pots[0].name).toBe('wounded pot');
   });
 });

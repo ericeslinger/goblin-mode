@@ -27,8 +27,9 @@ Still owed:
 
 ## Product
 
-- **People and project fields** (2026-10-05: left open on purpose). They
-  extend the base note schema once real use shows what is needed.
+- **People fields** (2026-10-05: left open on purpose). They extend
+  the base note schema once real use shows what is needed. Projects
+  got theirs on 2026-10-17 (DESIGN.md, Stages and items).
 - **Feelings template.** Designed together once journaling is in use.
 
 ## Technical
