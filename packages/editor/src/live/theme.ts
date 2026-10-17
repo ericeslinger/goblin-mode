@@ -41,6 +41,9 @@ export const noteTheme = EditorView.theme({
     backgroundColor: 'var(--mg-chip-bg, transparent)',
     cursor: 'pointer',
   },
+  // Viewing: a task's whole line is its tap target, so give it a finger's height.
+  '&.mg-viewing .mg-task': { cursor: 'pointer', padding: '6px 0' },
+  '&.mg-viewing .cm-content': { caretColor: 'transparent' },
   '.mg-done': { color: 'var(--mg-quiet, inherit)', textDecoration: 'line-through' },
   '.mg-checkbox': {
     width: '1.1em',

@@ -157,6 +157,14 @@
 .previous {
   padding: 0 16px 8px;
 }
+.previous > .pill + .pill {
+  margin-left: 8px;
+}
+.previous .count {
+  margin-left: 8px;
+  font-size: 13px;
+  color: var(--quiet);
+}
 .pill {
   font: inherit;
   font-size: 14px;
@@ -243,6 +251,12 @@
   color: var(--accent);
   background: none;
   cursor: pointer;
+}
+/* Viewing's switch: there when wanted, not calling for a tap. */
+.link.quiet {
+  padding: 4px;
+  font-size: 13px;
+  color: var(--quiet);
 }
 
 .editor.hidden {

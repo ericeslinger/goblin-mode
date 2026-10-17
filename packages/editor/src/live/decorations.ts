@@ -163,6 +163,7 @@ export function computeDecorations(
         const task = node.checked != null ? TASK_MARKER.exec(text.slice(from)) : null;
         if (task) {
           const boxEnd = from + task[0].length;
+          specs.push({ kind: 'line', from: starts[line - 1], className: 'mg-task' });
           if (node.checked)
             specs.push({ kind: 'line', from: starts[line - 1], className: 'mg-done' });
           if (live && !editing) {

@@ -21,6 +21,13 @@
         </button>
       }
       <span class="spacer"></span>
+      @if (viewing() || (capture.current().trim() && !(listable() && listMode()))) {
+        <!-- Viewing (2026-10-17): select and tick without the keyboard. The
+             label names what a tap switches to, like Source or Preview. -->
+        <button type="button" class="link quiet" (click)="toggleViewing()">
+          {{ viewing() ? 'Edit' : 'View' }}
+        </button>
+      }
       <!-- The rest is one tap away (#78); the sync dot rides on the button
            so offline is always in sight. -->
       <div class="more" (keydown.escape)="closeMore(moreButton)">
@@ -116,6 +123,7 @@
         [text]="capture.open().text"
         [base]="capture.open().base"
         [readOnly]="waiting()"
+        [viewOnly]="viewing()"
         [suggestLinks]="suggest"
         [suggestMoods]="suggestMood"
         (textChange)="capture.onText($event)"
@@ -126,17 +134,48 @@
         [noteId]="capture.open().id"
         [concept]="record()?.kind === 'concept'"
       />
-      @if (previous().length > 0) {
+      @if (previous().length > 0 || projects().length > 0) {
         <div class="previous">
-          <button
-            type="button"
-            class="pill"
-            aria-controls="previous-notes"
-            [attr.aria-expanded]="previousOpen()"
-            (click)="previousOpen.set(!previousOpen())"
-          >
-            Previous note
-          </button>
+          @if (previous().length > 0) {
+            <button
+              type="button"
+              class="pill"
+              aria-controls="previous-notes"
+              [attr.aria-expanded]="previousOpen()"
+              (click)="previousOpen.set(!previousOpen()); projectsOpen.set(false)"
+            >
+              Previous note
+            </button>
+          }
+          @if (projects().length > 0) {
+            <button
+              type="button"
+              class="pill"
+              aria-controls="project-list"
+              [attr.aria-expanded]="projectsOpen()"
+              (click)="projectsOpen.set(!projectsOpen()); previousOpen.set(false)"
+            >
+              Projects
+            </button>
+          }
+          @if (projectsOpen()) {
+            <ul id="project-list" aria-label="Projects">
+              @for (p of projects(); track p.note.id) {
+                <li>
+                  <button
+                    type="button"
+                    [style.padding-left.px]="4 + p.depth * 16"
+                    (click)="openPrevious(p.note.id)"
+                  >
+                    {{ p.note.title || 'Untitled' }}
+                    @if (p.open) {
+                      <span class="count">{{ p.open }} open</span>
+                    }
+                  </button>
+                </li>
+              }
+            </ul>
+          }
           @if (previousOpen()) {
             <ul id="previous-notes" aria-label="Previous notes">
               @for (note of previous(); track note.id) {

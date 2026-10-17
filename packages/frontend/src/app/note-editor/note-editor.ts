@@ -124,7 +124,7 @@ const FORMAT_ACTIONS: FormatAction[] = FORMAT_GROUPS.flatMap((item) =>
 @Component({
   selector: 'app-note-editor',
   template: `
-    @if (!touch && !readOnly()) {
+    @if (!touch && !readOnly() && !viewOnly()) {
       <div class="tools" role="toolbar" aria-label="Formatting">
         @for (action of actions; track action.name; let i = $index) {
           <button
@@ -421,6 +421,8 @@ export class NoteEditorComponent {
   readonly autofocus = input(false, { transform: booleanAttribute });
   /** Shown but not editable (a linked note that has not arrived yet). */
   readonly readOnly = input(false);
+  /** Drawn whole, not typed in; a tap on a task's line ticks it (2026-10-17). */
+  readonly viewOnly = input(false);
   /** Names a `[[` can complete to (the host ranks them). */
   readonly suggestLinks = input<(query: string) => { name: string; kind: string }[]>();
   /** Moods a Moods line can complete to (#40). */
@@ -534,6 +536,7 @@ export class NoteEditorComponent {
         label: untracked(this.label),
         placeholder: untracked(this.placeholder),
         readOnly: untracked(this.readOnly),
+        viewing: untracked(this.viewOnly),
         openLink: (target) => this.linkOpen.emit(target),
         resolveAttachment: (id) => this.attachments.resolve(id),
         openImage: (src, alt, url) => void this.openViewer(src, alt, url),
@@ -578,6 +581,11 @@ export class NoteEditorComponent {
     effect(() => {
       const mode = this.modes.mode();
       if (this.editor && this.editor.getMode() !== mode) this.editor.setMode(mode);
+    });
+
+    effect(() => {
+      const viewing = this.viewOnly();
+      if (this.editor && this.editor.isViewing() !== viewing) this.editor.setViewing(viewing);
     });
 
     let wasReadOnly = untracked(this.readOnly);

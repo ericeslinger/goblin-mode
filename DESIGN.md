@@ -594,6 +594,20 @@ readers. After a choice that stays on the note (Source or Preview,
 Copy link) the cursor goes back to the note. More is a disclosure: it closes on choosing an item, on
 Escape (back to its button) and on a tap outside.
 
+**View in the bar (Eric, 2026-10-17; adds to #78).** One quiet
+control joins the bar beside More: View on a note with text, Edit
+while viewing (Editor, Viewing). It is in the bar, not under More,
+because it is reached for in the store with one hand.
+
+**Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
+writing project to see what's on tap" without going through Browse: a
+Projects pill sits beside Previous note under the note and opens the
+live projects not marked done, as the same tree Browse draws, each
+with how much is open on it (its tasks, the reminders linked to it,
+plus the unticked boxes on its page). A tap opens the project's page.
+A pill rather than a swipe or a hold: nothing on the launch screen is
+found by gesture alone, and both would fight the editor's own.
+
 **Right Now (as built, 2026-10-06).** One live listener on open and
 snoozed reminders (`status in ['open', 'snoozed']`; done ones are never
 read). A reminder's time is its snooze while snoozed, else `dueAt`;
@@ -782,6 +796,22 @@ Two things learned building it:
   change, so Playwright's phone profile (an Android user agent) can drop
   an Enter typed instantly before more text. Journeys wait for the new
   line before typing on.
+
+**Viewing (Eric, 2026-10-17).** Dragging to select in live preview
+moved the caret, and every line the selection touched turned back
+into markdown; a missed tap on a checkbox opened the keyboard. View
+(top bar) draws every line, the selection's too, and takes no typing:
+the content is not editable, so a tap opens no keyboard, while text
+still selects and copies. A tap anywhere on a task's line ticks it,
+unless it was a drag (more than 10 px between down and up) or landed
+on a widget of its own (the box, a link, a photo); which lines are
+tasks is the grammar's call, as for the drawn box, so `- [ ]` in a
+code block is not one. Viewing is not a third mode (live and source
+stay as decided on 2026-10-06): it is remembered per note on the
+device (the last 50), so a shopping list opens ready to tick while a
+new note always opens ready to type. A note shown before it arrives
+(read only) cannot be ticked either way. Edit leaves the keyboard down
+until a tap says where typing goes.
 
 **Ribbon (#77, Eric, 2026-10-07).** On a touch screen the accessory
 bar over the keyboard is a formatting ribbon: checklist item, bold and
