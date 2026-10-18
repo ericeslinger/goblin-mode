@@ -6,6 +6,7 @@ import { ACTIVITY_API, toRun, type RunRecord } from '../claude/activity';
 import { FIREBASE } from '../firebase';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
+import { ModulesService } from '../modules/modules.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
 /** "Oct 17, 9:05 PM", in the device's own words. */
@@ -42,7 +43,40 @@ function stamp(ms: number | undefined): string {
         }
       </p>
 
-      @if (note().kind === 'concept') {
+      @if (note().kind === 'recipe' && modules.kitchen()) {
+        <div class="settings">
+          <label class="inline">
+            Serves
+            <input
+              #servings
+              type="number"
+              min="1"
+              inputmode="numeric"
+              [value]="note().servings ?? ''"
+              (change)="setServings(servings.value)"
+            />
+          </label>
+          <label class="instructions">
+            Source
+            <input
+              #url
+              type="url"
+              placeholder="A link to the recipe"
+              [value]="note().source?.url ?? ''"
+              (change)="notes.updateRecipe(note().id, { url: url.value })"
+            />
+          </label>
+          @if (note().source?.url; as link) {
+            <a [href]="link" target="_blank" rel="noopener noreferrer">Open the source</a>
+          }
+          @if (note().source?.text; as original) {
+            <details>
+              <summary>The original text</summary>
+              <p class="original">{{ original }}</p>
+            </details>
+          }
+        </div>
+      } @else if (note().kind === 'concept') {
         <app-concept-header side="back" [note]="note()" />
       } @else if (note().kind === 'template') {
         <div class="settings">
@@ -165,6 +199,19 @@ function stamp(ms: number | undefined): string {
       display: grid;
       gap: var(--space-1);
     }
+    .inline {
+      display: flex;
+      gap: var(--space-2);
+      align-items: center;
+    }
+    .inline input {
+      width: 5em;
+    }
+    .original {
+      white-space: pre-wrap;
+      color: var(--quiet);
+    }
+    input,
     select,
     textarea {
       font: inherit;
@@ -207,6 +254,8 @@ function stamp(ms: number | undefined): string {
 export class NoteBack {
   readonly note = input.required<NoteRecord>();
   protected readonly notes = inject(NotesService);
+  /** Kitchen off, a recipe is a plain note (review on #135). */
+  protected readonly modules = inject(ModulesService);
   private readonly api = inject(ACTIVITY_API);
   private readonly fb = inject(FIREBASE);
   private readonly auth = inject(AuthService);
@@ -251,6 +300,13 @@ export class NoteBack {
       );
     });
     inject(DestroyRef).onDestroy(() => stop?.());
+  }
+
+  protected setServings(value: string): void {
+    const n = Number(value);
+    this.notes.updateRecipe(this.note().id, {
+      servings: value.trim() && Number.isFinite(n) && n > 0 ? Math.round(n) : null,
+    });
   }
 
   protected setMode(mode: string): void {

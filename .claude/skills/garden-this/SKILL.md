@@ -28,3 +28,5 @@ Follow them; they are not repeated here.
 - Gardening files under a project, so it needs the Projects module on
   (#126). If `capture` says Projects is switched off, tell Eric, and
   file nothing.
+- A recipe is not gardened: when Eric gives one, make it with
+  `create_recipe` (Kitchen on), not `capture`.

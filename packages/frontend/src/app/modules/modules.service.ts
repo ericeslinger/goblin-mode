@@ -1,5 +1,5 @@
 import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
-import { type ModuleId, ModuleSetting, moduleOn, paths } from '@mossgoblin/schema';
+import { MODULES, type ModuleId, ModuleSetting, moduleOn, paths } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { SETTINGS_API } from '../theme/theme-sync.service';
@@ -23,6 +23,8 @@ export class ModulesService {
 
   /** Projects: types, the pill, the lens, items and stages (#41, #122). */
   readonly projects = computed(() => moduleOn(this.stored(), 'projects'));
+  /** Kitchen: recipes, the meal plan, the grocery list, on hand (#125). */
+  readonly kitchen = computed(() => moduleOn(this.stored(), 'kitchen'));
 
   constructor() {
     effect(() => {
@@ -61,7 +63,9 @@ export class ModulesService {
 /** The modules this version knows, as stored; anything malformed is left out. */
 function read(data: Record<string, unknown>): Stored {
   const out: Stored = {};
-  const projects = ModuleSetting.safeParse(data['projects']);
-  if (projects.success) out.projects = projects.data;
+  for (const { id } of MODULES) {
+    const setting = ModuleSetting.safeParse(data[id]);
+    if (setting.success) out[id] = setting.data;
+  }
   return out;
 }

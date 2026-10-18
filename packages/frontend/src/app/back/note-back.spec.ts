@@ -1,4 +1,6 @@
+import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { ModulesService } from '../modules/modules.service';
 import { provideRouter } from '@angular/router';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
@@ -7,6 +9,7 @@ import { LinksService } from '../links/links.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import {
   FakeAuthService,
+  FakeModules,
   FakeNotes,
   noteRecord,
   remindersTestProviders,
@@ -89,6 +92,34 @@ describe('NoteBack (#112)', () => {
     );
     expect(el.querySelector('.times')!.textContent).toContain('on another device');
     expect(el.textContent).toContain('Nothing Claude did lately touched this note.');
+  });
+
+  it('sets a recipe’s servings and source link, and shows its original text (#127)', async () => {
+    const recipe: NoteRecord = {
+      ...noteRecord('r1', '## Ingredients'),
+      title: 'Shakshuka',
+      kind: 'recipe',
+      servings: 2,
+      source: { url: 'https://x.test/shakshuka', text: 'Eggs in a spiced tomato sauce.' },
+    };
+    const { el, notes } = await render(recipe, []);
+    expect(el.querySelector('input[type="number"]')).toBeNull();
+    (TestBed.inject(ModulesService) as unknown as FakeModules).set('kitchen', true);
+    await TestBed.inject(ApplicationRef).whenStable();
+    const serves = el.querySelector<HTMLInputElement>('input[type="number"]')!;
+    expect(serves.value).toBe('2');
+    serves.value = '4';
+    serves.dispatchEvent(new Event('change'));
+    expect(notes.updateRecipe).toHaveBeenLastCalledWith('r1', { servings: 4 });
+    serves.value = '';
+    serves.dispatchEvent(new Event('change'));
+    expect(notes.updateRecipe).toHaveBeenLastCalledWith('r1', { servings: null });
+    const url = el.querySelector<HTMLInputElement>('input[type="url"]')!;
+    url.value = 'https://y.test';
+    url.dispatchEvent(new Event('change'));
+    expect(notes.updateRecipe).toHaveBeenLastCalledWith('r1', { url: 'https://y.test' });
+    expect(el.querySelector('a[href="https://x.test/shakshuka"]')).not.toBeNull();
+    expect(el.querySelector('details')!.textContent).toContain('Eggs in a spiced tomato sauce.');
   });
 
   it('edits a template’s mode and Instructions for Claude, showing an old section (#111)', async () => {

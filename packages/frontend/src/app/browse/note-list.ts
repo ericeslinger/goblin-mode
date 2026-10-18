@@ -180,6 +180,7 @@ export class NoteList {
     concepts: 'No concepts yet. Link a name with [[ to make one.',
     people: 'No people yet. Set a concept’s type to Person.',
     projects: 'No projects yet. Set a concept’s type to Project.',
+    recipes: 'No recipes yet. Name one above to start it.',
     journal: 'No journal entries yet. Add a feelings journal in Settings.',
     tags: 'No tagged notes yet.',
     archived: 'Nothing archived.',

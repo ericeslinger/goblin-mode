@@ -11,6 +11,7 @@ import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   CONTEXT_ID,
   KEEP_SUFFIX,
+  recipeSkeleton,
   ProjectKind,
   ProjectStatus,
   RESTORE_SUFFIX,
@@ -66,6 +67,9 @@ export interface NoteRecord {
   fromTemplate?: string;
   /** A template's Instructions for Claude, once moved out of its body (#111). */
   instructions?: string;
+  /** A recipe's source and servings (#127). */
+  source?: { url?: string; attachmentId?: string; text?: string };
+  servings?: number;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -145,6 +149,18 @@ export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
   }),
 });
 
+/** A recipe's source as stored, keeping only the string fields it may have. */
+function recipeSource(value: unknown): NoteRecord['source'] {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  const out = Object.fromEntries(
+    (['url', 'attachmentId', 'text'] as const)
+      .filter((k) => typeof v[k] === 'string' && v[k])
+      .map((k) => [k, v[k] as string]),
+  );
+  return Object.keys(out).length ? out : undefined;
+}
+
 function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
   const stamp = data['updatedAt'] as { toMillis?: () => number } | null | undefined;
   return {
@@ -168,6 +184,8 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(typeof data['templateMode'] === 'string' ? { templateMode: data['templateMode'] } : {}),
     ...(typeof data['fromTemplate'] === 'string' ? { fromTemplate: data['fromTemplate'] } : {}),
     ...(typeof data['instructions'] === 'string' ? { instructions: data['instructions'] } : {}),
+    ...(recipeSource(data['source']) ? { source: recipeSource(data['source']) } : {}),
+    ...(typeof data['servings'] === 'number' ? { servings: data['servings'] } : {}),
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
@@ -379,6 +397,82 @@ export class NotesService {
       updatedBy: 'user',
       deviceId: this.deviceId(),
     });
+  }
+
+  /**
+   * A new recipe named `name` (#127), its sections ready to fill. Written
+   * at once, through the cache, so it works offline; its id is generated.
+   * Refused (undefined) when the name already answers to another note,
+   * so a `[[link]]` to it can only mean one thing. An empty stub concept
+   * holding the name (a link written before the recipe) is folded in,
+   * archived with `mergedInto`, as a renamed concept folds one (#30).
+   */
+  createRecipe(name: string): string | undefined {
+    const title = name.trim();
+    if (!this.uid || !title) return undefined;
+    const owner = this.names().get(normalizeName(title));
+    const stub = owner === undefined ? undefined : this.find(owner);
+    const foldable = stub?.kind === 'concept' && !stub.body.trim() && !stub.synonyms?.length;
+    if (owner !== undefined && !foldable) return undefined;
+    const id = this.newId();
+    const now = this.api.serverTime();
+    this.written.add(id);
+    const data = {
+      kind: 'recipe',
+      body: recipeSkeleton(),
+      title,
+      // The name is Eric's: a settle never retitles a recipe.
+      titleSource: 'user',
+      links: [],
+      tags: [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
+    if (foldable && owner) {
+      const merged = {
+        archived: true,
+        mergedInto: id,
+        updatedAt: now,
+        updatedBy: 'user',
+        deviceId: this.deviceId(),
+      };
+      this.api.set(this.fb.db, paths.note(this.uid, owner), merged, true).catch(report);
+    }
+    return id;
+  }
+
+  /** A recipe's name (Eric's own), servings or source link (#127). */
+  updateRecipe(
+    id: string,
+    change: { title?: string; servings?: number | null; url?: string },
+  ): void {
+    if (!this.uid || this.find(id)?.kind !== 'recipe') return;
+    const update: Record<string, unknown> = {};
+    const title = change.title?.trim();
+    if (title && title !== this.find(id)?.title) {
+      const owner = this.names().get(normalizeName(title));
+      if (owner !== undefined && owner !== id) return;
+      update['title'] = title;
+      update['titleSource'] = 'user';
+    }
+    if (change.servings === null) update['servings'] = this.api.removeField();
+    else if (change.servings !== undefined && change.servings > 0) {
+      update['servings'] = change.servings;
+    }
+    if (change.url !== undefined) {
+      update['source'] = { ...this.find(id)?.source, url: change.url.trim() };
+    }
+    if (Object.keys(update).length === 0) return;
+    const stamp = {
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), { ...update, ...stamp }, true).catch(report);
   }
 
   /** Living or entry, for a template. */

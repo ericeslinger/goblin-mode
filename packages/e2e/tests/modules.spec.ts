@@ -22,6 +22,7 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   const projects = page.getByRole('switch', { name: 'Projects' });
   await expect(projects).toBeChecked();
   await projects.uncheck();
+  await letItSave(page);
   const { violations } = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
