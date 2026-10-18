@@ -37,7 +37,7 @@ test('a feelings journal: reminders open entries, moods grow and come back', asy
   await page.goto('/n/c-wist');
   const concept = page.getByRole('region', { name: 'Concept' });
   await expect(concept.getByRole('combobox', { name: 'Type' })).toHaveValue('mood');
-  await page.getByRole('button', { name: /^Linked from/ }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Linked from' })).toContainText('Feelings');
 
   // Next time, it is offered, once the notes have loaded.

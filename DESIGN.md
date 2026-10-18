@@ -232,6 +232,23 @@ button saying how many notes link here, and opens to the list and
 Often together; each note opens folded. The back of the note (#112)
 is still to be designed with Eric and will take these over.
 
+**Back of the note (#112, Eric, 2026-10-17; replaces the Details
+fold and the folded Linked from above).** What is about a note rather
+than in it moves to its back. **Back** sits in the bar beside View
+(Front on the back; the label names the side a tap turns to), on any
+note that exists, and each note opens on its front. The back holds:
+when the note was made and last edited, and by whom (Claude, this
+device or another); What Claude changed on it (the runs among the
+latest hundred that touched it, with a link to them all); Linked from
+and Often together, open; a concept's settings (other names, parent,
+kind, status, stages, item tags; `ConceptHeader` with `side="back"`)
+or a template's mode and Instructions for Claude (#111); its tags; and
+History and Map. The front keeps the text, a concept's name, type and
+one-line kind and status, and a project's items. The editor stays
+mounted, hidden, while the back shows, so nothing typed is lost and
+the cursor comes back where it was. A side panel on wide screens and
+the attachments list wait until they are missed.
+
 **Feelings journal (#40, Eric, 2026-10-08).** Moods are concepts of
 type `mood`, not tags. Settings, Add a feelings journal, makes an
 entry template (`FEELINGS_TEMPLATE`, with a `Moods:` line) and three
@@ -378,6 +395,20 @@ interface Reminder {
 }
 ```
 
+**Context for Claude (#113, Eric, 2026-10-17).** One note of kind
+`context`, at the fixed id `context` (`CONTEXT_ID`), holds what Claude
+should always know about Eric and the garden (the Wednesday fish
+delivery, say). Eric edits it like any note, opened from Settings or
+More; it is made, only if absent, the first time it is opened online.
+It stays out of note lists, the map and Previous note, is never
+retitled or deleted when emptied, and its front says how many of its
+4,000 characters (`CONTEXT_MAX`) are used. The MCP server appends its
+text, cut at that limit with a line saying so, to the server
+instructions when a connection initializes (read only then, not on
+every call), and `get_context` returns it; Claude adds to it with
+`add_lines`, marked as its own, when Eric asks it to remember
+something.
+
 ### Templates (#36, 2026-10-07)
 
 A template is a note of kind `template`, not a collection of its own,
@@ -387,10 +418,17 @@ or `entry` (a new note each time, like a journal entry). A note made
 from it records the template's id in `fromTemplate`. Template ids are
 generated like any note's.
 
-- **Instructions for Claude** are a section of the body, under a
-  heading of that name at any level, running to the next heading of
-  the same level or higher. `templateParts` (schema) splits a body
-  into that section and the skeleton a new note starts from.
+- **Instructions for Claude** are the template's own `instructions`
+  field (#111, Eric 2026-10-17; they were a section of the body, and
+  Eric saw them in the text he writes in). They are edited on the back
+  of the note, and through MCP with `update_note`'s `instructions`.
+  Templates made before still hold a section under a heading of that
+  name at any level, running to the next heading of the same level or
+  higher; `templateParts(body, field)` reads the field when there is
+  one, else that section, and always keeps the section out of the
+  skeleton a new note starts from. The first time the app opens such
+  a template it moves the section, word for word, into the field and
+  leaves the rest of the text (no script, nothing to run at deploy).
 - **The schedule** is a recurring reminder whose `template` names the
   template, so it needs no field of its own: tapping it opens the
   template's note (a fresh entry, or the living note).
@@ -1074,16 +1112,17 @@ it, one backticked tool name per row.
 | `get_note` | One note in full with its links, backlinks and Drive files | Links and concepts (#28) |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
 | `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage | Organize tools (#34), Projects (#41), Stages and items |
-| `update_note` | Replaces a note's text; `add_lines` is preferred for lists | Safe co-editing (#37) |
+| `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
+| `get_context` | Eric's Context for Claude, the context note's text | Context for Claude (#113) |
 | `link_notes` | Adds a `See also [[...]]` line at the end of a note | Organize tools (#34) |
 | `split_note` | Cuts a note into pieces, refusing any rewording | Organize tools (#34) |
 | `merge_notes` | Joins notes into a new one, archiving the originals | Organize tools (#34) |
 | `refile` | Concept type and other names; tags on any note; a project's parent, kind, status, stages, item tags and stage | Organize tools (#34), Stages and items |
 | `archive_note` | Archives or restores a note | Organize tools (#34) |
 | `suggest_changes` | Stores link, merge and refile suggestions for Eric to accept | Nightly suggestions (#35) |
-| `list_templates` | Templates with their Instructions for Claude and skeleton | Using templates (#38) |
+| `list_templates` | Templates with their Instructions for Claude (field, or old section) and skeleton | Using templates (#38), #111 |
 | `use_template` | Opens a template's note to work in | Using templates (#38) |
 | `add_lines` | Adds lines under a heading, without rewriting the body | Safe co-editing (#37) |
 | `check_item` | Ticks a checklist item, by its text | Safe co-editing (#37) |

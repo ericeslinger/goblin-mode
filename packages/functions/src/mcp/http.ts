@@ -8,6 +8,25 @@ import { publicOrigin } from '../oauth/http';
 import { buildServer } from './server';
 import { NotesTools } from './tools';
 
+/**
+ * The context note's text, or none when it cannot be read: a failed read
+ * must never stop Claude connecting (review on #123).
+ */
+export async function contextOrNone(tools: NotesTools): Promise<string> {
+  try {
+    return (await tools.getContext()).text;
+  } catch (err) {
+    console.warn('context for Claude not read', err);
+    return '';
+  }
+}
+
+/** A JSON-RPC initialize request, alone or in a batch. */
+export function isInitialize(body: unknown): boolean {
+  const calls = Array.isArray(body) ? body : [body];
+  return calls.some((c) => (c as { method?: unknown } | null)?.method === 'initialize');
+}
+
 export interface McpDeps {
   store: OAuthStore;
   ownerUid: string | undefined;
@@ -51,7 +70,11 @@ export async function handleMcp(deps: McpDeps, req: Req, res: Res): Promise<void
     return void res.status(405).json({ error: 'stateless server: POST only' });
   }
 
-  const server = buildServer(deps.toolsFor(uid));
+  const tools = deps.toolsFor(uid);
+  // Instructions go out only on initialize: read the context note then,
+  // not on every call (#113).
+  const context = isInitialize(req.body) ? await contextOrNone(tools) : '';
+  const server = buildServer(tools, context);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

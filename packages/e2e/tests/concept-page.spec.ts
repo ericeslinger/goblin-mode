@@ -35,18 +35,16 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   const concept = page.getByRole('region', { name: 'Concept' });
   await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Vikas');
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('person');
-  // The settings are folded under Details (2026-10-17).
-  await concept.getByRole('button', { name: 'Details' }).click();
+  // Its settings and links are on the back of the note (#112).
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await concept.getByRole('textbox', { name: 'Add another name' }).fill('Vik');
   await concept.getByRole('textbox', { name: 'Add another name' }).press('Enter');
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('Vik');
   // A phone finishes by leaving the field, with no Enter (2026-10-08).
   await concept.getByRole('textbox', { name: 'Add another name' }).fill('V. Rao');
-  await concept.getByRole('combobox', { name: 'Type' }).focus();
+  await concept.getByRole('textbox', { name: 'Add another name' }).blur();
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('V. Rao');
 
-  // Folded too, under how many link here.
-  await page.getByRole('button', { name: 'Linked from 3' }).click();
   const linkedFrom = page.getByRole('region', { name: 'Linked from' });
   await expect(linkedFrom).toContainText('Ask [[Vikas]] about the kiln.');
   await expect(linkedFrom).toContainText('Firing notes');
@@ -59,10 +57,12 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 
-  // Rename: the old name stays, so the old links still land here.
+  // Rename, on the front: the old name stays, so the old links still land here.
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
   const name = concept.getByRole('textbox', { name: 'Name', exact: true });
   await name.fill('Vikas S.');
   await name.press('Enter');
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('Vikas');
   await linkedFrom.getByRole('link', { name: 'Studio day' }).click();
   await chip(page, 'Vikas').click();
@@ -76,6 +76,6 @@ test('a concept shows who links to it, and keeps its links through a rename', as
   await letItSave(page);
   await page.reload();
   await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Vikas S.');
-  await concept.getByRole('button', { name: 'Details' }).click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(concept.getByRole('list', { name: 'Also called' })).toContainText('Vik');
 });

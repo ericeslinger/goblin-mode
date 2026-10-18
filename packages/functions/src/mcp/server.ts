@@ -39,7 +39,21 @@ export const INSTRUCTIONS = [
     'chat link). Then say what was filed, one line each.',
   'Notes made in the app can be loose, linked to no project, so before taking a project page ' +
     'as complete, check list_notes or search_notes too.',
+  "Eric's Context for Claude is the note with id context: what you should always know about " +
+    'him and the garden. When he has written any, it follows these instructions; get_context ' +
+    'reads it again. When he asks you to remember something for later, add it there with ' +
+    "add_lines, starting '✳ Claude:'. A template's Instructions for Claude are its own field " +
+    '(list_templates, use_template; update_note instructions), not in its text.',
 ].join('\n');
+
+/**
+ * The instructions with Eric's Context for Claude after them (#113), when
+ * he has written any. It is his own text, from his own garden.
+ */
+export function instructionsWith(context: string): string {
+  if (!context.trim()) return INSTRUCTIONS;
+  return `${INSTRUCTIONS}\n\nContext for Claude, from Eric (the context note):\n${context.trim()}`;
+}
 
 const projectKind = z.enum(['build', 'content']);
 const projectStatus = z.enum(['active', 'nearly-done', 'maintenance', 'waiting', 'done', 'new']);
@@ -72,10 +86,10 @@ export type ToolsApi = {
 };
 
 /** One MCP server for one request, acting for the signed-in owner. */
-export function buildServer(tools: ToolsApi): McpServer {
+export function buildServer(tools: ToolsApi, context = ''): McpServer {
   const server = new McpServer(
     { name: 'mossgoblin', version: '1.0.0' },
-    { instructions: INSTRUCTIONS },
+    { instructions: instructionsWith(context) },
   );
 
   server.registerTool(
@@ -169,11 +183,26 @@ export function buildServer(tools: ToolsApi): McpServer {
   );
 
   server.registerTool(
+    'get_context',
+    {
+      title: 'Read the Context for Claude',
+      description:
+        "Eric's Context for Claude (the note with id context): what to always know about him and " +
+        'the garden, as given after the server instructions. Add to it with add_lines when he ' +
+        'asks you to remember something.',
+      inputSchema: {},
+      annotations: read,
+    },
+    run(() => tools.getContext({})),
+  );
+
+  server.registerTool(
     'update_note',
     {
       title: 'Change a note',
       description:
-        'Replace a note body, set its title or tags, or archive it. The body replaces the old ' +
+        "Replace a note body, set its title or tags, or archive it, or set a template's " +
+        'instructions (its Instructions for Claude). The body replaces the old ' +
         'one entirely: keep every paragraph Eric wrote word for word unless he asked otherwise. ' +
         "A title Eric set himself cannot be changed. The version you replace stays in the note's History.",
       inputSchema: {
@@ -182,6 +211,7 @@ export function buildServer(tools: ToolsApi): McpServer {
         title: z.string().optional(),
         tags: z.array(z.string()).optional(),
         archived: z.boolean().optional(),
+        instructions: z.string().optional(),
       },
       annotations: write,
     },

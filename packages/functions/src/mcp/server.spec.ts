@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it, vi } from 'vitest';
-import { INSTRUCTIONS, type ToolsApi, buildServer } from './server';
+import { INSTRUCTIONS, type ToolsApi, buildServer, instructionsWith } from './server';
 import { ToolError } from './tools';
 
 function fakeTools() {
@@ -35,6 +35,7 @@ function fakeTools() {
     listReadingQueue: vi.fn(async () => []),
     getAttachmentText: vi.fn(async () => ({})),
     searchAttachments: vi.fn(async () => []),
+    getContext: vi.fn(async () => ({ id: 'context', text: '' })),
   } satisfies ToolsApi;
 }
 
@@ -61,6 +62,7 @@ describe('the MCP server', () => {
       'create_reminder',
       'get_attachment_text',
       'get_backlinks',
+      'get_context',
       'get_note',
       'link_notes',
       'list_concepts',
@@ -81,6 +83,21 @@ describe('the MCP server', () => {
     ]);
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
     expect(INSTRUCTIONS).toMatch(/word for word/);
+  });
+
+  it('gives Claude Eric’s Context for Claude after the rules, when there is any (#113)', async () => {
+    expect(instructionsWith('  ')).toBe(INSTRUCTIONS);
+    const told = instructionsWith('Fish comes most Wednesdays.\n');
+    expect(told.startsWith(INSTRUCTIONS)).toBe(true);
+    expect(told).toMatch(
+      /Context for Claude, from Eric \(the context note\):\nFish comes most Wednesdays\.$/,
+    );
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await buildServer(fakeTools(), 'Fish comes most Wednesdays.').connect(serverSide);
+    const client = new Client({ name: 'spec', version: '1' });
+    await client.connect(clientSide);
+    expect(client.getInstructions()).toContain('Fish comes most Wednesdays.');
+    expect(INSTRUCTIONS).toMatch(/note with id context/);
   });
 
   it('carries the conventions and procedures a chat without the repo cannot guess', () => {

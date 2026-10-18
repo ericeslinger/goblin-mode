@@ -35,3 +35,17 @@ describe('templateParts', () => {
     expect(templateParts('Instructions for Claude are below').instructions).toBe('');
   });
 });
+
+describe('templateParts with the instructions field (#111)', () => {
+  it('takes the field over the section, still keeping the section out of the skeleton', () => {
+    const body = 'Shopping list\n## Produce\n## Instructions for Claude\nOld words.';
+    expect(templateParts(body, ' New words. ')).toEqual({
+      skeleton: 'Shopping list\n## Produce',
+      instructions: 'New words.',
+    });
+    expect(templateParts('Shopping list\n## Produce', '')).toEqual({
+      skeleton: 'Shopping list\n## Produce',
+      instructions: '',
+    });
+  });
+});

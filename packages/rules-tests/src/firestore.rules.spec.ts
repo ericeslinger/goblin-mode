@@ -152,6 +152,11 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertSucceeds(ref.set({ ...note(), kind: 'template', templateMode: 'living' }));
     await assertSucceeds(ref.set({ ...note(), kind: 'template', templateMode: 'entry' }));
     await assertFails(ref.set({ ...note(), kind: 'template', templateMode: 'weekly' }));
+    // Instructions for Claude are a template's own field (#111).
+    await assertSucceeds(ref.set({ ...note(), kind: 'template', instructions: 'Group by aisle.' }));
+    await assertFails(ref.set({ ...note(), kind: 'template', instructions: ['Group'] }));
+    // The context note (#113).
+    await assertSucceeds(ref.set({ ...note(), kind: 'context' }));
     await assertSucceeds(ref.set({ ...note(), fromTemplate: 't1' }));
     await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
     await assertSucceeds(ref.set({ ...note(), baseHash: '5-1a2b3c4d' }));

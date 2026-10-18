@@ -1,0 +1,263 @@
+import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { paths, templateParts } from '@mossgoblin/schema';
+import { AuthService } from '../auth.service';
+import { ACTIVITY_API, toRun, type RunRecord } from '../claude/activity';
+import { FIREBASE } from '../firebase';
+import { ConceptHeader } from '../links/concept-header';
+import { NoteLinks } from '../links/note-links';
+import { NotesService, type NoteRecord } from '../notes/notes.service';
+
+/** "Oct 17, 9:05 PM", in the device's own words. */
+function stamp(ms: number | undefined): string {
+  if (ms === undefined) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(ms);
+}
+
+/**
+ * The back of a note (#112, Eric 2026-10-17): what is about the note
+ * rather than in it. When it was made and last edited, and by whom; what
+ * Claude changed on it; the notes linking here; a concept's or a
+ * template's settings, a template's Instructions for Claude (#111)
+ * among them; its tags, History and Map. The front keeps the text.
+ */
+@Component({
+  selector: 'app-note-back',
+  imports: [ConceptHeader, NoteLinks, RouterLink],
+  template: `
+    <section class="back" aria-label="Back of the note">
+      <h2 class="title">{{ note().title || 'Untitled' }}</h2>
+      <p class="times">
+        @if (note().createdAt !== undefined) {
+          <span>Made {{ made() }}</span>
+        }
+        @if (note().updatedAt !== undefined) {
+          <span>Edited {{ edited() }} {{ by() }}</span>
+        }
+      </p>
+
+      @if (note().kind === 'concept') {
+        <app-concept-header side="back" [note]="note()" />
+      } @else if (note().kind === 'template') {
+        <div class="settings">
+          <label>
+            Each use
+            <select #mode (change)="setMode(mode.value)">
+              <option value="entry" [selected]="note().templateMode !== 'living'">
+                makes a new note
+              </option>
+              <option value="living" [selected]="note().templateMode === 'living'">
+                opens the same note
+              </option>
+            </select>
+          </label>
+          <label class="instructions">
+            Instructions for Claude
+            <!-- Saved on change: on leaving the field, as a phone finishes. -->
+            <textarea
+              #instructions
+              rows="5"
+              [value]="instructionsText()"
+              (change)="notes.setInstructions(note().id, instructions.value.trim())"
+            ></textarea>
+          </label>
+          <p class="hint">
+            How Claude fills in or tidies notes made from this template. Notes start from the
+            front's text, without these.
+          </p>
+        </div>
+      }
+
+      <h3 id="claude-changes">What Claude changed</h3>
+      @if (!loaded()) {
+        <p class="muted" role="status">Loading…</p>
+      } @else if (changes().length === 0) {
+        <p class="muted">Nothing Claude did lately touched this note.</p>
+      } @else {
+        <ul aria-labelledby="claude-changes" class="changes">
+          @for (run of changes(); track run.id) {
+            <li>
+              <span class="when">{{ when(run) }}</span> {{ run.summary }}
+            </li>
+          }
+        </ul>
+      }
+      <a routerLink="/activity" class="quiet-link">All of Claude’s changes</a>
+
+      <app-note-links
+        [noteId]="note().id"
+        [concept]="note().kind === 'concept'"
+        empty="Nothing links here yet."
+      />
+
+      @if (note().tags?.length) {
+        <h3 id="note-tags">Tags</h3>
+        <ul aria-labelledby="note-tags" class="chips">
+          @for (t of note().tags; track t) {
+            <li>{{ t }}</li>
+          }
+        </ul>
+      }
+
+      <p class="more-links">
+        <a routerLink="/history" [queryParams]="{ note: note().id }">History</a>
+        <a [routerLink]="['/map/n', note().id]">Map</a>
+      </p>
+    </section>
+  `,
+  styles: `
+    :host {
+      display: block;
+      overflow: auto;
+    }
+    .back {
+      padding: var(--space-2) var(--space-3) var(--space-3);
+      font-size: 14px;
+    }
+    .title {
+      margin: var(--space-1) 0;
+      font-family: var(--font-heading);
+      font-size: 1.4em;
+    }
+    .times {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 var(--space-3);
+      margin: 0 0 var(--space-2);
+      color: var(--quiet);
+    }
+    h3 {
+      margin: var(--space-3) 0 var(--space-1);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--quiet);
+    }
+    ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .changes li {
+      padding: var(--space-1) 0;
+      border-bottom: 1px solid var(--rule);
+    }
+    .when,
+    .muted,
+    .hint {
+      color: var(--quiet);
+    }
+    .hint {
+      margin: var(--space-1) 0 0;
+      font-size: 13px;
+    }
+    .settings {
+      display: grid;
+      gap: var(--space-2);
+      padding: var(--space-1) 0;
+    }
+    .instructions {
+      display: grid;
+      gap: var(--space-1);
+    }
+    select,
+    textarea {
+      font: inherit;
+      color: var(--ink);
+      background: var(--surface);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      padding: var(--space-1) var(--space-2);
+    }
+    textarea {
+      resize: vertical;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1);
+    }
+    .chips li {
+      padding: 2px var(--space-2);
+      border-radius: var(--radius-pill);
+      background: var(--chip-bg);
+    }
+    a {
+      color: var(--accent);
+    }
+    .quiet-link {
+      display: inline-block;
+      margin-top: var(--space-1);
+    }
+    .more-links {
+      display: flex;
+      gap: var(--space-3);
+      margin: var(--space-3) 0 0;
+    }
+    app-note-links {
+      padding: 0;
+    }
+  `,
+})
+export class NoteBack {
+  readonly note = input.required<NoteRecord>();
+  protected readonly notes = inject(NotesService);
+  private readonly api = inject(ACTIVITY_API);
+  private readonly fb = inject(FIREBASE);
+  private readonly auth = inject(AuthService);
+
+  /** Claude's latest runs (the last hundred, as What Claude changed shows). */
+  private readonly runs = signal<RunRecord[]>([]);
+  protected readonly loaded = signal(false);
+  /** The runs that touched this note, newest first. */
+  protected readonly changes = computed(() =>
+    this.runs().filter((r) => r.notes.some((n) => n.id === this.note().id)),
+  );
+
+  protected readonly made = computed(() => stamp(this.note().createdAt));
+  protected readonly edited = computed(() => stamp(this.note().updatedAt));
+  /** Who wrote last: Claude, this device, or another of Eric's. */
+  protected readonly by = computed(() => {
+    const note = this.note();
+    if (note.updatedBy === 'claude') return 'by Claude';
+    if (!note.deviceId) return '';
+    return note.deviceId.startsWith(this.notes.deviceId()) ? 'on this device' : 'on another device';
+  });
+  /** The field, or the section a template from before #111 still holds. */
+  protected readonly instructionsText = computed(
+    () => templateParts(this.note().body, this.note().instructions).instructions,
+  );
+
+  constructor() {
+    let stop: (() => void) | undefined;
+    effect(() => {
+      const uid = this.auth.user()?.uid;
+      stop?.();
+      stop = undefined;
+      if (!uid) return;
+      stop = this.api.listen(
+        this.fb.db,
+        paths.activity(uid),
+        (docs) => {
+          this.runs.set(docs.map((d) => toRun(d.id, d.data)));
+          this.loaded.set(true);
+        },
+        (err) => console.error('activity listener', err),
+      );
+    });
+    inject(DestroyRef).onDestroy(() => stop?.());
+  }
+
+  protected setMode(mode: string): void {
+    this.notes.setTemplateMode(this.note().id, mode === 'living' ? 'living' : 'entry');
+  }
+
+  protected when(run: RunRecord): string {
+    return stamp(run.at);
+  }
+}

@@ -131,14 +131,11 @@ describe('Settings', () => {
     ]);
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     button(el, 'New living template')!.click();
-    expect(notes.create).toHaveBeenCalledWith(
-      'new1',
-      expect.stringContaining('## Instructions for Claude'),
-      {
-        kind: 'template',
-        templateMode: 'living',
-      },
-    );
+    expect(notes.create).toHaveBeenCalledWith('new1', 'New template\n', {
+      kind: 'template',
+      templateMode: 'living',
+      instructions: expect.stringContaining('How to fill in'),
+    });
     expect(navigate).toHaveBeenCalledWith(['/n', 'new1']);
   });
 
