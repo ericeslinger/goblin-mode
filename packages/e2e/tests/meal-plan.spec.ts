@@ -159,6 +159,9 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await plan.getByRole('combobox', { name: 'Recipe for Mon dinner, Oct 19' }).fill('Shakshuka');
   await plan.getByRole('button', { name: 'Plan it' }).click();
   await expect(plan.getByRole('status')).toHaveText('Added 2 lines to the grocery list.');
+  // Saved before Claude plans: an edit on each side within the same
+  // moment is the sync merge's case (#37), not this journey's.
+  await letItSave(page);
   // Planned by Claude, half a recipe.
   await call('plan_meal', { date: '2026-10-20', slot: '[[Dal]] (half recipe)' });
   const listBody = async () => ((await call('get_note', { id: list })) as { body: string }).body;
@@ -168,7 +171,9 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   expect(body).toContain('- [ ] 2 onions, sliced (Shakshuka, Mon)');
   expect(body).not.toContain('limes (Shakshuka, Mon)');
 
-  // Monday becomes delivery: Shakshuka's lines come off.
+  // Monday becomes delivery: Shakshuka's lines come off. The phone has
+  // Claude's Tuesday first.
+  await expect(plan).toContainText('[[Dal]] (half recipe)', { timeout: 15_000 });
   await plan.getByRole('button', { name: /^Change Mon dinner, Oct 19/ }).click();
   await plan.getByRole('button', { name: 'Delivery' }).click();
   await expect(plan.getByRole('status')).toHaveText('Took 2 lines off the grocery list.');

@@ -838,7 +838,11 @@ the other dinner's (review on #139), but a line Eric deleted himself
 does not come back. Adding the two amounts waits for #133. The rules
 are `packages/schema/src/grocery.ts`, shared by the app and Claude.
 Typing a slot by hand in the plan's text does not feed the list; the
-week's slots and `plan_meal` do.
+week's slots and `plan_meal` do. Known limit (2026-10-18): the phone and Claude
+changing neighbouring slots within the same second, before either has
+seen the other, can leave both versions of those lines in the plan,
+as the sync merge (#37) keeps both sides of a stretch it cannot tell
+apart; nothing is lost, and the extra lines can be deleted.
 
 **On hand (#131, 2026-10-18; epic #125), presence only.** One note of
 kind `pantry` at id `pantry`, named On hand, made the first time it is
