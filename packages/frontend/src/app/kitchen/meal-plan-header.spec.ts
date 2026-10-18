@@ -11,7 +11,7 @@ import { MealPlanHeader } from './meal-plan-header';
 const START = '2026-10-19';
 const T = new Date(2026, 9, 20, 18).getTime(); // Tue Oct 20, 6 pm local
 
-async function render(body: string) {
+async function render(body: string, extra: NoteRecord[] = []) {
   const notes = new FakeNotes();
   const plan: NoteRecord = {
     ...noteRecord('meals-2026-10-19', body),
@@ -19,7 +19,7 @@ async function render(body: string) {
     title: 'Meals, week of Oct 19',
     periodStart: START,
   };
-  notes.signIn([plan, { ...noteRecord('r-dal', ''), kind: 'recipe', title: 'Dal' }]);
+  notes.signIn([plan, { ...noteRecord('r-dal', ''), kind: 'recipe', title: 'Dal' }, ...extra]);
   const reminders = { add: vi.fn() };
   const grocery = {
     listId: signal<string | undefined>('g1'),
@@ -127,5 +127,22 @@ describe('MealPlanHeader (#129)', () => {
     input.value = 'Good, more lemon';
     buttonNamed(el, 'Save').click();
     expect(notes.addRecipeNote).toHaveBeenCalledWith('r-dal', '- Oct 19: Good, more lemon');
+  });
+
+  it('suggests recipes for the day, and plans one in a tap (#132)', async () => {
+    const soup: NoteRecord = {
+      ...noteRecord('r-soup', '## Ingredients\n\n- 2 onions\n- 1 l stock\n'),
+      kind: 'recipe',
+      title: 'Soup',
+    };
+    const pantry: NoteRecord = { ...noteRecord('pantry', '- onions\n'), kind: 'pantry' };
+    const { el, fixture, edits } = await render('- [ ] Mon dinner:\n', [soup, pantry]);
+    buttonNamed(el, 'Change Mon dinner, Oct 19: nothing planned').click();
+    await fixture.whenStable();
+    // Dal has no ingredients written yet, so only Soup is suggested.
+    const ideas = el.querySelector('ul[aria-label="Suggestions for Mon dinner, Oct 19"]')!;
+    expect(ideas.textContent?.replace(/\s+/g, ' ').trim()).toBe('Soup needs stock');
+    buttonNamed(el, 'Plan Soup').click();
+    expect(edits.pop()).toBe('- [ ] Mon dinner: [[Soup]]\n');
   });
 });

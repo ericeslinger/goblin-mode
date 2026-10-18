@@ -5,6 +5,10 @@ import {
   addDays,
   addSlotNote,
   localDate,
+  PANTRY_ID,
+  type Suggestion,
+  onHand,
+  suggestRecipes,
   mealLabel,
   normalizeName,
   planSlots,
@@ -85,6 +89,27 @@ const LATER_MS = 60 * 60 * 1000;
                   <button type="button" (click)="set(s, '')">Clear</button>
                   <button type="button" (click)="editing.set(undefined)">Cancel</button>
                 </span>
+                @if (suggestionsFor(s); as ideas) {
+                  @if (ideas.length) {
+                    <ul class="ideas" [attr.aria-label]="'Suggestions for ' + label(s)">
+                      @for (idea of ideas; track idea.id) {
+                        <li>
+                          <button
+                            type="button"
+                            class="link"
+                            [attr.aria-label]="'Plan ' + idea.title"
+                            (click)="set(s, '[[' + idea.title + ']]')"
+                          >
+                            {{ idea.title }}
+                          </button>
+                          <span class="muted">{{
+                            idea.missing.length ? 'needs ' + idea.missing.join(', ') : 'all on hand'
+                          }}</span>
+                        </li>
+                      }
+                    </ul>
+                  }
+                }
               } @else {
                 <button
                   type="button"
@@ -176,6 +201,12 @@ const LATER_MS = 60 * 60 * 1000;
       cursor: pointer;
       flex: 1;
     }
+    .ideas {
+      flex-basis: 100%;
+      display: grid;
+      gap: var(--space-1);
+      margin: var(--space-1) 0 0 2em;
+    }
     .note {
       margin: 0 0 0 2em;
       color: var(--quiet);
@@ -234,6 +265,14 @@ export class MealPlanHeader {
       .filter((n) => n.kind === 'recipe' && !n.archived)
       .sort((a, b) => a.title.localeCompare(b.title)),
   );
+
+  /** The pantry's items, for suggestions (#132). */
+  private readonly have = computed(() => onHand(this.notes.find(PANTRY_ID)?.body ?? ''));
+
+  /** The top three recipes to cook on a slot's day (#132). */
+  protected suggestionsFor(s: Slot): Suggestion[] {
+    return suggestRecipes(this.recipes(), this.notes.made(), this.have(), s.date, 3);
+  }
 
   protected label(s: Slot): string {
     return `${s.day} ${s.meal}, ${shortDate(s.date)}`;

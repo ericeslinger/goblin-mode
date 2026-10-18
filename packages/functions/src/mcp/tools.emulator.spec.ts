@@ -1086,6 +1086,26 @@ describe('the meal plan (#129)', () => {
     expect((await t.getPantry()).items.map((i) => i.item)).toEqual(['olive oil', 'lentils']);
   });
 
+  it('suggests recipes by what is on hand and how long since made (#132)', async () => {
+    await kitchenOn();
+    const t = ticking();
+    await t.createRecipe({ name: 'Dal', ingredients: ['1 cup lentils', 'limes'], method: [] });
+    await t.createRecipe({ name: 'Soup', ingredients: ['2 onions', 'stock'], method: [] });
+    await t.createRecipe({ name: 'Toast', ingredients: ['bread'], method: [] });
+    await t.updatePantry({ add: [{ item: 'lentils' }, { item: 'limes' }, { item: 'onions' }] });
+    await t.planMeal({ date: '2026-10-19', slot: '[[Toast]]' });
+    await t.checkItem({ id: 'meals-2026-10-19', item: 'Mon dinner' });
+    const ideas = await t.suggestRecipes({ date: '2026-10-21' });
+    // Toast was made two days ago; Dal is all on hand.
+    expect(ideas.map((i) => [i.title, i.onHand, i.total, i.missing])).toEqual([
+      ['Dal', 2, 2, []],
+      ['Soup', 1, 2, ['stock']],
+    ]);
+    expect((await t.suggestRecipes({ date: '2026-10-30', limit: 1 })).map((i) => i.title)).toEqual([
+      'Dal',
+    ]);
+  });
+
   it('notes how a dinner went on the plan and in the recipe', async () => {
     await kitchenOn();
     const t = ticking();

@@ -44,6 +44,7 @@ function fakeTools() {
     logMeal: vi.fn(async () => ({})),
     getPantry: vi.fn(async () => ({})),
     updatePantry: vi.fn(async () => ({})),
+    suggestRecipes: vi.fn(async () => []),
   } satisfies ToolsApi;
 }
 
@@ -90,6 +91,7 @@ describe('the MCP server', () => {
       'search_notes',
       'split_note',
       'suggest_changes',
+      'suggest_recipes',
       'uncheck_item',
       'update_note',
       'update_pantry',

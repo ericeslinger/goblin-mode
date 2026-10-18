@@ -53,6 +53,8 @@ import {
   pantryItems,
   recipeKeys,
   useUp,
+  madeHistory,
+  suggestRecipes,
   mealLabel,
   replanGrocery,
   weekdayOf,
@@ -2054,6 +2056,39 @@ export class NotesTools {
         }),
       );
     });
+  }
+
+  /**
+   * Recipes to suggest (#132): not made in the week before `date`, most
+   * of what they need on hand first, then the longest since made. Each
+   * says what would need buying.
+   */
+  async suggestRecipes(args: { date: string; limit?: number }) {
+    await this.requireModule('kitchen', 'suggesting recipes');
+    if (!isIsoDate(args.date)) throw new ToolError('date must be a calendar date, YYYY-MM-DD');
+    const [recipes, plans, pantry] = await Promise.all([
+      this.notes().where('kind', '==', 'recipe').get(),
+      this.notes().where('kind', '==', 'mealplan').get(),
+      this.pantryBody(),
+    ]);
+    const live = (d: { get: (k: string) => unknown }) => d.get('archived') !== true;
+    const made = madeHistory(
+      plans.docs.filter(live).map((d) => ({
+        body: String(d.get('body') ?? ''),
+        periodStart: d.get('periodStart') as string | undefined,
+      })),
+    );
+    return suggestRecipes(
+      recipes.docs.filter(live).map((d) => ({
+        id: d.id,
+        title: String(d.get('title') ?? ''),
+        body: String(d.get('body') ?? ''),
+      })),
+      made,
+      onHand(pantry),
+      args.date,
+      Math.min(Math.max(1, args.limit ?? 5), 20),
+    );
   }
 
   /** What is on hand (#131): each item, its amount as written, always, its section. */

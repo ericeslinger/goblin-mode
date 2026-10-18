@@ -212,4 +212,14 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
     .toMatch(/## Produce\n(?:.*\n)*?- \[ \] limes \(Shakshuka, Mon\)/);
   expect(await listBody()).toContain('2 onions, sliced (Shakshuka, Mon)');
   expect(await listBody()).not.toContain('tomatoes (Shakshuka, Mon)');
+
+  // Picking a dinner offers recipes to cook (#132); a tap plans one.
+  await page.goto('/kitchen/2026-10-28');
+  await plan.getByRole('button', { name: 'Change Wed dinner, Oct 28: nothing planned' }).click();
+  const ideas = plan.getByRole('list', { name: 'Suggestions for Wed dinner, Oct 28' });
+  await expect(ideas).toContainText('Dal');
+  await ideas.getByRole('button', { name: 'Plan Dal' }).click();
+  await expect(
+    plan.getByRole('button', { name: 'Change Wed dinner, Oct 28: [[Dal]]' }),
+  ).toBeVisible();
 });
