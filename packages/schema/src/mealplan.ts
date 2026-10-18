@@ -84,6 +84,18 @@ export function periodStartFor(iso: string, weekStart: Weekday = 'Mon'): string 
   return addDays(iso, -back);
 }
 
+/**
+ * The first day of the plan to open for `iso`: an existing plan's whose
+ * week holds it, so changing the week's first day never makes a second
+ * plan over the same days (review on #137); else the configured week's.
+ */
+export function planStartFor(iso: string, weekStart: Weekday, existing: readonly string[]): string {
+  const holding = existing
+    .filter((start) => isIsoDate(start) && start <= iso && iso < addDays(start, 7))
+    .sort();
+  return holding[holding.length - 1] ?? periodStartFor(iso, weekStart);
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** "Oct 19", for a calendar date. */
@@ -274,7 +286,9 @@ export function madeHistory(
       out.set(key, [...(out.get(key) ?? []), s.date]);
     }
   }
-  for (const dates of out.values()) dates.sort();
+  // Plans that overlap (the week's first day changed in between) count
+  // a day once.
+  for (const [key, dates] of out) out.set(key, [...new Set(dates)].sort());
   return out;
 }
 

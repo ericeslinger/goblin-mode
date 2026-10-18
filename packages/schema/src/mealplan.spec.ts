@@ -9,6 +9,7 @@ import {
   periodStartFor,
   planBody,
   planId,
+  planStartFor,
   planSlots,
   planTitle,
   ratioOf,
@@ -28,6 +29,12 @@ describe('weeks (#129)', () => {
     expect(planTitle(START)).toBe('Meals, week of Oct 19');
     expect(isIsoDate('2026-02-30')).toBe(false);
     expect(isIsoDate('2026-02-28')).toBe(true);
+  });
+
+  it('opens an existing plan holding the day, whatever the week now starts on', () => {
+    expect(planStartFor('2026-10-22', 'Sun', [START])).toBe(START);
+    expect(planStartFor('2026-10-26', 'Sun', [START])).toBe('2026-10-25');
+    expect(planStartFor('2026-10-22', 'Mon', [])).toBe(START);
   });
 
   it('reads a configuration, falling back to the defaults', () => {
@@ -124,6 +131,8 @@ describe('made history (#129)', () => {
     const history = madeHistory([
       { periodStart: START, body: '- [x] Mon dinner: [[Dal]]\n- [ ] Tue dinner: [[Dal]]' },
       { periodStart: '2026-10-12', body: '- [x] Fri dinner: [[dal]]' },
+      // An overlapping plan (the week's first day changed) counts a day once.
+      { periodStart: '2026-10-18', body: '- [x] Mon dinner: [[Dal]]' },
       { body: '- [x] Mon dinner: [[Dal]]' },
     ]);
     expect(history.get('dal')).toEqual(['2026-10-16', '2026-10-19']);

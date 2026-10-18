@@ -76,3 +76,47 @@ test('a week is planned, a dinner made and noted, and Claude plans too', async (
     'Made once, last Oct 19',
   );
 });
+
+// Kitchen's settings shape the weeks not planned yet; a week opens its
+// neighbours; a made dinner's question can wait for a reminder.
+test('Kitchen settings shape new weeks, and a question waits for later', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Kitchen' }).check();
+  await letItSave(page);
+  await page.reload();
+  await page.getByRole('combobox', { name: 'Weeks start on' }).selectOption('Sun');
+  await page.getByRole('checkbox', { name: 'lunch' }).check();
+  await page.getByRole('combobox', { name: 'Fish of the week on' }).selectOption('none');
+  await page
+    .getByRole('button', { name: 'Remind me each week, the day before it starts, at 4 pm' })
+    .click();
+  await expect(page.getByText('Each week you are reminded to plan')).toBeVisible();
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Weeks start on' })).toHaveValue('Sun');
+
+  await page.goto('/kitchen/2026-11-04');
+  await expect(page).toHaveURL(/\/n\/meals-2026-11-01$/);
+  const plan = page.getByRole('region', { name: 'Meal plan' });
+  const meals = plan.getByRole('list', { name: 'Meals' }).getByRole('listitem');
+  await expect(meals).toHaveCount(14);
+  await expect(meals.first()).toContainText('Sun lunch, Nov 1');
+  await expect(plan).not.toContainText('Fish of the week');
+
+  await plan.getByRole('link', { name: 'Previous week' }).click();
+  await expect(page).toHaveURL(/\/n\/meals-2026-10-25$/);
+  await plan.getByRole('link', { name: 'Next week' }).click();
+  await expect(page).toHaveURL(/\/n\/meals-2026-11-01$/);
+
+  await plan.getByRole('button', { name: 'Change Mon dinner, Nov 2: nothing planned' }).click();
+  await plan.getByRole('button', { name: 'Delivery' }).click();
+  await plan.getByRole('checkbox', { name: 'Made Mon dinner, Nov 2' }).check();
+  await plan.getByRole('button', { name: 'Ask me later' }).click();
+  await expect(plan.getByRole('textbox', { name: 'What was it, and from where?' })).toHaveCount(0);
+  await letItSave(page);
+  await page.goto('/right-now');
+  await expect(page.getByRole('main')).toContainText(
+    'What was it, and from where? (Mon dinner, Nov 2)',
+  );
+});

@@ -31,7 +31,7 @@ import {
   ingredients,
   isIsoDate,
   kitchenConfig,
-  periodStartFor,
+  planStartFor,
   planBody,
   planId,
   planSlots,
@@ -728,7 +728,9 @@ export class NotesTools {
   private async week(date: string): Promise<{ start: string; config: KitchenConfig }> {
     if (!isIsoDate(date)) throw new ToolError('date must be a calendar date, YYYY-MM-DD');
     const config = await this.kitchenConfig();
-    return { start: periodStartFor(date, config.weekStart), config };
+    const plans = await this.notes().where('kind', '==', 'mealplan').select('periodStart').get();
+    const starts = plans.docs.map((d) => d.get('periodStart')).filter((v) => typeof v === 'string');
+    return { start: planStartFor(date, config.weekStart, starts), config };
   }
 
   /**

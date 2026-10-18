@@ -1,7 +1,7 @@
 import { Component, effect, inject, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { isIsoDate, localDate, periodStartFor } from '@mossgoblin/schema';
+import { isIsoDate, localDate, planStartFor } from '@mossgoblin/schema';
 import { map } from 'rxjs';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
@@ -49,7 +49,11 @@ export class KitchenWeek {
       const day = isIsoDate(this.day()) ? this.day() : localDate(this.now());
       const config = this.modules.kitchenConfig();
       untracked(() => {
-        const id = this.notes.ensurePlan(periodStartFor(day, config.weekStart), config);
+        const plans = this.notes
+          .notes()
+          .filter((n) => n.kind === 'mealplan' && !n.archived && n.periodStart)
+          .map((n) => n.periodStart!);
+        const id = this.notes.ensurePlan(planStartFor(day, config.weekStart, plans), config);
         if (id) void this.router.navigate(['/n', id], { replaceUrl: true });
       });
     });
