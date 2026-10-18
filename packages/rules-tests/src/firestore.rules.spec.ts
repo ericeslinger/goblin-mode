@@ -158,6 +158,12 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...note(), kind: 'template', instructions: ['Group'] }));
     // The context note (#113).
     await assertSucceeds(ref.set({ ...note(), kind: 'context' }));
+    // A recipe with its source and servings (#127).
+    await assertSucceeds(
+      ref.set({ ...note(), kind: 'recipe', source: { url: 'https://x.test/r' }, servings: 4 }),
+    );
+    await assertFails(ref.set({ ...note(), kind: 'recipe', servings: 'four' }));
+    await assertFails(ref.set({ ...note(), kind: 'recipe', source: 'https://x.test/r' }));
     await assertSucceeds(ref.set({ ...note(), fromTemplate: 't1' }));
     await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
     await assertSucceeds(ref.set({ ...note(), baseHash: '5-1a2b3c4d' }));
@@ -223,7 +229,9 @@ describe('client-written collections: notes, reminders, devices, settings, attac
       ref.set({ projects: { enabled: false, config: { a: 1 } }, updatedAt: now() }),
     );
     await assertFails(ref.set({ ...modules(), projects: true }));
-    await assertFails(ref.set({ ...modules(), kitchen: { enabled: true } }));
+    // Kitchen (#127); a module the app does not know is refused.
+    await assertSucceeds(ref.set({ ...modules(), kitchen: { enabled: true } }));
+    await assertFails(ref.set({ ...modules(), garden: { enabled: true } }));
     // Each doc keeps its own shape.
     await assertFails(ref.set(valid['users/owner/settings/app']()));
     await assertFails(owner().doc('users/owner/settings/app').set(modules()));

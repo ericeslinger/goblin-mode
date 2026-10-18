@@ -30,6 +30,7 @@ import { projectTree } from '../browse/lenses';
 import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteBack } from '../back/note-back';
+import { RecipeHeader } from '../kitchen/recipe-header';
 import { CaptureService } from '../capture/capture.service';
 import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
@@ -70,6 +71,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
     ConceptHeader,
     NoteEditorComponent,
     NoteBack,
+    RecipeHeader,
     NoteList,
     RightNowPanel,
     ListView,
@@ -157,7 +159,7 @@ export class Launch {
    * done, as a tree, with what is open on it: its tasks (reminders
    * linked to it) and the unticked boxes on its page.
    */
-  private readonly modules = inject(ModulesService);
+  protected readonly modules = inject(ModulesService);
   protected readonly projects = computed(() => {
     // Off, Projects shows nowhere (#126).
     if (!this.modules.projects()) return [];

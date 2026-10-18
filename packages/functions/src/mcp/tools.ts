@@ -19,6 +19,9 @@ import {
   conceptId,
   CONTEXT_ID,
   CONTEXT_MAX,
+  ingredients,
+  methodSteps,
+  recipeBody,
   MODULES,
   type ModuleId,
   moduleOn,
@@ -122,6 +125,7 @@ function noteSummary(id: string, d: Data) {
   return {
     id,
     title: String(d['title'] ?? ''),
+    kind: String(d['kind'] ?? 'text'),
     snippet: snippet(String(d['body'] ?? '')),
     tags: (d['tags'] as string[]) ?? [],
     updatedAt: iso(d['updatedAt']),
@@ -313,13 +317,20 @@ export class NotesTools {
     return hits.slice(0, args.limit ?? LIST_LIMIT).map((doc) => noteSummary(doc.id, doc.data()));
   }
 
-  async listNotes(args: { since?: string; limit?: number; includeArchived?: boolean }) {
+  async listNotes(args: {
+    since?: string;
+    limit?: number;
+    includeArchived?: boolean;
+    /** Only notes of this kind, e.g. 'recipe' (#127). */
+    kind?: string;
+  }) {
     let q = this.notes().orderBy('updatedAt', 'desc');
     if (args.since)
       q = q.where('updatedAt', '>=', Timestamp.fromMillis(parseTime(args.since, 'since')));
     const snap = await q.get();
     return snap.docs
       .filter((doc) => args.includeArchived || doc.get('archived') !== true)
+      .filter((doc) => !args.kind || (doc.get('kind') ?? 'text') === args.kind)
       .slice(0, args.limit ?? LIST_LIMIT)
       .map((doc) => noteSummary(doc.id, doc.data()));
   }
@@ -463,6 +474,73 @@ export class NotesTools {
       );
     });
     return { id, title: data.title, type: data.conceptType };
+  }
+
+  /**
+   * A recipe (#127): its name, ingredient lines and steps as given (the
+   * recipe's or Eric's words, not Claude's), notes, servings and source.
+   * Refused when Kitchen is off or the name already answers to a note.
+   */
+  async createRecipe(args: {
+    name: string;
+    ingredients: string[];
+    method: string[];
+    notes?: string;
+    servings?: number;
+    source?: { url?: string; text?: string };
+  }) {
+    await this.requireModule('kitchen', 'making a recipe');
+    const name = args.name.trim();
+    if (!name) throw new ToolError('name must not be empty');
+    if (name.length > MAX_NAME) throw new ToolError(`a name is at most ${MAX_NAME} characters`);
+    const names = await this.names();
+    const owner = names.get(normalizeName(name));
+    // An empty stub concept (a link written before the recipe) is folded
+    // in, archived with mergedInto, as the app does; anything else refuses.
+    const stubDoc = owner === undefined ? undefined : await this.notes().doc(owner).get();
+    const stub = stubDoc?.data();
+    const foldable =
+      stub?.['kind'] === 'concept' &&
+      !String(stub['body'] ?? '').trim() &&
+      !((stub['synonyms'] as string[] | undefined) ?? []).length;
+    if (owner !== undefined && !foldable) {
+      throw new ToolError(`already a name in the garden: ${name} (${owner})`);
+    }
+    const body = recipeBody(args);
+    const source = Object.fromEntries(
+      Object.entries(args.source ?? {}).filter(([, v]) => typeof v === 'string' && v.trim()),
+    );
+    const now = Timestamp.fromMillis(this.now());
+    const data = Note.parse({
+      kind: 'recipe',
+      body,
+      title: name,
+      // The name stays as given: a settle never retitles a recipe.
+      titleSource: 'user',
+      links: resolveLinks(targetsOf(body), names),
+      tags: [],
+      ...(Object.keys(source).length ? { source } : {}),
+      ...(args.servings && args.servings > 0 ? { servings: Math.round(args.servings) } : {}),
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'claude',
+      deviceId: CLAUDE_DEVICE,
+    });
+    const id = newId();
+    const batch = this.db.batch();
+    batch.set(this.notes().doc(id), data);
+    if (owner !== undefined) {
+      batch.update(this.notes().doc(owner), { archived: true, mergedInto: id, ...this.stamp() });
+    }
+    batch.set(...this.activity('create_recipe', `Made the recipe ${name}`, [touched(id, data)]));
+    await batch.commit();
+    return {
+      id,
+      title: name,
+      ingredients: ingredients(body).length,
+      steps: methodSteps(body).length,
+    };
   }
 
   async updateNote(args: {

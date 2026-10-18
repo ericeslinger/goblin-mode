@@ -91,6 +91,31 @@ describe('NoteBack (#112)', () => {
     expect(el.textContent).toContain('Nothing Claude did lately touched this note.');
   });
 
+  it('sets a recipe’s servings and source link, and shows its original text (#127)', async () => {
+    const recipe: NoteRecord = {
+      ...noteRecord('r1', '## Ingredients'),
+      title: 'Shakshuka',
+      kind: 'recipe',
+      servings: 2,
+      source: { url: 'https://x.test/shakshuka', text: 'Eggs in a spiced tomato sauce.' },
+    };
+    const { el, notes } = await render(recipe, []);
+    const serves = el.querySelector<HTMLInputElement>('input[type="number"]')!;
+    expect(serves.value).toBe('2');
+    serves.value = '4';
+    serves.dispatchEvent(new Event('change'));
+    expect(notes.updateRecipe).toHaveBeenLastCalledWith('r1', { servings: 4 });
+    serves.value = '';
+    serves.dispatchEvent(new Event('change'));
+    expect(notes.updateRecipe).toHaveBeenLastCalledWith('r1', { servings: null });
+    const url = el.querySelector<HTMLInputElement>('input[type="url"]')!;
+    url.value = 'https://y.test';
+    url.dispatchEvent(new Event('change'));
+    expect(notes.updateRecipe).toHaveBeenLastCalledWith('r1', { url: 'https://y.test' });
+    expect(el.querySelector('a[href="https://x.test/shakshuka"]')).not.toBeNull();
+    expect(el.querySelector('details')!.textContent).toContain('Eggs in a spiced tomato sauce.');
+  });
+
   it('edits a template’s mode and Instructions for Claude, showing an old section (#111)', async () => {
     const template: NoteRecord = {
       ...noteRecord('t1', 'Packing\n\n## Instructions for Claude\nAsk first.'),

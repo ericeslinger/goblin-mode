@@ -10,6 +10,12 @@ export const MODULES = [
     // On when never set, so turning modules on changes nothing for anyone.
     defaultOn: true,
   },
+  {
+    id: 'kitchen',
+    label: 'Kitchen',
+    about: 'Recipes, a weekly meal plan, the grocery list and what is on hand (#125).',
+    defaultOn: false,
+  },
 ] as const;
 export type ModuleId = (typeof MODULES)[number]['id'];
 

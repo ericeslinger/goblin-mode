@@ -757,6 +757,48 @@ describe('modules (#126)', () => {
   });
 });
 
+describe('recipes (#127)', () => {
+  it('makes a recipe while Kitchen is on, its words as given, and lists recipes', async () => {
+    const t = ticking();
+    await expect(t.createRecipe({ name: 'Dal', ingredients: [], method: [] })).rejects.toThrow(
+      "Kitchen is switched off in Eric's settings",
+    );
+    await db.doc('users/u1/settings/modules').set({
+      kitchen: { enabled: true },
+      updatedAt: Timestamp.fromMillis(T),
+    });
+    await eric('n1', 'Dinner idea: [[Shakshuka]]');
+    // The app made a stub for the link before the recipe existed.
+    await eric('c-shakshuka', '', { kind: 'concept', title: 'Shakshuka', titleSource: 'user' });
+    const made = await t.createRecipe({
+      name: 'Shakshuka',
+      ingredients: ['2 onions, sliced', '### Sauce', '400 g tomatoes'],
+      method: ['Soften the onions.', 'Add the tomatoes.'],
+      servings: 2,
+      source: { url: 'https://x.test/shakshuka', text: '' },
+    });
+    expect(made).toMatchObject({ title: 'Shakshuka', ingredients: 2, steps: 2 });
+    const doc = await body(made.id);
+    expect(doc).toMatchObject({
+      kind: 'recipe',
+      titleSource: 'user',
+      servings: 2,
+      source: { url: 'https://x.test/shakshuka' },
+      updatedBy: 'claude',
+    });
+    expect(doc['body']).toBe(
+      '## Ingredients\n\n- 2 onions, sliced\n### Sauce\n- 400 g tomatoes\n\n## Method\n\n' +
+        '1. Soften the onions.\n2. Add the tomatoes.\n\n## Notes\n',
+    );
+    expect(await body('c-shakshuka')).toMatchObject({ archived: true, mergedInto: made.id });
+    await expect(
+      t.createRecipe({ name: 'shakshuka', ingredients: [], method: [] }),
+    ).rejects.toThrow('already a name in the garden');
+    expect((await t.listNotes({ kind: 'recipe' })).map((n) => n.title)).toEqual(['Shakshuka']);
+    expect((await runs()).map((r) => r['summary'])).toContain('Made the recipe Shakshuka');
+  });
+});
+
 describe('context for Claude (#113)', () => {
   it('reads the context note, cut at its limit, or nothing when there is none', async () => {
     expect(await tools().getContext()).toMatchObject({ exists: false, text: '', max: 4000 });

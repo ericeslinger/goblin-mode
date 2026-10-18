@@ -61,6 +61,12 @@ export class FakeNotes {
     },
   );
   setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
+  createRecipe = vi.fn((name: string) =>
+    this.names().has(name.trim().toLowerCase()) ? undefined : `new${++this.n}`,
+  );
+  updateRecipe = vi.fn(
+    (_id: string, _change: Parameters<NotesService['updateRecipe']>[1]) => undefined,
+  );
   setInstructions = vi.fn((_id: string, _text: string) => undefined);
   makeContext = vi.fn(async () => undefined);
   newId = () => `new${++this.n}`;
@@ -131,6 +137,7 @@ export function reminderDoc(
 export class FakeModules {
   private readonly stored = signal<Partial<Record<ModuleId, boolean>>>({});
   readonly projects = computed(() => this.on('projects'));
+  readonly kitchen = computed(() => this.on('kitchen'));
   on(id: ModuleId): boolean {
     return this.stored()[id] ?? moduleOn(undefined, id);
   }

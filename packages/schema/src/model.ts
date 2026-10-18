@@ -40,7 +40,7 @@ export type Timestamp = z.infer<typeof Timestamp>;
  * `context` (#113, 2026-10-17): the one note, at id `context`, whose text
  * Claude is given on every connection.
  */
-export const NoteKind = z.enum(['text', 'sketch', 'concept', 'template', 'context']);
+export const NoteKind = z.enum(['text', 'sketch', 'concept', 'template', 'context', 'recipe']);
 export type NoteKind = z.infer<typeof NoteKind>;
 
 export const ConceptType = z.enum(['person', 'project', 'mood', 'other']);
@@ -113,6 +113,18 @@ export const Note = z.object({
    * body until the app moves it here.
    */
   instructions: z.string().optional(),
+  /**
+   * Only on recipes (#127, 2026-10-18): where it came from (a page, an
+   * attached photo or PDF, the original text) and how many it serves.
+   */
+  source: z
+    .object({
+      url: z.string().optional(),
+      attachmentId: z.string().optional(),
+      text: z.string().optional(),
+    })
+    .optional(),
+  servings: z.number().optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */
@@ -236,6 +248,7 @@ export type ModuleSetting = z.infer<typeof ModuleSetting>;
  */
 export const ModuleSettings = z.object({
   projects: ModuleSetting.optional(),
+  kitchen: ModuleSetting.optional(),
   updatedAt: Timestamp,
 });
 export type ModuleSettings = z.infer<typeof ModuleSettings>;

@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { type ProposalRecord, ProposalsService } from '../claude/proposals.service';
 import { ReadingService } from '../reading/reading.service';
@@ -106,5 +106,52 @@ describe('Browse', () => {
     modules.set('projects', true);
     await fixture.whenStable();
     expect(el.textContent).toContain('Projects');
+  });
+
+  it('lists recipes while Kitchen is on, and starts a new one (#127)', async () => {
+    const modules = new FakeModules();
+    const notes = new FakeNotes();
+    notes.signIn([{ ...noteRecord('r1', ''), title: 'Shakshuka', kind: 'recipe' }]);
+    await TestBed.configureTestingModule({
+      providers: [
+        provideRouter([
+          { path: 'browse', component: Browse },
+          { path: 'browse/:lens', component: Browse },
+        ]),
+        { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ModulesService, useValue: modules },
+        { provide: NotesService, useValue: notes },
+        { provide: ProposalsService, useValue: new FakeProposals() },
+      ],
+    }).compileComponents();
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/browse');
+    const el = harness.routeNativeElement as HTMLElement;
+    expect(el.textContent).not.toContain('Recipes');
+    modules.set('kitchen', true);
+    await harness.fixture.whenStable();
+    expect(el.textContent).toContain('Recipes');
+    await harness.navigateByUrl('/browse/recipes');
+    const page = harness.routeNativeElement as HTMLElement;
+    expect(page.textContent).toContain('Shakshuka');
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const input = page.querySelector<HTMLInputElement>('.new-recipe input')!;
+    // Not before the notes (and so the names) are here.
+    notes.loaded.set(false);
+    input.value = 'Dal';
+    input.dispatchEvent(new Event('change'));
+    await harness.fixture.whenStable();
+    expect(page.querySelector('[role="status"]')?.textContent).toContain('still loading');
+    expect(notes.createRecipe).not.toHaveBeenCalled();
+    notes.loaded.set(true);
+    input.value = 'shakshuka';
+    input.dispatchEvent(new Event('change'));
+    await harness.fixture.whenStable();
+    expect(page.querySelector('[role="status"]')?.textContent).toContain('already names a note');
+    input.value = 'Dal';
+    input.dispatchEvent(new Event('change'));
+    expect(notes.createRecipe).toHaveBeenLastCalledWith('Dal');
+    expect(navigate).toHaveBeenCalledWith(['/n', expect.any(String)]);
+    expect(input.value).toBe('');
   });
 });

@@ -702,6 +702,25 @@ write that belongs to one switched off (`create_concept` or `refile`
 on a project, `capture`, a task's stage or tags), saying it is off in
 Settings, Modules.
 
+**Recipes (#127, Eric, 2026-10-18; epic #125, Kitchen module).** A
+recipe is a note of kind `recipe`, its name Eric's own (`titleSource:
+user`) and, like every note's title, answering to `[[links]]` after
+concepts; a name already taken is refused. Its text holds the sections
+Ingredients, Method and Notes (`recipeSkeleton`); the structure is read
+from the text, never stored: `ingredients` reads each bullet under
+Ingredients (amount as written and as a number, unit from a small
+table, item, the note after a comma, the `###` group it sits under) and
+`methodSteps` the Method's numbered lines (`packages/schema/src/
+recipes.ts`). A line the parser cannot read is still an ingredient,
+all item. Fields: `source` (`url`, `attachmentId`, `text`) and
+`servings`. In the app, with Kitchen on: Browse has a Recipes lens with
+New recipe (a generated id, written offline); a recipe's front shows
+its name and a line counting its ingredients and steps, and its back
+its servings, source link and original text. With Kitchen off a recipe
+is a plain note. Claude makes one with `create_recipe` (the recipe's
+words, not Claude's, so no ✳ mark) and lists them with `list_notes`
+`kind: recipe`. Made history arrives with meal plans (#129).
+
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a
 Projects pill sits beside Previous note under the note and opens the
@@ -1136,10 +1155,11 @@ it, one backticked tool name per row.
 | Tool | Does | Detail |
 | --- | --- | --- |
 | `search_notes` | Notes whose title, text or synonyms hold every word of a query | Search paragraph below |
-| `list_notes` | Recent notes, newest first, optionally since a time | Search paragraph below |
+| `list_notes` | Recent notes, newest first, optionally since a time or of one kind | Search paragraph below, Recipes (#127) |
 | `get_note` | One note in full with its links, backlinks and Drive files | Links and concepts (#28) |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
 | `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage | Organize tools (#34), Projects (#41), Stages and items |
+| `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |

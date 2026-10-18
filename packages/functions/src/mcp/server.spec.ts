@@ -37,6 +37,7 @@ function fakeTools() {
     searchAttachments: vi.fn(async () => []),
     getContext: vi.fn(async () => ({ id: 'context', text: '' })),
     getModules: vi.fn(async () => ['projects' as const]),
+    createRecipe: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -60,6 +61,7 @@ describe('the MCP server', () => {
       'check_item',
       'create_concept',
       'create_note',
+      'create_recipe',
       'create_reminder',
       'get_attachment_text',
       'get_backlinks',
@@ -87,11 +89,14 @@ describe('the MCP server', () => {
   });
 
   it('tells Claude which modules are on, and what an off one means (#126)', () => {
-    expect(instructionsWith('', ['projects'])).toBe(
-      `${INSTRUCTIONS}\n\nModules Eric has on: Projects.`,
+    expect(instructionsWith('', ['projects', 'kitchen'])).toBe(
+      `${INSTRUCTIONS}\n\nModules Eric has on: Projects, Kitchen.`,
+    );
+    expect(instructionsWith('', ['projects'])).toMatch(
+      /Modules Eric has on: Projects\. Switched off: Kitchen\./,
     );
     const off = instructionsWith('Fish on Wednesdays.', []);
-    expect(off).toMatch(/Modules Eric has on: none\. Switched off: Projects\./);
+    expect(off).toMatch(/Modules Eric has on: none\. Switched off: Projects, Kitchen\./);
     expect(off).toMatch(/switched off in Settings, Modules\.\n\nContext for Claude/);
   });
 

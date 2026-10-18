@@ -262,6 +262,65 @@ describe('NotesService', () => {
     expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'REMOVED', projectKind: 'content' });
   });
 
+  it('makes a recipe with its sections, refusing a name already taken (#127)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'c-kiln', data: { body: 'Cone 6.', title: 'Kiln', kind: 'concept' } }]);
+    expect(notes.createRecipe('kiln')).toBeUndefined();
+    expect(notes.createRecipe('  ')).toBeUndefined();
+    const id = notes.createRecipe(' Shakshuka ')!;
+    expect(id).toBeTruthy();
+    const [, path, data, merge] = api.set.mock.lastCall!;
+    expect(path).toBe(`users/u1/notes/${id}`);
+    expect(merge).toBe(false);
+    expect(data).toMatchObject({
+      kind: 'recipe',
+      title: 'Shakshuka',
+      titleSource: 'user',
+      body: '## Ingredients\n\n## Method\n\n## Notes\n',
+    });
+    expect(notes.exists(id)).toBe(true);
+  });
+
+  it('folds an empty stub concept holding the recipe’s name into it (#127)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    // [[Dal]] was linked before the recipe: an empty stub holds the name.
+    push([{ id: 'c-dal', data: { body: '', title: 'Dal', kind: 'concept' } }]);
+    const id = notes.createRecipe('Dal')!;
+    expect(id).toBeTruthy();
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/notes/c-dal',
+      expect.objectContaining({ archived: true, mergedInto: id }),
+      true,
+    ]);
+  });
+
+  it('changes a recipe’s name, servings and source link (#127)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'r1', data: { body: '', title: 'Shakshuka', kind: 'recipe', servings: 2 } },
+      { id: 'c-kiln', data: { body: '', title: 'Kiln', kind: 'concept' } },
+    ]);
+    expect(notes.find('r1')).toMatchObject({ servings: 2 });
+    api.set.mockClear();
+    notes.updateRecipe('r1', { title: 'Kiln' });
+    expect(api.set).not.toHaveBeenCalled();
+    notes.updateRecipe('r1', { title: 'Eggs in purgatory', servings: 4, url: ' https://x.test ' });
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      title: 'Eggs in purgatory',
+      titleSource: 'user',
+      servings: 4,
+      source: { url: 'https://x.test' },
+    });
+    notes.updateRecipe('r1', { servings: null });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ servings: 'REMOVED' });
+    api.set.mockClear();
+    notes.updateRecipe('c-kiln', { servings: 3 });
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
   it('keeps a project’s stages and tags, and an item’s stage (2026-10-17)', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');
