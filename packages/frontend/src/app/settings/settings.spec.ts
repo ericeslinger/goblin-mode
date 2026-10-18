@@ -3,7 +3,8 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { NotesService } from '../notes/notes.service';
-import { FakeAuthService, FakeNotes, noteRecord } from '../testing/fakes';
+import { FakeAuthService, FakeModules, FakeNotes, noteRecord } from '../testing/fakes';
+import { ModulesService } from '../modules/modules.service';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
 import { Settings } from './settings';
@@ -20,7 +21,12 @@ function fakePush(state: PushState = 'off') {
 
 const claude = { consent: vi.fn(), approve: vi.fn(), revoke: vi.fn(async () => 2), go: vi.fn() };
 
-async function render(auth: FakeAuthService, push = fakePush(), notes = new FakeNotes()) {
+async function render(
+  auth: FakeAuthService,
+  push = fakePush(),
+  notes = new FakeNotes(),
+  modules = new FakeModules(),
+) {
   await TestBed.configureTestingModule({
     imports: [Settings],
     providers: [
@@ -29,6 +35,7 @@ async function render(auth: FakeAuthService, push = fakePush(), notes = new Fake
       { provide: PushService, useValue: push },
       { provide: CLAUDE_ACCESS_API, useValue: claude },
       { provide: NotesService, useValue: notes },
+      { provide: ModulesService, useValue: modules },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Settings);
@@ -107,6 +114,20 @@ describe('Settings', () => {
       TestBed.tick();
       expect(el.textContent).toContain('Claude is disconnected.');
     });
+  });
+
+  it('switches modules on and off (#126)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const modules = new FakeModules();
+    const el = await render(auth, fakePush(), new FakeNotes(), modules);
+    const list = el.querySelector('[aria-labelledby="modules"]')!;
+    const projects = list.querySelector<HTMLInputElement>('input[role="switch"]')!;
+    expect(list.textContent).toContain('Projects');
+    expect(projects.checked).toBe(true);
+    projects.checked = false;
+    projects.dispatchEvent(new Event('change'));
+    expect(modules.set).toHaveBeenCalledWith('projects', false);
   });
 
   it('lists templates and makes new ones, opening them to write', async () => {

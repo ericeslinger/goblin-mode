@@ -9,7 +9,7 @@
 // | notes/history | function only | written by a trigger on note writes |
 // | reminders | client, direct | swipe to done/snooze must work offline |
 // | devices | client, direct | the device's own push token |
-// | settings | client, direct | theme and mode, changed offline (#24, 2026-10-06) |
+// | settings | client, direct | theme and mode, changed offline (#24, 2026-10-06); the modules switched on (#126) |
 // | activity | function only | Claude's "What Claude changed" records |
 // | proposals | function, plus the owner's accept or dismiss | nightly organize (#35) |
 // | attachments | client, direct | a photo taken offline must be recorded offline (#43) |
@@ -219,6 +219,27 @@ export const Settings = z.object({
 });
 export type Settings = z.infer<typeof Settings>;
 
+/**
+ * One module's switch and its configuration (#126, Eric 2026-10-18).
+ * The config's shape is the module's own; the rules check it is a map.
+ */
+export const ModuleSetting = z.object({
+  enabled: z.boolean(),
+  config: z.object({}).passthrough().optional(),
+});
+export type ModuleSetting = z.infer<typeof ModuleSetting>;
+
+/**
+ * The modules switched on, one doc (`settings/modules`), shared by
+ * devices. Its own doc, not a field of `settings/app`: the theme writes
+ * that doc whole. One field per module the app knows (MODULES).
+ */
+export const ModuleSettings = z.object({
+  projects: ModuleSetting.optional(),
+  updatedAt: Timestamp,
+});
+export type ModuleSettings = z.infer<typeof ModuleSettings>;
+
 /** A note or reminder a Claude run touched, named as it was then. */
 export const Touched = z.object({
   id: z.string().min(1),
@@ -369,6 +390,7 @@ export const paths = {
   reminders: (uid: string) => `users/${uid}/reminders`,
   devices: (uid: string) => `users/${uid}/devices`,
   settings: (uid: string) => `users/${uid}/settings/app`,
+  modules: (uid: string) => `users/${uid}/settings/modules`,
   activity: (uid: string) => `users/${uid}/activity`,
   proposals: (uid: string) => `users/${uid}/proposals`,
   attachments: (uid: string) => `users/${uid}/attachments`,

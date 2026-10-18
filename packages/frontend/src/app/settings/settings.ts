@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { moodLine } from '@mossgoblin/schema';
+import { MODULES, moodLine } from '@mossgoblin/schema';
+import { ModulesService } from '../modules/modules.service';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
@@ -42,6 +43,27 @@ import { ThemePicker } from '../theme/theme-picker';
         }
       }
       @if (auth.user()) {
+        <h2 id="modules">Modules</h2>
+        <p>
+          Parts of Mossgoblin you can switch on or off. Off hides a module's screens; its notes stay
+          as they are.
+        </p>
+        <ul aria-labelledby="modules" class="modules">
+          @for (m of moduleList; track m.id) {
+            <li>
+              <label>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  [checked]="modules.on(m.id)"
+                  (change)="modules.set(m.id, $any($event.target).checked)"
+                />
+                {{ m.label }}
+              </label>
+              <span class="muted">{{ m.about }}</span>
+            </li>
+          }
+        </ul>
         <h2 id="templates">Templates</h2>
         <p>
           A template is a note to start others from. Its Instructions for Claude, on the back of the
@@ -94,6 +116,21 @@ import { ThemePicker } from '../theme/theme-picker';
     </main>
   `,
   styles: `
+    .modules {
+      list-style: none;
+      padding: 0;
+    }
+    .modules li {
+      display: grid;
+      gap: 2px;
+      padding: var(--space-1) 0;
+    }
+    .modules label {
+      display: flex;
+      gap: var(--space-2);
+      align-items: center;
+      min-height: 32px;
+    }
     .templates {
       list-style: none;
       padding: 0;
@@ -132,6 +169,8 @@ export class Settings {
   protected readonly build = buildInfo;
 
   protected readonly templates = inject(TemplatesService);
+  protected readonly modules = inject(ModulesService);
+  protected readonly moduleList = MODULES;
   private readonly router = inject(Router);
 
   protected readonly hasShoppingList = computed(() =>

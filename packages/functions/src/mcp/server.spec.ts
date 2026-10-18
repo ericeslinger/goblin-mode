@@ -36,6 +36,7 @@ function fakeTools() {
     getAttachmentText: vi.fn(async () => ({})),
     searchAttachments: vi.fn(async () => []),
     getContext: vi.fn(async () => ({ id: 'context', text: '' })),
+    getModules: vi.fn(async () => ['projects' as const]),
   } satisfies ToolsApi;
 }
 
@@ -83,6 +84,15 @@ describe('the MCP server', () => {
     ]);
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
     expect(INSTRUCTIONS).toMatch(/word for word/);
+  });
+
+  it('tells Claude which modules are on, and what an off one means (#126)', () => {
+    expect(instructionsWith('', ['projects'])).toBe(
+      `${INSTRUCTIONS}\n\nModules Eric has on: Projects.`,
+    );
+    const off = instructionsWith('Fish on Wednesdays.', []);
+    expect(off).toMatch(/Modules Eric has on: none\. Switched off: Projects\./);
+    expect(off).toMatch(/switched off in Settings, Modules\.\n\nContext for Claude/);
   });
 
   it('gives Claude Eric’s Context for Claude after the rules, when there is any (#113)', async () => {

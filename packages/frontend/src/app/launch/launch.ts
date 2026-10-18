@@ -35,6 +35,7 @@ import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
 import { EditorModeService } from '../note-editor/editor-mode.service';
 import { NoteEditorComponent } from '../note-editor/note-editor';
+import { ModulesService } from '../modules/modules.service';
 import { RemindersService } from '../reminders/reminders.service';
 import { RightNowPanel } from '../reminders/right-now-panel';
 import { ListView } from '../shopping/list-view';
@@ -156,7 +157,10 @@ export class Launch {
    * done, as a tree, with what is open on it: its tasks (reminders
    * linked to it) and the unticked boxes on its page.
    */
+  private readonly modules = inject(ModulesService);
   protected readonly projects = computed(() => {
+    // Off, Projects shows nowhere (#126).
+    if (!this.modules.projects()) return [];
     const tasks = new Map<string, number>();
     for (const r of this.reminders.reminders()) {
       if (r.noteId && r.status !== 'done') tasks.set(r.noteId, (tasks.get(r.noteId) ?? 0) + 1);

@@ -76,6 +76,13 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidModuleSettings(data) {
+      return data.keys().hasAll(['updatedAt'])
+        && data.keys().hasOnly(['projects', 'updatedAt'])
+        && (!('projects' in data) || data.projects is map)
+        && data.updatedAt is timestamp;
+    }
+
     function isValidAttachment(data) {
       return data.keys().hasAll(['kind', 'name', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
         && data.keys().hasOnly(['kind', 'name', 'noteId', 'path', 'url', 'driveFileId', 'contentType', 'size', 'width', 'height', 'thumbPath', 'textPath', 'pages', 'importError', 'transcribe', 'transcriptNoteId', 'transcribeStartedAt', 'transcribeError', 'toRead', 'read', 'createdAt', 'updatedAt', 'createdBy'])
@@ -128,11 +135,13 @@ service cloud.firestore {
         allow create, update: if isOwner(uid) && isValidDevice(request.resource.data);
       }
 
-      // One doc, settings/app: theme and mode, written by any device.
+      // settings/app: theme and mode; settings/modules: the modules
+      // switched on (#126). Written by any device.
       match /settings/{settingsId} {
         allow read, delete: if isOwner(uid);
-        allow create, update: if isOwner(uid) && settingsId == 'app'
-          && isValidSettings(request.resource.data);
+        allow create, update: if isOwner(uid) && (
+          (settingsId == 'app' && isValidSettings(request.resource.data))
+          || (settingsId == 'modules' && isValidModuleSettings(request.resource.data)));
       }
 
       match /activity/{runId} {

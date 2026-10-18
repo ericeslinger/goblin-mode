@@ -730,6 +730,33 @@ describe('template tools', () => {
   });
 });
 
+describe('modules (#126)', () => {
+  it('reads the modules Eric has on, and refuses project writes with Projects off', async () => {
+    const t = ticking();
+    expect(await t.getModules()).toEqual(['projects']);
+    await t.createConcept({ name: 'Pottery', type: 'project' });
+    await eric('n1', 'A plain note');
+    await db.doc('users/u1/settings/modules').set({
+      projects: { enabled: false },
+      updatedAt: Timestamp.fromMillis(T),
+    });
+    expect(await t.getModules()).toEqual([]);
+    await expect(t.createConcept({ name: 'Glazes', type: 'project' })).rejects.toThrow(
+      "Projects is switched off in Eric's settings (Settings, Modules)",
+    );
+    await expect(t.refile({ id: 'c-pottery', status: 'active' })).rejects.toThrow(
+      'filing a project is refused',
+    );
+    await expect(
+      t.capture({ project: 'Pottery', kind: 'question', text: 'Which clay?' }),
+    ).rejects.toThrow('filing under a project is refused');
+    // Everything else carries on.
+    await t.createConcept({ name: 'Vikas', type: 'person' });
+    await t.refile({ id: 'n1', addTags: ['studio'] });
+    expect((await body('n1'))['tags']).toEqual(['studio']);
+  });
+});
+
 describe('context for Claude (#113)', () => {
   it('reads the context note, cut at its limit, or nothing when there is none', async () => {
     expect(await tools().getContext()).toMatchObject({ exists: false, text: '', max: 4000 });

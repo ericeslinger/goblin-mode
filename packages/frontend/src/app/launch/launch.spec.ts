@@ -8,12 +8,14 @@ import { NotesService } from '../notes/notes.service';
 import {
   FakeAttachments,
   FakeAuthService,
+  FakeModules,
   FakeNotes,
   FakeRemindersApi,
   noteRecord,
   remindersTestProviders,
 } from '../testing/fakes';
 import { CaptureService } from '../capture/capture.service';
+import { ModulesService } from '../modules/modules.service';
 import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
 import { Launch, sharedText } from './launch';
 import { AttachmentsService } from '../attachments/attachments.service';
@@ -502,6 +504,19 @@ describe('Launch', () => {
     buttonNamed(el, 'Edit')!.click();
     await fixture.whenStable();
     expect(content().getAttribute('contenteditable')).toBe('true');
+  });
+
+  it('offers no Projects while Projects is off (#126)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([
+      { ...noteRecord('c-pottery', 'Pottery'), kind: 'concept', conceptType: 'project' },
+      noteRecord('n1', 'Loose note'),
+    ]);
+    const { el, fixture } = await render({ notes });
+    expect(buttonNamed(el, 'Projects')).toBeDefined();
+    (TestBed.inject(ModulesService) as unknown as FakeModules).set('projects', false);
+    await fixture.whenStable();
+    expect(buttonNamed(el, 'Projects')).toBeUndefined();
   });
 
   it('lists projects as a tree with their open tasks, and opens one', async () => {

@@ -25,3 +25,6 @@ Follow them; they are not repeated here.
 - Eric's Context for Claude (`get_context`, the note with id
   `context`) comes with the server instructions; read it before
   gardening. Add to it only when he asks you to remember something.
+- Gardening files under a project, so it needs the Projects module on
+  (#126). If `capture` says Projects is switched off, tell Eric, and
+  file nothing.

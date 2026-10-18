@@ -1,8 +1,9 @@
 // Spec-support helpers; never imported from production code.
 import { computed, signal } from '@angular/core';
-import { conceptId, nameIndex } from '@mossgoblin/schema';
+import { type ModuleId, conceptId, moduleOn, nameIndex } from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
+import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
@@ -126,8 +127,21 @@ export function reminderDoc(
  * Providers for the real RemindersService over a fake seam, with the
  * clock and time zone fixed. Auth is provided by each spec.
  */
+/** A stand-in ModulesService: every module at its default until set (#126). */
+export class FakeModules {
+  private readonly stored = signal<Partial<Record<ModuleId, boolean>>>({});
+  readonly projects = computed(() => this.on('projects'));
+  on(id: ModuleId): boolean {
+    return this.stored()[id] ?? moduleOn(undefined, id);
+  }
+  set = vi.fn((id: ModuleId, enabled: boolean) =>
+    this.stored.update((s) => ({ ...s, [id]: enabled })),
+  );
+}
+
 export function remindersTestProviders(api: FakeRemindersApi, now: () => number) {
   return [
+    { provide: ModulesService, useValue: new FakeModules() },
     { provide: FIREBASE, useValue: fakeFirebase(true) },
     { provide: READING_API, useValue: new FakeReadingApi() },
     { provide: REMINDERS_API, useValue: api },
