@@ -1,5 +1,5 @@
 import { Component, computed, inject, input } from '@angular/core';
-import { hostOf, ingredients, methodSteps } from '@mossgoblin/schema';
+import { SET_ASIDE_HEADING, hostOf, ingredients, methodSteps } from '@mossgoblin/schema';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
 /**
@@ -19,6 +19,11 @@ import { NotesService, type NoteRecord } from '../notes/notes.service';
       <p class="meta">{{ summary() }}</p>
       @if (reading()) {
         <p class="import" role="status">Reading the recipe from {{ site() }}…</p>
+      } @else if (setAside()) {
+        <p class="import" role="status">
+          Some lines on {{ site() }} did not read as a recipe and were left out; they are on the
+          back, under the original text.
+        </p>
       } @else if (note().importState === 'failed') {
         <p class="import" role="status">
           Could not import from {{ site() }}: {{ note().importError || 'no reason given' }}.
@@ -71,6 +76,11 @@ export class RecipeHeader {
   protected readonly notes = inject(NotesService);
   protected readonly reading = computed(
     () => this.note().importState === 'requested' || this.note().importState === 'working',
+  );
+  /** An import left lines out as not a recipe's (Eric, 2026-10-18). */
+  protected readonly setAside = computed(
+    () =>
+      this.note().importState === 'done' && !!this.note().source?.text?.includes(SET_ASIDE_HEADING),
   );
   /** The site an import reads, for saying so (#128). */
   protected readonly site = computed(() => hostOf(this.note().source?.url ?? '') || 'the link');

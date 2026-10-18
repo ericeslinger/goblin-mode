@@ -66,12 +66,41 @@ function decode(text: string): string {
   });
 }
 
-/** A page's title and readable text, from its HTML. */
+/**
+ * An element hidden from a reader: the `hidden` attribute, aria-hidden,
+ * or an inline style of display none, visibility hidden or no size. Text
+ * a person cannot see is where a page hides words meant for an AI
+ * (Eric, 2026-10-18), so it is never read. Best effort: a hidden element
+ * with one of its own tag nested inside ends at the inner close.
+ */
+const HIDING = [
+  String.raw`\shidden(?:[\s=>/]|$)`,
+  String.raw`aria-hidden\s*=\s*["']?true`,
+  String.raw`style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?![.\d])|opacity\s*:\s*0(?![.\d]))`,
+].join('|');
+const HIDDEN = new RegExp(
+  String.raw`<([a-z][a-z0-9]*)\b(?=[^>]*(?:${HIDING}))[^>]*>[\s\S]*?<\/\1\s*>`,
+  'gi',
+);
+
+/** The page without the elements a reader cannot see. */
+export function visibleHtml(html: string): string {
+  let out = html;
+  // Again until nothing changes, for hidden elements inside hidden ones.
+  for (let i = 0; i < 5; i++) {
+    const next = out.replace(HIDDEN, ' ');
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/** A page's title and readable text, from its HTML: only what a reader sees. */
 export function pageText(html: string): { title: string; text: string } {
   const title = decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '')
     .replace(/\s+/g, ' ')
     .trim();
-  const body = html
+  const body = visibleHtml(html)
     .replace(/<(script|style|noscript|template|svg|head)\b[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article|\/blockquote)\b[^>]*>/gi, '\n')

@@ -53,6 +53,13 @@ stack playbook and the `house-style` plugin (enabled in
   change. `mcp/tools-table.spec.ts` (in `npm run gate`) fails when the
   table and the registered tool names differ; it checks names only, so
   the rest, including what a tool accepts, is on you.
+- **Nothing that reads a fetched page has tools (2026-10-18).** A page
+  can carry text aimed at an AI. What reads one on the server (the
+  recipe importer's model) gets the page and a fixed output shape,
+  nothing else: no tools, no notes, no connectors. Claude in a chat
+  never fetches a page for an import; `import_recipe` hands the link
+  to the server. Imported lines that do not read as a recipe are set
+  aside, and imported text reaches Claude labelled as web content.
 - **Ids are derived or generated client-side**, never typed by hand, so
   a note exists the moment it is created offline.
 

@@ -29,6 +29,6 @@ Follow them; they are not repeated here.
   (#126). If `capture` says Projects is switched off, tell Eric, and
   file nothing.
 - A recipe is not gardened: when Eric gives one, make it with
-  `create_recipe` (Kitchen on), not `capture`; for a link, try
-  `import_recipe` first. Meals go on the plan with `plan_meal`, and
+  `create_recipe` (Kitchen on), not `capture`; for a link, use
+  `import_recipe` and never read the page yourself. Meals go on the plan with `plan_meal`, and
   how one went with `log_meal`, not `capture`.

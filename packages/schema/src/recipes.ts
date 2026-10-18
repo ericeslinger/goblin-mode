@@ -236,3 +236,9 @@ export function addRecipeNote(body: string, line: string): string {
   lines.splice(at, 0, ...insert);
   return lines.join('\n');
 }
+
+/**
+ * Heads the lines an import set aside as not reading like a recipe's
+ * (Eric, 2026-10-18), kept in `source.text` on the back.
+ */
+export const SET_ASIDE_HEADING = 'Set aside from the page, as not recipe lines:';
