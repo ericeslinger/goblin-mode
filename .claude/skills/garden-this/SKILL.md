@@ -30,4 +30,5 @@ Follow them; they are not repeated here.
   file nothing.
 - A recipe is not gardened: when Eric gives one, make it with
   `create_recipe` (Kitchen on), not `capture`; for a link, try
-  `import_recipe` first.
+  `import_recipe` first. Meals go on the plan with `plan_meal`, and
+  how one went with `log_meal`, not `capture`.

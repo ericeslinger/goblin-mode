@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { MODULES, type ModuleId } from '@mossgoblin/schema';
+import { MEALS, MODULES, type ModuleId } from '@mossgoblin/schema';
 import { type NotesTools, ToolError } from './tools';
 
 /** What every Claude conversation using the connector is told. */
@@ -29,6 +29,12 @@ export const INSTRUCTIONS = [
   'Recipes (the Kitchen module) are notes of kind recipe, with Ingredients, Method and Notes ' +
     'sections: make one with create_recipe, or import_recipe for a link, list them with ' +
     'list_notes kind recipe, and edit them with add_lines like any note.',
+  'The meal plan (Kitchen) is a note a week, one line per meal slot: get_meal_plan reads a ' +
+    'week, plan_meal sets a slot (a recipe link, delivery, out, or empty). A new week has a ' +
+    '"Fish of the week" placeholder dinner; when Eric says what the fish is, plan its recipe ' +
+    'there. Once a dinner is made (its box ticked), ask how it went, or for a delivery what ' +
+    'it was and from where, and save his answer with log_meal; he may say to ask later, ' +
+    'then create_reminder to ask again.',
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
     'itemTags). Its items are its sub-projects (parent) and its tasks (reminders with its ' +
     'noteId), each with a stage from that list (refile or update_reminder: stage) and tags. ' +
@@ -250,6 +256,53 @@ export function buildServer(
       annotations: { ...write, openWorldHint: true },
     },
     run((a) => tools.importRecipe(a)),
+  );
+
+  const date = z.string().describe("A calendar date, YYYY-MM-DD, in Eric's time zone");
+  const meal = z.enum(MEALS).optional().describe('Which meal; dinner when left out');
+
+  server.registerTool(
+    'get_meal_plan',
+    {
+      title: 'Get the meal plan',
+      description:
+        "The Kitchen meal plan for the week holding a date: each slot's day, date and meal, " +
+        'what is planned (a recipe, delivery, out, or empty), whether it was made (its box), ' +
+        'any ratio called out ("half recipe"), and the notes under it. A week not planned yet ' +
+        'reads as its empty slots.',
+      inputSchema: { date },
+      annotations: read,
+    },
+    run((a) => tools.getMealPlan(a)),
+  );
+
+  server.registerTool(
+    'plan_meal',
+    {
+      title: 'Plan a meal',
+      description:
+        'Sets one slot of the meal plan to the text after its colon: "[[Recipe name]]" (a ' +
+        'recipe that exists), optionally with a ratio ("[[Dal]] (half recipe)"), "delivery" ' +
+        '(with anything after it), "out", or "" to clear it. Makes the week\'s plan if ' +
+        'missing; a change unticks the slot. Kitchen only.',
+      inputSchema: { date, meal, slot: z.string() },
+      annotations: write,
+    },
+    run((a) => tools.planMeal(a)),
+  );
+
+  server.registerTool(
+    'log_meal',
+    {
+      title: 'Note how a meal went',
+      description:
+        "After a meal: Eric's words on how it went, or what a delivery was and from where, " +
+        'word for word, as a line under its slot on the plan, and for a recipe a dated line ' +
+        'under its Notes. Kitchen only.',
+      inputSchema: { date, meal, note: z.string().min(1) },
+      annotations: write,
+    },
+    run((a) => tools.logMeal(a)),
   );
 
   server.registerTool(

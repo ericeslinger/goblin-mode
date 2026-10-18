@@ -11,7 +11,16 @@ import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   CONTEXT_ID,
   KEEP_SUFFIX,
+  FISH_BODY,
+  FISH_ID,
+  FISH_NAME,
+  type KitchenConfig,
+  addRecipeNote,
   importPlaceholder,
+  madeHistory,
+  planBody,
+  planId,
+  planTitle,
   recipeSkeleton,
   ProjectKind,
   ProjectStatus,
@@ -74,6 +83,8 @@ export interface NoteRecord {
   /** An import from `source.url` the app asked for (#128), and why it failed. */
   importState?: 'requested' | 'working' | 'done' | 'failed';
   importError?: string;
+  /** A meal plan's first day, YYYY-MM-DD (#129). */
+  periodStart?: string;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -194,6 +205,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
       ? { importState: data['importState'] as NoteRecord['importState'] }
       : {}),
     ...(typeof data['importError'] === 'string' ? { importError: data['importError'] } : {}),
+    ...(typeof data['periodStart'] === 'string' ? { periodStart: data['periodStart'] } : {}),
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
@@ -226,6 +238,10 @@ export class NotesService {
   readonly notes = signal<NoteRecord[]>([]);
   /** Names to ids, for resolving `[[links]]` (schema, concepts.ts). */
   readonly names = computed(() => nameIndex(this.notes()));
+  /** When each recipe was made, by normalized name, from the meal plans (#129). */
+  readonly made = computed(() =>
+    madeHistory(this.notes().filter((n) => n.kind === 'mealplan' && !n.archived)),
+  );
   /** True once the first snapshot for the current user has arrived. */
   readonly loaded = signal(false);
 
@@ -470,6 +486,63 @@ export class NotesService {
       source: { url: link },
       importState: 'requested',
     });
+  }
+
+  /**
+   * The meal plan for the week starting `start` (#129), made now if this
+   * device has not seen it: its slots from Kitchen's configuration, and
+   * the "Fish of the week" placeholder recipe if nothing has that name.
+   * The id is derived, so every device and Claude make the same note.
+   * Undefined until the notes are here, since a plan another device
+   * made must not be written over.
+   */
+  ensurePlan(start: string, config: KitchenConfig): string | undefined {
+    const id = planId(start);
+    if (this.exists(id)) return id;
+    if (!this.uid || !this.ready) return undefined;
+    const now = this.api.serverTime();
+    const stamp = {
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    const body = planBody(start, config);
+    if (body.includes(`[[${FISH_NAME}]]`) && !this.names().has(normalizeName(FISH_NAME))) {
+      this.written.add(FISH_ID);
+      const fish = {
+        ...stamp,
+        kind: 'recipe',
+        body: FISH_BODY,
+        title: FISH_NAME,
+        titleSource: 'user',
+        links: [],
+        tags: [],
+      };
+      this.api.set(this.fb.db, paths.note(this.uid, FISH_ID), fish, false).catch(report);
+    }
+    const names = new Map(this.names()).set(normalizeName(FISH_NAME), FISH_ID);
+    const data = {
+      ...stamp,
+      kind: 'mealplan',
+      body,
+      title: planTitle(start),
+      titleSource: 'user',
+      periodStart: start,
+      links: resolveLinks(wikiLinkTargets(parseNote(body)), names),
+      tags: [],
+    };
+    this.written.add(id);
+    this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
+    return id;
+  }
+
+  /** A line under a recipe's Notes (#129: how a dinner went). */
+  addRecipeNote(id: string, line: string): void {
+    const recipe = this.find(id);
+    if (!this.uid || recipe?.kind !== 'recipe') return;
+    this.save(id, addRecipeNote(recipe.body, line), { base: recipe.body });
   }
 
   /** Asks again for an import that failed (#128). */

@@ -19,8 +19,26 @@ import {
   conceptId,
   CONTEXT_ID,
   CONTEXT_MAX,
+  FISH_BODY,
+  FISH_ID,
+  FISH_NAME,
+  type KitchenConfig,
+  MEALS,
+  type Meal,
+  addRecipeNote,
+  addSlotNote,
   hostOf,
   ingredients,
+  isIsoDate,
+  kitchenConfig,
+  periodStartFor,
+  planBody,
+  planId,
+  planSlots,
+  planTitle,
+  setSlot,
+  shortDate,
+  weekdayOf,
   isImportPlaceholder,
   methodSteps,
   recipeBody,
@@ -698,6 +716,155 @@ export class NotesTools {
         ),
       );
     });
+  }
+
+  /** Kitchen's configuration (#129), defaults filling what is unset. */
+  private async kitchenConfig(): Promise<KitchenConfig> {
+    const doc = await this.db.doc(paths.modules(this.uid)).get();
+    return kitchenConfig(doc.get('kitchen.config'));
+  }
+
+  /** The week a date is in, refusing what is not a date. */
+  private async week(date: string): Promise<{ start: string; config: KitchenConfig }> {
+    if (!isIsoDate(date)) throw new ToolError('date must be a calendar date, YYYY-MM-DD');
+    const config = await this.kitchenConfig();
+    return { start: periodStartFor(date, config.weekStart), config };
+  }
+
+  /**
+   * The plan for the week starting `start`, made if missing (#129): its
+   * slots from the configuration, the fish dinner linked to the "Fish of
+   * the week" placeholder recipe, which is made too if missing.
+   */
+  private async ensurePlan(start: string, config: KitchenConfig): Promise<string> {
+    const id = planId(start);
+    const names = await this.names();
+    await this.db.runTransaction(async (tx) => {
+      const ref = this.notes().doc(id);
+      const fish = this.notes().doc(FISH_ID);
+      const [plan, placeholder] = await Promise.all([tx.get(ref), tx.get(fish)]);
+      if (plan.exists) return;
+      const now = Timestamp.fromMillis(this.now());
+      const base = { links: [], tags: [], archived: false, createdAt: now, updatedAt: now };
+      const by = { updatedBy: 'claude', deviceId: CLAUDE_DEVICE };
+      const body = planBody(start, config);
+      const fishNamed = names.get(normalizeName(FISH_NAME));
+      if (body.includes(`[[${FISH_NAME}]]`) && !placeholder.exists && fishNamed === undefined) {
+        tx.set(
+          fish,
+          Note.parse({
+            ...base,
+            ...by,
+            kind: 'recipe',
+            body: FISH_BODY,
+            title: FISH_NAME,
+            titleSource: 'user',
+          }),
+        );
+        names.set(normalizeName(FISH_NAME), FISH_ID);
+      }
+      tx.set(
+        ref,
+        Note.parse({
+          ...base,
+          ...by,
+          kind: 'mealplan',
+          body,
+          title: planTitle(start),
+          titleSource: 'user',
+          periodStart: start,
+          links: resolveLinks(targetsOf(body), names),
+        }),
+      );
+    });
+    return id;
+  }
+
+  /**
+   * A week's meal plan (#129): each slot with its day, date, meal, what
+   * is planned (a recipe, delivery, out, empty), whether it was made,
+   * any ratio, and the notes under it. A week not planned yet reads as
+   * its empty slots, without being made.
+   */
+  async getMealPlan(args: { date: string }) {
+    await this.requireModule('kitchen', 'reading the meal plan');
+    const { start, config } = await this.week(args.date);
+    const id = planId(start);
+    const doc = await this.notes().doc(id).get();
+    const body = doc.exists ? String(doc.get('body') ?? '') : planBody(start, config);
+    const names = await this.names();
+    return {
+      id,
+      periodStart: start,
+      exists: doc.exists,
+      slots: planSlots(body, start).map(({ line: _, ...s }) => ({
+        ...s,
+        ...(s.recipe ? { recipeId: names.get(normalizeName(s.recipe)) ?? null } : {}),
+      })),
+    };
+  }
+
+  /**
+   * Plans one meal (#129): the slot's text after its colon, e.g.
+   * "[[Shakshuka]] (half recipe)", "delivery", "out", or "" to clear.
+   * A [[link]] must name a recipe. The week's plan is made if missing.
+   */
+  async planMeal(args: { date: string; meal?: Meal; slot: string }) {
+    await this.requireModule('kitchen', 'planning a meal');
+    const { start, config } = await this.week(args.date);
+    const meal = args.meal ?? 'dinner';
+    if (!MEALS.includes(meal)) throw new ToolError(`meal must be one of ${MEALS.join(', ')}`);
+    const text = args.slot.trim().replace(/\s*\n\s*/g, ' ');
+    const link = /^\[\[([^\]|]+)/.exec(text)?.[1]?.trim();
+    if (link) {
+      const owner = (await this.names()).get(normalizeName(link));
+      const kind =
+        owner === undefined ? undefined : (await this.notes().doc(owner).get()).get('kind');
+      if (kind !== 'recipe') {
+        throw new ToolError(`no recipe named ${link}; make it with create_recipe or import_recipe`);
+      }
+    }
+    const id = await this.ensurePlan(start, config);
+    const day = weekdayOf(args.date);
+    const when = `${day} ${meal} (${shortDate(args.date)})`;
+    const result = await this.editBody(id, 'plan_meal', (body) => {
+      const next = setSlot(body, start, day, meal, text);
+      if (next === body) return undefined;
+      return { body: next, summary: text ? `Planned ${when}: ${text}` : `Cleared ${when}` };
+    });
+    return { id, periodStart: start, day, meal, slot: text, changed: result.changed };
+  }
+
+  /**
+   * After a meal (#129): Eric's words on how it went, or what a delivery
+   * was and from where, as a line under its slot on the plan; for a
+   * recipe, also a dated line under its Notes.
+   */
+  async logMeal(args: { date: string; meal?: Meal; note: string }) {
+    await this.requireModule('kitchen', 'noting a meal');
+    const { start } = await this.week(args.date);
+    const meal = args.meal ?? 'dinner';
+    const note = args.note.trim();
+    if (!note) throw new ToolError('note must have some text');
+    const id = planId(start);
+    const plan = await this.notes().doc(id).get();
+    if (!plan.exists) throw new ToolError(`no plan for the week of ${start}`);
+    const slot = planSlots(String(plan.get('body') ?? ''), start).find(
+      (s) => s.date === args.date && s.meal === meal,
+    );
+    if (!slot) throw new ToolError(`no ${meal} on ${args.date} in the plan`);
+    await this.editBody(id, 'log_meal', (body) => ({
+      body: addSlotNote(body, start, slot.day, meal, note),
+      summary: `Noted ${slot.day} ${meal} (${shortDate(args.date)}) on the plan`,
+    }));
+    const recipe = slot.recipe && (await this.names()).get(normalizeName(slot.recipe));
+    if (recipe && (await this.notes().doc(recipe).get()).get('kind') === 'recipe') {
+      await this.editBody(recipe, 'log_meal', (body, title) => ({
+        body: addRecipeNote(body, `- ${shortDate(args.date)}: ${note}`),
+        summary: `Noted how ${title} went`,
+      }));
+    }
+    return { id, day: slot.day, meal, recipeId: recipe || null };
   }
 
   async updateNote(args: {

@@ -170,6 +170,9 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     );
     await assertFails(ref.set({ ...note(), kind: 'recipe', importState: 'please' }));
     await assertFails(ref.set({ ...note(), kind: 'recipe', importError: 404 }));
+    // A meal plan and its week (#129).
+    await assertSucceeds(ref.set({ ...note(), kind: 'mealplan', periodStart: '2026-10-19' }));
+    await assertFails(ref.set({ ...note(), kind: 'mealplan', periodStart: 20261019 }));
     await assertSucceeds(ref.set({ ...note(), fromTemplate: 't1' }));
     await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
     await assertSucceeds(ref.set({ ...note(), baseHash: '5-1a2b3c4d' }));

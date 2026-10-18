@@ -892,6 +892,88 @@ describe('importing a recipe (#128)', () => {
   });
 });
 
+describe('the meal plan (#129)', () => {
+  const kitchenOn = (config: Record<string, unknown> = {}) =>
+    db.doc('users/u1/settings/modules').set({
+      kitchen: { enabled: true, config },
+      updatedAt: Timestamp.fromMillis(T),
+    });
+
+  it('reads an unplanned week, plans recipes, delivery and clears, making the plan once', async () => {
+    const t = ticking();
+    await expect(t.getMealPlan({ date: '2026-10-21' })).rejects.toThrow('Kitchen is switched off');
+    await kitchenOn();
+    const empty = await t.getMealPlan({ date: '2026-10-21' });
+    expect(empty).toMatchObject({
+      id: 'meals-2026-10-19',
+      periodStart: '2026-10-19',
+      exists: false,
+    });
+    expect(empty.slots).toHaveLength(7);
+    expect(empty.slots[3]).toMatchObject({
+      day: 'Thu',
+      kind: 'recipe',
+      recipe: 'Fish of the week',
+    });
+
+    await expect(t.planMeal({ date: '2026-10-19', slot: '[[Nothing here]]' })).rejects.toThrow(
+      'no recipe named Nothing here',
+    );
+    const { id: dal } = await t.createRecipe({ name: 'Dal', ingredients: ['lentils'], method: [] });
+    await t.planMeal({ date: '2026-10-19', slot: '[[Dal]] (half recipe)' });
+    await t.planMeal({ date: '2026-10-20', slot: 'delivery' });
+    const plan = await body('meals-2026-10-19');
+    expect(plan).toMatchObject({
+      kind: 'mealplan',
+      periodStart: '2026-10-19',
+      title: 'Meals, week of Oct 19',
+      titleSource: 'user',
+    });
+    expect(plan['links']).toEqual(expect.arrayContaining([dal, 'recipe-fish-of-the-week']));
+    expect(await body('recipe-fish-of-the-week')).toMatchObject({
+      kind: 'recipe',
+      title: 'Fish of the week',
+    });
+    const read = await t.getMealPlan({ date: '2026-10-25' });
+    expect(read.exists).toBe(true);
+    expect(read.slots.slice(0, 2)).toMatchObject([
+      { day: 'Mon', kind: 'recipe', recipe: 'Dal', recipeId: dal, ratio: 0.5, made: false },
+      { day: 'Tue', kind: 'delivery' },
+    ]);
+    await t.planMeal({ date: '2026-10-20', slot: '' });
+    expect((await t.getMealPlan({ date: '2026-10-20' })).slots[1].kind).toBe('empty');
+    expect((await runs()).map((r) => r['summary'])).toContain(
+      'Planned Mon dinner (Oct 19): [[Dal]] (half recipe)',
+    );
+  });
+
+  it('follows the configured week and meals', async () => {
+    await kitchenOn({ weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'none' });
+    const plan = await ticking().getMealPlan({ date: '2026-10-21' });
+    expect(plan.periodStart).toBe('2026-10-18');
+    expect(plan.slots.slice(0, 2).map((s) => `${s.day} ${s.meal}`)).toEqual([
+      'Sun lunch',
+      'Sun dinner',
+    ]);
+    expect(plan.slots.some((s) => s.kind === 'recipe')).toBe(false);
+  });
+
+  it('notes how a dinner went on the plan and in the recipe', async () => {
+    await kitchenOn();
+    const t = ticking();
+    const { id: dal } = await t.createRecipe({ name: 'Dal', ingredients: [], method: [] });
+    await t.planMeal({ date: '2026-10-19', slot: '[[Dal]]' });
+    await t.checkItem({ id: 'meals-2026-10-19', item: 'Mon dinner' });
+    await t.logMeal({ date: '2026-10-19', note: 'Lovely, more lemon' });
+    expect((await t.getMealPlan({ date: '2026-10-19' })).slots[0]).toMatchObject({
+      made: true,
+      notes: ['Lovely, more lemon'],
+    });
+    expect((await body(dal))['body']).toContain('## Notes\n\n- Oct 19: Lovely, more lemon');
+    await expect(t.logMeal({ date: '2026-11-30', note: 'x' })).rejects.toThrow('no plan');
+  });
+});
+
 describe('context for Claude (#113)', () => {
   it('reads the context note, cut at its limit, or nothing when there is none', async () => {
     expect(await tools().getContext()).toMatchObject({ exists: false, text: '', max: 4000 });

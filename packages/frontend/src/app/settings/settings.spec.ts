@@ -7,6 +7,7 @@ import { FakeAuthService, FakeModules, FakeNotes, noteRecord } from '../testing/
 import { ModulesService } from '../modules/modules.service';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
+import { type ReminderRecord, RemindersService } from '../reminders/reminders.service';
 import { Settings } from './settings';
 
 function fakePush(state: PushState = 'off') {
@@ -18,6 +19,8 @@ function fakePush(state: PushState = 'off') {
     beforeSignOut: vi.fn(async () => undefined),
   };
 }
+
+const reminders = { reminders: signal<ReminderRecord[]>([]), add: vi.fn() };
 
 const claude = { consent: vi.fn(), approve: vi.fn(), revoke: vi.fn(async () => 2), go: vi.fn() };
 
@@ -36,6 +39,7 @@ async function render(
       { provide: CLAUDE_ACCESS_API, useValue: claude },
       { provide: NotesService, useValue: notes },
       { provide: ModulesService, useValue: modules },
+      { provide: RemindersService, useValue: reminders },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Settings);

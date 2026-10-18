@@ -30,6 +30,7 @@ import { projectTree } from '../browse/lenses';
 import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteBack } from '../back/note-back';
+import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { CaptureService } from '../capture/capture.service';
 import { NotesService } from '../notes/notes.service';
@@ -72,6 +73,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
     NoteEditorComponent,
     NoteBack,
     RecipeHeader,
+    MealPlanHeader,
     NoteList,
     RightNowPanel,
     ListView,
