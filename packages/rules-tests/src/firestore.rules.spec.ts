@@ -164,6 +164,12 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     );
     await assertFails(ref.set({ ...note(), kind: 'recipe', servings: 'four' }));
     await assertFails(ref.set({ ...note(), kind: 'recipe', source: 'https://x.test/r' }));
+    // An import the app asks for, and how it went (#128).
+    await assertSucceeds(
+      ref.set({ ...note(), kind: 'recipe', importState: 'requested', importError: 'x' }),
+    );
+    await assertFails(ref.set({ ...note(), kind: 'recipe', importState: 'please' }));
+    await assertFails(ref.set({ ...note(), kind: 'recipe', importError: 404 }));
     await assertSucceeds(ref.set({ ...note(), fromTemplate: 't1' }));
     await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
     await assertSucceeds(ref.set({ ...note(), baseHash: '5-1a2b3c4d' }));

@@ -38,6 +38,7 @@ function fakeTools() {
     getContext: vi.fn(async () => ({ id: 'context', text: '' })),
     getModules: vi.fn(async () => ['projects' as const]),
     createRecipe: vi.fn(async () => ({})),
+    importRecipe: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -67,6 +68,7 @@ describe('the MCP server', () => {
       'get_backlinks',
       'get_context',
       'get_note',
+      'import_recipe',
       'link_notes',
       'list_concepts',
       'list_notes',

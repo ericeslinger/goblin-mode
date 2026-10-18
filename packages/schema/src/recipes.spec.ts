@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { ingredients, methodSteps, parseIngredient, recipeBody, recipeSkeleton } from './recipes';
+import {
+  importPlaceholder,
+  ingredients,
+  isImportPlaceholder,
+  methodSteps,
+  parseIngredient,
+  recipeBody,
+  recipeSkeleton,
+  untouchedRecipe,
+} from './recipes';
 
 describe('parseIngredient (#127)', () => {
   it('reads amount, unit, item and note', () => {
@@ -125,5 +134,24 @@ describe('ingredients and methodSteps (#127)', () => {
       '### Dough\n1. Mix.\n2. Knead.',
     );
     expect(recipeSkeleton()).toBe('## Ingredients\n\n## Method\n\n## Notes\n');
+  });
+});
+
+describe('importing (#128)', () => {
+  it('names a recipe after its site until the page is read', () => {
+    const url = 'https://www.example.com/dal?x=1';
+    expect(importPlaceholder(url)).toBe('Recipe from example.com');
+    expect(importPlaceholder(url, 3)).toBe('Recipe from example.com (3)');
+    expect(isImportPlaceholder('Recipe from example.com', url)).toBe(true);
+    expect(isImportPlaceholder('Recipe from example.com (12)', url)).toBe(true);
+    expect(isImportPlaceholder('Recipe from example.com, mine', url)).toBe(false);
+    expect(isImportPlaceholder('Dal', url)).toBe(false);
+    expect(importPlaceholder('not a url')).toBe('Recipe from a link');
+  });
+
+  it('knows a skeleton nobody has written in', () => {
+    expect(untouchedRecipe(recipeSkeleton())).toBe(true);
+    expect(untouchedRecipe('## Ingredients\n## Method\n\n## Notes')).toBe(true);
+    expect(untouchedRecipe(recipeSkeleton() + 'a note')).toBe(false);
   });
 });

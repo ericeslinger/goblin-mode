@@ -799,6 +799,99 @@ describe('recipes (#127)', () => {
   });
 });
 
+describe('importing a recipe (#128)', () => {
+  const kitchenOn = () =>
+    db.doc('users/u1/settings/modules').set({
+      kitchen: { enabled: true },
+      updatedAt: Timestamp.fromMillis(T),
+    });
+  const dal = { name: 'Dal', ingredients: ['1 cup lentils'], method: ['Simmer.'], servings: 4 };
+  const reading = (read: (url: string) => Promise<typeof dal>) => () =>
+    new NotesTools(db, 'u1', () => T, undefined, read);
+
+  it('imports a page with recipe data now, its name moved aside when taken', async () => {
+    await kitchenOn();
+    await eric('n1', 'Dal', { titleSource: 'user' });
+    const t = reading(async () => dal)();
+    const made = await t.importRecipe({ url: 'https://www.x.test/dal' });
+    expect(made).toMatchObject({ title: 'Dal (x.test)', ingredients: 1, steps: 1 });
+    expect(await body(made.id)).toMatchObject({
+      kind: 'recipe',
+      servings: 4,
+      source: { url: 'https://www.x.test/dal' },
+    });
+    const none = reading(async () => {
+      throw new Error('no recipe found on the page');
+    })();
+    await expect(none.importRecipe({ url: 'https://x.test/blog' })).rejects.toThrow(
+      'no recipe found on the page. Read the page yourself and use create_recipe',
+    );
+  });
+
+  async function requested(id: string, over: Record<string, unknown> = {}) {
+    await eric(id, '## Ingredients\n\n## Method\n\n## Notes\n', {
+      kind: 'recipe',
+      title: 'Recipe from x.test',
+      titleSource: 'user',
+      source: { url: 'https://x.test/dal' },
+      importState: 'requested',
+      ...over,
+    });
+  }
+
+  it("fills in the app's placeholder, once, folding a stub of its name", async () => {
+    await requested('r1');
+    await eric('c-dal', '', { kind: 'concept', title: 'Dal', titleSource: 'user' });
+    const t = reading(async () => dal)();
+    expect(await t.finishRecipeImport('r1')).toBe('done');
+    const doc = await body('r1');
+    expect(doc).toMatchObject({ title: 'Dal', servings: 4, importState: 'done' });
+    expect(doc['body']).toContain('- 1 cup lentils');
+    expect(doc['importError']).toBeUndefined();
+    expect(await body('c-dal')).toMatchObject({ archived: true, mergedInto: 'r1' });
+    expect((await runs()).map((r) => r['summary'])).toContain(
+      'Imported the recipe Dal from x.test',
+    );
+    // Claimed: a second run of the trigger does nothing.
+    expect(await t.finishRecipeImport('r1')).toBe('skipped');
+  });
+
+  it("keeps Eric's text and name when he wrote while it was read", async () => {
+    await requested('r1', {
+      body: '## Ingredients\n\n- my own\n',
+      title: 'Mum’s dal',
+      servings: 2,
+    });
+    expect(await reading(async () => dal)().finishRecipeImport('r1')).toBe('done');
+    const doc = await body('r1');
+    expect(doc).toMatchObject({
+      title: 'Mum’s dal',
+      servings: 2,
+      body: '## Ingredients\n\n- my own\n',
+    });
+    expect(doc['source']).toMatchObject({ url: 'https://x.test/dal' });
+    expect(doc['source']['text']).toContain('1. Simmer.');
+  });
+
+  it('says why an import failed', async () => {
+    await requested('r1');
+    const t = reading(async () => {
+      throw new Error('the page answered 404');
+    })();
+    expect(await t.finishRecipeImport('r1')).toBe('failed');
+    expect(await body('r1')).toMatchObject({
+      importState: 'failed',
+      importError: 'the page answered 404',
+      title: 'Recipe from x.test',
+    });
+    // A failure after the claim says so too, never left 'working'.
+    await requested('r2');
+    const broken = reading(async () => ({ ...dal, ingredients: null as unknown as string[] }))();
+    expect(await broken.finishRecipeImport('r2')).toBe('failed');
+    expect(await body('r2')).toMatchObject({ importState: 'failed' });
+  });
+});
+
 describe('context for Claude (#113)', () => {
   it('reads the context note, cut at its limit, or nothing when there is none', async () => {
     expect(await tools().getContext()).toMatchObject({ exists: false, text: '', max: 4000 });
