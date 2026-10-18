@@ -15,6 +15,10 @@ test('a recipe is started, written, linked and made by Claude', async ({ page })
   const call = await connectClaude(page);
   await page.goto('/settings');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
+  // Kept: the switch survives a reload before anything relies on it.
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('switch', { name: 'Kitchen' })).toBeChecked();
 
   await page.goto('/browse/recipes');
   await page.getByRole('textbox', { name: 'New recipe' }).fill('Shakshuka');

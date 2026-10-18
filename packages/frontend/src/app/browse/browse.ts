@@ -48,7 +48,7 @@ import { NoteList } from './note-list';
           >
         }
       </nav>
-      @if (lens() === 'recipes') {
+      @if (lens() === 'recipes' && modules.kitchen()) {
         <!-- Added on change: Enter, or leaving the field, as a phone finishes. -->
         <label class="new-recipe">
           New recipe
@@ -120,7 +120,7 @@ export class Browse {
   protected readonly recipeRefused = signal('');
   /** Names are checked against every note, so New recipe waits for them. */
   protected readonly notesReady = computed(() => this.notes.loaded() && this.notes.ready);
-  private readonly modules = inject(ModulesService);
+  protected readonly modules = inject(ModulesService);
   protected readonly proposals = inject(ProposalsService);
   protected readonly reading = inject(ReadingService);
   protected readonly lens = toSignal(

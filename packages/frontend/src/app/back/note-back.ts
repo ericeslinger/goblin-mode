@@ -6,6 +6,7 @@ import { ACTIVITY_API, toRun, type RunRecord } from '../claude/activity';
 import { FIREBASE } from '../firebase';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
+import { ModulesService } from '../modules/modules.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
 /** "Oct 17, 9:05 PM", in the device's own words. */
@@ -42,7 +43,7 @@ function stamp(ms: number | undefined): string {
         }
       </p>
 
-      @if (note().kind === 'recipe') {
+      @if (note().kind === 'recipe' && modules.kitchen()) {
         <div class="settings">
           <label class="inline">
             Serves
@@ -253,6 +254,8 @@ function stamp(ms: number | undefined): string {
 export class NoteBack {
   readonly note = input.required<NoteRecord>();
   protected readonly notes = inject(NotesService);
+  /** Kitchen off, a recipe is a plain note (review on #135). */
+  protected readonly modules = inject(ModulesService);
   private readonly api = inject(ACTIVITY_API);
   private readonly fb = inject(FIREBASE);
   private readonly auth = inject(AuthService);

@@ -37,6 +37,16 @@ const UNITS: Record<string, string> = Object.fromEntries(
   ).flatMap(([unit, ...spellings]) => spellings.map((s) => [s, unit])),
 );
 
+/**
+ * The unit a word spells, any case ("Tbsp", "CUPS"), except the one
+ * letters, where case is the difference: T is a tablespoon, t a teaspoon.
+ */
+function unitOf(word: string): string | undefined {
+  if (Object.hasOwn(UNITS, word)) return UNITS[word];
+  const lower = word.toLowerCase();
+  return lower.length > 1 && Object.hasOwn(UNITS, lower) ? UNITS[lower] : undefined;
+}
+
 const FRACTIONS: Record<string, number> = {
   '¼': 0.25,
   '½': 0.5,
@@ -100,8 +110,9 @@ export function parseIngredient(text: string, line = 0, group?: string): Ingredi
     rest = rest.replace(/^an?\s+/i, '');
   }
   const word = /^([A-Za-z]+)\.?(?:\s+of)?\s+/.exec(rest);
-  if (word && UNITS[word[1]] !== undefined && (q || word[1].length > 1)) {
-    out.unit = UNITS[word[1]];
+  const unit = word && unitOf(word[1]);
+  if (word && unit && (q || word[1].length > 1)) {
+    out.unit = unit;
     rest = rest.slice(word[0].length);
   }
   const comma = rest.indexOf(',');
@@ -154,13 +165,16 @@ export function recipeBody(parts: {
   method: readonly string[];
   notes?: string;
 }): string {
-  const lines = (xs: readonly string[], mark: (i: number) => string) =>
-    xs
+  const lines = (xs: readonly string[], mark: (n: number) => string) => {
+    // Numbered by step: a `###` group heading is not one (review on #135).
+    let n = 0;
+    return xs
       .map((x) => x.trim())
       .filter(Boolean)
-      .map((x, i) =>
-        /^###\s/.test(x) ? x : `${mark(i)} ${x.replace(/^[-*+]\s+|^\d+[.)]\s+/, '')}`,
+      .map((x) =>
+        /^###\s/.test(x) ? x : `${mark(++n)} ${x.replace(/^[-*+]\s+|^\d+[.)]\s+/, '')}`,
       );
+  };
   return [
     '## Ingredients',
     '',
@@ -168,7 +182,7 @@ export function recipeBody(parts: {
     '',
     '## Method',
     '',
-    ...lines(parts.method, (i) => `${i + 1}.`),
+    ...lines(parts.method, (n) => `${n}.`),
     '',
     '## Notes',
     '',

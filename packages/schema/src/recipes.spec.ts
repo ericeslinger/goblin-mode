@@ -48,6 +48,12 @@ describe('parseIngredient (#127)', () => {
     expect(parseIngredient('3 eggs').unit).toBeUndefined();
     // A one-letter word is a unit only after an amount.
     expect(parseIngredient('t-bone steak').item).toBe('t-bone steak');
+    // Any case, but T and t stay tablespoon and teaspoon (review on #135).
+    expect(parseIngredient('1 Tbsp olive oil')).toMatchObject({ unit: 'tbsp', item: 'olive oil' });
+    expect(parseIngredient('2 CUPS flour')).toMatchObject({ unit: 'cup', item: 'flour' });
+    expect(parseIngredient('1 T butter').unit).toBe('tbsp');
+    expect(parseIngredient('1 t salt').unit).toBe('tsp');
+    expect(parseIngredient('2 constructor beams').unit).toBeUndefined();
   });
 });
 
@@ -114,6 +120,10 @@ describe('ingredients and methodSteps (#127)', () => {
       ].join('\n'),
     );
     expect(ingredients(made).map((i) => i.item)).toEqual(['onions', 'tomatoes']);
+    // A group heading in the method is not a numbered step.
+    expect(recipeBody({ ingredients: [], method: ['### Dough', 'Mix.', 'Knead.'] })).toContain(
+      '### Dough\n1. Mix.\n2. Knead.',
+    );
     expect(recipeSkeleton()).toBe('## Ingredients\n\n## Method\n\n## Notes\n');
   });
 });
