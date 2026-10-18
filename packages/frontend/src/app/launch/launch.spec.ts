@@ -546,10 +546,15 @@ describe('Launch', () => {
     await key('Home');
     expect(handle.getAttribute('aria-valuenow')).toBe('80');
     await key('End');
-    expect(handle.getAttribute('aria-valuenow')).toBe('15');
+    // All the way down: only the handle, and the list out of reach (2026-10-18).
+    expect(handle.getAttribute('aria-valuenow')).toBe('0');
+    expect(handle.getAttribute('aria-valuetext')).toBe('Hidden');
+    expect(panel.classList).toContain('collapsed');
+    expect(getComputedStyle(el.querySelector('app-right-now-panel')!).display).toBe('none');
     await key('ArrowUp');
+    expect(panel.classList).not.toContain('collapsed');
 
-    const top = innerHeight * 0.8;
+    const top = innerHeight * 0.95;
     handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: top + 10 }));
     handle.dispatchEvent(new PointerEvent('pointermove', { clientY: innerHeight * 0.5 + 10 }));
     await fixture.whenStable();

@@ -95,6 +95,20 @@ test('dragging the handle resizes Right Now, and it stays that size', async ({ p
 
   await page.reload();
   await expect(handle).toHaveAttribute('aria-valuenow', '60');
+
+  // All the way down (2026-10-18): only the handle stays, and brings it back.
+  const top = (await handle.boundingBox())!;
+  await page.mouse.move(x, top.y + top.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, viewport.height + 50, { steps: 5 });
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute('aria-valuenow', '0');
+  await expect(handle).toBeInViewport();
+  await expect(page.getByText('Nothing to tend.')).toBeHidden();
+  await handle.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(handle).toHaveAttribute('aria-valuenow', '5');
+  await expect(page.getByText('Nothing to tend.')).toBeAttached();
 });
 
 test('the formatting bar stays hidden without an on-screen keyboard', async ({ page }) => {

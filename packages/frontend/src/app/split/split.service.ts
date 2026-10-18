@@ -1,7 +1,11 @@
 import { Injectable, signal } from '@angular/core';
 
 const KEY = 'goblin.rightNowShare';
-export const MIN_SHARE = 15;
+/**
+ * All the way down (Eric, 2026-10-18): at 0 only the handle shows, so
+ * the note has the whole screen and the handle can bring Right Now back.
+ */
+export const MIN_SHARE = 0;
 export const MAX_SHARE = 80;
 export const DEFAULT_SHARE = 35;
 

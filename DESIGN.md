@@ -653,6 +653,10 @@ two panes from 900 px (list left, note right). The handle between note
 and Right Now is a separator: drag it, or use the arrow keys, to give
 Right Now between 15% and 80% of the screen (Home and End jump to the
 limits), saved on the device when the drag ends (Eric, 2026-10-06).
+The floor is now 0% (Eric, 2026-10-18: Right Now rarely fills its
+space, and the note wants it): dragged all the way down, only the
+handle stays, the list leaves the screen and the tab order, and a drag
+or an arrow key brings it back.
 Tapping the Right Now heading opens the full list (`/right-now`). On
 wide screens Right Now sits above the notes list, as the UX spec has
 it, sized by its content (2026-10-06).

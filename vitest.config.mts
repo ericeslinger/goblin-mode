@@ -45,6 +45,12 @@ export default defineConfig({
         test: {
           name: 'functions-emulator',
           include: ['packages/functions/src/**/*.emulator.spec.ts'],
+          // The Google client libraries look for a GCP metadata server
+          // before their first call; off GCP that times out after seconds,
+          // which once pushed a test past its 5 s limit, and its late write
+          // then landed in the next test (2026-10-18). The emulator needs
+          // no metadata server.
+          env: { METADATA_SERVER_DETECTION: 'none' },
         },
       },
     ],
