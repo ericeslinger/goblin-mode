@@ -5,6 +5,9 @@ import type { ImportedRecipe, RecipeExtractor } from './recipe-import';
 /** Small and cheap: copying lines out of a page is extraction (DESIGN.md, Recipes). */
 export const RECIPE_MODEL = 'claude-haiku-5-5';
 
+/** How long Claude may take to read a page. */
+export const CLAUDE_TIMEOUT_MS = 90_000;
+
 const SYSTEM =
   'You read a recipe out of the text of a web page. Copy the recipe name, each ingredient ' +
   'line and each method step word for word as the page has them: do not reword, translate, ' +
@@ -54,18 +57,23 @@ export function recipeFromReply(text: string): ImportedRecipe | undefined {
 export function claudeRecipeReader(config: FederationConfig): RecipeExtractor {
   const client = claudeClient(config);
   return async ({ url, title, text }) => {
-    const message = await client.messages.create({
-      model: RECIPE_MODEL,
-      max_tokens: 16_000,
-      system: SYSTEM,
-      output_config: { effort: 'low', format: FORMAT },
-      messages: [
-        {
-          role: 'user',
-          content: `<page url="${url}" title="${title.replace(/"/g, "'")}">\n${text}\n</page>`,
-        },
-      ],
-    });
+    const message = await client.messages.create(
+      {
+        model: RECIPE_MODEL,
+        max_tokens: 16_000,
+        system: SYSTEM,
+        output_config: { effort: 'low', format: FORMAT },
+        messages: [
+          {
+            role: 'user',
+            content: `<page url="${url}" title="${title.replace(/"/g, "'")}">\n${text}\n</page>`,
+          },
+        ],
+      },
+      // Two tries inside recipeImport's timeout, so a slow reply ends as a
+      // failure Eric sees rather than a function cut off (review on #136).
+      { timeout: CLAUDE_TIMEOUT_MS, maxRetries: 1 },
+    );
     if (message.stop_reason === 'refusal') throw new Error('Claude would not read this page');
     if (message.stop_reason === 'max_tokens') throw new Error('the recipe was too long to read');
     const block = message.content.find((b) => b.type === 'text');

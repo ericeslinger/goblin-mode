@@ -884,6 +884,11 @@ describe('importing a recipe (#128)', () => {
       importError: 'the page answered 404',
       title: 'Recipe from x.test',
     });
+    // A failure after the claim says so too, never left 'working'.
+    await requested('r2');
+    const broken = reading(async () => ({ ...dal, ingredients: null as unknown as string[] }))();
+    expect(await broken.finishRecipeImport('r2')).toBe('failed');
+    expect(await body('r2')).toMatchObject({ importState: 'failed' });
   });
 });
 

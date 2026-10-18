@@ -632,14 +632,27 @@ export class NotesTools {
       return source.url;
     });
     if (url === undefined) return 'skipped';
-    let recipe: ImportedRecipe;
+    // Whatever goes wrong once claimed says so: a note left 'working'
+    // would read its page forever, with no Try again (review on #136).
     try {
-      recipe = await read(url);
+      await this.fillImport(ref, id, url, await read(url));
+      return 'done';
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err);
-      await ref.update({ importState: 'failed', importError: why.slice(0, 500) });
+      if ((await ref.get()).exists) {
+        await ref.update({ importState: 'failed', importError: why.slice(0, 500) });
+      }
       return 'failed';
     }
+  }
+
+  /** Fills a claimed import in from the recipe read off its page. */
+  private async fillImport(
+    ref: DocumentReference,
+    id: string,
+    url: string,
+    recipe: ImportedRecipe,
+  ): Promise<void> {
     const named = await this.importedName(recipe.name, url, id);
     const names = await this.names();
     const body = recipeBody(recipe);
@@ -685,7 +698,6 @@ export class NotesTools {
         ),
       );
     });
-    return 'done';
   }
 
   async updateNote(args: {

@@ -19,7 +19,8 @@ export const recipeImport = onDocumentWritten(
     document: 'users/{uid}/notes/{noteId}',
     serviceAccount: 'goblin-titles@',
     memory: '512MiB',
-    timeoutSeconds: 120,
+    // A fetch (15 s a hop) and two tries of Claude (90 s each) fit inside.
+    timeoutSeconds: 300,
   },
   async (event) => {
     const after = event.data?.after.data();
