@@ -131,8 +131,14 @@ function hides(tag: string): boolean {
  * less. Elements left open inside it close with it. Best effort: text hidden by a stylesheet (a class the page's
  * CSS hides, white on white) is not seen here.
  */
-export function visibleHtml(html: string): string {
-  const TAG = /<(\/?)([a-z][a-z0-9-]*)\b[^>]*?(\/?)>/gi;
+export function visibleHtml(source: string): string {
+  // Comments and scripts first: a close tag written inside one is not
+  // one, and would end a hidden element early (review on #138).
+  const html = source
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
+    .replace(/<(script|style|template|textarea|title)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, ' ');
+  // A tag, a `>` inside a quoted attribute value not ending it.
+  const TAG = /<(\/?)([a-z][a-z0-9-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/gi;
   let out = '';
   let from = 0;
   // The open elements inside the hidden one, the hidden one first. A
@@ -140,7 +146,7 @@ export function visibleHtml(html: string): string {
   // (an unclosed <p> or <li>), as a browser does.
   let open: string[] = [];
   for (const m of html.matchAll(TAG)) {
-    const [whole, close, rawName, selfClose] = m;
+    const [whole, close, rawName, , selfClose] = m;
     const name = rawName.toLowerCase();
     if (VOID.has(name) || selfClose) continue;
     if (!open.length) {

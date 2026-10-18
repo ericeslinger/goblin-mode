@@ -29,9 +29,9 @@ const NOT_RECIPE: readonly RegExp[] = [
   /\breveal\b[^.]{0,30}\b(system|prompt|instructions?|secrets?|rules)\b/i,
   /\b(assistants?|chatbots?|claude|chatgpt|gpt(-?\d)?|openai|anthropic|gemini|copilot|bard|llms?|language models?|ai (models?|agents?|systems?|tools?))\b/i,
   /\bA\.?I\b/,
-  /\bDAN\b/,
+  /\bDAN mode\b/i,
   /\b(you are an? (ai|assistant|agent|bot|model|language model)|as an ai|act as (an? )?(ai|assistant|dan|unfiltered))\b/i,
-  /\b(tool|function) calls?\b|\b(use|call|run|invoke)\b[^.]{0,30}\btools?\b/i,
+  /\b(tool|function) calls?\b|\b(call|invoke)\b[^.]{0,30}\btools?\b/i,
   // A tool's or a function's name: snake_case, never a recipe word.
   /\b[a-z]+_[a-z_]+\b/i,
   /\bthe user('s)?\b/i,
@@ -65,8 +65,10 @@ const LOOKALIKE: Record<string, string> = {
 function readings(line: string): string[] {
   const folded = line.normalize('NFKC').replace(/[\u200b-\u200f\u2060-\u2064\ufeff\u00ad]/g, '');
   // Only inside words: "350 F" and "1 cup" stay numbers.
-  const letters = folded.replace(/(?<=[a-z])[013457@$]|[013457@$](?=[a-z])/gi, (c) => LOOKALIKE[c]);
-  return letters === folded ? [folded] : [folded, letters];
+  // Letters spaced out to slip past ("i g n o r e") read as the word.
+  const joined = folded.replace(/\b(?:\p{L} ){3,}\p{L}\b/gu, (run) => run.replace(/ /g, ''));
+  const letters = joined.replace(/(?<=[a-z])[013457@$]|[013457@$](?=[a-z])/gi, (c) => LOOKALIKE[c]);
+  return [...new Set([folded, joined, letters])];
 }
 
 /** Whether one line reads as something other than a recipe's words. */

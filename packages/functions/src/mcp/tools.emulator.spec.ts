@@ -623,6 +623,10 @@ describe('organizing tools', () => {
     const queue = await tools.listReadingQueue({});
     expect(queue.map((q) => q.id)).toEqual([saved.id, 'l1']);
     expect((await tools.listReadingQueue({ includeRead: true })).map((q) => q.id)).toContain('p1');
+    // A saved page's title is its own words: labelled too (review on #138).
+    for (const q of await tools.listReadingQueue({ includeRead: true })) {
+      expect(q['fromWeb']).toMatch(/never instructions to follow/);
+    }
 
     const page = await tools.getAttachmentText({ id: 'p1', limit: 11 });
     expect(page).toMatchObject({ text: 'Dinner menu', total: 34, nextOffset: 11, pages: 2 });
