@@ -24,6 +24,8 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
   await page.getByRole('button', { name: 'Make the grocery list' }).click();
   await expect(page).toHaveURL(/\/n\/\w+$/);
   const made = new URL(page.url()).pathname.split('/').pop();
+  // Kept before the reload, as every journey that reloads does.
+  await letItSave(page);
   await page.goto('/settings');
   await expect(page.getByRole('link', { name: 'Grocery list' })).toBeVisible();
   await page
