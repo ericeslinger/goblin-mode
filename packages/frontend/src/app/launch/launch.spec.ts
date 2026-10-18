@@ -538,8 +538,59 @@ describe('Launch', () => {
     expect(el.querySelector('#project-list')).toBeNull();
   });
 
+  it('keeps Right Now closed while it has nothing to tend, until moved (2026-10-18)', async () => {
+    const { el, fixture } = await render();
+    const handle = el.querySelector('[role="separator"]') as HTMLElement;
+    const panel = el.querySelector('.right-now') as HTMLElement;
+    expect(handle.getAttribute('aria-valuetext')).toBe('Hidden');
+    expect(panel.classList).toContain('collapsed');
+    // The full list is still one tap away.
+    expect(panel.querySelector('a.peek')?.getAttribute('href')).toBe('/right-now');
+    // A tap on the handle is not a move: it stays closed, and nothing is saved.
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientY: innerHeight - 10 }));
+    handle.dispatchEvent(new PointerEvent('pointerup'));
+    await fixture.whenStable();
+    expect(panel.classList).toContain('collapsed');
+    expect(localStorage.getItem('goblin.rightNowShare')).toBeNull();
+    // Something due opens it at the saved share.
+    TestBed.inject(RemindersService).reminders.set([
+      {
+        id: 'r1',
+        text: 'Call the bank',
+        status: 'open',
+        dueAt: Date.now() - 60_000,
+        createdBy: 'user',
+      },
+    ] as ReminderRecord[]);
+    await fixture.whenStable();
+    expect(handle.getAttribute('aria-valuenow')).toBe('35');
+    // Finishing the last one keeps it open while Undo is offered.
+    const reminders = TestBed.inject(RemindersService);
+    reminders.undoable.set({ id: 'r1', message: 'Done', before: { status: 'open' } });
+    reminders.reminders.set([]);
+    await fixture.whenStable();
+    expect(handle.getAttribute('aria-valuenow')).toBe('35');
+    reminders.undoable.set(null);
+    await fixture.whenStable();
+    expect(handle.getAttribute('aria-valuenow')).toBe('0');
+    // Moved by hand while empty, it stays where it was put.
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+    await fixture.whenStable();
+    expect(handle.getAttribute('aria-valuenow')).toBe('5');
+  });
+
   it('resizes Right Now from its handle, by drag or keys', async () => {
     const { el, fixture } = await render();
+    TestBed.inject(RemindersService).reminders.set([
+      {
+        id: 'r1',
+        text: 'Call the bank',
+        status: 'open',
+        dueAt: Date.now() - 60_000,
+        createdBy: 'user',
+      },
+    ] as ReminderRecord[]);
+    await fixture.whenStable();
     const handle = el.querySelector('[role="separator"]') as HTMLElement;
     const panel = el.querySelector('.right-now') as HTMLElement;
     const key = async (k: string) => {

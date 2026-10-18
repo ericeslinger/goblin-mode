@@ -210,8 +210,8 @@
     <section
       class="right-now"
       aria-labelledby="right-now-title"
-      [class.collapsed]="split.rightNowShare() === 0"
-      [style.height.dvh]="split.rightNowShare()"
+      [class.collapsed]="share() === 0"
+      [style.height.dvh]="share()"
     >
       <div
         class="handle"
@@ -221,10 +221,8 @@
         aria-label="Resize Right Now"
         [attr.aria-valuemin]="minShare"
         [attr.aria-valuemax]="maxShare"
-        [attr.aria-valuenow]="split.rightNowShare()"
-        [attr.aria-valuetext]="
-          split.rightNowShare() === 0 ? 'Hidden' : split.rightNowShare() + '% of the screen'
-        "
+        [attr.aria-valuenow]="share()"
+        [attr.aria-valuetext]="share() === 0 ? 'Hidden' : share() + '% of the screen'"
         (pointerdown)="startDrag($event)"
         (pointermove)="drag($event)"
         (pointerup)="endDrag($event)"
@@ -233,6 +231,10 @@
       >
         <span class="grip" aria-hidden="true"></span>
       </div>
+      @if (share() === 0) {
+        <!-- Closed, the full list and its Add stay one tap away. -->
+        <a class="peek" routerLink="/right-now">Right Now</a>
+      }
       <app-right-now-panel />
     </section>
   </div>
