@@ -42,10 +42,15 @@ describe('weeks (#129)', () => {
       weekStart: 'Mon',
       meals: ['dinner'],
       fishDay: 'Thu',
+      sections: {},
     });
     expect(kitchenConfig({ weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'bad' })).toEqual(
-      { weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'Thu' },
+      { weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'Thu', sections: {} },
     );
+    expect(kitchenConfig({ groceryList: 'g1', sections: { onion: 'Produce' } })).toMatchObject({
+      groceryList: 'g1',
+      sections: { onion: 'Produce' },
+    });
   });
 });
 

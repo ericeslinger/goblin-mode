@@ -92,14 +92,21 @@ function weave(base: readonly string[], added: readonly string[], changed: reado
   return [...(leads ? [] : before), ...changed, ...between, ...(trails ? [] : after)];
 }
 
+/** Same length on all sides, and no line changed by both. */
+function sideBySide(b: readonly string[], o: readonly string[], t: readonly string[]): boolean {
+  if (b.length !== o.length || b.length !== t.length) return false;
+  return b.every((line, k) => o[k] === line || t[k] === line || o[k] === t[k]);
+}
+
 /**
  * Merges `ours` and `theirs`, both changed from `base`. Where only one
  * side changed a stretch, that change is taken; where both made the same
  * change, it is taken once; where one side only added lines around a
  * stretch the other changed, both are kept in place (a tick beside a new
- * item); otherwise both are kept, ours first and then the lines of
- * theirs that ours does not already have. Nothing either side wrote is
- * dropped.
+ * item); where each changed only its own lines of a stretch of the
+ * same length, line by line; otherwise both are kept, ours first and
+ * then the lines of theirs that ours does not already have. Nothing
+ * either side wrote is dropped.
  */
 export function merge3(base: string, ours: string, theirs: string): string {
   if (ours === theirs || theirs === base) return ours;
@@ -119,7 +126,12 @@ export function merge3(base: string, ours: string, theirs: string): string {
     const tc = t.slice(pt + 1, ti);
     if (same(oc, bc)) out.push(...tc);
     else if (same(tc, bc) || same(oc, tc)) out.push(...oc);
-    else out.push(...(weave(bc, tc, oc) ?? weave(bc, oc, tc) ?? [...oc, ...unshared(tc, oc)]));
+    else if (sideBySide(bc, oc, tc)) {
+      // Each side changed its own lines of a stretch, side by side (a
+      // meal plan's Monday here, Tuesday there): line by line, so
+      // neither is written twice (journey on #130).
+      bc.forEach((line, k) => out.push(oc[k] === line ? tc[k] : oc[k]));
+    } else out.push(...(weave(bc, tc, oc) ?? weave(bc, oc, tc) ?? [...oc, ...unshared(tc, oc)]));
   };
   for (let i = 0; i < b.length; i++) {
     // A line both sides kept anchors the stretches around it.

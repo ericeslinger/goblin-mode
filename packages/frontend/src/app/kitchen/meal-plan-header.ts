@@ -1,10 +1,11 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import {
   type Slot,
   addDays,
   addSlotNote,
   localDate,
+  mealLabel,
   normalizeName,
   planSlots,
   setMade,
@@ -12,8 +13,18 @@ import {
   shortDate,
 } from '@mossgoblin/schema';
 import { NOW } from '../platform/platform';
+import { GroceryService } from './grocery.service';
 import { RemindersService } from '../reminders/reminders.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
+
+/** What planning did to the grocery list, said under the week. */
+function groceryNote({ added, removed }: { added: number; removed: number }): string {
+  const lines = (n: number) => `${n} ${n === 1 ? 'line' : 'lines'}`;
+  if (added && removed) return `Grocery list: ${lines(added)} on, ${lines(removed)} off.`;
+  if (added) return `Added ${lines(added)} to the grocery list.`;
+  if (removed) return `Took ${lines(removed)} off the grocery list.`;
+  return '';
+}
 
 /** An hour, for "ask me later". */
 const LATER_MS = 60 * 60 * 1000;
@@ -34,6 +45,11 @@ const LATER_MS = 60 * 60 * 1000;
     <section class="plan" aria-label="Meal plan">
       <nav class="weeks" aria-label="Weeks">
         <a [routerLink]="['/kitchen', previous()]">Previous week</a>
+        @if (grocery.listId(); as list) {
+          <a [routerLink]="['/n', list]">Grocery list</a>
+        } @else {
+          <button type="button" (click)="makeList()">Make the grocery list</button>
+        }
         <a [routerLink]="['/kitchen', next()]">Next week</a>
       </nav>
       <datalist id="recipe-names">
@@ -183,6 +199,8 @@ export class MealPlanHeader {
   readonly edited = output<string>();
 
   private readonly notes = inject(NotesService);
+  protected readonly grocery = inject(GroceryService);
+  private readonly router = inject(Router);
   private readonly reminders = inject(RemindersService);
   private readonly now = inject(NOW);
 
@@ -231,7 +249,19 @@ export class MealPlanHeader {
 
   protected set(s: Slot, text: string): void {
     this.editing.set(undefined);
-    this.edited.emit(setSlot(this.body(), this.start(), s.day, s.meal, text));
+    const body = setSlot(this.body(), this.start(), s.day, s.meal, text);
+    this.edited.emit(body);
+    // The grocery list follows (#130): the old dinner's lines off, the new one's on.
+    const slots = planSlots(body, this.start());
+    const after = slots.find((x) => x.day === s.day && x.meal === s.meal);
+    // Dinners already made need nothing more from the shop.
+    const others = slots.filter((x) => x !== after && !x.made);
+    const changed = this.grocery.replan(s, after, mealLabel(s.day, s.meal), others);
+    this.refused.set(changed ? groceryNote(changed) : '');
+  }
+
+  protected makeList(): void {
+    void this.router.navigate(['/n', this.grocery.makeList()]);
   }
 
   /** A recipe by name: one that exists, or refused with a way to make it. */

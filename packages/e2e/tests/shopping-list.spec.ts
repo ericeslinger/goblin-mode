@@ -1,13 +1,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, signInAs, test, openMore } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
-// The shopping list (#39): a living template; Claude adds what the meal
-// plan needs under Produce, Butcher and Dry goods; in the store ticked
-// items sink to Got it; Done shopping clears them, starred staples come
-// back, and the old list stays in History.
+// The shopping list (#39): a living template, made from Kitchen as its
+// grocery list (#130); Claude adds to it under Produce, Butcher and Dry
+// goods; in the store ticked items sink to Got it; Done shopping clears
+// them, starred staples come back, and the old list stays in History.
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -16,14 +16,28 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
 }) => {
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
+  // The list is Kitchen's grocery list since #130: made from there.
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'Add a shopping list' }).click();
+  await page.getByRole('switch', { name: 'Kitchen' }).check();
+  await letItSave(page);
+  await page.reload();
+  await page.getByRole('button', { name: 'Make the grocery list' }).click();
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  const made = new URL(page.url()).pathname.split('/').pop();
+  // Kept before the reload, as every journey that reloads does.
+  await letItSave(page);
+  await page.goto('/settings');
+  await expect(page.getByRole('link', { name: 'Grocery list' })).toBeVisible();
+  await page
+    .getByRole('list', { name: 'Templates' })
+    .getByRole('link', { name: 'Shopping list' })
+    .click();
   await expect(page.getByRole('region', { name: 'Template' })).toBeVisible();
   // Its mode and Instructions for Claude are on the back (#111, #112).
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Each use' })).toHaveValue('living');
   await expect(page.getByRole('textbox', { name: 'Instructions for Claude' })).toHaveValue(
-    /Meal plan/,
+    /Planned dinners/,
   );
   await page.getByRole('button', { name: 'Front', exact: true }).click();
 
@@ -33,11 +47,19 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
     call('list_templates', {}) as Promise<{ id: string; instructions: string }[]>;
   await expect.poll(async () => (await templates()).length, { timeout: 15_000 }).toBe(1);
   const [template] = await templates();
-  expect(template.instructions).toContain('Meal plan');
-  const { note: list } = (await call('use_template', { id: template.id })) as {
+  expect(template.instructions).toContain('plan_meal');
+  // The note Kitchen made is the template's living note, once it has
+  // reached the server (use_template would make one otherwise).
+  await expect
+    .poll(async () => (await call('get_note', { id: made }).catch(() => null)) !== null, {
+      timeout: 15_000,
+    })
+    .toBe(true);
+  const { note: living } = (await call('use_template', { id: template.id })) as {
     note: { id: string };
   };
-  await call('add_lines', { id: list.id, heading: 'Meal plan', lines: ['Tacos Tuesday'] });
+  expect(living.id).toBe(made);
+  const list = { id: made! };
   await call('add_lines', {
     id: list.id,
     heading: 'Produce',
@@ -77,9 +99,7 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
     .poll(async () => ((await call('get_note', { id: list.id })) as { body: string }).body, {
       timeout: 15_000,
     })
-    .toBe(
-      'Shopping list\n\n## Meal plan\nTacos Tuesday\n\n## Produce\n- [ ] onions\n\n## Butcher\n\n## Dry goods\n- [ ] rice ★',
-    );
+    .toBe('Shopping list\n\n## Produce\n- [ ] onions\n\n## Butcher\n\n## Dry goods\n- [ ] rice ★');
 
   // The list before Done shopping is in History.
   await (await openMore(page)).getByRole('link', { name: 'History' }).click();

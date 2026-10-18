@@ -476,6 +476,9 @@ Settings (Add a shopping list): Meal plan, then Produce, Butcher and
 Dry goods (Eric, 2026-10-06), and Instructions for Claude: read the
 meal plan, add what the meals need with `add_lines` under the right
 heading, skip what is listed, keep his words, and ★ marks a staple.
+Since #130 (2026-10-18) it is Kitchen's grocery list, made from
+Settings, Kitchen (Grocery list, below); new lists have no Meal plan
+section, and the instructions say planned dinners add themselves.
 
 - **List view.** A note made from a template that has checklist items
   gets List beside Source: each section's open items as large
@@ -808,6 +811,34 @@ plans' ticked slots, never stored. Claude reads a week with
 `get_meal_plan`, plans with `plan_meal` and saves Eric's answer with
 `log_meal`; the server instructions tell it to ask once a dinner is
 made, and to set a reminder when he says to ask later.
+
+**Grocery list (#130, 2026-10-18; epic #125).** The Shopping list
+template moves into Kitchen: Settings, Kitchen makes the grocery list
+(the template if missing, and its living note, named in Kitchen's
+configuration as `groceryList`), and Templates no longer offers it.
+An existing Shopping list note is untouched and is found as the
+template's living note; with Kitchen off nothing hides it. New lists
+drop the Meal plan section, the plan being its own note now.
+
+Planning a recipe, in the app's week or with `plan_meal`, adds its
+ingredients to the list, each line naming its dinner: `- [ ] 2 onions,
+sliced (Shakshuka, Mon)` (`Mon lunch` for a meal other than dinner). A
+ratio on the slot scales a single amount ("half recipe": `0.5 cup
+lentils`); a range or no amount is kept as written with the ratio
+after it (`salt ×0.5`). A line goes under the section its item is
+filed in on the list, else where it was filed before (Kitchen's
+`sections`, learned from the list on every plan and at Done shopping),
+else under From recipes. An item already on the list unticked is
+skipped (on hand, #131, will skip more). Changing or clearing the slot
+takes the old dinner's lines off, but only those still unticked and
+exactly as written: a line Eric ticked or edited stays. Two dinners
+needing the same item get one line, the first's, since the second
+finds it listed; when the first comes off, the line goes back on as
+the other dinner's (review on #139), but a line Eric deleted himself
+does not come back. Adding the two amounts waits for #133. The rules
+are `packages/schema/src/grocery.ts`, shared by the app and Claude.
+Typing a slot by hand in the plan's text does not feed the list; the
+week's slots and `plan_meal` do.
 
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a
@@ -1250,7 +1281,7 @@ it, one backticked tool name per row.
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
 | `import_recipe` | Asks the server to import a link's recipe, as the app does (Claude never reads the page); returns the new recipe's id; Kitchen only | Importing a recipe (#128) |
 | `get_meal_plan` | A week's slots (day, date, meal, what is planned, made, ratio, notes under it) for a date; Kitchen only | Meal plan (#129) |
-| `plan_meal` | Sets one slot to a recipe link, delivery, out or empty, making the week's plan if missing; Kitchen only | Meal plan (#129) |
+| `plan_meal` | Sets one slot to a recipe link, delivery, out or empty, making the week's plan if missing, and feeds the grocery list; Kitchen only | Meal plan (#129), Grocery list (#130) |
 | `log_meal` | Eric's words on how a meal went, under its slot and in the recipe's Notes; Kitchen only | Meal plan (#129) |
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |

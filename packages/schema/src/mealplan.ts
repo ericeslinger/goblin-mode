@@ -27,6 +27,10 @@ export const KitchenConfig = z.object({
   meals: z.array(z.enum(MEALS)).min(1).catch(['dinner']).default(['dinner']),
   /** Which dinner starts as "Fish of the week" in a new plan, or none. */
   fishDay: z.enum(['Thu', 'Fri', 'none']).catch('Thu').default('Thu'),
+  /** The grocery list the plan feeds (#130): the living Shopping list's id. */
+  groceryList: z.string().optional().catch(undefined),
+  /** Where each item was last filed on the list, by item (#130). */
+  sections: z.record(z.string(), z.string()).catch({}).default({}),
 });
 export type KitchenConfig = z.infer<typeof KitchenConfig>;
 

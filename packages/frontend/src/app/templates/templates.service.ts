@@ -7,11 +7,12 @@ import { RemindersService } from '../reminders/reminders.service';
 export const NEW_TEMPLATE =
   'New template\n\n## Instructions for Claude\n\nHow to fill in or tidy notes made from this template.\n';
 
-/** The shopping list (#39): meals first, then the store's sections. */
+/**
+ * The shopping list (#39): the store's sections. Since #130 it is
+ * Kitchen's grocery list: planned dinners add their ingredients.
+ */
 export const SHOPPING_LIST = [
   'Shopping list',
-  '',
-  '## Meal plan',
   '',
   '## Produce',
   '',
@@ -21,10 +22,11 @@ export const SHOPPING_LIST = [
   '',
   '## Instructions for Claude',
   '',
-  'When Eric asks for help with his grocery list: read the Meal plan, then add what the',
-  'meals need with add_lines, one "- [ ] item" per line, under Produce, Butcher or Dry goods.',
-  'Skip what is already on the list, ticked or not. Keep his items and words as they are.',
-  'Items with ★ are staples: they stay on the list from week to week.',
+  'Planned dinners add their ingredients themselves (plan_meal), each line naming its dinner,',
+  'under the section the item went in last time or under From recipes. When Eric asks for',
+  'something else, add it with add_lines, one "- [ ] item" per line, under Produce, Butcher',
+  'or Dry goods. Skip what is already on the list, ticked or not. Keep his items and words as',
+  'they are. Items with ★ are staples: they stay on the list from week to week.',
   '',
 ].join('\n');
 
@@ -80,6 +82,23 @@ export class TemplatesService {
     for (const { time, text } of FEELINGS_TIMES) {
       reminders.add({ text, repeat: 'daily', at: time, noteId: id });
     }
+    return id;
+  }
+
+  /**
+   * The shopping list's living note (#130): of the template given, or
+   * of a new Shopping list template, made here with it. Written at once,
+   * without waiting for the new template to come back from the cache.
+   */
+  makeShoppingListNote(templateId?: string): string {
+    if (templateId) {
+      const used = this.use(templateId);
+      if (used) return used.id;
+    }
+    const template = templateId ?? this.createShoppingList();
+    const id = this.notes.newId();
+    // The text a use of it starts with, as `use` writes it.
+    this.notes.create(id, templateParts(SHOPPING_LIST).skeleton, { fromTemplate: template });
     return id;
   }
 
