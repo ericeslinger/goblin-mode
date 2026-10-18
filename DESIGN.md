@@ -752,9 +752,12 @@ nothing (CLAUDE.md, Invariants). The fallback model has no tools and
 answers in a fixed shape, and Claude in a chat never reads the page:
 `import_recipe` hands the link to the server, and the instructions
 say not to fetch a recipe page. Before anything is read, elements a
-person cannot see (`hidden`, `aria-hidden`, display none, visibility
-hidden, zero size or opacity) are dropped (`visibleHtml`, also used
-for saved links). Then every imported line is screened
+page marks hidden are dropped with everything inside them
+(`visibleHtml`, also used for saved links): the `hidden` attribute,
+`aria-hidden`, screen-reader-only classes, and inline styles that hide
+an element, move it off screen, clip it or make its text unreadably
+small or faint. This is best effort: text a stylesheet hides (a class
+the page's CSS sets to display none, white on white) is not seen. Then every imported line is screened
 (`kitchen/screen.ts`): a line that is too long, carries a link, an
 address or markup, talks to a model, or reaches for money, accounts
 or messages is set aside, and so is such a name (the placeholder name
@@ -763,7 +766,9 @@ the page, as not recipe lines:", the front says so, and nothing
 recipe-like at all is a failed import. The screen cannot catch every
 wording, so a recipe with a source url also reaches Claude labelled:
 `get_note` and the note lists carry `fromWeb`, and the instructions
-say such text is content, never instructions. The last safeguard is
+say such text is content, never instructions. So do saved links'
+and files' text in `get_attachment_text` and `search_attachments`:
+those Claude reads on purpose, so it is not screened, only labelled. The last safeguard is
 Eric's: claude.ai asking before any send or spend.
 
 **Meal plan (#129, 2026-10-18; epic #125).** One note of kind

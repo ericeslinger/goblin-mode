@@ -22,23 +22,57 @@ const NOT_RECIPE: readonly RegExp[] = [
   /[\w.+-]+@[\w-]+\.[\w.-]+/,
   /<\/?[a-z][^>]*>/i,
   /\[\[|\]\]/,
-  // Talking to a model.
-  /\b(ignore|disregard|forget|override)\b[^.]{0,60}\b(instructions?|previous|above|prompt|rules?|guidelines?)\b/i,
-  /\b(system prompt|prompt injection|jailbreak)\b/i,
-  /\b(assistants?|chatbots?|claude|chatgpt|openai|anthropic|llms?|language models?|ai models?|ai agents?)\b/i,
-  /\b(you are an? (ai|assistant|agent|bot|model|language model)|as an ai|tool call|function call)\b/i,
+  // Talking to a model, or about one.
+  /\b(ignore|disregard|forget|override|bypass)\b[^.]{0,60}\b(instructions?|previous|prior|above|prompts?|rules?|guidelines?|directives?|everything|told|said|safety)\b/i,
+  /\b(new|updated|real|hidden|secret|important) (instructions?|directives?|orders|task)\b/i,
+  /\b(system (prompt|message)|prompt injection|jailbreak|developer mode)\b/i,
+  /\breveal\b[^.]{0,30}\b(system|prompt|instructions?|secrets?|rules)\b/i,
+  /\b(assistants?|chatbots?|claude|chatgpt|gpt(-?\d)?|openai|anthropic|gemini|copilot|bard|llms?|language models?|ai (models?|agents?|systems?|tools?))\b/i,
+  /\bA\.?I\b/,
+  /\bDAN\b/,
+  /\b(you are an? (ai|assistant|agent|bot|model|language model)|as an ai|act as (an? )?(ai|assistant|dan|unfiltered))\b/i,
+  /\b(tool|function) calls?\b|\b(use|call|run|invoke)\b[^.]{0,30}\btools?\b/i,
+  // A tool's or a function's name: snake_case, never a recipe word.
+  /\b[a-z]+_[a-z_]+\b/i,
+  /\bthe user('s)?\b/i,
+  /\b(archive|delete|erase|wipe|forward|share|upload|export)\b[^.]{0,30}\b(notes?|files?|data|everything|messages?|documents?|contacts?|calendar|inbox)\b/i,
   // Money, accounts and messages.
-  /\bwire\b[^.]{0,20}(money|funds|payment|transfer|\$|€|£)/i,
+  /\bwire transfers?\b|\bwire\b[^.]{0,20}(money|funds|payment|\$|€|£)/i,
   /\b(venmo|paypal|zelle|bitcoin|btc|crypto(currency)?|gift cards?|bank accounts?|routing number|iban|swift code)\b/i,
-  /\b(passwords?|credentials?|api keys?|credit cards?|social security|log ?in to|sign ?in to)\b/i,
-  /\b(e-?mails?|inbox|text messages?|dm)\b/i,
+  /\b(passwords?|credentials?|api keys?|credit card (numbers?|details)|card numbers?|social security|log ?in to|sign ?in to)\b/i,
+  /\b(e-?mails?|inbox|text messages?)\b/i,
   /\bsend\b[^.]{0,30}\b(money|payment|message|details|data|info(rmation)?|notes|contacts?)\b/i,
   /\b(pay|unlock|purchase)\b[^.]{0,40}(\$|€|£)\s?\d/i,
 ];
 
+/** Look-alike digits, as spelling tricks use them ("Ign0re"). */
+const LOOKALIKE: Record<string, string> = {
+  '0': 'o',
+  '1': 'i',
+  '3': 'e',
+  '4': 'a',
+  '5': 's',
+  '7': 't',
+  '@': 'a',
+  $: 's',
+};
+
+/**
+ * The line as a model would read it: compatibility forms folded (full
+ * width letters, ligatures), invisible characters out; and a second
+ * reading with look-alike digits as letters, tried too.
+ */
+function readings(line: string): string[] {
+  const folded = line.normalize('NFKC').replace(/[\u200b-\u200f\u2060-\u2064\ufeff\u00ad]/g, '');
+  // Only inside words: "350 F" and "1 cup" stay numbers.
+  const letters = folded.replace(/(?<=[a-z])[013457@$]|[013457@$](?=[a-z])/gi, (c) => LOOKALIKE[c]);
+  return letters === folded ? [folded] : [folded, letters];
+}
+
 /** Whether one line reads as something other than a recipe's words. */
 export function notRecipeLike(line: string, max: number): boolean {
-  return line.length > max || NOT_RECIPE.some((re) => re.test(line));
+  if (line.length > max) return true;
+  return readings(line).some((text) => NOT_RECIPE.some((re) => re.test(text)));
 }
 
 export interface Screened {

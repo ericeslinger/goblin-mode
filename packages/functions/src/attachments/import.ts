@@ -66,33 +66,97 @@ function decode(text: string): string {
   });
 }
 
-/**
- * An element hidden from a reader: the `hidden` attribute, aria-hidden,
- * or an inline style of display none, visibility hidden or no size. Text
- * a person cannot see is where a page hides words meant for an AI
- * (Eric, 2026-10-18), so it is never read. Best effort: a hidden element
- * with one of its own tag nested inside ends at the inner close.
- */
-const HIDING = [
-  String.raw`\shidden(?:[\s=>/]|$)`,
-  String.raw`aria-hidden\s*=\s*["']?true`,
-  String.raw`style\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?![.\d])|opacity\s*:\s*0(?![.\d]))`,
-].join('|');
-const HIDDEN = new RegExp(
-  String.raw`<([a-z][a-z0-9]*)\b(?=[^>]*(?:${HIDING}))[^>]*>[\s\S]*?<\/\1\s*>`,
-  'gi',
-);
+/** Elements that never hold others, so they never open a hidden span. */
+const VOID = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+]);
 
-/** The page without the elements a reader cannot see. */
+/** Inline styles that hide an element, or make its text too small to read. */
+const HIDING_STYLE = new RegExp(
+  [
+    String.raw`display\s*:\s*none`,
+    String.raw`visibility\s*:\s*hidden`,
+    String.raw`font-size\s*:\s*0*(?:\.\d+|[01](?:\.\d+)?)(?:px|pt)?\s*(?:;|$|!)`,
+    String.raw`opacity\s*:\s*0*(?:\.0\d*)?\s*(?:;|$|!)`,
+    String.raw`(?:left|top|right|text-indent|margin-left)\s*:\s*-\d{3,}`,
+    String.raw`clip(?:-path)?\s*:\s*(?:rect\(\s*0|inset\(\s*50%)`,
+    String.raw`(?:width|height)\s*:\s*0(?:px)?\s*(?:;|$|!)`,
+  ].join('|'),
+  'i',
+);
+/** Class names sites use for text only screen readers get. */
+const HIDING_CLASS =
+  /(?:^|\s)(?:sr-only|visually-hidden|screen-reader-text|screenreader-only|hidden-text|offscreen)(?:\s|$)/i;
+
+/**
+ * Whether a start tag hides its element: the `hidden` attribute,
+ * aria-hidden, a screen-reader-only class, or an inline style that
+ * hides it or makes it unreadably small. Attribute values are taken
+ * apart first, so "hidden" inside a class list ("flex hidden md:block",
+ * shown on wide screens) does not count as the attribute (review on #138).
+ */
+function hides(tag: string): boolean {
+  const values: Record<string, string> = {};
+  const bare = tag.replace(
+    /\s([a-z][\w:-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+    (_, name: string, value: string) => {
+      values[name.toLowerCase()] = value.replace(/^["']|["']$/g, '');
+      return ' ';
+    },
+  );
+  if (/\shidden(?:[\s/>]|$)/i.test(bare) || 'hidden' in values) return true;
+  if (/^true$/i.test(values['aria-hidden'] ?? '')) return true;
+  if (HIDING_CLASS.test(values['class'] ?? '')) return true;
+  return HIDING_STYLE.test(values['style'] ?? '');
+}
+
+/**
+ * The page without the elements a reader cannot see (Eric, 2026-10-18):
+ * text a person cannot see is where a page hides words meant for an AI.
+ * A hidden element goes with everything inside it, nested elements
+ * counted so an inner close does not end it early (review on #138); one
+ * never closed runs to the end of the page, dropping more rather than
+ * less. Elements left open inside it close with it. Best effort: text hidden by a stylesheet (a class the page's
+ * CSS hides, white on white) is not seen here.
+ */
 export function visibleHtml(html: string): string {
-  let out = html;
-  // Again until nothing changes, for hidden elements inside hidden ones.
-  for (let i = 0; i < 5; i++) {
-    const next = out.replace(HIDDEN, ' ');
-    if (next === out) break;
-    out = next;
+  const TAG = /<(\/?)([a-z][a-z0-9-]*)\b[^>]*?(\/?)>/gi;
+  let out = '';
+  let from = 0;
+  // The open elements inside the hidden one, the hidden one first. A
+  // close pops to its own name, closing what was left open inside it
+  // (an unclosed <p> or <li>), as a browser does.
+  let open: string[] = [];
+  for (const m of html.matchAll(TAG)) {
+    const [whole, close, rawName, selfClose] = m;
+    const name = rawName.toLowerCase();
+    if (VOID.has(name) || selfClose) continue;
+    if (!open.length) {
+      if (!close && hides(whole)) {
+        out += html.slice(from, m.index) + ' ';
+        open = [name];
+      }
+      continue;
+    }
+    if (!close) open.push(name);
+    else if (open.includes(name)) {
+      open = open.slice(0, open.lastIndexOf(name));
+      if (!open.length) from = m.index + whole.length;
+    }
   }
-  return out;
+  return open.length ? out : out + html.slice(from);
 }
 
 /** A page's title and readable text, from its HTML: only what a reader sees. */

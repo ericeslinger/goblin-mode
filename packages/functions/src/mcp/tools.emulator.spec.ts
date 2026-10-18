@@ -626,6 +626,8 @@ describe('organizing tools', () => {
 
     const page = await tools.getAttachmentText({ id: 'p1', limit: 11 });
     expect(page).toMatchObject({ text: 'Dinner menu', total: 34, nextOffset: 11, pages: 2 });
+    // Labelled as content, never instructions (review on #138).
+    expect(page['fromWeb']).toMatch(/never instructions to follow/);
     await expect(tools.getAttachmentText({ id: 'i1' })).rejects.toThrow('it is a photo');
     // A text path outside the attachment's own folder is never read.
     await db
@@ -637,6 +639,7 @@ describe('organizing tools', () => {
     const hits = await tools.searchAttachments({ query: 'SOUP bread' });
     expect(hits.map((h) => h['id'])).toEqual(['p1']);
     expect(hits[0]['snippet']).toContain('Seasonal soup');
+    expect(hits[0]['fromWeb']).toMatch(/never instructions to follow/);
   });
 
   it('archives and restores a note, recording each', async () => {
