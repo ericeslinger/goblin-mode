@@ -1,6 +1,13 @@
 import { Injectable, computed, inject } from '@angular/core';
 import {
+  PANTRY_BODY,
+  PANTRY_ID,
   type PlannedDinner,
+  addBought,
+  checklist,
+  onHand,
+  recipeKeys,
+  useUp,
   SHOPPING_LIST_NAME,
   type Slot,
   listSections,
@@ -76,7 +83,9 @@ export class GroceryService {
       .map((s) => this.dinner(s, mealLabel(s.day, s.meal)))
       .filter((d): d is PlannedDinner => !!d);
     const remembered = { ...config.sections, ...sections };
-    const next = replanGrocery(list.body, from, to, remembered, new Set(), rest);
+    // What is on hand is not shopped for (#131).
+    const have = onHand(this.notes.find(PANTRY_ID)?.body ?? '');
+    const next = replanGrocery(list.body, from, to, remembered, have, rest);
     if (next.body !== list.body) this.notes.save(list.id, next.body, { base: list.body });
     this.remember(sections);
     return { added: next.added, removed: next.removed };
@@ -87,6 +96,42 @@ export class GroceryService {
     const known = this.modules.kitchenConfig().sections;
     if (Object.entries(sections).every(([k, v]) => known[k] === v)) return;
     this.modules.configureKitchen({ sections: { ...known, ...sections } });
+  }
+
+  /**
+   * Done shopping (#131): what was ticked on the list goes on hand, under
+   * the section it was in. `listBody` is the list before it is cleared.
+   */
+  bought(listBody: string): string[] {
+    const ticked = checklist(listBody).flatMap((s) =>
+      s.items.filter((i) => i.done).map((i) => ({ text: i.text, section: s.heading })),
+    );
+    if (!ticked.length) return [];
+    return this.editPantry((body) => addBought(body, ticked)) ?? [];
+  }
+
+  /** A dinner ticked made (#131): what its recipe used comes off, except `always`. */
+  made(slot: Slot): string[] {
+    const dinner = this.dinner(slot, slot.day);
+    if (!dinner) return [];
+    return (
+      this.editPantry((body) => {
+        const next = useUp(body, recipeKeys(dinner.recipeBody));
+        return { body: next.body, added: next.used };
+      }) ?? []
+    );
+  }
+
+  /** Edits the pantry, made first if missing; returns what changed. */
+  private editPantry(
+    edit: (body: string) => { body: string; added: string[] },
+  ): string[] | undefined {
+    const id = this.notes.ensurePantry();
+    if (!id) return undefined;
+    const before = this.notes.find(id)?.body ?? PANTRY_BODY;
+    const next = edit(before);
+    if (next.body !== before) this.notes.save(id, next.body, { base: before });
+    return next.added;
   }
 
   private dinner(slot: Slot | undefined, label: string): PlannedDinner | undefined {

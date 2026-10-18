@@ -50,6 +50,7 @@ const LATER_MS = 60 * 60 * 1000;
         } @else {
           <button type="button" (click)="makeList()">Make the grocery list</button>
         }
+        <button type="button" class="link" (click)="openPantry()">On hand</button>
         <a [routerLink]="['/kitchen', next()]">Next week</a>
       </nav>
       <datalist id="recipe-names">
@@ -124,6 +125,8 @@ const LATER_MS = 60 * 60 * 1000;
     }
     .weeks {
       display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
       justify-content: space-between;
       margin-bottom: var(--space-1);
     }
@@ -154,6 +157,15 @@ const LATER_MS = 60 * 60 * 1000;
       min-width: 6.5em;
       color: var(--quiet);
     }
+    .link {
+      font: inherit;
+      color: var(--accent);
+      background: none;
+      border: 0;
+      padding: 0;
+      text-decoration: underline;
+      cursor: pointer;
+    }
     .what {
       font: inherit;
       color: var(--ink);
@@ -178,7 +190,7 @@ const LATER_MS = 60 * 60 * 1000;
       align-items: center;
     }
     input:not([type='checkbox']),
-    button:not(.what) {
+    button:not(.what):not(.link) {
       font: inherit;
       color: var(--ink);
       background: var(--surface);
@@ -245,6 +257,11 @@ export class MealPlanHeader {
 
   protected tick(s: Slot, made: boolean): void {
     this.edited.emit(setMade(this.body(), this.start(), s.day, s.meal, made));
+    // Made: what it used is no longer on hand (#131). Unticking puts nothing back.
+    if (made && !s.made) {
+      const used = this.grocery.made(s);
+      this.refused.set(used.length ? `Used up: ${used.join(', ')}.` : '');
+    }
   }
 
   protected set(s: Slot, text: string): void {
@@ -258,6 +275,12 @@ export class MealPlanHeader {
     const others = slots.filter((x) => x !== after && !x.made);
     const changed = this.grocery.replan(s, after, mealLabel(s.day, s.meal), others);
     this.refused.set(changed ? groceryNote(changed) : '');
+  }
+
+  /** What is on hand (#131), made the first time. */
+  protected openPantry(): void {
+    const id = this.notes.ensurePantry();
+    if (id) void this.router.navigate(['/n', id]);
   }
 
   protected makeList(): void {

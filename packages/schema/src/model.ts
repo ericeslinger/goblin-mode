@@ -48,6 +48,7 @@ export const NoteKind = z.enum([
   'context',
   'recipe',
   'mealplan',
+  'pantry',
 ]);
 export type NoteKind = z.infer<typeof NoteKind>;
 

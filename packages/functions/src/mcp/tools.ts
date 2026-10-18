@@ -45,6 +45,14 @@ import {
   type PlannedDinner,
   type Slot,
   listSections,
+  PANTRY_BODY,
+  PANTRY_ID,
+  PANTRY_TITLE,
+  editPantry,
+  onHand,
+  pantryItems,
+  recipeKeys,
+  useUp,
   mealLabel,
   replanGrocery,
   weekdayOf,
@@ -981,11 +989,13 @@ export class NotesTools {
     if (!list || (!from && !to)) return { list: list ?? null, added: 0, removed: 0 };
     let counts = { added: 0, removed: 0 };
     let sections: Record<string, string> = {};
+    // What is on hand is not shopped for (#131).
+    const pantry = await this.pantryBody();
     await this.editBody(list, 'plan_meal', (body, title) => {
       sections = listSections(body);
       const remembered = { ...config.sections, ...sections };
       const planned = rest.filter((d): d is PlannedDinner => !!d);
-      const next = replanGrocery(body, from, to, remembered, new Set(), planned);
+      const next = replanGrocery(body, from, to, remembered, onHand(pantry), planned);
       counts = { added: next.added, removed: next.removed };
       if (next.body === body) return undefined;
       const parts = [
@@ -1972,15 +1982,122 @@ export class NotesTools {
   }
 
   async checkItem(args: { id: string; item: string }) {
-    return this.setItem(args, true);
+    let before = '';
+    const result = await this.setItem(args, true, (body) => (before = body));
+    // A dinner ticked made on a meal plan uses up what is on hand (#131).
+    if (result.changed && result.body !== undefined) {
+      const plan = await this.notes().doc(args.id).get();
+      const start = plan.get('periodStart');
+      if (plan.get('kind') === 'mealplan' && typeof start === 'string') {
+        const was = new Set(
+          planSlots(before, start)
+            .filter((s) => s.made)
+            .map((s) => s.line),
+        );
+        const made = planSlots(result.body, start).filter((s) => s.made && !was.has(s.line));
+        const used = await this.useUp(made);
+        return { ...result, ...(used.length ? { usedUp: used } : {}) };
+      }
+    }
+    return result;
+  }
+
+  /** What dinners just made used, taken off the pantry (#131); `always` stays. */
+  private async useUp(made: readonly Slot[]): Promise<string[]> {
+    const dinners = await Promise.all(made.map((s) => this.dinnerOf(s, s.day)));
+    const keys = new Set(dinners.flatMap((d) => (d ? [...recipeKeys(d.recipeBody)] : [])));
+    if (!keys.size || !(await this.notes().doc(PANTRY_ID).get()).exists) return [];
+    let used: string[] = [];
+    await this.editBody(PANTRY_ID, 'check_item', (body) => {
+      const next = useUp(body, keys);
+      used = next.used;
+      if (!next.used.length) return undefined;
+      return { body: next.body, summary: `Took ${next.used.join(', ')} off what is on hand` };
+    });
+    return used;
+  }
+
+  /** The pantry's text, or '' while there is none. */
+  private async pantryBody(): Promise<string> {
+    const doc = await this.notes().doc(PANTRY_ID).get();
+    return doc.exists && doc.get('archived') !== true ? String(doc.get('body') ?? '') : '';
+  }
+
+  /** The pantry, made if missing (#131): its name and the store's sections. */
+  private async ensurePantry(): Promise<void> {
+    await this.db.runTransaction(async (tx) => {
+      const ref = this.notes().doc(PANTRY_ID);
+      if ((await tx.get(ref)).exists) return;
+      const now = Timestamp.fromMillis(this.now());
+      tx.set(
+        ref,
+        Note.parse({
+          kind: 'pantry',
+          body: PANTRY_BODY,
+          title: PANTRY_TITLE,
+          titleSource: 'user',
+          links: [],
+          tags: [],
+          archived: false,
+          createdAt: now,
+          updatedAt: now,
+          updatedBy: 'claude',
+          deviceId: CLAUDE_DEVICE,
+        }),
+      );
+    });
+  }
+
+  /** What is on hand (#131): each item, its amount as written, always, its section. */
+  async getPantry(_args: object = {}) {
+    await this.requireModule('kitchen', 'reading what is on hand');
+    const body = await this.pantryBody();
+    return {
+      id: PANTRY_ID,
+      exists: body !== '',
+      items: pantryItems(body).map(({ line: _, key: __, ...p }) => p),
+    };
+  }
+
+  /**
+   * Changes what is on hand (#131): items added (to a section, with an
+   * amount or always), removed, or marked always. Only the lines named
+   * change. The pantry is made if missing.
+   */
+  async updatePantry(args: {
+    add?: { item: string; amount?: string; always?: boolean; section?: string }[];
+    remove?: string[];
+    always?: string[];
+  }) {
+    await this.requireModule('kitchen', 'changing what is on hand');
+    if (!args.add?.length && !args.remove?.length && !args.always?.length) {
+      throw new ToolError('say what to add, remove or mark always');
+    }
+    await this.ensurePantry();
+    const result = await this.editBody(PANTRY_ID, 'update_pantry', (body) => {
+      const next = editPantry(body, args);
+      if (next === body) return undefined;
+      const parts = [
+        args.add?.length && `added ${args.add.map((a) => a.item).join(', ')}`,
+        args.remove?.length && `took off ${args.remove.join(', ')}`,
+        args.always?.length && `marked ${args.always.join(', ')} always`,
+      ].filter(Boolean);
+      return { body: next, summary: `On hand: ${parts.join('; ')}` };
+    });
+    return { changed: result.changed, ...(await this.getPantry()) };
   }
 
   async uncheckItem(args: { id: string; item: string }) {
     return this.setItem(args, false);
   }
 
-  private setItem(args: { id: string; item: string }, done: boolean) {
+  private setItem(
+    args: { id: string; item: string },
+    done: boolean,
+    saw: (body: string) => void = () => undefined,
+  ) {
     return this.editBody(args.id, done ? 'check_item' : 'uncheck_item', (body) => {
+      saw(body);
       const result = setItem(body, args.item, done);
       if (typeof result === 'string') throw new ToolError(result);
       if (!result.changed) return undefined;

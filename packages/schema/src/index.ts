@@ -17,3 +17,4 @@ export * from './modules';
 export * from './recipes';
 export * from './mealplan';
 export * from './grocery';
+export * from './pantry';

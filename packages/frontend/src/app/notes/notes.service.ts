@@ -12,6 +12,9 @@ import {
   CONTEXT_ID,
   KEEP_SUFFIX,
   FISH_BODY,
+  PANTRY_BODY,
+  PANTRY_ID,
+  PANTRY_TITLE,
   FISH_ID,
   FISH_NAME,
   type KitchenConfig,
@@ -536,6 +539,33 @@ export class NotesService {
     this.written.add(id);
     this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
     return id;
+  }
+
+  /**
+   * What is on hand (#131): the pantry note, made now if this device has
+   * not seen it, with its name and the store's sections. Its id is
+   * fixed, like the context note's. Undefined until the notes are here.
+   */
+  ensurePantry(): string | undefined {
+    if (this.exists(PANTRY_ID)) return PANTRY_ID;
+    if (!this.uid || !this.ready) return undefined;
+    const now = this.api.serverTime();
+    const data = {
+      kind: 'pantry',
+      body: PANTRY_BODY,
+      title: PANTRY_TITLE,
+      titleSource: 'user',
+      links: [],
+      tags: [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.written.add(PANTRY_ID);
+    this.api.set(this.fb.db, paths.note(this.uid, PANTRY_ID), data, false).catch(report);
+    return PANTRY_ID;
   }
 
   /** A line under a recipe's Notes (#129: how a dinner went). */

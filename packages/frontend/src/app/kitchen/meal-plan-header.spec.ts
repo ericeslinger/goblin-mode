@@ -25,6 +25,7 @@ async function render(body: string) {
     listId: signal<string | undefined>('g1'),
     replan: vi.fn(() => ({ added: 2, removed: 0 })),
     makeList: vi.fn(() => 'g1'),
+    made: vi.fn(() => ['onions']),
   };
   TestBed.configureTestingModule({
     imports: [MealPlanHeader],
@@ -113,12 +114,15 @@ describe('MealPlanHeader (#129)', () => {
   });
 
   it('ticks a dinner made, and notes a recipe’s in its Notes too', async () => {
-    const { el, fixture, edits, notes } = await render('- [ ] Mon dinner: [[Dal]]\n');
+    const { el, fixture, edits, notes, grocery } = await render('- [ ] Mon dinner: [[Dal]]\n');
     const box = el.querySelector<HTMLInputElement>('input[aria-label="Made Mon dinner, Oct 19"]')!;
     box.checked = true;
     box.dispatchEvent(new Event('change'));
     await fixture.whenStable();
     expect(edits.pop()).toBe('- [x] Mon dinner: [[Dal]]\n');
+    // What it used is no longer on hand (#131).
+    expect(grocery.made).toHaveBeenCalledWith(expect.objectContaining({ recipe: 'Dal' }));
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Used up: onions.');
     const input = el.querySelector<HTMLInputElement>('input[aria-label="How did Dal go?"]')!;
     input.value = 'Good, more lemon';
     buttonNamed(el, 'Save').click();

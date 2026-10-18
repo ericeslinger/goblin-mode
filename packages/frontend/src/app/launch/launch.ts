@@ -514,6 +514,8 @@ export class Launch {
     // kept first, for the next week's dinners (#130).
     if (change.keep && this.record()?.id === this.grocery.listId()) {
       this.grocery.remember(listSections(this.capture.current()));
+      // What was bought is on hand now (#131).
+      this.grocery.bought(this.capture.current());
     }
     this.capture.replace(change.body, { keep: change.keep });
   }

@@ -1032,6 +1032,50 @@ describe('the meal plan (#129)', () => {
     expect((await body('g1'))['body']).not.toContain('(Dal,');
   });
 
+  it('keeps what is on hand: Claude edits it, a dinner made uses it up, plans skip it (#131)', async () => {
+    await kitchenOn();
+    const t = ticking();
+    expect(await t.getPantry()).toMatchObject({ id: 'pantry', exists: false, items: [] });
+    await t.updatePantry({
+      add: [
+        { item: 'lentils', section: 'Dry goods' },
+        { item: 'olive oil', always: true, section: 'Dry goods' },
+        { item: 'limes', amount: '3', section: 'Produce' },
+      ],
+    });
+    expect((await t.getPantry()).items).toEqual([
+      { item: 'limes', amount: '3', always: false, section: 'Produce' },
+      { item: 'lentils', always: false, section: 'Dry goods' },
+      { item: 'olive oil', always: true, section: 'Dry goods' },
+    ]);
+    expect((await body('pantry'))['kind']).toBe('pantry');
+
+    await eric('t1', 'Shopping list\n', {
+      kind: 'template',
+      title: 'Shopping list',
+      titleSource: 'user',
+      templateMode: 'living',
+    });
+    await eric('g1', 'Shopping list\n', { fromTemplate: 't1' });
+    await t.createRecipe({
+      name: 'Dal',
+      ingredients: ['1 cup lentils', '1 tbsp olive oil', '2 onions'],
+      method: [],
+    });
+    // Only the onions are shopped for: the rest is on hand.
+    const planned = await t.planMeal({ date: '2026-10-19', slot: '[[Dal]]' });
+    expect(planned.grocery).toMatchObject({ added: 1 });
+    expect((await body('g1'))['body']).toContain('- [ ] 2 onions (Dal, Mon)');
+
+    // Made: lentils used up, olive oil always there.
+    const made = await t.checkItem({ id: 'meals-2026-10-19', item: 'Mon dinner' });
+    expect(made).toMatchObject({ usedUp: ['lentils'] });
+    expect((await t.getPantry()).items.map((i) => i.item)).toEqual(['limes', 'olive oil']);
+    await t.updatePantry({ remove: ['limes'], always: ['olive oil'] });
+    expect((await t.getPantry()).items.map((i) => i.item)).toEqual(['olive oil']);
+    await expect(t.updatePantry({})).rejects.toThrow('say what to add');
+  });
+
   it('notes how a dinner went on the plan and in the recipe', async () => {
     await kitchenOn();
     const t = ticking();

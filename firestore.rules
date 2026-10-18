@@ -18,7 +18,7 @@ service cloud.firestore {
     function isValidNote(data) {
       return data.keys().hasAll(['kind', 'body', 'title', 'titleSource', 'links', 'tags', 'archived', 'createdAt', 'updatedAt', 'updatedBy', 'deviceId'])
         && data.keys().hasOnly(['kind', 'body', 'title', 'titleSource', 'conceptType', 'parent', 'projectKind', 'projectStatus', 'stages', 'itemTags', 'stage', 'synonyms', 'links', 'tags', 'templateMode', 'instructions', 'source', 'servings', 'importState', 'importError', 'periodStart', 'fromTemplate', 'archived', 'mergedInto', 'settledAt', 'createdAt', 'updatedAt', 'updatedBy', 'deviceId', 'baseHash'])
-        && (data.kind is string && data.kind in ['text', 'sketch', 'concept', 'template', 'context', 'recipe', 'mealplan'])
+        && (data.kind is string && data.kind in ['text', 'sketch', 'concept', 'template', 'context', 'recipe', 'mealplan', 'pantry'])
         && data.body is string
         && data.title is string
         && (data.titleSource is string && data.titleSource in ['words', 'llm', 'user'])
