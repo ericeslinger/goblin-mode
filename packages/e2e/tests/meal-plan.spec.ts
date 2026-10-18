@@ -181,6 +181,9 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   const view = page.getByRole('region', { name: 'List' });
   await view.getByRole('checkbox', { name: 'limes' }).check();
   await view.getByRole('checkbox', { name: '0.5 cup lentils (Dal, Tue)' }).check();
+  const got = view.getByRole('list', { name: 'Got it' });
+  await expect(got).toContainText('limes');
+  await expect(got).toContainText('0.5 cup lentils (Dal, Tue)');
   await view.getByRole('button', { name: 'Done shopping' }).click();
   await expect(view.getByRole('list', { name: 'Got it' })).toHaveCount(0);
   await letItSave(page);
