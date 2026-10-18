@@ -85,7 +85,19 @@ export async function typeLines(page: Page, lines: string[]): Promise<void> {
 
 /** Waits out the 300 ms save debounce, with margin. */
 export async function letItSave(page: Page): Promise<void> {
+  // The editor's own pause before it writes, then until the emulator has
+  // every write made so far (a fixed pause alone lost a settings change
+  // under load, 2026-10-18). Offline that never comes: capped.
   await page.waitForTimeout(800);
+  await page
+    .evaluate(() =>
+      Promise.race([
+        (globalThis as { mossgoblinSynced?: () => Promise<void> }).mossgoblinSynced?.(),
+        new Promise((done) => setTimeout(done, 5000)),
+      ]),
+    )
+    // A page between documents has nothing to wait for.
+    .catch(() => undefined);
 }
 
 export const test = base.extend({

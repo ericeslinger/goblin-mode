@@ -72,4 +72,24 @@ describe('GroceryService (#130)', () => {
     expect(listFields).toEqual({ fromTemplate: templateId });
     expect(modules.configureKitchen).toHaveBeenCalledWith({ groceryList: id });
   });
+
+  it('puts what was bought on hand, uses up what a made dinner needed, and skips what is here (#131)', () => {
+    const pantry: NoteRecord = {
+      ...noteRecord('pantry', '## Produce\n\n- salt: always\n'),
+      kind: 'pantry',
+      title: 'On hand',
+    };
+    const { grocery, notes } = setup([list, template, recipe, pantry]);
+    const shopped = 'Shopping list\n\n## Produce\n\n- [x] limes\n- [ ] onions\n';
+    expect(grocery.bought(shopped)).toEqual(['limes']);
+    const [id, body] = notes.save.mock.calls.at(-1)!;
+    expect(id).toBe('pantry');
+    expect(body).toBe('## Produce\n\n- salt: always\n- limes\n');
+
+    notes.notes.set([list, template, recipe, { ...pantry, body }]);
+    // Limes are on hand: Shakshuka adds only its onions.
+    expect(grocery.replan(slot(''), slot('[[Shakshuka]]'), 'Mon')).toMatchObject({ added: 1 });
+    expect(grocery.made(slot('[[Shakshuka]]'))).toEqual(['limes']);
+    expect(notes.save.mock.calls.at(-1)![1]).toBe('## Produce\n\n- salt: always\n');
+  });
 });

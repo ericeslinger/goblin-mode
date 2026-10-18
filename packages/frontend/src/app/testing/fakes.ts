@@ -58,6 +58,10 @@ export class FakeNotes {
   );
   ensurePlan = vi.fn((start: string, _config: KitchenConfig) => planId(start));
   addRecipeNote = vi.fn((_id: string, _line: string) => undefined);
+  ensurePantry = vi.fn(() => {
+    this.written.add('pantry');
+    return 'pantry';
+  });
   plantConcepts = vi.fn((_body: string) => undefined);
   createConcept = vi.fn((name: string, _type?: 'other' | 'mood') => conceptId(name));
   createItem = vi.fn((_parent: string, name: string, _stage?: string) => conceptId(name));

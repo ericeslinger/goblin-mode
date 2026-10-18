@@ -231,7 +231,7 @@ export class CaptureService {
    */
   private isKept(id: string): boolean {
     const kind = this.notes.find(id)?.kind;
-    return ['concept', 'template', 'context', 'recipe', 'mealplan'].includes(kind ?? '');
+    return ['concept', 'template', 'context', 'recipe', 'mealplan', 'pantry'].includes(kind ?? '');
   }
 
   /** Opens another note (from Previous notes, Browse, a link or a template). */

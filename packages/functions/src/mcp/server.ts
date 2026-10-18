@@ -41,6 +41,10 @@ export const INSTRUCTIONS = [
     'for a delivery what ' +
     'it was and from where, and save his answer with log_meal; he may say to ask later, ' +
     'then create_reminder to ask again.',
+  'What Eric has on hand (Kitchen) is the note with id pantry, a line per item: get_pantry ' +
+    'reads it, update_pantry changes it. Done shopping adds what he bought, a dinner ticked ' +
+    'made (check_item on the plan) takes off what its recipe used except items marked always, ' +
+    'and plan_meal does not put on the grocery list what is on hand.',
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
     'itemTags). Its items are its sub-projects (parent) and its tasks (reminders with its ' +
     'noteId), each with a stage from that list (refile or update_reminder: stage) and tags. ' +
@@ -313,6 +317,47 @@ export function buildServer(
       annotations: write,
     },
     run((a) => tools.logMeal(a)),
+  );
+
+  server.registerTool(
+    'get_pantry',
+    {
+      title: 'Get what is on hand',
+      description:
+        'What Eric has on hand (Kitchen): each item as written, its amount if he wrote one, ' +
+        'whether it is marked always (staples never used up), and its store section.',
+      inputSchema: {},
+      annotations: read,
+    },
+    run(() => tools.getPantry({})),
+  );
+
+  server.registerTool(
+    'update_pantry',
+    {
+      title: 'Change what is on hand',
+      description:
+        'Adds items to what is on hand (with a section, an amount or always), removes items, ' +
+        'or marks items always, changing only the lines named. Makes the pantry note if ' +
+        'missing. Done shopping in the app and a dinner ticked made already add and take ' +
+        'off; use this when Eric says what he has. Kitchen only.',
+      inputSchema: {
+        add: z
+          .array(
+            z.object({
+              item: z.string().min(1),
+              amount: z.string().optional(),
+              always: z.boolean().optional(),
+              section: z.string().optional(),
+            }),
+          )
+          .optional(),
+        remove: z.array(z.string().min(1)).optional(),
+        always: z.array(z.string().min(1)).optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.updatePantry(a)),
   );
 
   server.registerTool(

@@ -6,6 +6,8 @@ import { FIREBASE } from '../firebase';
 import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
 import { ModulesService } from './modules.service';
 
+let ack: Promise<void> = Promise.resolve();
+
 function setup() {
   let next: (data: Record<string, unknown> | undefined, local?: boolean) => void = () => undefined;
   const api = {
@@ -13,7 +15,7 @@ function setup() {
       next = (d, local = false) => n(d, false, local);
       return () => undefined;
     }),
-    set: vi.fn(async () => undefined),
+    set: vi.fn(() => ack),
     now: () => 'NOW',
   } satisfies SettingsApi;
   const user = signal<User | null | undefined>({ uid: 'u1' } as User);
@@ -82,5 +84,23 @@ describe('ModulesService (#126)', () => {
       },
       updatedAt: 'NOW',
     });
+  });
+
+  it('takes no older snapshot while its own writes are unacknowledged (2026-10-18)', async () => {
+    const { modules, push } = setup();
+    push({ kitchen: { enabled: true } });
+    let acked!: () => void;
+    ack = new Promise((done) => (acked = done));
+    modules.configureKitchen({ weekStart: 'Sun' });
+    // The server's copy from before the change, delivered after it.
+    push({ kitchen: { enabled: true } });
+    expect(modules.kitchenConfig().weekStart).toBe('Sun');
+    acked();
+    await ack;
+    await Promise.resolve();
+    ack = Promise.resolve();
+    // Acknowledged: another device's change is taken again.
+    push({ kitchen: { enabled: true, config: { weekStart: 'Wed' } } });
+    expect(modules.kitchenConfig().weekStart).toBe('Wed');
   });
 });

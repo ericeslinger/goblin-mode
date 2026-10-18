@@ -159,6 +159,9 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await plan.getByRole('combobox', { name: 'Recipe for Mon dinner, Oct 19' }).fill('Shakshuka');
   await plan.getByRole('button', { name: 'Plan it' }).click();
   await expect(plan.getByRole('status')).toHaveText('Added 2 lines to the grocery list.');
+  // Saved before Claude plans: an edit on each side within the same
+  // moment is the sync merge's case (#37), not this journey's.
+  await letItSave(page);
   // Planned by Claude, half a recipe.
   await call('plan_meal', { date: '2026-10-20', slot: '[[Dal]] (half recipe)' });
   const listBody = async () => ((await call('get_note', { id: list })) as { body: string }).body;
@@ -168,7 +171,9 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   expect(body).toContain('- [ ] 2 onions, sliced (Shakshuka, Mon)');
   expect(body).not.toContain('limes (Shakshuka, Mon)');
 
-  // Monday becomes delivery: Shakshuka's lines come off.
+  // Monday becomes delivery: Shakshuka's lines come off. The phone has
+  // Claude's Tuesday first.
+  await expect(plan).toContainText('[[Dal]] (half recipe)', { timeout: 15_000 });
   await plan.getByRole('button', { name: /^Change Mon dinner, Oct 19/ }).click();
   await plan.getByRole('button', { name: 'Delivery' }).click();
   await expect(plan.getByRole('status')).toHaveText('Took 2 lines off the grocery list.');
@@ -181,13 +186,30 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   const view = page.getByRole('region', { name: 'List' });
   await view.getByRole('checkbox', { name: 'limes' }).check();
   await view.getByRole('checkbox', { name: '0.5 cup lentils (Dal, Tue)' }).check();
+  const got = view.getByRole('list', { name: 'Got it' });
+  await expect(got).toContainText('limes');
+  await expect(got).toContainText('0.5 cup lentils (Dal, Tue)');
   await view.getByRole('button', { name: 'Done shopping' }).click();
   await expect(view.getByRole('list', { name: 'Got it' })).toHaveCount(0);
   await letItSave(page);
 
-  // Next week, limes go back under Produce, where they were filed.
+  // What was bought is on hand (#131); a made dinner uses its share up.
+  const pantry = async () =>
+    ((await call('get_pantry', {})) as { items: { item: string }[] }).items.map((i) => i.item);
+  await expect.poll(pantry, { timeout: 15_000 }).toEqual(['limes', 'lentils']);
+  await page.goto('/kitchen/2026-10-19');
+  await plan.getByRole('checkbox', { name: 'Made Tue dinner, Oct 20' }).check();
+  await expect(plan.getByRole('status')).toHaveText('Used up: limes, lentils.');
+  await letItSave(page);
+  await expect.poll(pantry, { timeout: 15_000 }).toEqual([]);
+
+  // Next week, limes go back under Produce, where they were filed; and
+  // tomatoes, on hand now, are not shopped for.
+  await call('update_pantry', { add: [{ item: 'tomatoes', section: 'Produce' }] });
   await call('plan_meal', { date: '2026-10-26', slot: '[[Shakshuka]]' });
   await expect
     .poll(listBody, { timeout: 15_000 })
     .toMatch(/## Produce\n(?:.*\n)*?- \[ \] limes \(Shakshuka, Mon\)/);
+  expect(await listBody()).toContain('2 onions, sliced (Shakshuka, Mon)');
+  expect(await listBody()).not.toContain('tomatoes (Shakshuka, Mon)');
 });

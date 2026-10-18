@@ -28,6 +28,8 @@ export class ModulesService {
   private readonly stored = signal<Stored | undefined>(undefined);
   private uid?: string;
   private stop?: () => void;
+  /** This device's writes the server has not acknowledged yet. */
+  private unacked = 0;
 
   /** Projects: types, the pill, the lens, items and stages (#41, #122). */
   readonly projects = computed(() => moduleOn(this.stored(), 'projects'));
@@ -59,6 +61,12 @@ export class ModulesService {
           // second change was lost, journey on the hardening PR). Taken
           // only when nothing is known yet, as after a reload offline.
           if (local && this.stored() !== undefined) return;
+          // A snapshot computed before this device's latest change and
+          // delivered after it is no newer than what is showing either.
+          // Offline the writes wait unacknowledged, so another device's
+          // change waits too, deliberately, until they reach the server
+          // (review on #140).
+          if (this.unacked > 0 && this.stored() !== undefined) return;
           this.stored.set(data ? read(data) : undefined);
         },
         (err) => console.error('modules listener', err),
@@ -89,9 +97,11 @@ export class ModulesService {
   private write(next: Stored): void {
     if (!this.uid) return;
     this.stored.set(next);
+    this.unacked++;
     this.api
       .set(this.fb.db, paths.modules(this.uid), { ...next, updatedAt: this.api.now() })
-      .catch((err) => console.error('modules write failed', err));
+      .catch((err) => console.error('modules write failed', err))
+      .finally(() => this.unacked--);
   }
 }
 

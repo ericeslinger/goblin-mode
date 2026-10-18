@@ -7,6 +7,7 @@ import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  waitForPendingWrites,
 } from 'firebase/firestore';
 import { type FirebaseStorage, connectStorageEmulator, getStorage } from 'firebase/storage';
 import { EMULATOR_PORTS } from '../environments/emulator-ports';
@@ -68,6 +69,10 @@ export function initFirebase(hostname: string): FirebaseHandles {
       disableWarnings: true,
     });
     connectFirestoreEmulator(db, '127.0.0.1', EMULATOR_PORTS.firestore);
+    // For journeys, against the emulator only: resolves once every write
+    // made so far has reached it, so a reload after it loses nothing.
+    (globalThis as { mossgoblinSynced?: () => Promise<void> }).mossgoblinSynced = () =>
+      waitForPendingWrites(db);
   }
   const storage = getStorage(app);
   if (usingEmulators) connectStorageEmulator(storage, '127.0.0.1', EMULATOR_PORTS.storage);

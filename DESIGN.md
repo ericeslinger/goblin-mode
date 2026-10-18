@@ -838,7 +838,28 @@ the other dinner's (review on #139), but a line Eric deleted himself
 does not come back. Adding the two amounts waits for #133. The rules
 are `packages/schema/src/grocery.ts`, shared by the app and Claude.
 Typing a slot by hand in the plan's text does not feed the list; the
-week's slots and `plan_meal` do.
+week's slots and `plan_meal` do. Known limit (2026-10-18): the phone and Claude
+changing neighbouring slots within the same second, before either has
+seen the other, can leave both versions of those lines in the plan,
+as the sync merge (#37) keeps both sides of a stretch it cannot tell
+apart; nothing is lost, and the extra lines can be deleted.
+
+**On hand (#131, 2026-10-18; epic #125), presence only.** One note of
+kind `pantry` at id `pantry`, named On hand, made the first time it is
+needed with the store's sections. A line per item, edited by hand any
+time: `- onions: 3`, `- rice`, `- olive oil: always`; checkbox lines
+are not items. An item is matched by its words without an amount or
+unit, the way the grocery list matches (`itemKey`). Done shopping on
+the grocery list adds each ticked item not here yet, without its
+amount or dinner, under the section it was in on the list (From
+recipes, or none, goes under Other). A dinner ticked made, in the
+week or by Claude with `check_item` on the plan, takes off each item
+its recipe uses, except those marked `always`; unticking it puts
+nothing back. A planned dinner does not put on the grocery list what
+is on hand. Amounts are kept as written and not counted; counting
+comes with #133. The rules are `packages/schema/src/pantry.ts`.
+Claude reads it with `get_pantry` and changes it with `update_pantry`,
+which changes only the lines it names.
 
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a
@@ -1283,6 +1304,8 @@ it, one backticked tool name per row.
 | `get_meal_plan` | A week's slots (day, date, meal, what is planned, made, ratio, notes under it) for a date; Kitchen only | Meal plan (#129) |
 | `plan_meal` | Sets one slot to a recipe link, delivery, out or empty, making the week's plan if missing, and feeds the grocery list; Kitchen only | Meal plan (#129), Grocery list (#130) |
 | `log_meal` | Eric's words on how a meal went, under its slot and in the recipe's Notes; Kitchen only | Meal plan (#129) |
+| `get_pantry` | What is on hand: each item, its amount as written, always, its section; Kitchen only | On hand (#131) |
+| `update_pantry` | Adds, removes or marks items always on hand, changing only those lines; Kitchen only | On hand (#131) |
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
