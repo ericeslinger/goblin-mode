@@ -7,10 +7,10 @@ import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
 import { ModulesService } from './modules.service';
 
 function setup() {
-  let next: (data: Record<string, unknown> | undefined) => void = () => undefined;
+  let next: (data: Record<string, unknown> | undefined, local?: boolean) => void = () => undefined;
   const api = {
     listen: vi.fn((_db, _path, n) => {
-      next = (d) => n(d, false, false);
+      next = (d, local = false) => n(d, false, local);
       return () => undefined;
     }),
     set: vi.fn(async () => undefined),
@@ -26,7 +26,11 @@ function setup() {
   });
   const modules = TestBed.inject(ModulesService);
   TestBed.tick();
-  return { modules, api, push: (d: Record<string, unknown> | undefined) => next(d) };
+  return {
+    modules,
+    api,
+    push: (d: Record<string, unknown> | undefined, local?: boolean) => next(d, local),
+  };
 }
 
 describe('ModulesService (#126)', () => {
@@ -53,6 +57,28 @@ describe('ModulesService (#126)', () => {
     expect(modules.projects()).toBe(false);
     expect(api.set).toHaveBeenCalledWith({}, 'users/u1/settings/modules', {
       projects: { enabled: false, config: { x: 1 } },
+      updatedAt: 'NOW',
+    });
+  });
+
+  it('keeps quick changes: the echo of an earlier write never undoes a later one', () => {
+    const { modules, api, push } = setup();
+    push({ kitchen: { enabled: true } });
+    modules.configureKitchen({ weekStart: 'Sun' });
+    modules.configureKitchen({ meals: ['lunch', 'dinner'] });
+    // The first write's echo arrives after the second change.
+    push({ kitchen: { enabled: true, config: { weekStart: 'Sun' } } }, true);
+    modules.configureKitchen({ fishDay: 'none' });
+    expect(modules.kitchenConfig()).toEqual({
+      weekStart: 'Sun',
+      meals: ['lunch', 'dinner'],
+      fishDay: 'none',
+    });
+    expect(api.set).toHaveBeenLastCalledWith({}, 'users/u1/settings/modules', {
+      kitchen: {
+        enabled: true,
+        config: { weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'none' },
+      },
       updatedAt: 'NOW',
     });
   });
