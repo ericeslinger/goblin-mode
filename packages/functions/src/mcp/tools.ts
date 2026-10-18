@@ -909,7 +909,8 @@ export class NotesTools {
     const result = await this.editBody(id, 'plan_meal', (body) => {
       const slots = planSlots(body, start);
       before = slots.find((s) => s.day === day && s.meal === meal);
-      others = slots.filter((s) => s !== before);
+      // Dinners already made need nothing more from the shop.
+      others = slots.filter((s) => s !== before && !s.made);
       const next = setSlot(body, start, day, meal, text);
       if (next === body) return undefined;
       return { body: next, summary: text ? `Planned ${when}: ${text}` : `Cleared ${when}` };

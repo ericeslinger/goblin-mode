@@ -76,7 +76,8 @@ describe('MealPlanHeader (#129)', () => {
       expect.objectContaining({ day: 'Mon', kind: 'empty' }),
       expect.objectContaining({ day: 'Mon', recipe: 'Dal' }),
       'Mon',
-      [expect.objectContaining({ day: 'Tue', kind: 'delivery' })],
+      // Tuesday is made: it needs nothing more from the shop.
+      [],
     );
     await fixture.whenStable();
     expect(el.querySelector('[role="status"]')?.textContent).toContain(

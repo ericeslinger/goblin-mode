@@ -1024,9 +1024,12 @@ describe('the meal plan (#129)', () => {
       enabled: true,
       config: { sections: { limes: 'Produce' } },
     });
+    // Tuesday's Dal, already made, gets nothing back when Monday's comes off.
+    await t.planMeal({ date: '2026-10-20', slot: '[[Dal]] (half recipe)' });
+    await t.checkItem({ id: 'meals-2026-10-19', item: 'Tue dinner' });
     const cleared = await t.planMeal({ date: '2026-10-19', slot: 'out' });
     expect(cleared.grocery).toMatchObject({ added: 0, removed: 1 });
-    expect((await body('g1'))['body']).not.toContain('(Dal, Mon)');
+    expect((await body('g1'))['body']).not.toContain('(Dal,');
   });
 
   it('notes how a dinner went on the plan and in the recipe', async () => {
