@@ -108,11 +108,23 @@ test('a recipe imported from a link is made at once and says how it went', async
     timeout: 30_000,
   });
 
-  // A second link to the same site is numbered, not refused.
+  // Claude asks the same way: the server reads the page, never Claude.
+  const call = await connectClaude(page);
+  const asked = (await call('import_recipe', { url: 'https://recipes.invalid/stew' })) as {
+    id: string;
+    title: string;
+  };
+  expect(asked.title).toBe('Recipe from recipes.invalid (2)');
+  await page.goto(`/n/${asked.id}`);
+  await expect(recipe.getByRole('status')).toContainText('Could not import from recipes.invalid', {
+    timeout: 30_000,
+  });
+
+  // A third link to the same site is numbered, not refused.
   await page.goto('/browse/recipes');
   await link.fill('https://recipes.invalid/soup');
   await link.press('Enter');
   await expect(recipe.getByRole('textbox', { name: 'Recipe name' })).toHaveValue(
-    'Recipe from recipes.invalid (2)',
+    'Recipe from recipes.invalid (3)',
   );
 });

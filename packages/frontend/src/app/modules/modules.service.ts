@@ -52,9 +52,14 @@ export class ModulesService {
       this.stop = this.api.listen(
         this.fb.db,
         paths.modules(uid),
-        (data) => {
-          this.stored.set(data ? read(data) : undefined);
+        (data, _fromCache, local) => {
           this.read.set(true);
+          // The echo of this device's own write: a newer change may be
+          // showing already, and adopting the echo would undo it (a quick
+          // second change was lost, journey on the hardening PR). Taken
+          // only when nothing is known yet, as after a reload offline.
+          if (local && this.stored() !== undefined) return;
+          this.stored.set(data ? read(data) : undefined);
         },
         (err) => console.error('modules listener', err),
       );

@@ -66,12 +66,111 @@ function decode(text: string): string {
   });
 }
 
-/** A page's title and readable text, from its HTML. */
+/** Elements that never hold others, so they never open a hidden span. */
+const VOID = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+]);
+
+/** Inline styles that hide an element, or make its text too small to read. */
+const HIDING_STYLE = new RegExp(
+  [
+    String.raw`display\s*:\s*none`,
+    String.raw`visibility\s*:\s*hidden`,
+    String.raw`font-size\s*:\s*0*(?:\.\d+|[01](?:\.\d+)?)(?:px|pt)?\s*(?:;|$|!)`,
+    String.raw`opacity\s*:\s*0*(?:\.0\d*)?\s*(?:;|$|!)`,
+    String.raw`(?:left|top|right|text-indent|margin-left)\s*:\s*-\d{3,}`,
+    String.raw`clip(?:-path)?\s*:\s*(?:rect\(\s*0|inset\(\s*50%)`,
+    String.raw`(?:width|height)\s*:\s*0(?:px)?\s*(?:;|$|!)`,
+  ].join('|'),
+  'i',
+);
+/** Class names sites use for text only screen readers get. */
+const HIDING_CLASS =
+  /(?:^|\s)(?:sr-only|visually-hidden|screen-reader-text|screenreader-only|hidden-text|offscreen)(?:\s|$)/i;
+
+/**
+ * Whether a start tag hides its element: the `hidden` attribute,
+ * aria-hidden, a screen-reader-only class, or an inline style that
+ * hides it or makes it unreadably small. Attribute values are taken
+ * apart first, so "hidden" inside a class list ("flex hidden md:block",
+ * shown on wide screens) does not count as the attribute (review on #138).
+ */
+function hides(tag: string): boolean {
+  const values: Record<string, string> = {};
+  const bare = tag.replace(
+    /\s([a-z][\w:-]*)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+    (_, name: string, value: string) => {
+      values[name.toLowerCase()] = value.replace(/^["']|["']$/g, '');
+      return ' ';
+    },
+  );
+  if (/\shidden(?:[\s/>]|$)/i.test(bare) || 'hidden' in values) return true;
+  if (/^true$/i.test(values['aria-hidden'] ?? '')) return true;
+  if (HIDING_CLASS.test(values['class'] ?? '')) return true;
+  return HIDING_STYLE.test(values['style'] ?? '');
+}
+
+/**
+ * The page without the elements a reader cannot see (Eric, 2026-10-18):
+ * text a person cannot see is where a page hides words meant for an AI.
+ * A hidden element goes with everything inside it, nested elements
+ * counted so an inner close does not end it early (review on #138); one
+ * never closed runs to the end of the page, dropping more rather than
+ * less. Elements left open inside it close with it. Best effort: text hidden by a stylesheet (a class the page's
+ * CSS hides, white on white) is not seen here.
+ */
+export function visibleHtml(source: string): string {
+  // Comments and scripts first: a close tag written inside one is not
+  // one, and would end a hidden element early (review on #138).
+  const html = source
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
+    .replace(/<(script|style|template|textarea|title)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, ' ');
+  // A tag, a `>` inside a quoted attribute value not ending it.
+  const TAG = /<(\/?)([a-z][a-z0-9-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/gi;
+  let out = '';
+  let from = 0;
+  // The open elements inside the hidden one, the hidden one first. A
+  // close pops to its own name, closing what was left open inside it
+  // (an unclosed <p> or <li>), as a browser does.
+  let open: string[] = [];
+  for (const m of html.matchAll(TAG)) {
+    const [whole, close, rawName, , selfClose] = m;
+    const name = rawName.toLowerCase();
+    if (VOID.has(name) || selfClose) continue;
+    if (!open.length) {
+      if (!close && hides(whole)) {
+        out += html.slice(from, m.index) + ' ';
+        open = [name];
+      }
+      continue;
+    }
+    if (!close) open.push(name);
+    else if (open.includes(name)) {
+      open = open.slice(0, open.lastIndexOf(name));
+      if (!open.length) from = m.index + whole.length;
+    }
+  }
+  return open.length ? out : out + html.slice(from);
+}
+
+/** A page's title and readable text, from its HTML: only what a reader sees. */
 export function pageText(html: string): { title: string; text: string } {
   const title = decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '')
     .replace(/\s+/g, ' ')
     .trim();
-  const body = html
+  const body = visibleHtml(html)
     .replace(/<(script|style|noscript|template|svg|head)\b[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/section|\/article|\/blockquote)\b[^>]*>/gi, '\n')
