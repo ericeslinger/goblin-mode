@@ -124,4 +124,21 @@ describe('replanGrocery (#130)', () => {
       replanGrocery(swapped.body, { recipe: 'Dal', recipeBody: dal, day: 'Mon' }, undefined),
     ).toMatchObject({ removed: 1 });
   });
+
+  it('puts back an item another dinner still needs when one comes off (review on #139)', () => {
+    const mon = { recipe: 'Shakshuka', recipeBody: RECIPE, day: 'Mon' };
+    const tue = { ...mon, day: 'Tue' };
+    const both = replanGrocery(replanGrocery(LIST, undefined, mon).body, undefined, tue).body;
+    // Tuesday's onions were already listed, under Monday.
+    expect(both).not.toContain('(Shakshuka, Tue)');
+    const cleared = replanGrocery(both, mon, undefined, {}, new Set(), [tue]);
+    expect(cleared.body).not.toContain('(Shakshuka, Mon)');
+    expect(cleared.body).toContain('- [ ] 2 onions, sliced (Shakshuka, Tue)');
+    expect(cleared.body).toContain('- [ ] 400 g tomatoes (Shakshuka, Tue)');
+    // Something Eric took off himself is not brought back.
+    const deleted = both.replace('- [ ] 400 g tomatoes (Shakshuka, Mon)\n', '');
+    expect(replanGrocery(deleted, mon, undefined, {}, new Set(), [tue]).body).not.toContain(
+      'tomatoes (Shakshuka',
+    );
+  });
 });

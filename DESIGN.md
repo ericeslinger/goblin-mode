@@ -471,11 +471,14 @@ generated like any note's.
 - **Not yet.** A reminder naming a template does not open it yet;
   that comes with the journal's daily reminder (#40).
 
-**Shopping list (#39, 2026-10-07; in Kitchen since #130).** A living
-template, added from Settings (Add a shopping list): Meal plan, then Produce, Butcher and
+**Shopping list (#39, 2026-10-07).** A living template, added from
+Settings (Add a shopping list): Meal plan, then Produce, Butcher and
 Dry goods (Eric, 2026-10-06), and Instructions for Claude: read the
 meal plan, add what the meals need with `add_lines` under the right
 heading, skip what is listed, keep his words, and ★ marks a staple.
+Since #130 (2026-10-18) it is Kitchen's grocery list, made from
+Settings, Kitchen (Grocery list, below); new lists have no Meal plan
+section, and the instructions say planned dinners add themselves.
 
 - **List view.** A note made from a template that has checklist items
   gets List beside Source: each section's open items as large
@@ -828,11 +831,14 @@ filed in on the list, else where it was filed before (Kitchen's
 else under From recipes. An item already on the list unticked is
 skipped (on hand, #131, will skip more). Changing or clearing the slot
 takes the old dinner's lines off, but only those still unticked and
-exactly as written: a line Eric ticked or edited stays. The rules are
-`packages/schema/src/grocery.ts`, shared by the app and Claude. Typing
-a slot by hand in the plan's text does not feed the list; the week's
-slots and `plan_meal` do. Two dinners needing the same item get two
-lines; merging quantities waits for #133.
+exactly as written: a line Eric ticked or edited stays. Two dinners
+needing the same item get one line, the first's, since the second
+finds it listed; when the first comes off, the line goes back on as
+the other dinner's (review on #139), but a line Eric deleted himself
+does not come back. Adding the two amounts waits for #133. The rules
+are `packages/schema/src/grocery.ts`, shared by the app and Claude.
+Typing a slot by hand in the plan's text does not feed the list; the
+week's slots and `plan_meal` do.
 
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a

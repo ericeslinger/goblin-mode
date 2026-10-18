@@ -905,15 +905,18 @@ export class NotesTools {
     const day = weekdayOf(args.date);
     const when = `${day} ${meal} (${shortDate(args.date)})`;
     let before: Slot | undefined;
+    let others: Slot[] = [];
     const result = await this.editBody(id, 'plan_meal', (body) => {
-      before = planSlots(body, start).find((s) => s.day === day && s.meal === meal);
+      const slots = planSlots(body, start);
+      before = slots.find((s) => s.day === day && s.meal === meal);
+      others = slots.filter((s) => s !== before);
       const next = setSlot(body, start, day, meal, text);
       if (next === body) return undefined;
       return { body: next, summary: text ? `Planned ${when}: ${text}` : `Cleared ${when}` };
     });
     const after = planSlots(`- [ ] ${day} ${meal}: ${text}`, start)[0];
     const grocery = result.changed
-      ? await this.replanGrocery(config, before, after, mealLabel(day, meal))
+      ? await this.replanGrocery(config, before, after, mealLabel(day, meal), others)
       : { list: null, added: 0, removed: 0 };
     return { id, periodStart: start, day, meal, slot: text, changed: result.changed, grocery };
   }
@@ -966,18 +969,22 @@ export class NotesTools {
     before: Slot | undefined,
     after: Slot | undefined,
     label: string,
+    others: readonly Slot[] = [],
   ): Promise<{ list: string | null; added: number; removed: number }> {
-    const [list, from, to] = await Promise.all([
+    const [list, from, to, ...rest] = await Promise.all([
       this.groceryList(config),
       this.dinnerOf(before, label),
       this.dinnerOf(after, label),
+      ...others.map((s) => this.dinnerOf(s, mealLabel(s.day, s.meal))),
     ]);
     if (!list || (!from && !to)) return { list: list ?? null, added: 0, removed: 0 };
     let counts = { added: 0, removed: 0 };
     let sections: Record<string, string> = {};
     await this.editBody(list, 'plan_meal', (body, title) => {
       sections = listSections(body);
-      const next = replanGrocery(body, from, to, { ...config.sections, ...sections });
+      const remembered = { ...config.sections, ...sections };
+      const planned = rest.filter((d): d is PlannedDinner => !!d);
+      const next = replanGrocery(body, from, to, remembered, new Set(), planned);
       counts = { added: next.added, removed: next.removed };
       if (next.body === body) return undefined;
       const parts = [

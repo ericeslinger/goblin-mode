@@ -252,8 +252,10 @@ export class MealPlanHeader {
     const body = setSlot(this.body(), this.start(), s.day, s.meal, text);
     this.edited.emit(body);
     // The grocery list follows (#130): the old dinner's lines off, the new one's on.
-    const after = planSlots(body, this.start()).find((x) => x.day === s.day && x.meal === s.meal);
-    const changed = this.grocery.replan(s, after, mealLabel(s.day, s.meal));
+    const slots = planSlots(body, this.start());
+    const after = slots.find((x) => x.day === s.day && x.meal === s.meal);
+    const others = slots.filter((x) => x !== after);
+    const changed = this.grocery.replan(s, after, mealLabel(s.day, s.meal), others);
     this.refused.set(changed ? groceryNote(changed) : '');
   }
 

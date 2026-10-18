@@ -4,6 +4,7 @@ import {
   SHOPPING_LIST_NAME,
   type Slot,
   listSections,
+  mealLabel,
   normalizeName,
   replanGrocery,
 } from '@mossgoblin/schema';
@@ -61,6 +62,8 @@ export class GroceryService {
     before: Slot | undefined,
     after: Slot | undefined,
     label: string,
+    /** The plan's other slots, for items another dinner still needs. */
+    others: readonly Slot[] = [],
   ): { added: number; removed: number } | undefined {
     const list = this.notes.find(this.listId() ?? '');
     if (!list) return undefined;
@@ -69,7 +72,11 @@ export class GroceryService {
     if (!from && !to) return { added: 0, removed: 0 };
     const config = this.modules.kitchenConfig();
     const sections = listSections(list.body);
-    const next = replanGrocery(list.body, from, to, { ...config.sections, ...sections });
+    const rest = others
+      .map((s) => this.dinner(s, mealLabel(s.day, s.meal)))
+      .filter((d): d is PlannedDinner => !!d);
+    const remembered = { ...config.sections, ...sections };
+    const next = replanGrocery(list.body, from, to, remembered, new Set(), rest);
     if (next.body !== list.body) this.notes.save(list.id, next.body, { base: list.body });
     this.remember(sections);
     return { added: next.added, removed: next.removed };

@@ -142,12 +142,17 @@ export function addDinner(
  */
 export function removeDinner(
   listBody: string,
-  wrote: readonly { line: string }[],
-): { body: string; removed: number } {
-  const ours = new Set(wrote.map((w) => w.line));
+  wrote: readonly { key: string; line: string }[],
+): { body: string; removed: number; keys: Set<string> } {
+  const ours = new Map(wrote.map((w) => [w.line, w.key]));
+  const keys = new Set<string>();
   const lines = listBody.split('\n');
-  const kept = lines.filter((l) => !ours.has(l.trimEnd()));
-  return { body: kept.join('\n'), removed: lines.length - kept.length };
+  const kept = lines.filter((l) => {
+    const key = ours.get(l.trimEnd());
+    if (key !== undefined) keys.add(key);
+    return key === undefined;
+  });
+  return { body: kept.join('\n'), removed: lines.length - kept.length, keys };
 }
 
 /** A planned dinner, as the grocery list needs it. */
@@ -171,6 +176,8 @@ export function replanGrocery(
   after: PlannedDinner | undefined,
   remembered: Readonly<Record<string, string>> = {},
   skip: ReadonlySet<string> = new Set(),
+  /** The plan's other dinners: one that needs an item taken off gets its own line. */
+  others: readonly PlannedDinner[] = [],
 ): { body: string; added: number; removed: number } {
   const lines = (d: PlannedDinner) => dinnerLines(d.recipeBody, d.recipe, d.day, d.ratio ?? 1);
   const same =
@@ -180,11 +187,28 @@ export function replanGrocery(
     before.day === after.day &&
     (before.ratio ?? 1) === (after.ratio ?? 1);
   if (same) return { body: listBody, added: 0, removed: 0 };
-  const out = before ? removeDinner(listBody, lines(before)) : { body: listBody, removed: 0 };
-  const added = after
-    ? addDinner(out.body, lines(after), remembered, skip)
-    : { body: out.body, added: 0 };
-  return { body: added.body, added: added.added, removed: out.removed };
+  const out = before
+    ? removeDinner(listBody, lines(before))
+    : { body: listBody, removed: 0, keys: new Set<string>() };
+  let body = out.body;
+  let added = 0;
+  if (after) {
+    const next = addDinner(body, lines(after), remembered, skip);
+    body = next.body;
+    added += next.added;
+  }
+  // An item the old dinner's line stood for that another dinner on the
+  // plan still needs (the same recipe twice in a week) goes back on, as
+  // that dinner's (review on #139). Only those: a line Eric deleted
+  // himself is not brought back.
+  for (const other of others) {
+    if (!out.keys.size) break;
+    const wanted = lines(other).filter((l) => out.keys.has(l.key));
+    const next = addDinner(body, wanted, remembered, skip);
+    body = next.body;
+    added += next.added;
+  }
+  return { body, added, removed: out.removed };
 }
 
 /** How a list line names its meal: "Mon" for a dinner, "Mon lunch" otherwise. */
