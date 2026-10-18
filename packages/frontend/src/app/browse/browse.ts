@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { ProposalsService } from '../claude/proposals.service';
+import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { ReadingService } from '../reading/reading.service';
 import { LENSES, inLens, lensId } from './lenses';
@@ -81,6 +82,7 @@ import { NoteList } from './note-list';
 })
 export class Browse {
   private readonly notes = inject(NotesService);
+  private readonly modules = inject(ModulesService);
   protected readonly proposals = inject(ProposalsService);
   protected readonly reading = inject(ReadingService);
   protected readonly lens = toSignal(
@@ -89,6 +91,10 @@ export class Browse {
   );
   protected readonly lenses = computed(() => {
     const all = this.notes.notes();
-    return LENSES.map((l) => ({ ...l, count: all.filter((n) => inLens(l.id, n)).length }));
+    // A module that is off takes its lens with it (#126).
+    return LENSES.filter((l) => l.id !== 'projects' || this.modules.projects()).map((l) => ({
+      ...l,
+      count: all.filter((n) => inLens(l.id, n)).length,
+    }));
   });
 }

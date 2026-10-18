@@ -2,6 +2,7 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { checklist, childrenOf, selfAndDescendants, stageOrder } from '@mossgoblin/schema';
+import { ModulesService } from '../modules/modules.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { KINDS, STATUSES, kindLabel, statusLabel } from './project-labels';
 import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
@@ -47,7 +48,7 @@ const TYPES = [
           <label class="type">
             <span class="visually-hidden">Type</span>
             <select #type (change)="setType(type.value)">
-              @for (t of types; track t.id) {
+              @for (t of types(); track t.id) {
                 <option [value]="t.id" [selected]="t.id === kind()">{{ t.label }}</option>
               }
             </select>
@@ -86,7 +87,7 @@ const TYPES = [
               />
             </label>
           </div>
-          @if (kind() === 'project') {
+          @if (isProject()) {
             <div class="project">
               <label>
                 Parent
@@ -198,7 +199,7 @@ const TYPES = [
           }
         </div>
       }
-      @if (side() === 'front' && kind() === 'project') {
+      @if (side() === 'front' && isProject()) {
         <div class="children">
           <h2 id="sub-projects">Projects in {{ note().title }}</h2>
           @if (children().length) {
@@ -527,7 +528,11 @@ export class ConceptHeader {
   readonly side = input<'front' | 'back'>('front');
   /** The concept became a project: its text needs the project sections. */
   readonly becameProject = output<void>();
-  protected readonly types = TYPES;
+  private readonly modules = inject(ModulesService);
+  /** Project is a type only while Projects is on, or for a concept that is one (#126). */
+  protected readonly types = computed(() =>
+    TYPES.filter((t) => t.id !== 'project' || this.modules.projects() || this.kind() === 'project'),
+  );
   protected readonly kinds = KINDS;
   protected readonly statuses = STATUSES;
   private readonly projects = computed(() =>
@@ -571,6 +576,10 @@ export class ConceptHeader {
     ),
   );
   protected readonly kind = computed(() => this.note().conceptType ?? 'other');
+  /** A project, shown as one: with Projects off, its settings and items stay hidden. */
+  protected readonly isProject = computed(
+    () => this.kind() === 'project' && this.modules.projects(),
+  );
   protected readonly synonyms = computed(() => this.note().synonyms ?? []);
 
   protected readonly refusal = signal('');
@@ -579,9 +588,7 @@ export class ConceptHeader {
   protected readonly tagging = signal<string | undefined>(undefined);
 
   /** One line for the folded settings: a project's kind and status. */
-  protected readonly summary = computed(() =>
-    this.kind() === 'project' ? this.meta(this.note()) : '',
-  );
+  protected readonly summary = computed(() => (this.isProject() ? this.meta(this.note()) : ''));
 
   /** The stages, plus one an item still has that the project dropped. */
   protected stagesWith(current: string | undefined): string[] {

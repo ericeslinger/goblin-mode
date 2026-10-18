@@ -57,6 +57,7 @@ const valid: Record<string, () => object> = {
   'users/owner/reminders/r1': () => ({ text: 'call mum', status: 'open', createdBy: 'user' }),
   'users/owner/devices/d1': () => ({ token: 'fcm-token', updatedAt: now() }),
   'users/owner/settings/app': () => ({ theme: 'night', mode: 'dark', updatedAt: now() }),
+  'users/owner/settings/modules': () => ({ projects: { enabled: true }, updatedAt: now() }),
   'users/owner/attachments/a1': () => ({
     kind: 'image',
     name: 'kiln.jpg',
@@ -213,6 +214,19 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertSucceeds(
       ref.set({ ...settings(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }),
     );
+  });
+
+  it('keeps the modules switched on in settings/modules, one map per module (#126)', async () => {
+    const ref = owner().doc('users/owner/settings/modules');
+    const modules = valid['users/owner/settings/modules'];
+    await assertSucceeds(
+      ref.set({ projects: { enabled: false, config: { a: 1 } }, updatedAt: now() }),
+    );
+    await assertFails(ref.set({ ...modules(), projects: true }));
+    await assertFails(ref.set({ ...modules(), kitchen: { enabled: true } }));
+    // Each doc keeps its own shape.
+    await assertFails(ref.set(valid['users/owner/settings/app']()));
+    await assertFails(owner().doc('users/owner/settings/app').set(modules()));
   });
 
   it('accepts a server timestamp, as the app writes updatedAt', async () => {

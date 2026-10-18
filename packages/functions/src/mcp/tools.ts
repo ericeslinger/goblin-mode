@@ -19,6 +19,9 @@ import {
   conceptId,
   CONTEXT_ID,
   CONTEXT_MAX,
+  MODULES,
+  type ModuleId,
+  moduleOn,
   contextForClaude,
   effectiveDue,
   firstOccurrence,
@@ -412,6 +415,7 @@ export class NotesTools {
     if (!project && (args.parent || args.kind || args.status || args.stages || args.itemTags))
       throw new ToolError('only a project has a parent, a kind, a status, stages and item tags');
     if (args.stage && !args.parent) throw new ToolError('a stage is a place in a parent’s stages');
+    if (project) await this.requireModule('projects', 'making a project');
     const stages = args.stages && nameList(args.stages);
     const itemTags = args.itemTags && nameList(args.itemTags);
     if (args.stage?.trim()) await this.checkStage(args.parent, args.stage.trim());
@@ -790,6 +794,15 @@ export class NotesTools {
     /** An item's stage in its parent; null clears it. */
     stage?: string | null;
   }) {
+    const projectWork =
+      args.type === 'project' ||
+      args.parent !== undefined ||
+      !!args.kind ||
+      !!args.status ||
+      !!args.stages ||
+      !!args.itemTags ||
+      args.stage !== undefined;
+    if (projectWork) await this.requireModule('projects', 'filing a project');
     const { index } = await this.garden();
     const ref = this.notes().doc(args.id);
     return this.db.runTransaction(async (tx) => {
@@ -995,6 +1008,22 @@ export class NotesTools {
     };
   }
 
+  /** The modules Eric has on (#126), from `settings/modules`. */
+  async getModules(_args: object = {}): Promise<ModuleId[]> {
+    const doc = await this.db.doc(paths.modules(this.uid)).get();
+    const stored = doc.data() as Parameters<typeof moduleOn>[0];
+    return MODULES.filter((m) => moduleOn(stored, m.id)).map((m) => m.id);
+  }
+
+  /** Refuses a write that belongs to a module Eric has switched off. */
+  private async requireModule(id: ModuleId, what: string): Promise<void> {
+    if ((await this.getModules()).includes(id)) return;
+    const label = MODULES.find((m) => m.id === id)?.label ?? id;
+    throw new ToolError(
+      `${label} is switched off in Eric's settings (Settings, Modules), so ${what} is refused`,
+    );
+  }
+
   /** The templates, each with its instructions, mode and schedule (#38). */
   async listTemplates(_args: object = {}) {
     const snap = await this.notes().where('kind', '==', 'template').get();
@@ -1148,6 +1177,7 @@ export class NotesTools {
     const text = args.text.trim();
     if (!text) throw new ToolError('text must not be empty');
     const index = await this.names();
+    await this.requireModule('projects', 'filing under a project');
     const projectId = index.get(normalizeName(args.project)) ?? args.project;
     const snap = await this.notes().doc(projectId).get();
     const project = snap.data();
@@ -1421,8 +1451,10 @@ export class NotesTools {
     if (recurrence) data['recurrence'] = recurrence;
     if (args.noteId) data['noteId'] = args.noteId;
     const tags = args.tags && nameList(args.tags);
-    if (args.stage?.trim() || tags?.length)
+    if (args.stage?.trim() || tags?.length) {
+      await this.requireModule('projects', "a project task's stage or tags");
       await this.checkStage(args.noteId, args.stage?.trim() || undefined, undefined, tags);
+    }
     if (args.stage?.trim()) data['stage'] = args.stage.trim();
     if (tags) data['tags'] = tags;
     Reminder.parse(data);
@@ -1452,6 +1484,9 @@ export class NotesTools {
     stage?: string | null;
     tags?: string[];
   }) {
+    if (args.stage !== undefined || args.tags !== undefined) {
+      await this.requireModule('projects', "a project task's stage or tags");
+    }
     const ref = this.reminders().doc(args.id);
     return this.db.runTransaction(async (tx) => {
       const doc = await tx.get(ref);

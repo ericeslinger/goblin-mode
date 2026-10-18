@@ -684,6 +684,24 @@ control joins the bar beside More: View on a note with text, Edit
 while viewing (Editor, Viewing). It is in the bar, not under More,
 because it is reached for in the store with one hand.
 
+**Modules (#126, Eric, 2026-10-18; epic #125).** Parts of Mossgoblin
+are modules, switched on per user in Settings, Modules: the code ships
+with the app, and which are on (and, later, each one's configuration)
+is data. They live in their own doc, `settings/modules`
+(`ModuleSettings`: one map per module, `{ enabled, config? }`), not in
+`settings/app` as the design first said, because the theme writes that
+doc whole and would wipe them. The registry is `MODULES`
+(`packages/schema/src/modules.ts`); `moduleOn` reads a module's switch,
+else its default. Projects is the first, on by default, so nothing
+changed for anyone until it is switched off. Off, Projects takes the
+Project type (a concept that already is one keeps it), the Projects
+pill, the Projects lens, a project's items, tasks and settings; project
+notes stay notes, their text and links untouched. Claude is told which
+modules are on when a connection initializes, and the tools refuse a
+write that belongs to one switched off (`create_concept` or `refile`
+on a project, `capture`, a task's stage or tags), saying it is off in
+Settings, Modules.
+
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a
 Projects pill sits beside Previous note under the note and opens the

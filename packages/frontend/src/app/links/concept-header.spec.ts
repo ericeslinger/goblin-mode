@@ -3,10 +3,16 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
-import { FakeNotes, noteRecord } from '../testing/fakes';
+import { FakeModules, FakeNotes, noteRecord } from '../testing/fakes';
+import { ModulesService } from '../modules/modules.service';
 import { ConceptHeader } from './concept-header';
 
-async function render(note: NoteRecord, others: NoteRecord[] = [], tasks: ReminderRecord[] = []) {
+async function render(
+  note: NoteRecord,
+  others: NoteRecord[] = [],
+  tasks: ReminderRecord[] = [],
+  modules = new FakeModules(),
+) {
   const notes = new FakeNotes();
   notes.signIn([note, ...others]);
   notes.updateConcept = vi.fn(() => [] as string[]);
@@ -17,6 +23,7 @@ async function render(note: NoteRecord, others: NoteRecord[] = [], tasks: Remind
       provideRouter([]),
       { provide: NotesService, useValue: notes },
       { provide: RemindersService, useValue: reminders },
+      { provide: ModulesService, useValue: modules },
     ],
   });
   const fixture = TestBed.createComponent(ConceptHeader);
@@ -104,6 +111,26 @@ describe('ConceptHeader', () => {
     expect(el.querySelector('[role="status"]')?.textContent).toContain(
       '“Banjo” already names another note.',
     );
+  });
+
+  it('offers Project as a type only while Projects is on (#126)', async () => {
+    const modules = new FakeModules();
+    modules.set('projects', false);
+    const { el } = await render({ ...kiln, conceptType: 'other' }, [], [], modules);
+    const options = [...el.querySelectorAll('select option')].map((o) => o.textContent?.trim());
+    expect(options).toEqual(['Person', 'Mood', 'Other']);
+  });
+
+  it('keeps a project its type with Projects off, its items and settings hidden', async () => {
+    const modules = new FakeModules();
+    modules.set('projects', false);
+    const leaf = project('leaf', 'Leaf', { parent: 'c-kiln' });
+    const { el, details } = await render(kiln, [leaf], [], modules);
+    expect(el.querySelector<HTMLSelectElement>('select')!.value).toBe('project');
+    expect(el.querySelector('.children')).toBeNull();
+    await details();
+    expect(el.querySelector('.project')).toBeNull();
+    expect(el.querySelector('.synonyms')).not.toBeNull();
   });
 
   it('asks for project sections when a concept becomes a project (#41)', async () => {

@@ -6,6 +6,7 @@ import { type OAuthStore, authenticate } from '../oauth/core';
 import { firestoreOAuthStore } from '../oauth/firestore-store';
 import { publicOrigin } from '../oauth/http';
 import { buildServer } from './server';
+import type { ModuleId } from '@mossgoblin/schema';
 import { NotesTools } from './tools';
 
 /**
@@ -18,6 +19,16 @@ export async function contextOrNone(tools: NotesTools): Promise<string> {
   } catch (err) {
     console.warn('context for Claude not read', err);
     return '';
+  }
+}
+
+/** The modules Eric has on (#126), or none said when they cannot be read. */
+export async function modulesOrNone(tools: NotesTools): Promise<ModuleId[] | undefined> {
+  try {
+    return await tools.getModules();
+  } catch (err) {
+    console.warn('modules not read', err);
+    return undefined;
   }
 }
 
@@ -71,10 +82,12 @@ export async function handleMcp(deps: McpDeps, req: Req, res: Res): Promise<void
   }
 
   const tools = deps.toolsFor(uid);
-  // Instructions go out only on initialize: read the context note then,
-  // not on every call (#113).
-  const context = isInitialize(req.body) ? await contextOrNone(tools) : '';
-  const server = buildServer(tools, context);
+  // Instructions go out only on initialize: read the context note (#113)
+  // and the modules (#126) then, not on every call.
+  const starting = isInitialize(req.body);
+  const context = starting ? await contextOrNone(tools) : '';
+  const modules = starting ? await modulesOrNone(tools) : undefined;
+  const server = buildServer(tools, context, modules);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

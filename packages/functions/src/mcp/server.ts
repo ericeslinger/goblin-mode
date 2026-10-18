@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { MODULES, type ModuleId } from '@mossgoblin/schema';
 import { type NotesTools, ToolError } from './tools';
 
 /** What every Claude conversation using the connector is told. */
@@ -47,12 +48,32 @@ export const INSTRUCTIONS = [
 ].join('\n');
 
 /**
- * The instructions with Eric's Context for Claude after them (#113), when
- * he has written any. It is his own text, from his own garden.
+ * The instructions, then which modules Eric has on (#126), then his
+ * Context for Claude (#113) when he has written any: his own text, from
+ * his own garden. Without the modules (not read), nothing is said of them.
  */
-export function instructionsWith(context: string): string {
-  if (!context.trim()) return INSTRUCTIONS;
-  return `${INSTRUCTIONS}\n\nContext for Claude, from Eric (the context note):\n${context.trim()}`;
+export function instructionsWith(context: string, modules?: readonly ModuleId[]): string {
+  const parts = [INSTRUCTIONS];
+  if (modules) parts.push(modulesLine(modules));
+  if (context.trim())
+    parts.push(`Context for Claude, from Eric (the context note):\n${context.trim()}`);
+  return parts.join('\n\n');
+}
+
+/** What Claude is told of the modules: which are on, and what an off one means. */
+function modulesLine(on: readonly ModuleId[]): string {
+  const named = (ids: readonly ModuleId[]) =>
+    ids.map((id) => MODULES.find((m) => m.id === id)?.label ?? id).join(', ');
+  const off = MODULES.map((m) => m.id).filter((id) => !on.includes(id));
+  return [
+    `Modules Eric has on: ${on.length ? named(on) : 'none'}.`,
+    off.length
+      ? `Switched off: ${named(off)}. Their tools refuse to write; do not offer them, and ` +
+        'if he asks for one, tell him it is switched off in Settings, Modules.'
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 const projectKind = z.enum(['build', 'content']);
@@ -86,10 +107,14 @@ export type ToolsApi = {
 };
 
 /** One MCP server for one request, acting for the signed-in owner. */
-export function buildServer(tools: ToolsApi, context = ''): McpServer {
+export function buildServer(
+  tools: ToolsApi,
+  context = '',
+  modules?: readonly ModuleId[],
+): McpServer {
   const server = new McpServer(
     { name: 'mossgoblin', version: '1.0.0' },
-    { instructions: instructionsWith(context) },
+    { instructions: instructionsWith(context, modules) },
   );
 
   server.registerTool(

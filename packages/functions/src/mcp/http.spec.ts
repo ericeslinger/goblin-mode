@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hash } from '../oauth/core';
 import { memoryOAuthStore } from '../oauth/memory-store';
-import { contextOrNone, handleMcp, isInitialize } from './http';
+import { contextOrNone, handleMcp, isInitialize, modulesOrNone } from './http';
 import type { NotesTools } from './tools';
 
 function res() {
@@ -75,6 +75,19 @@ describe('contextOrNone', () => {
       getContext: async () => ({ text: 'Fish on Wednesdays.' }),
     } as unknown as NotesTools;
     expect(await contextOrNone(told)).toBe('Fish on Wednesdays.');
+  });
+});
+
+describe('modulesOrNone', () => {
+  it('says nothing of the modules when they cannot be read (#126)', async () => {
+    const failing = {
+      getModules: async () => {
+        throw new Error('firestore down');
+      },
+    } as unknown as NotesTools;
+    expect(await modulesOrNone(failing)).toBeUndefined();
+    const read = { getModules: async () => ['projects'] } as unknown as NotesTools;
+    expect(await modulesOrNone(read)).toEqual(['projects']);
   });
 });
 

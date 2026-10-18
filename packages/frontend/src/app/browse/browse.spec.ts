@@ -5,7 +5,8 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { type ProposalRecord, ProposalsService } from '../claude/proposals.service';
 import { ReadingService } from '../reading/reading.service';
 import { NotesService } from '../notes/notes.service';
-import { FakeNotes, noteRecord, FakeProposals } from '../testing/fakes';
+import { FakeModules, FakeNotes, noteRecord, FakeProposals } from '../testing/fakes';
+import { ModulesService } from '../modules/modules.service';
 import { Browse } from './browse';
 
 describe('Browse', () => {
@@ -17,6 +18,7 @@ describe('Browse', () => {
       providers: [
         provideRouter([]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
       ],
@@ -41,6 +43,7 @@ describe('Browse', () => {
       providers: [
         provideRouter([]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: new FakeNotes() },
         { provide: ProposalsService, useValue: proposals },
       ],
@@ -64,6 +67,7 @@ describe('Browse', () => {
           { path: 'browse/:lens', component: Browse },
         ]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
       ],
@@ -79,5 +83,28 @@ describe('Browse', () => {
     expect(lens('Recent').getAttribute('href')).toBe('/browse');
     expect(el.querySelector('ul')!.textContent).toContain('Vikas');
     expect(el.querySelector('ul')!.textContent).not.toContain('Groceries');
+  });
+
+  it('drops the Projects lens while Projects is off (#126)', async () => {
+    const modules = new FakeModules();
+    modules.set('projects', false);
+    await TestBed.configureTestingModule({
+      imports: [Browse],
+      providers: [
+        provideRouter([]),
+        { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ModulesService, useValue: modules },
+        { provide: NotesService, useValue: new FakeNotes() },
+        { provide: ProposalsService, useValue: new FakeProposals() },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(Browse);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('People');
+    expect(el.textContent).not.toContain('Projects');
+    modules.set('projects', true);
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Projects');
   });
 });
