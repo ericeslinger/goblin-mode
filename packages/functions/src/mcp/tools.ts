@@ -2006,7 +2006,8 @@ export class NotesTools {
   private async useUp(made: readonly Slot[]): Promise<string[]> {
     const dinners = await Promise.all(made.map((s) => this.dinnerOf(s, s.day)));
     const keys = new Set(dinners.flatMap((d) => (d ? [...recipeKeys(d.recipeBody)] : [])));
-    if (!keys.size || !(await this.notes().doc(PANTRY_ID).get()).exists) return [];
+    // No pantry, or an archived one: nothing to use up (review on #140).
+    if (!keys.size || !(await this.pantryBody())) return [];
     let used: string[] = [];
     await this.editBody(PANTRY_ID, 'check_item', (body) => {
       const next = useUp(body, keys);
@@ -2023,11 +2024,18 @@ export class NotesTools {
     return doc.exists && doc.get('archived') !== true ? String(doc.get('body') ?? '') : '';
   }
 
-  /** The pantry, made if missing (#131): its name and the store's sections. */
+  /**
+   * The pantry, made if missing (#131): its name and the store's
+   * sections. An archived one is brought back, its text as it was.
+   */
   private async ensurePantry(): Promise<void> {
     await this.db.runTransaction(async (tx) => {
       const ref = this.notes().doc(PANTRY_ID);
-      if ((await tx.get(ref)).exists) return;
+      const doc = await tx.get(ref);
+      if (doc.exists) {
+        if (doc.get('archived') === true) tx.update(ref, { archived: false, ...this.stamp() });
+        return;
+      }
       const now = Timestamp.fromMillis(this.now());
       tx.set(
         ref,

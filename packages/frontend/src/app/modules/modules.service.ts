@@ -63,6 +63,9 @@ export class ModulesService {
           if (local && this.stored() !== undefined) return;
           // A snapshot computed before this device's latest change and
           // delivered after it is no newer than what is showing either.
+          // Offline the writes wait unacknowledged, so another device's
+          // change waits too, deliberately, until they reach the server
+          // (review on #140).
           if (this.unacked > 0 && this.stored() !== undefined) return;
           this.stored.set(data ? read(data) : undefined);
         },

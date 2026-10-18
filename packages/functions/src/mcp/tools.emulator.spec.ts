@@ -1074,6 +1074,16 @@ describe('the meal plan (#129)', () => {
     await t.updatePantry({ remove: ['limes'], always: ['olive oil'] });
     expect((await t.getPantry()).items.map((i) => i.item)).toEqual(['olive oil']);
     await expect(t.updatePantry({})).rejects.toThrow('say what to add');
+    // Archived, the pantry is left alone by a dinner made, and brought
+    // back by update_pantry (review on #140).
+    await t.archiveNote({ id: 'pantry' });
+    await t.planMeal({ date: '2026-10-20', slot: '[[Dal]]' });
+    expect(await t.checkItem({ id: 'meals-2026-10-19', item: 'Tue dinner' })).not.toHaveProperty(
+      'usedUp',
+    );
+    await t.updatePantry({ add: [{ item: 'lentils' }] });
+    expect(await body('pantry')).toMatchObject({ archived: false });
+    expect((await t.getPantry()).items.map((i) => i.item)).toEqual(['olive oil', 'lentils']);
   });
 
   it('notes how a dinner went on the plan and in the recipe', async () => {
