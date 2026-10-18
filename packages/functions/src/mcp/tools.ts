@@ -41,6 +41,12 @@ import {
   planTitle,
   setSlot,
   shortDate,
+  SHOPPING_LIST_NAME,
+  type PlannedDinner,
+  type Slot,
+  listSections,
+  mealLabel,
+  replanGrocery,
   weekdayOf,
   isImportPlaceholder,
   methodSteps,
@@ -898,12 +904,99 @@ export class NotesTools {
     const id = await this.ensurePlan(start, config);
     const day = weekdayOf(args.date);
     const when = `${day} ${meal} (${shortDate(args.date)})`;
+    let before: Slot | undefined;
     const result = await this.editBody(id, 'plan_meal', (body) => {
+      before = planSlots(body, start).find((s) => s.day === day && s.meal === meal);
       const next = setSlot(body, start, day, meal, text);
       if (next === body) return undefined;
       return { body: next, summary: text ? `Planned ${when}: ${text}` : `Cleared ${when}` };
     });
-    return { id, periodStart: start, day, meal, slot: text, changed: result.changed };
+    const after = planSlots(`- [ ] ${day} ${meal}: ${text}`, start)[0];
+    const grocery = result.changed
+      ? await this.replanGrocery(config, before, after, mealLabel(day, meal))
+      : { list: null, added: 0, removed: 0 };
+    return { id, periodStart: start, day, meal, slot: text, changed: result.changed, grocery };
+  }
+
+  /**
+   * The grocery list the plan feeds (#130): the one Kitchen's settings
+   * name, else the living note of the Shopping list template.
+   */
+  private async groceryList(config: KitchenConfig): Promise<string | undefined> {
+    if (config.groceryList) {
+      const named = await this.notes().doc(config.groceryList).get();
+      if (named.exists && named.get('archived') !== true) return named.id;
+    }
+    const templates = await this.notes().where('kind', '==', 'template').get();
+    const shopping = templates.docs.find(
+      (d) => d.get('title') === SHOPPING_LIST_NAME && d.get('archived') !== true,
+    );
+    if (!shopping) return undefined;
+    const living = await this.notes().where('fromTemplate', '==', shopping.id).get();
+    const newest = living.docs
+      .filter((d) => d.get('archived') !== true)
+      .sort((a, b) => (millis(b.get('updatedAt')) ?? 0) - (millis(a.get('updatedAt')) ?? 0))[0];
+    return newest?.id;
+  }
+
+  /** A slot's dinner, as the grocery list needs it: its recipe's text and ratio. */
+  private async dinnerOf(
+    slot: Slot | undefined,
+    label: string,
+  ): Promise<PlannedDinner | undefined> {
+    if (!slot?.recipe) return undefined;
+    const id = (await this.names()).get(normalizeName(slot.recipe));
+    const recipe = id === undefined ? undefined : (await this.notes().doc(id).get()).data();
+    if (recipe?.['kind'] !== 'recipe') return undefined;
+    return {
+      recipe: slot.recipe,
+      recipeBody: String(recipe['body'] ?? ''),
+      day: label,
+      ratio: slot.ratio,
+    };
+  }
+
+  /**
+   * A slot changed (#130): the old dinner's untouched lines off the
+   * grocery list, the new dinner's on, and where the list files things
+   * remembered in Kitchen's settings for next time.
+   */
+  private async replanGrocery(
+    config: KitchenConfig,
+    before: Slot | undefined,
+    after: Slot | undefined,
+    label: string,
+  ): Promise<{ list: string | null; added: number; removed: number }> {
+    const [list, from, to] = await Promise.all([
+      this.groceryList(config),
+      this.dinnerOf(before, label),
+      this.dinnerOf(after, label),
+    ]);
+    if (!list || (!from && !to)) return { list: list ?? null, added: 0, removed: 0 };
+    let counts = { added: 0, removed: 0 };
+    let sections: Record<string, string> = {};
+    await this.editBody(list, 'plan_meal', (body, title) => {
+      sections = listSections(body);
+      const next = replanGrocery(body, from, to, { ...config.sections, ...sections });
+      counts = { added: next.added, removed: next.removed };
+      if (next.body === body) return undefined;
+      const parts = [
+        next.added && `added ${plural(next.added, 'line')}`,
+        next.removed && `took off ${plural(next.removed, 'line')}`,
+      ].filter(Boolean);
+      return { body: next.body, summary: `${title}: ${parts.join(' and ')} for ${label}` };
+    });
+    const learned = { ...config.sections, ...sections };
+    if (JSON.stringify(learned) !== JSON.stringify(config.sections)) {
+      await this.db.doc(paths.modules(this.uid)).set(
+        {
+          kitchen: { config: { sections: learned } },
+          updatedAt: Timestamp.fromMillis(this.now()),
+        },
+        { merge: true },
+      );
+    }
+    return { list, ...counts };
   }
 
   /**

@@ -120,3 +120,74 @@ test('Kitchen settings shape new weeks, and a question waits for later', async (
     'What was it, and from where? (Mon dinner, Nov 2)',
   );
 });
+
+// The grocery list (#130), shopped from a planned week end to end: a
+// planned dinner adds its ingredients, naming it; what is listed is
+// skipped; a changed dinner takes its lines off; after shopping, an item
+// goes back under the section it was filed in.
+test('a planned week fills the grocery list, and shopping it clears it', async ({ page }) => {
+  await signInAs(page, OWNER);
+  const call = await connectClaude(page);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Kitchen' }).check();
+  await letItSave(page);
+  await page.reload();
+  await page.getByRole('button', { name: 'Make the grocery list' }).click();
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  const list = new URL(page.url()).pathname.split('/').pop()!;
+  await letItSave(page);
+  await expect
+    .poll(
+      async () => ((await call('get_note', { id: list }).catch(() => null)) as unknown) !== null,
+      {
+        timeout: 15_000,
+      },
+    )
+    .toBe(true);
+  await call('add_lines', { id: list, heading: 'Produce', lines: ['- [ ] limes'] });
+  await call('create_recipe', {
+    name: 'Shakshuka',
+    ingredients: ['2 onions, sliced', '400 g tomatoes', 'limes'],
+    method: ['Cook.'],
+  });
+  await call('create_recipe', { name: 'Dal', ingredients: ['1 cup lentils', 'limes'], method: [] });
+
+  // Planned in the app: its lines go on, the listed limes skipped.
+  await page.goto('/kitchen/2026-10-19');
+  const plan = page.getByRole('region', { name: 'Meal plan' });
+  await plan.getByRole('button', { name: 'Change Mon dinner, Oct 19: nothing planned' }).click();
+  await plan.getByRole('combobox', { name: 'Recipe for Mon dinner, Oct 19' }).fill('Shakshuka');
+  await plan.getByRole('button', { name: 'Plan it' }).click();
+  await expect(plan.getByRole('status')).toHaveText('Added 2 lines to the grocery list.');
+  // Planned by Claude, half a recipe.
+  await call('plan_meal', { date: '2026-10-20', slot: '[[Dal]] (half recipe)' });
+  const listBody = async () => ((await call('get_note', { id: list })) as { body: string }).body;
+  await expect.poll(listBody, { timeout: 15_000 }).toContain('0.5 cup lentils (Dal, Tue)');
+  const body = await listBody();
+  expect(body).toContain('## From recipes');
+  expect(body).toContain('- [ ] 2 onions, sliced (Shakshuka, Mon)');
+  expect(body).not.toContain('limes (Shakshuka, Mon)');
+
+  // Monday becomes delivery: Shakshuka's lines come off.
+  await plan.getByRole('button', { name: /^Change Mon dinner, Oct 19/ }).click();
+  await plan.getByRole('button', { name: 'Delivery' }).click();
+  await expect(plan.getByRole('status')).toHaveText('Took 2 lines off the grocery list.');
+  await expect.poll(listBody, { timeout: 15_000 }).not.toContain('(Shakshuka, Mon)');
+
+  // Shopping: limes and lentils ticked, then Done shopping.
+  await plan.getByRole('link', { name: 'Grocery list' }).click();
+  await expect(page).toHaveURL(new RegExp(`/n/${list}$`));
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const view = page.getByRole('region', { name: 'List' });
+  await view.getByRole('checkbox', { name: 'limes' }).check();
+  await view.getByRole('checkbox', { name: '0.5 cup lentils (Dal, Tue)' }).check();
+  await view.getByRole('button', { name: 'Done shopping' }).click();
+  await expect(view.getByRole('list', { name: 'Got it' })).toHaveCount(0);
+  await letItSave(page);
+
+  // Next week, limes go back under Produce, where they were filed.
+  await call('plan_meal', { date: '2026-10-26', slot: '[[Shakshuka]]' });
+  await expect
+    .poll(listBody, { timeout: 15_000 })
+    .toMatch(/## Produce\n(?:.*\n)*?- \[ \] limes \(Shakshuka, Mon\)/);
+});

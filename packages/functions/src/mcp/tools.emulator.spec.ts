@@ -1003,6 +1003,32 @@ describe('the meal plan (#129)', () => {
     expect(plan.slots.some((s) => s.kind === 'recipe')).toBe(false);
   });
 
+  it('feeds the grocery list: lines on for a planned dinner, off when it changes (#130)', async () => {
+    await kitchenOn();
+    const t = ticking();
+    await eric('t1', 'Shopping list\n', {
+      kind: 'template',
+      title: 'Shopping list',
+      titleSource: 'user',
+      templateMode: 'living',
+    });
+    await eric('g1', 'Shopping list\n\n## Produce\n\n- [ ] limes\n', { fromTemplate: 't1' });
+    await t.createRecipe({ name: 'Dal', ingredients: ['1 cup lentils', 'limes'], method: [] });
+    const planned = await t.planMeal({ date: '2026-10-19', slot: '[[Dal]] (half recipe)' });
+    expect(planned.grocery).toEqual({ list: 'g1', added: 1, removed: 0 });
+    expect((await body('g1'))['body']).toBe(
+      'Shopping list\n\n## Produce\n\n- [ ] limes\n\n## From recipes\n\n- [ ] 0.5 cup lentils (Dal, Mon)\n',
+    );
+    // Where the list files things is kept in Kitchen's settings.
+    expect((await db.doc('users/u1/settings/modules').get()).get('kitchen')).toMatchObject({
+      enabled: true,
+      config: { sections: { limes: 'Produce' } },
+    });
+    const cleared = await t.planMeal({ date: '2026-10-19', slot: 'out' });
+    expect(cleared.grocery).toMatchObject({ added: 0, removed: 1 });
+    expect((await body('g1'))['body']).not.toContain('(Dal, Mon)');
+  });
+
   it('notes how a dinner went on the plan and in the recipe', async () => {
     await kitchenOn();
     const t = ticking();

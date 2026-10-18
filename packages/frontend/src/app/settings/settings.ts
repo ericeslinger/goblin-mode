@@ -14,6 +14,7 @@ import { ModulesService } from '../modules/modules.service';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
+import { GroceryService } from '../kitchen/grocery.service';
 import { NOW } from '../platform/platform';
 import { type PushState, PushService } from '../push/push.service';
 import { RemindersService } from '../reminders/reminders.service';
@@ -125,6 +126,14 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
                 Remind me each week, the day before it starts, at 4 pm
               </button>
             }
+            @if (grocery.listId(); as list) {
+              <p>
+                <a [routerLink]="['/n', list]">Grocery list</a>: planned dinners add their
+                ingredients to it.
+              </p>
+            } @else {
+              <button type="button" (click)="makeGroceryList()">Make the grocery list</button>
+            }
             <a routerLink="/kitchen">This week’s meals</a>
           </div>
         }
@@ -148,9 +157,6 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
         <div class="actions">
           <button type="button" (click)="newTemplate('entry')">New template</button>
           <button type="button" (click)="newTemplate('living')">New living template</button>
-          @if (!hasShoppingList()) {
-            <button type="button" (click)="newShoppingList()">Add a shopping list</button>
-          }
           @if (!hasFeelingsJournal()) {
             <button type="button" (click)="newFeelingsJournal()">Add a feelings journal</button>
           }
@@ -283,10 +289,6 @@ export class Settings {
     this.reminders.add({ text: PLAN_REMINDER, dueAt, repeat: 'weekly' });
   }
 
-  protected readonly hasShoppingList = computed(() =>
-    this.templates.templates().some((t) => t.title === 'Shopping list'),
-  );
-
   /** A template with a Moods line is a journal, whatever it is called (review on #96). */
   protected readonly hasFeelingsJournal = computed(() =>
     this.templates
@@ -299,9 +301,14 @@ export class Settings {
     void this.router.navigate(['/n', this.templates.createFeelingsJournal()]);
   }
 
-  /** The shopping list template, opened to look over. */
-  protected newShoppingList(): void {
-    void this.router.navigate(['/n', this.templates.createShoppingList()]);
+  protected readonly grocery = inject(GroceryService);
+
+  /**
+   * The grocery list, made from the Shopping list template, which now
+   * lives in Kitchen (#130), and opened to look over.
+   */
+  protected makeGroceryList(): void {
+    void this.router.navigate(['/n', this.grocery.makeList()]);
   }
 
   /** Makes a template and opens it to be written. */

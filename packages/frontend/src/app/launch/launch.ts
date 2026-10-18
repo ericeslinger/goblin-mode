@@ -23,6 +23,7 @@ import {
   normalizeName,
   suggestLinks,
   suggestMoods,
+  listSections,
   withProjectSections,
 } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
@@ -30,6 +31,7 @@ import { projectTree } from '../browse/lenses';
 import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteBack } from '../back/note-back';
+import { GroceryService } from '../kitchen/grocery.service';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { CaptureService } from '../capture/capture.service';
@@ -88,6 +90,7 @@ export class Launch {
   protected readonly capture = inject(CaptureService);
   protected readonly notes = inject(NotesService);
   private readonly router = inject(Router);
+  private readonly grocery = inject(GroceryService);
   private readonly route = inject(ActivatedRoute);
   protected readonly modes = inject(EditorModeService);
   protected readonly online = signal(navigator.onLine);
@@ -507,6 +510,11 @@ export class Launch {
 
   /** A tick or Done shopping in the list view. */
   protected listChange(change: { body: string; keep: boolean }): void {
+    // Done shopping on the grocery list: where its items were filed is
+    // kept first, for the next week's dinners (#130).
+    if (change.keep && this.record()?.id === this.grocery.listId()) {
+      this.grocery.remember(listSections(this.capture.current()));
+    }
     this.capture.replace(change.body, { keep: change.keep });
   }
 

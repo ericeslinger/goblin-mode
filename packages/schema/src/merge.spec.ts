@@ -106,6 +106,17 @@ describe('merge3', () => {
     expect(merged.endsWith('\nend')).toBe(true);
   });
 
+  it('merges side by side lines each side changed, line by line (#130)', () => {
+    const base = '## Week\n- [ ] Mon dinner:\n- [ ] Tue dinner:\n- [ ] Wed dinner:';
+    const ours = '## Week\n- [ ] Mon dinner: [[Shakshuka]]\n- [ ] Tue dinner:\n- [ ] Wed dinner:';
+    const theirs = '## Week\n- [ ] Mon dinner:\n- [ ] Tue dinner: [[Dal]]\n- [ ] Wed dinner:';
+    expect(merge3(base, ours, theirs)).toBe(
+      '## Week\n- [ ] Mon dinner: [[Shakshuka]]\n- [ ] Tue dinner: [[Dal]]\n- [ ] Wed dinner:',
+    );
+    // Both changed the same one of them: both kept whole, ours first.
+    expect(merge3('a\nb', 'A\nb', 'a2\nB')).toBe('A\nb\na2\nB');
+  });
+
   it('takes one side whole when the other did not change', () => {
     expect(merge3(base, base, 'x')).toBe('x');
     expect(merge3(base, 'y', base)).toBe('y');

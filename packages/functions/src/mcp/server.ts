@@ -36,7 +36,9 @@ export const INSTRUCTIONS = [
   'The meal plan (Kitchen) is a note a week, one line per meal slot: get_meal_plan reads a ' +
     'week, plan_meal sets a slot (a recipe link, delivery, out, or empty). A new week has a ' +
     '"Fish of the week" placeholder dinner; when Eric says what the fish is, plan its recipe ' +
-    'there. Once a dinner is made (its box ticked), ask how it went, or for a delivery what ' +
+    "there. plan_meal also feeds the grocery list, so do not add a planned recipe's " +
+    'ingredients to it yourself. Once a dinner is made (its box ticked), ask how it went, or ' +
+    'for a delivery what ' +
     'it was and from where, and save his answer with log_meal; he may say to ask later, ' +
     'then create_reminder to ask again.',
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
@@ -290,7 +292,9 @@ export function buildServer(
         'Sets one slot of the meal plan to the text after its colon: "[[Recipe name]]" (a ' +
         'recipe that exists), optionally with a ratio ("[[Dal]] (half recipe)"), "delivery" ' +
         '(with anything after it), "out", or "" to clear it. Makes the week\'s plan if ' +
-        'missing; a change unticks the slot. Kitchen only.',
+        'missing; a change unticks the slot. A planned recipe adds its ingredients to the ' +
+        'grocery list, naming the dinner and scaled by its ratio, skipping what is listed; ' +
+        "changing the slot takes the old dinner's untouched lines off. Kitchen only.",
       inputSchema: { date, meal, slot: z.string() },
       annotations: write,
     },
