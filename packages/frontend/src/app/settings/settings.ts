@@ -1,13 +1,27 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { MODULES, moodLine } from '@mossgoblin/schema';
+import {
+  MEALS,
+  MODULES,
+  type Meal,
+  WEEKDAYS,
+  addDays,
+  localDate,
+  moodLine,
+  weekdayOf,
+} from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
+import { NOW } from '../platform/platform';
 import { type PushState, PushService } from '../push/push.service';
+import { RemindersService } from '../reminders/reminders.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
+
+/** The weekly reminder to plan the meals (#129). */
+export const PLAN_REMINDER = 'Plan next week’s meals';
 
 @Component({
   selector: 'app-settings',
@@ -64,6 +78,56 @@ import { ThemePicker } from '../theme/theme-picker';
             </li>
           }
         </ul>
+        @if (modules.kitchen()) {
+          <h2 id="kitchen">Kitchen</h2>
+          <div class="kitchen">
+            <label>
+              Weeks start on
+              <select #start (change)="modules.configureKitchen({ weekStart: $any(start.value) })">
+                @for (d of weekdays; track d) {
+                  <option [value]="d" [selected]="modules.kitchenConfig().weekStart === d">
+                    {{ d }}
+                  </option>
+                }
+              </select>
+            </label>
+            <fieldset>
+              <legend>Meals to plan</legend>
+              @for (m of meals; track m) {
+                <label>
+                  <input
+                    type="checkbox"
+                    [checked]="modules.kitchenConfig().meals.includes(m)"
+                    (change)="toggleMeal(m, $any($event.target).checked)"
+                  />
+                  {{ m }}
+                </label>
+              }
+            </fieldset>
+            <label>
+              Fish of the week on
+              <select #fish (change)="modules.configureKitchen({ fishDay: $any(fish.value) })">
+                @for (d of fishDays; track d.value) {
+                  <option
+                    [value]="d.value"
+                    [selected]="modules.kitchenConfig().fishDay === d.value"
+                  >
+                    {{ d.label }}
+                  </option>
+                }
+              </select>
+            </label>
+            <p class="muted">Changes apply to weeks not planned yet.</p>
+            @if (planningReminder()) {
+              <p>Each week you are reminded to plan: {{ planningReminder()!.text }}.</p>
+            } @else {
+              <button type="button" (click)="remindToPlan()">
+                Remind me each week, the day before it starts, at 4 pm
+              </button>
+            }
+            <a routerLink="/kitchen">This week’s meals</a>
+          </div>
+        }
         <h2 id="templates">Templates</h2>
         <p>
           A template is a note to start others from. Its Instructions for Claude, on the back of the
@@ -116,6 +180,17 @@ import { ThemePicker } from '../theme/theme-picker';
     </main>
   `,
   styles: `
+    .kitchen {
+      display: grid;
+      gap: var(--space-2);
+      justify-items: start;
+    }
+    .kitchen fieldset {
+      display: flex;
+      gap: var(--space-3);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+    }
     .modules {
       list-style: none;
       padding: 0;
@@ -172,6 +247,41 @@ export class Settings {
   protected readonly modules = inject(ModulesService);
   protected readonly moduleList = MODULES;
   private readonly router = inject(Router);
+
+  protected readonly weekdays = WEEKDAYS;
+  protected readonly meals = MEALS;
+  protected readonly fishDays = [
+    { value: 'Thu', label: 'Thursday' },
+    { value: 'Fri', label: 'Friday' },
+    { value: 'none', label: 'No fish' },
+  ] as const;
+  private readonly reminders = inject(RemindersService);
+  private readonly now = inject(NOW);
+
+  /** The weekly reminder to plan the meals, once made (#129). */
+  protected readonly planningReminder = computed(() =>
+    this.reminders
+      .reminders()
+      .find((r) => r.text === PLAN_REMINDER && r.status !== 'done' && !!r.recurrence),
+  );
+
+  protected toggleMeal(meal: Meal, on: boolean): void {
+    const current = this.modules.kitchenConfig().meals;
+    const meals = MEALS.filter((m) => (m === meal ? on : current.includes(m)));
+    // At least one meal is planned; the last one stays.
+    if (meals.length) this.modules.configureKitchen({ meals });
+  }
+
+  /** A weekly reminder at 4 pm the day before the week starts. */
+  protected remindToPlan(): void {
+    const before = WEEKDAYS[(WEEKDAYS.indexOf(this.modules.kitchenConfig().weekStart) + 6) % 7];
+    let day = localDate(this.now());
+    while (weekdayOf(day) !== before) day = addDays(day, 1);
+    const [y, m, d] = day.split('-').map(Number);
+    let dueAt = new Date(y, m - 1, d, 16).getTime();
+    if (dueAt <= this.now()) dueAt = new Date(y, m - 1, d + 7, 16).getTime();
+    this.reminders.add({ text: PLAN_REMINDER, dueAt, repeat: 'weekly' });
+  }
 
   protected readonly hasShoppingList = computed(() =>
     this.templates.templates().some((t) => t.title === 'Shopping list'),

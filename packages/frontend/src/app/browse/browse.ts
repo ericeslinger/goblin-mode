@@ -23,6 +23,9 @@ import { NoteList } from './note-list';
       <h1>Notes</h1>
       <p class="more">
         <a routerLink="/map">See the whole garden as a map</a>
+        @if (modules.kitchen()) {
+          <a routerLink="/kitchen">This week’s meals</a>
+        }
         <a routerLink="/reading"
           >Reading queue
           @if (reading.unread().length) {

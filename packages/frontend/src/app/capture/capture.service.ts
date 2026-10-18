@@ -225,10 +225,13 @@ export class CaptureService {
     else if (this.notes.exists(id)) this.notes.remove(id);
   }
 
-  /** Kinds that stay when emptied: concepts, templates and the context note. */
+  /**
+   * Kinds that stay when emptied: concepts, templates, the context note,
+   * and recipes and meal plans, which have a name and fields of their own.
+   */
   private isKept(id: string): boolean {
     const kind = this.notes.find(id)?.kind;
-    return kind === 'concept' || kind === 'template' || kind === 'context';
+    return ['concept', 'template', 'context', 'recipe', 'mealplan'].includes(kind ?? '');
   }
 
   /** Opens another note (from Previous notes, Browse, a link or a template). */

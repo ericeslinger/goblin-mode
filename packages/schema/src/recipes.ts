@@ -218,3 +218,21 @@ export function isImportPlaceholder(title: string, url: string): boolean {
   const base = importPlaceholder(url);
   return title === base || (title.startsWith(base) && /^ \(\d+\)$/.test(title.slice(base.length)));
 }
+
+/**
+ * The recipe with `line` added under its Notes, after the last line of
+ * text there (#129: how a dinner went); a Notes heading is added if
+ * the recipe has none.
+ */
+export function addRecipeNote(body: string, line: string): string {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => /^##\s+Notes\s*$/i.test(l));
+  if (start === -1) return `${body.replace(/\n*$/, '')}\n\n## Notes\n\n${line}\n`;
+  let end = start + 1;
+  while (end < lines.length && !/^##\s/.test(lines[end])) end++;
+  let at = end;
+  while (at > start + 1 && !lines[at - 1].trim()) at--;
+  const insert = at === start + 1 ? ['', line] : [line];
+  lines.splice(at, 0, ...insert);
+  return lines.join('\n');
+}

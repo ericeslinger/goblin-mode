@@ -40,7 +40,15 @@ export type Timestamp = z.infer<typeof Timestamp>;
  * `context` (#113, 2026-10-17): the one note, at id `context`, whose text
  * Claude is given on every connection.
  */
-export const NoteKind = z.enum(['text', 'sketch', 'concept', 'template', 'context', 'recipe']);
+export const NoteKind = z.enum([
+  'text',
+  'sketch',
+  'concept',
+  'template',
+  'context',
+  'recipe',
+  'mealplan',
+]);
 export type NoteKind = z.infer<typeof NoteKind>;
 
 export const ConceptType = z.enum(['person', 'project', 'mood', 'other']);
@@ -132,6 +140,11 @@ export const Note = z.object({
    */
   importState: z.enum(['requested', 'working', 'done', 'failed']).optional(),
   importError: z.string().optional(),
+  /**
+   * Only on meal plans (#129, 2026-10-18): the first day of the week the
+   * plan covers, YYYY-MM-DD; its id is meals-<that day>.
+   */
+  periodStart: z.string().optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */

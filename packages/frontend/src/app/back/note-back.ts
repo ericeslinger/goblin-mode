@@ -1,6 +1,6 @@
 import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { paths, templateParts } from '@mossgoblin/schema';
+import { madeLine, normalizeName, paths, templateParts } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { ACTIVITY_API, toRun, type RunRecord } from '../claude/activity';
 import { FIREBASE } from '../firebase';
@@ -36,7 +36,7 @@ function stamp(ms: number | undefined): string {
       <h2 class="title">{{ note().title || 'Untitled' }}</h2>
       <p class="times">
         @if (note().createdAt !== undefined) {
-          <span>Made {{ made() }}</span>
+          <span>Made {{ madeAt() }}</span>
         }
         @if (note().updatedAt !== undefined) {
           <span>Edited {{ edited() }} {{ by() }}</span>
@@ -45,6 +45,7 @@ function stamp(ms: number | undefined): string {
 
       @if (note().kind === 'recipe' && modules.kitchen()) {
         <div class="settings">
+          <p class="made">{{ made() || 'Not made from a meal plan yet.' }}</p>
           <label class="inline">
             Serves
             <input
@@ -268,7 +269,11 @@ export class NoteBack {
     this.runs().filter((r) => r.notes.some((n) => n.id === this.note().id)),
   );
 
-  protected readonly made = computed(() => stamp(this.note().createdAt));
+  protected readonly madeAt = computed(() => stamp(this.note().createdAt));
+  /** "Made 4 times, last Oct 2", from the meal plans' ticked dinners (#129). */
+  protected readonly made = computed(() =>
+    madeLine(this.notes.made().get(normalizeName(this.note().title))),
+  );
   protected readonly edited = computed(() => stamp(this.note().updatedAt));
   /** Who wrote last: Claude, this device, or another of Eric's. */
   protected readonly by = computed(() => {

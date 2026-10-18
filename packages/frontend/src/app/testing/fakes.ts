@@ -1,6 +1,15 @@
 // Spec-support helpers; never imported from production code.
 import { computed, signal } from '@angular/core';
-import { type ModuleId, conceptId, moduleOn, nameIndex } from '@mossgoblin/schema';
+import {
+  type KitchenConfig,
+  type ModuleId,
+  conceptId,
+  kitchenConfig,
+  madeHistory,
+  moduleOn,
+  nameIndex,
+  planId,
+} from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
@@ -44,6 +53,11 @@ export class FakeNotes {
   remove = vi.fn((id: string) => void this.written.delete(id));
   settle = vi.fn((_id: string, _opts?: { edited?: boolean }) => undefined);
   readonly names = computed(() => nameIndex(this.notes()));
+  readonly made = computed(() =>
+    madeHistory(this.notes().filter((n) => n.kind === 'mealplan' && !n.archived)),
+  );
+  ensurePlan = vi.fn((start: string, _config: KitchenConfig) => planId(start));
+  addRecipeNote = vi.fn((_id: string, _line: string) => undefined);
   plantConcepts = vi.fn((_body: string) => undefined);
   createConcept = vi.fn((name: string, _type?: 'other' | 'mood') => conceptId(name));
   createItem = vi.fn((_parent: string, name: string, _stage?: string) => conceptId(name));
@@ -138,6 +152,12 @@ export class FakeModules {
   private readonly stored = signal<Partial<Record<ModuleId, boolean>>>({});
   readonly projects = computed(() => this.on('projects'));
   readonly kitchen = computed(() => this.on('kitchen'));
+  readonly config = signal<Partial<KitchenConfig>>({});
+  readonly kitchenConfig = computed(() => kitchenConfig(this.config()));
+  readonly loaded = signal(true);
+  configureKitchen = vi.fn((change: Partial<KitchenConfig>) =>
+    this.config.update((c) => ({ ...c, ...change })),
+  );
   on(id: ModuleId): boolean {
     return this.stored()[id] ?? moduleOn(undefined, id);
   }

@@ -54,6 +54,14 @@ export const routes: Routes = [
   },
   { path: 'settings', loadComponent: () => import('./settings/settings').then((m) => m.Settings) },
   {
+    path: 'kitchen',
+    loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),
+  },
+  {
+    path: 'kitchen/:day',
+    loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),
+  },
+  {
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),
   },

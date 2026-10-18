@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addRecipeNote,
   importPlaceholder,
   ingredients,
   isImportPlaceholder,
@@ -153,5 +154,17 @@ describe('importing (#128)', () => {
     expect(untouchedRecipe(recipeSkeleton())).toBe(true);
     expect(untouchedRecipe('## Ingredients\n## Method\n\n## Notes')).toBe(true);
     expect(untouchedRecipe(recipeSkeleton() + 'a note')).toBe(false);
+  });
+});
+
+describe('addRecipeNote (#129)', () => {
+  it('adds a line under Notes, after what is there', () => {
+    expect(addRecipeNote(recipeSkeleton(), '- Oct 19: good')).toBe(
+      '## Ingredients\n\n## Method\n\n## Notes\n\n- Oct 19: good\n',
+    );
+    expect(addRecipeNote('## Notes\n\nfirst\n\n## Extra\n', '- b')).toBe(
+      '## Notes\n\nfirst\n- b\n\n## Extra\n',
+    );
+    expect(addRecipeNote('just text', '- b')).toBe('just text\n\n## Notes\n\n- b\n');
   });
 });

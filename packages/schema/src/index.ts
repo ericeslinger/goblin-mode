@@ -15,3 +15,4 @@ export * from './journal';
 export * from './context';
 export * from './modules';
 export * from './recipes';
+export * from './mealplan';

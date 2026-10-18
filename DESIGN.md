@@ -745,6 +745,44 @@ does the same at once from the JSON-LD only: without it the tool
 refuses, and Claude in the chat, which can read the page itself, uses
 `create_recipe` with `source.url`.
 
+**Meal plan (#129, 2026-10-18; epic #125).** One note of kind
+`mealplan` per week, its id derived from the week's first day
+(`meals-2026-10-19`) and that day in `periodStart`, so a phone offline
+makes the same note Claude would; named "Meals, week of Oct 19" (its
+own name, `titleSource: user`). One line per slot, its box meaning
+made: `- [ ] Mon dinner: [[Shakshuka]] (half recipe)`; after the colon
+a recipe link, `delivery` (anything after it), `out`, or nothing. A
+ratio on the line ("half recipe", "x2", "1/3 recipe") is read for the
+grocery list (#130). Lines indented under a slot are its notes: how it
+went, what a delivery was. The helpers that read and write these lines
+are `packages/schema/src/mealplan.ts`, shared by the app and Claude.
+Kitchen's configuration (`settings/modules`, `kitchen.config`) sets the
+week's first day (Monday), the meals planned (dinner) and the fish's
+day (Thursday; Friday or none), set in Settings, Kitchen, for weeks not
+planned yet; the period is always a week for now. A new plan's fish
+dinner links to the placeholder recipe "Fish of the week"
+(`recipe-fish-of-the-week`, made with the first plan that needs it);
+Claude puts the real recipe there when Eric says what the fish is.
+Settings, Kitchen also makes a weekly reminder to plan, at 4 pm the
+day before a week starts.
+
+In the app, `/kitchen` (This week's meals, in Browse and Settings)
+opens this week's plan, `/kitchen/<a day>` that day's week, making the
+plan once the notes and the configuration are read. A plan opens on
+the note page with its week drawn above its text (`MealPlanHeader`):
+tap a slot to plan a recipe (one that exists, by name), delivery or
+out, or to clear it; tick it made; Previous and Next week. Every
+change is an edit of the text, through the editor, so typing there is
+kept. A made dinner with nothing under it asks how it went (a
+delivery: what it was and from where); the answer goes under its slot
+and, for a recipe, as a dated line in its Notes. Ask me later makes a
+reminder an hour on that opens the plan. A recipe's back says how
+often it was made and when last ("Made 4 times, last Oct 2"), from the
+plans' ticked slots, never stored. Claude reads a week with
+`get_meal_plan`, plans with `plan_meal` and saves Eric's answer with
+`log_meal`; the server instructions tell it to ask once a dinner is
+made, and to set a reminder when he says to ask later.
+
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a
 Projects pill sits beside Previous note under the note and opens the
@@ -1185,6 +1223,9 @@ it, one backticked tool name per row.
 | `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage | Organize tools (#34), Projects (#41), Stages and items |
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
 | `import_recipe` | A recipe from a link's schema.org recipe data, its words as the page has them, with optional notes; refused without that data; Kitchen only | Importing a recipe (#128) |
+| `get_meal_plan` | A week's slots (day, date, meal, what is planned, made, ratio, notes under it) for a date; Kitchen only | Meal plan (#129) |
+| `plan_meal` | Sets one slot to a recipe link, delivery, out or empty, making the week's plan if missing; Kitchen only | Meal plan (#129) |
+| `log_meal` | Eric's words on how a meal went, under its slot and in the recipe's Notes; Kitchen only | Meal plan (#129) |
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
