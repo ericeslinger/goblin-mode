@@ -44,7 +44,8 @@ export const INSTRUCTIONS = [
   'What Eric has on hand (Kitchen) is the note with id pantry, a line per item: get_pantry ' +
     'reads it, update_pantry changes it. Done shopping adds what he bought, a dinner ticked ' +
     'made (check_item on the plan) takes off what its recipe used except items marked always, ' +
-    'and plan_meal does not put on the grocery list what is on hand.',
+    'and plan_meal does not put on the grocery list what is on hand. When Eric asks what to ' +
+    'cook, suggest_recipes ranks his recipes by what is on hand and how long since made.',
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
     'itemTags). Its items are its sub-projects (parent) and its tasks (reminders with its ' +
     'noteId), each with a stage from that list (refile or update_reminder: stage) and tags. ' +
@@ -330,6 +331,20 @@ export function buildServer(
       annotations: read,
     },
     run(() => tools.getPantry({})),
+  );
+
+  server.registerTool(
+    'suggest_recipes',
+    {
+      title: 'Suggest recipes',
+      description:
+        'Recipes to cook (Kitchen): those not made in the week before the date, most of what ' +
+        'they need on hand first, then the longest since made. Each with how many of its ' +
+        'ingredients are on hand, what would need buying, and when it was last made.',
+      inputSchema: { date, limit: z.number().int().min(1).max(20).optional() },
+      annotations: read,
+    },
+    run((a) => tools.suggestRecipes(a)),
   );
 
   server.registerTool(

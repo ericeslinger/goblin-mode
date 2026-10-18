@@ -861,6 +861,17 @@ comes with #133. The rules are `packages/schema/src/pantry.ts`.
 Claude reads it with `get_pantry` and changes it with `update_pantry`,
 which changes only the lines it names.
 
+**Suggestions (#132, 2026-10-18; epic #125).** Recipes to cook, read
+from the recipes' text, the plans' made history and the pantry,
+nothing stored (`packages/schema/src/suggest.ts`): a recipe made in the
+seven days before the day is left out, and so is one with no
+ingredients written yet; the rest rank by the share of their
+ingredients on hand (an `always` item counts), then by how long since
+made (never made first), then by name. In the week, picking a dinner
+offers the top three for that day, each with what it would need
+bought; a tap plans it. Claude's `suggest_recipes` gives the same
+ranking, five by default.
+
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a
 Projects pill sits beside Previous note under the note and opens the
@@ -1306,6 +1317,7 @@ it, one backticked tool name per row.
 | `log_meal` | Eric's words on how a meal went, under its slot and in the recipe's Notes; Kitchen only | Meal plan (#129) |
 | `get_pantry` | What is on hand: each item, its amount as written, always, its section; Kitchen only | On hand (#131) |
 | `update_pantry` | Adds, removes or marks items always on hand, changing only those lines; Kitchen only | On hand (#131) |
+| `suggest_recipes` | Recipes not made in the week before a date, ranked by what is on hand then by how long since made, each with what would need buying; Kitchen only | Suggestions (#132) |
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
