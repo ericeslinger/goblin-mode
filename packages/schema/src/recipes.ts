@@ -189,3 +189,32 @@ export function recipeBody(parts: {
     ...(parts.notes?.trim() ? [parts.notes.trim(), ''] : []),
   ].join('\n');
 }
+
+/** Whether a recipe's text is still the skeleton it started with. */
+export function untouchedRecipe(body: string): boolean {
+  return body.replace(/\s+/g, ' ').trim() === recipeSkeleton().replace(/\s+/g, ' ').trim();
+}
+
+/** A link's site, without its www. */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The name a recipe imported from `url` carries until its page is read
+ * (#128): "Recipe from example.com", then "(2)", "(3)" when one is taken.
+ */
+export function importPlaceholder(url: string, n = 1): string {
+  const base = `Recipe from ${hostOf(url) || 'a link'}`;
+  return n > 1 ? `${base} (${n})` : base;
+}
+
+/** Whether a recipe still carries the name it was imported under. */
+export function isImportPlaceholder(title: string, url: string): boolean {
+  const base = importPlaceholder(url);
+  return title === base || (title.startsWith(base) && /^ \(\d+\)$/.test(title.slice(base.length)));
+}

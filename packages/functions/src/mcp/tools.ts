@@ -19,9 +19,12 @@ import {
   conceptId,
   CONTEXT_ID,
   CONTEXT_MAX,
+  hostOf,
   ingredients,
+  isImportPlaceholder,
   methodSteps,
   recipeBody,
+  untouchedRecipe,
   MODULES,
   type ModuleId,
   moduleOn,
@@ -49,6 +52,8 @@ import {
   Timestamp,
 } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { publicFetch } from '../attachments/import';
+import { type ImportedRecipe, readRecipe } from '../kitchen/recipe-import';
 import { randomFillSync } from 'node:crypto';
 import type { RawProposal } from '../organize/proposals';
 import { storeSuggestions } from '../organize/store';
@@ -219,6 +224,12 @@ export class NotesTools {
     /** Reads a text file from Storage (an attachment's extracted text, #45). */
     private readonly readText: (path: string) => Promise<string> = async (path) =>
       String((await getStorage().bucket().file(path).download())[0]),
+    /**
+     * Reads the recipe at a link (#128). Here the page's schema.org data
+     * only: Claude in a chat reads a page without it itself.
+     */
+    private readonly fetchRecipe: (url: string) => Promise<ImportedRecipe> = (url) =>
+      readRecipe(url, publicFetch, null),
   ) {}
 
   private attachments() {
@@ -541,6 +552,140 @@ export class NotesTools {
       ingredients: ingredients(body).length,
       steps: methodSteps(body).length,
     };
+  }
+
+  /**
+   * The name an imported recipe takes (#128): the page's, else with its
+   * site after it, else none. An empty stub concept of that name (a
+   * [[link]] written first) is folded in, as create_recipe does.
+   */
+  private async importedName(
+    name: string,
+    url: string,
+    self?: string,
+  ): Promise<{ title: string; stub?: string } | undefined> {
+    const names = await this.names();
+    for (const title of [name.slice(0, MAX_NAME), `${name} (${hostOf(url)})`.slice(0, MAX_NAME)]) {
+      const owner = names.get(normalizeName(title));
+      if (owner === undefined || owner === self) return { title };
+      const stub = (await this.notes().doc(owner).get()).data();
+      if (
+        stub?.['kind'] === 'concept' &&
+        !String(stub['body'] ?? '').trim() &&
+        !((stub['synonyms'] as string[] | undefined) ?? []).length
+      ) {
+        return { title, stub: owner };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Imports the recipe at a link now (#128): the page's own recipe data,
+   * its words as the page has them. Without that data it refuses, and
+   * Claude reads the page and uses create_recipe.
+   */
+  async importRecipe(args: { url: string; notes?: string }) {
+    await this.requireModule('kitchen', 'importing a recipe');
+    const url = args.url.trim();
+    if (!/^https?:\/\//i.test(url)) throw new ToolError('url must be an http or https link');
+    let read: ImportedRecipe;
+    try {
+      read = await this.fetchRecipe(url);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      throw new ToolError(
+        `could not import ${url}: ${why}. Read the page yourself and use create_recipe, ` +
+          'its words as the page has them, with source.url.',
+      );
+    }
+    const named = await this.importedName(read.name, url);
+    if (!named) throw new ToolError(`already a name in the garden: ${read.name}`);
+    return this.createRecipe({
+      name: named.title,
+      ingredients: read.ingredients,
+      method: read.method,
+      notes: args.notes,
+      servings: read.servings,
+      source: { url },
+    });
+  }
+
+  /**
+   * The app asked for an import (#128): a recipe note with its source
+   * url and importState 'requested'. Claims it ('working'), reads the
+   * page, and fills the note in. Text Eric has written meanwhile stays:
+   * the page's recipe then goes beside it as the original text. A name
+   * he has given stays too.
+   */
+  async finishRecipeImport(
+    id: string,
+    read: (url: string) => Promise<ImportedRecipe> = this.fetchRecipe,
+  ): Promise<'done' | 'failed' | 'skipped'> {
+    const ref = this.notes().doc(id);
+    const url = await this.db.runTransaction(async (tx) => {
+      const data = (await tx.get(ref)).data();
+      const source = data?.['source'] as { url?: unknown } | undefined;
+      if (data?.['kind'] !== 'recipe' || data['importState'] !== 'requested') return undefined;
+      if (typeof source?.url !== 'string') return undefined;
+      tx.update(ref, { importState: 'working' });
+      return source.url;
+    });
+    if (url === undefined) return 'skipped';
+    let recipe: ImportedRecipe;
+    try {
+      recipe = await read(url);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      await ref.update({ importState: 'failed', importError: why.slice(0, 500) });
+      return 'failed';
+    }
+    const named = await this.importedName(recipe.name, url, id);
+    const names = await this.names();
+    const body = recipeBody(recipe);
+    await this.db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      if (!doc.exists) return;
+      const current = doc.data()!;
+      const update: Data = {
+        importState: 'done',
+        importError: FieldValue.delete(),
+        ...this.stamp(),
+      };
+      const text = String(current['body'] ?? '');
+      if (untouchedRecipe(text)) {
+        update['body'] = body;
+        update['baseHash'] = textHash(text);
+        update['links'] = resolveLinks(targetsOf(body), names);
+      } else {
+        update['source'] = { ...(current['source'] as Data), text: body };
+      }
+      const title = String(current['title'] ?? '');
+      const rename = named && isImportPlaceholder(title, url) ? named : undefined;
+      if (rename) update['title'] = rename.title;
+      if (current['servings'] === undefined && recipe.servings) {
+        update['servings'] = recipe.servings;
+      }
+      const { importError: _, ...shown } = update;
+      Note.parse({ ...current, ...shown });
+      tx.update(ref, update);
+      if (rename?.stub) {
+        tx.update(this.notes().doc(rename.stub), {
+          archived: true,
+          mergedInto: id,
+          ...this.stamp(),
+        });
+      }
+      const after = { ...current, ...shown } as Data;
+      tx.set(
+        ...this.activity(
+          'import_recipe',
+          `Imported the recipe ${String(after['title'])} from ${hostOf(url)}`,
+          [touched(id, after)],
+        ),
+      );
+    });
+    return 'done';
   }
 
   async updateNote(args: {

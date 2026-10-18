@@ -11,6 +11,7 @@ import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   CONTEXT_ID,
   KEEP_SUFFIX,
+  importPlaceholder,
   recipeSkeleton,
   ProjectKind,
   ProjectStatus,
@@ -70,6 +71,9 @@ export interface NoteRecord {
   /** A recipe's source and servings (#127). */
   source?: { url?: string; attachmentId?: string; text?: string };
   servings?: number;
+  /** An import from `source.url` the app asked for (#128), and why it failed. */
+  importState?: 'requested' | 'working' | 'done' | 'failed';
+  importError?: string;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -186,6 +190,10 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(typeof data['instructions'] === 'string' ? { instructions: data['instructions'] } : {}),
     ...(recipeSource(data['source']) ? { source: recipeSource(data['source']) } : {}),
     ...(typeof data['servings'] === 'number' ? { servings: data['servings'] } : {}),
+    ...(['requested', 'working', 'done', 'failed'].includes(data['importState'] as string)
+      ? { importState: data['importState'] as NoteRecord['importState'] }
+      : {}),
+    ...(typeof data['importError'] === 'string' ? { importError: data['importError'] } : {}),
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
@@ -407,7 +415,7 @@ export class NotesService {
    * holding the name (a link written before the recipe) is folded in,
    * archived with `mergedInto`, as a renamed concept folds one (#30).
    */
-  createRecipe(name: string): string | undefined {
+  createRecipe(name: string, more: Record<string, unknown> = {}): string | undefined {
     const title = name.trim();
     if (!this.uid || !title) return undefined;
     const owner = this.names().get(normalizeName(title));
@@ -430,6 +438,7 @@ export class NotesService {
       updatedAt: now,
       updatedBy: 'user',
       deviceId: this.deviceId(),
+      ...more,
     };
     this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
     if (foldable && owner) {
@@ -443,6 +452,38 @@ export class NotesService {
       this.api.set(this.fb.db, paths.note(this.uid, owner), merged, true).catch(report);
     }
     return id;
+  }
+
+  /**
+   * A recipe imported from a link (#128), written at once like New
+   * recipe, offline too: its empty sections, the link as its source, a
+   * placeholder name ("Recipe from example.com", numbered when taken)
+   * and `importState: 'requested'`, which asks the server to read the
+   * page and fill it in. Undefined for a link that is not http(s).
+   */
+  importRecipe(url: string): string | undefined {
+    const link = url.trim();
+    if (!this.uid || !/^https?:\/\/[^/\s]+/i.test(link)) return undefined;
+    let n = 1;
+    while (this.names().has(normalizeName(importPlaceholder(link, n)))) n++;
+    return this.createRecipe(importPlaceholder(link, n), {
+      source: { url: link },
+      importState: 'requested',
+    });
+  }
+
+  /** Asks again for an import that failed (#128). */
+  retryImport(id: string): void {
+    const note = this.find(id);
+    if (!this.uid || note?.kind !== 'recipe' || !note.source?.url) return;
+    const update = {
+      importState: 'requested',
+      importError: this.api.removeField(),
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
 
   /** A recipe's name (Eric's own), servings or source link (#127). */

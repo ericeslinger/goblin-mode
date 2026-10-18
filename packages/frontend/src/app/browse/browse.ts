@@ -60,6 +60,18 @@ import { NoteList } from './note-list';
             (change)="newRecipe(recipe)"
           />
         </label>
+        <label class="new-recipe">
+          Import from a link
+          <input
+            #link
+            type="url"
+            inputmode="url"
+            placeholder="https://"
+            enterkeyhint="go"
+            [disabled]="!notesReady()"
+            (change)="importRecipe(link)"
+          />
+        </label>
         @if (recipeRefused()) {
           <p class="muted" role="status">{{ recipeRefused() }}</p>
         }
@@ -138,6 +150,24 @@ export class Browse {
       count: all.filter((n) => inLens(l.id, n)).length,
     }));
   });
+
+  /** A recipe from a link (#128), opened while the server reads its page. */
+  protected importRecipe(input: HTMLInputElement): void {
+    const url = input.value.trim();
+    if (!url) return;
+    if (!this.notes.ready) {
+      this.recipeRefused.set('One moment: your notes are still loading. Try again shortly.');
+      return;
+    }
+    const id = this.notes.importRecipe(url);
+    if (!id) {
+      this.recipeRefused.set('That is not a web link: it starts with https:// or http://.');
+      return;
+    }
+    input.value = '';
+    this.recipeRefused.set('');
+    void this.router.navigate(['/n', id]);
+  }
 
   /** A new recipe (#127), opened to fill in; a name already taken is refused. */
   protected newRecipe(input: HTMLInputElement): void {

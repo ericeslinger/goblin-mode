@@ -125,6 +125,13 @@ export const Note = z.object({
     })
     .optional(),
   servings: z.number().optional(),
+  /**
+   * Only on a recipe imported from its source url (#128, 2026-10-18):
+   * the app asks with 'requested'; a function reads the page and says
+   * 'done', or 'failed' with why in `importError`.
+   */
+  importState: z.enum(['requested', 'working', 'done', 'failed']).optional(),
+  importError: z.string().optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */

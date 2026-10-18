@@ -721,6 +721,30 @@ is a plain note. Claude makes one with `create_recipe` (the recipe's
 words, not Claude's, so no ✳ mark) and lists them with `list_notes`
 `kind: recipe`. Made history arrives with meal plans (#129).
 
+**Importing a recipe (#128, 2026-10-18).** From a link. In the app,
+Browse's Recipes lens has Import from a link: it writes a recipe at
+once, offline too (a generated id, the empty sections, `source.url`,
+the name "Recipe from <site>", then "(2)" and on when taken, and
+`importState: requested`), and opens it. The `recipeImport` trigger
+claims it (`working`), fetches the page as a saved link is fetched
+(`publicFetch`: public addresses only, five redirects, 15 seconds) and
+reads the page's schema.org `Recipe` JSON-LD: name, `recipeIngredient`,
+`recipeInstructions` (a string, steps, or sections, a section's name a
+`###` line) and `recipeYield` as servings. Most recipe sites publish it.
+A page without it is read by `claude-haiku-5-5` (small, cheap; copying
+lines out is extraction) through structured output, told to copy the
+lines word for word, as the trigger runs as the service account the
+Claude federation rule trusts. The note is then filled in: the body
+only if it is still the empty sections, else Eric's text stays and the
+page's recipe goes in `source.text`; the name only if it is still the
+placeholder (the page's name, else with the site after it; an empty
+stub concept of that name is folded in, as for New recipe); servings
+only if unset. `importState` becomes `done`, or `failed` with
+`importError`, shown on the recipe's front. Claude's `import_recipe`
+does the same at once from the JSON-LD only: without it the tool
+refuses, and Claude in the chat, which can read the page itself, uses
+`create_recipe` with `source.url`.
+
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a
 Projects pill sits beside Previous note under the note and opens the
@@ -1160,6 +1184,7 @@ it, one backticked tool name per row.
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
 | `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage | Organize tools (#34), Projects (#41), Stages and items |
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
+| `import_recipe` | A recipe from a link's schema.org recipe data, its words as the page has them, with optional notes; refused without that data; Kitchen only | Importing a recipe (#128) |
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |

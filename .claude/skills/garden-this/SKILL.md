@@ -29,4 +29,5 @@ Follow them; they are not repeated here.
   (#126). If `capture` says Projects is switched off, tell Eric, and
   file nothing.
 - A recipe is not gardened: when Eric gives one, make it with
-  `create_recipe` (Kitchen on), not `capture`.
+  `create_recipe` (Kitchen on), not `capture`; for a link, try
+  `import_recipe` first.

@@ -27,8 +27,8 @@ export const INSTRUCTIONS = [
   'Concept ids are c-<slug>, e.g. c-mossgoblin. A project is a concept whose page has the ' +
     'sections Overview, Working notes, Tasks, Ideas, Open questions, Decisions and Links.',
   'Recipes (the Kitchen module) are notes of kind recipe, with Ingredients, Method and Notes ' +
-    'sections: make one with create_recipe, list them with list_notes kind recipe, and edit ' +
-    'them with add_lines like any note.',
+    'sections: make one with create_recipe, or import_recipe for a link, list them with ' +
+    'list_notes kind recipe, and edit them with add_lines like any note.',
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
     'itemTags). Its items are its sub-projects (parent) and its tasks (reminders with its ' +
     'noteId), each with a stage from that list (refile or update_reminder: stage) and tags. ' +
@@ -105,8 +105,10 @@ const write = { readOnlyHint: false, destructiveHint: false, openWorldHint: fals
 const time = z.string().describe('ISO 8601 with an offset, e.g. 2026-10-07T21:00:00-07:00');
 
 /** The tools as the server calls them: any result goes back as JSON. */
+/** The tools; finishing an import the app asked for is the trigger's (#128). */
+type ToolMethods = Exclude<keyof NotesTools, 'finishRecipeImport'>;
 export type ToolsApi = {
-  [K in keyof NotesTools]: (args: Parameters<NotesTools[K]>[0]) => Promise<unknown>;
+  [K in ToolMethods]: (args: Parameters<NotesTools[K]>[0]) => Promise<unknown>;
 };
 
 /** One MCP server for one request, acting for the signed-in owner. */
@@ -233,6 +235,21 @@ export function buildServer(
       annotations: write,
     },
     run((a) => tools.createRecipe(a)),
+  );
+
+  server.registerTool(
+    'import_recipe',
+    {
+      title: 'Import a recipe from a link',
+      description:
+        "A recipe in the Kitchen module from a web page's own recipe data, its words as the " +
+        "page has them, named as the page names it (with the site after it when that's " +
+        'taken), with optional notes of yours. A page without that data is refused: then read ' +
+        'it yourself and use create_recipe with source.url.',
+      inputSchema: { url: z.string().url(), notes: z.string().optional() },
+      annotations: { ...write, openWorldHint: true },
+    },
+    run((a) => tools.importRecipe(a)),
   );
 
   server.registerTool(

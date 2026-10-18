@@ -11,6 +11,7 @@ export { health } from './health/health';
 export { mcp } from './mcp/http';
 export { oauth } from './oauth/http';
 export { noteHistory, noteTitle } from './notes/triggers';
+export { recipeImport } from './kitchen/triggers';
 export { proposalAccepted } from './organize/triggers';
 export { sendDuePush } from './push/send-due-push';
 export { reminderScheduled, reminderWake } from './push/reminder-wake';

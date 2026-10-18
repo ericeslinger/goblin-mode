@@ -68,3 +68,51 @@ test('a recipe is started, written, linked and made by Claude', async ({ page })
   await list.getByRole('link', { name: /Red lentil dal/ }).click();
   await expect(recipe).toContainText('2 ingredients · 2 steps');
 });
+
+// Importing (#128): a link becomes a recipe at once, named for its site
+// while the server reads the page. A .invalid site never resolves, so
+// the import fails, says why, and offers to try again.
+test('a recipe imported from a link is made at once and says how it went', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Kitchen' }).check();
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('switch', { name: 'Kitchen' })).toBeChecked();
+
+  await page.goto('/browse/recipes');
+  const link = page.getByRole('textbox', { name: 'Import from a link' });
+  await link.fill('ftp://recipes.invalid/dal');
+  await link.press('Enter');
+  await expect(page.getByRole('status')).toContainText('not a web link');
+  await link.fill('https://www.recipes.invalid/dal');
+  await link.press('Enter');
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  const recipe = page.getByRole('region', { name: 'Recipe' });
+  await expect(recipe.getByRole('textbox', { name: 'Recipe name' })).toHaveValue(
+    'Recipe from recipes.invalid',
+  );
+  await expect(recipe.getByRole('status')).toContainText(
+    /Reading the recipe from recipes\.invalid|Could not import/,
+  );
+  await expect(recipe.getByRole('status')).toContainText('Could not import from recipes.invalid', {
+    timeout: 30_000,
+  });
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+  expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  await recipe.getByRole('button', { name: 'Try again' }).click();
+  await expect(recipe.getByRole('status')).toContainText('Could not import from recipes.invalid', {
+    timeout: 30_000,
+  });
+
+  // A second link to the same site is numbered, not refused.
+  await page.goto('/browse/recipes');
+  await link.fill('https://recipes.invalid/soup');
+  await link.press('Enter');
+  await expect(recipe.getByRole('textbox', { name: 'Recipe name' })).toHaveValue(
+    'Recipe from recipes.invalid (2)',
+  );
+});
