@@ -43,6 +43,7 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   await page.goto('/settings');
   await expect(projects).not.toBeChecked();
   await projects.check();
+  await letItSave(page);
   await page.goto('/n/c-pottery');
   await expect(concept.getByRole('textbox', { name: 'Add a task' })).toBeVisible();
 });
