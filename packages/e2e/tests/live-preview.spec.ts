@@ -1,3 +1,4 @@
+import { connectClaude } from '../src/claude';
 import { expect, signInAs, test, typeLines, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
@@ -80,7 +81,16 @@ test('dragging the handle resizes Right Now, and it stays that size', async ({ p
   await page.evaluate(() => localStorage.removeItem('goblin.rightNowShare'));
   await page.reload();
   const handle = page.getByRole('separator', { name: 'Resize Right Now' });
-  await expect(handle).toHaveAttribute('aria-valuenow', '35');
+  // Nothing to tend: closed (2026-10-18).
+  await expect(handle).toHaveAttribute('aria-valuetext', 'Hidden');
+  // Something due opens it at its usual share.
+  const call = await connectClaude(page);
+  await call('create_reminder', {
+    text: 'Call the bank',
+    dueAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+  await page.goto('/');
+  await expect(handle).toHaveAttribute('aria-valuenow', '35', { timeout: 15_000 });
 
   // Grab the grip and lift it by a quarter of the screen: 35% to 60%.
   const box = (await handle.boundingBox())!;
@@ -95,6 +105,20 @@ test('dragging the handle resizes Right Now, and it stays that size', async ({ p
 
   await page.reload();
   await expect(handle).toHaveAttribute('aria-valuenow', '60');
+
+  // All the way down (2026-10-18): only the handle stays, and brings it back.
+  const top = (await handle.boundingBox())!;
+  await page.mouse.move(x, top.y + top.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, viewport.height + 50, { steps: 5 });
+  await page.mouse.up();
+  await expect(handle).toHaveAttribute('aria-valuenow', '0');
+  await expect(handle).toBeInViewport();
+  await expect(page.getByText('Call the bank')).toBeHidden();
+  await handle.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(handle).toHaveAttribute('aria-valuenow', '5');
+  await expect(page.getByText('Call the bank')).toBeVisible();
 });
 
 test('the formatting bar stays hidden without an on-screen keyboard', async ({ page }) => {

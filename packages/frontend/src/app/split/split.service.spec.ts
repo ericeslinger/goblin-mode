@@ -3,7 +3,9 @@ import { clampShare, DEFAULT_SHARE, MAX_SHARE, MIN_SHARE, SplitService } from '.
 
 describe('clampShare', () => {
   it('keeps the share within bounds and whole', () => {
-    expect(clampShare(5)).toBe(MIN_SHARE);
+    expect(clampShare(-5)).toBe(MIN_SHARE);
+    // All the way down is allowed (2026-10-18).
+    expect(MIN_SHARE).toBe(0);
     expect(clampShare(95)).toBe(MAX_SHARE);
     expect(clampShare(42.6)).toBe(43);
     expect(clampShare(Number.NaN)).toBe(DEFAULT_SHARE);

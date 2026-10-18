@@ -36,6 +36,15 @@
   .right-now .handle {
     display: none;
   }
+  .launch .right-now.collapsed {
+    padding-top: 4px;
+  }
+  .right-now.collapsed app-right-now-panel {
+    display: block;
+  }
+  .peek {
+    display: none;
+  }
   .list-pane {
     display: block;
     grid-area: list;
@@ -229,6 +238,25 @@
   border-top: 1px solid var(--rule);
   padding: 0 16px 24px;
   overflow: auto;
+}
+/* Dragged all the way down, the handle stays (2026-10-18). */
+.right-now.collapsed {
+  position: relative;
+  min-height: 28px;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+/* Beside the grip, so the closed panel stays one handle tall. */
+.peek {
+  position: absolute;
+  left: 16px;
+  top: 4px;
+  font-size: 13px;
+  color: var(--quiet);
+}
+/* Hidden, so its buttons leave the tab order too; wide screens show it. */
+.right-now.collapsed app-right-now-panel {
+  display: none;
 }
 .handle {
   display: flex;

@@ -227,9 +227,11 @@ export class Launch {
       }
       untracked(() => void this.notes.makeContext().catch((err) => console.warn(err)));
     });
-    // Each note opens on its front.
+    // Each note opens on its front. Only another note does: the open note
+    // changing (a sync, a merge) leaves the side as it is.
+    const openId = computed(() => this.capture.open().id);
     effect(() => {
-      this.capture.open().id;
+      openId();
       untracked(() => this.back.set(false));
     });
     // A template from before #111 holds its Instructions for Claude in its
@@ -326,9 +328,33 @@ export class Launch {
     });
   }
 
+  /** Moved by hand while it had nothing to tend: shown as moved, this visit. */
+  private readonly movedWhileEmpty = signal(false);
+  /**
+   * Right Now's share as shown: closed while it has nothing to tend and
+   * no Undo to offer (Eric, 2026-10-18), unless moved since; else the
+   * share saved here.
+   */
+  protected readonly share = computed(() => {
+    // Open while an Undo is offered: finishing the last one must not hide it.
+    const empty = this.reminders.due().length === 0 && !this.reminders.undoable();
+    return empty && !this.movedWhileEmpty() ? 0 : this.split.rightNowShare();
+  });
+  /** The saved share when a drag began, put back if it never moved. */
+  private dragFrom?: { share: number; moved: boolean; wasEmpty: boolean };
+
   /** Dragging the handle sets Right Now's share of the screen height. */
   protected startDrag(event: PointerEvent): void {
-    const top = innerHeight * (1 - this.split.rightNowShare() / 100);
+    const shown = this.share();
+    const top = innerHeight * (1 - shown / 100);
+    this.dragFrom = {
+      share: this.split.rightNowShare(),
+      moved: false,
+      wasEmpty: !this.movedWhileEmpty(),
+    };
+    // From where it is shown, so the panel does not jump open first.
+    this.split.preview(shown);
+    this.movedWhileEmpty.set(true);
     // Keep the grip under the finger: no jump on the first move.
     this.grabOffset = event.clientY - top;
     (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
@@ -338,6 +364,7 @@ export class Launch {
   protected drag(event: PointerEvent): void {
     if (this.grabOffset === null) return;
     const top = event.clientY - this.grabOffset;
+    if (this.dragFrom) this.dragFrom.moved = true;
     this.split.preview(((innerHeight - top) / innerHeight) * 100);
   }
 
@@ -345,13 +372,21 @@ export class Launch {
   protected endDrag(event: PointerEvent): void {
     if (this.grabOffset === null) return;
     this.grabOffset = null;
-    this.split.set(this.split.rightNowShare());
+    const from = this.dragFrom;
+    this.dragFrom = undefined;
+    if (from && !from.moved) {
+      // A tap, not a drag: nothing changes, nothing is saved.
+      this.split.preview(from.share);
+      if (from.wasEmpty) this.movedWhileEmpty.set(false);
+    } else {
+      this.split.set(this.split.rightNowShare());
+    }
     (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
   }
 
   /** Arrow, Home and End keys move the handle too, as for any separator. */
   protected nudge(event: KeyboardEvent): void {
-    const share = this.split.rightNowShare();
+    const share = this.share();
     const next = {
       ArrowUp: share + 5,
       ArrowDown: share - 5,
@@ -360,6 +395,7 @@ export class Launch {
     }[event.key];
     if (next === undefined) return;
     event.preventDefault();
+    this.movedWhileEmpty.set(true);
     this.split.set(next);
   }
 
