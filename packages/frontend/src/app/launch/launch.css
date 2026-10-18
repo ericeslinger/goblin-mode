@@ -235,11 +235,10 @@
   border-top: 1px solid var(--rule);
   padding: 0 16px 24px;
   overflow: auto;
-  /* Dragged all the way down, the handle stays (2026-10-18). */
-  box-sizing: border-box;
-  min-height: 28px;
 }
+/* Dragged all the way down, the handle stays (2026-10-18). */
 .right-now.collapsed {
+  min-height: 28px;
   padding-bottom: 0;
   overflow: hidden;
 }

@@ -227,9 +227,11 @@ export class Launch {
       }
       untracked(() => void this.notes.makeContext().catch((err) => console.warn(err)));
     });
-    // Each note opens on its front.
+    // Each note opens on its front. Only another note does: the open note
+    // changing (a sync, a merge) leaves the side as it is.
+    const openId = computed(() => this.capture.open().id);
     effect(() => {
-      this.capture.open().id;
+      openId();
       untracked(() => this.back.set(false));
     });
     // A template from before #111 holds its Instructions for Claude in its

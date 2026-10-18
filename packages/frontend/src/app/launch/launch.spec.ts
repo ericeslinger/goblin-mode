@@ -292,6 +292,13 @@ describe('Launch', () => {
     expect(back.textContent).toContain('What Claude changed');
     expect(back.textContent).toContain('studio');
     expect(editor().classList).toContain('hidden');
+    // A change synced to the open note keeps it on its back.
+    notes.notes.update((list) =>
+      list.map((n) => (n.id === 'n1' ? { ...n, body: 'Kiln day\nmore', updatedAt: 3 } : n)),
+    );
+    TestBed.inject(CaptureService).openNote('n1', 'Kiln day\nmore');
+    await fixture.whenStable();
+    expect(el.querySelector('[aria-label="Back of the note"]')).not.toBeNull();
     buttonNamed(el, 'Front')!.click();
     await fixture.whenStable();
     expect(el.querySelector('[aria-label="Back of the note"]')).toBeNull();
