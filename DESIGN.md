@@ -1360,8 +1360,21 @@ is slow.
   endpoint are named from the forwarded host, so no domain is
   configured.
 - **Registration** accepts public clients whose redirect URIs are on
-  `https://claude.ai` or `https://claude.com` only, so a stranger
-  cannot register a client that sends codes elsewhere.
+  `https://claude.ai` or `https://claude.com`, or http on a loopback
+  host, so a stranger cannot register a client that sends codes
+  elsewhere.
+- **Other assistants (#142, 2026-10-24).** Eric wants Gemini and other
+  platforms on the same server, sooner than M5. An app on the
+  gardener's own computer, such as Gemini CLI, signs in through a
+  loopback callback (`http://127.0.0.1`, `[::1]` or `localhost`, RFC
+  8252): a code sent there reaches only that computer. A loopback
+  callback may differ from the registered one in port only, since the
+  app picks a free port each time; the token request must name the
+  callback the code went to. The consent page says when the app asking
+  is on this computer. Settings shows Gemini CLI's setting
+  (`mcpServers.mossgoblin.httpUrl` in `~/.gemini/settings.json`, then
+  `/mcp auth mossgoblin`). Hosted web clients other than claude.ai are
+  added to the list one at a time, once checked.
 - **Consent.** The page asks the oauth function who is asking (client
   name, return origin), then on Allow posts the request with Eric's
   Firebase ID token. The function verifies the token and refuses any
@@ -1375,12 +1388,13 @@ is slow.
   token, and a replayed code or refresh token (spent ones are kept a
   day to spot this) revokes the whole family. Expired codes and tokens
   are swept whenever tokens are issued, so a connection that refreshes
-  hourly stays a few dozen documents. Settings, Disconnect Claude,
-  deletes every token and code, in chunks under the 500-write batch
-  limit, and claude.ai must connect again.
+  hourly stays a few dozen documents. Settings, Disconnect all
+  assistants (Disconnect Claude before #142), deletes every token and
+  code, in chunks under the 500-write batch
+  limit, and every assistant must connect again.
 - **Registration is open** (dynamic registration needs it), but codes
-  only ever go to a claude.ai or claude.com callback, and only Eric
-  can approve. The consent page shows the name a client registered
+  only ever go to a claude.ai or claude.com callback or a loopback
+  one, and only Eric can approve. The consent page shows the name a client registered
   with, which anyone can choose, so it also says to allow only a
   request he just started.
 - **MCP** is stateless Streamable HTTP (POST only, JSON responses): each

@@ -63,7 +63,7 @@ describe('OAuth', () => {
     });
   });
 
-  it('registers clients only for claude.ai and claude.com callbacks', async () => {
+  it('registers clients only for claude.ai and claude.com callbacks, or loopback ones', async () => {
     const store = memoryOAuthStore();
     await rejects(
       register(store, { redirect_uris: ['https://evil.example/cb'] }, T),
@@ -76,6 +76,59 @@ describe('OAuth', () => {
       T,
     );
     expect(c.clientName).toBe('Claude');
+    // An app on the gardener's computer (#142): http on a loopback host.
+    for (const bad of [
+      'https://localhost:7777/oauth/callback',
+      'http://evil.example:7777/cb',
+      'http://localhost.evil.example/cb',
+      'http://user@127.0.0.1:7777/cb',
+      'http://127.0.0.1:7777/cb#frag',
+    ]) {
+      await rejects(register(store, { redirect_uris: [bad] }, T), 'invalid_redirect_uri');
+    }
+    for (const ok of [
+      'http://localhost:7777/oauth/callback',
+      'http://127.0.0.1:51234/cb',
+      'http://[::1]:8080/cb',
+    ]) {
+      expect((await register(store, { redirect_uris: [ok] }, T)).clientName).toBe('An app');
+    }
+  });
+
+  it('lets a loopback callback change port, but nothing else', async () => {
+    const store = memoryOAuthStore();
+    const client = await register(
+      store,
+      { redirect_uris: ['http://localhost:7777/oauth/callback'], client_name: 'Gemini CLI' },
+      T,
+    );
+    expect(client.clientName).toBe('Gemini CLI');
+    const req = {
+      clientId: client.clientId,
+      redirectUri: 'http://localhost:40123/oauth/callback',
+      codeChallenge: challenge,
+      codeChallengeMethod: 'S256',
+    };
+    await expect(checkAuthorize(store, req, RESOURCE)).resolves.toBeTruthy();
+    for (const redirectUri of [
+      'http://localhost:40123/other',
+      'http://127.0.0.1:40123/oauth/callback',
+      'https://localhost:40123/oauth/callback',
+    ]) {
+      await rejects(checkAuthorize(store, { ...req, redirectUri }, RESOURCE), 'invalid_request');
+    }
+    // The code goes to the port asked for, and is traded only with it.
+    const code = new URL(await approve(store, req, RESOURCE, 'owner', 'owner', T)).searchParams.get(
+      'code',
+    )!;
+    const form = {
+      grant_type: 'authorization_code',
+      client_id: client.clientId,
+      code,
+      redirect_uri: 'http://localhost:7777/oauth/callback',
+      code_verifier: verifier,
+    };
+    await rejects(token(store, form, T), 'invalid_grant');
   });
 
   it('checks the authorize request: client, redirect, S256 and resource', async () => {

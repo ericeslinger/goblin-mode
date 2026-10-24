@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { createHash, randomBytes } from 'node:crypto';
 import { expect, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
+import { connectClient } from '../src/claude';
 
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
 
@@ -58,7 +59,7 @@ test('Claude connects with OAuth, writes a note through MCP, and can be disconne
     state: 'xyz',
   });
   await page.goto(`/oauth/authorize?${query}`);
-  await expect(page.getByRole('heading', { name: 'Connect Claude' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connect an AI assistant' })).toBeVisible();
   await expect(page.getByText('wants to read and change your notes')).toBeVisible();
   const { violations } = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
@@ -103,8 +104,23 @@ test('Claude connects with OAuth, writes a note through MCP, and can be disconne
   await page.getByRole('link', { name: 'Back' }).click();
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByText(/\/mcp$/)).toBeVisible();
-  await page.getByRole('button', { name: 'Disconnect Claude' }).click();
-  await expect(page.getByText('Claude is disconnected.')).toBeVisible();
+  await page.getByRole('button', { name: 'Disconnect all assistants' }).click();
+  await expect(page.getByText('Every assistant is disconnected.')).toBeVisible();
   const after = await api.post('/mcp', mcpCall(tokens.access_token, 'tools/list', {}));
   expect(after.status()).toBe(401);
+});
+
+// Another MCP client on the gardener's computer (#142), as Gemini CLI
+// does it: a localhost callback, registered on one port and asked for
+// on another, since the app picks a free port each time.
+test('an app on this computer connects through a localhost callback', async ({ page }) => {
+  await signInAs(page, OWNER);
+  const call = await connectClient(page, {
+    name: 'Gemini CLI',
+    registered: 'http://localhost:7777/oauth/callback',
+    asked: 'http://localhost:40123/oauth/callback',
+  });
+  await call('create_note', { body: 'Filed by Gemini\nfrom the terminal' });
+  await page.goto('/browse');
+  await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Filed by Gemini');
 });

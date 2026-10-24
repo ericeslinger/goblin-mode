@@ -163,7 +163,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
         </div>
       }
       @if (auth.user()) {
-        <h2>Claude</h2>
+        <h2>AI assistants</h2>
         <p>
           To let Claude read and change your notes, add a custom connector in claude.ai (Settings,
           Connectors) with this URL:
@@ -172,11 +172,17 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
           <code>{{ mcpUrl }}</code>
         </p>
         <p>
+          For Gemini CLI, or another app that takes an MCP server, add it to that app's settings;
+          for Gemini CLI, in <code>~/.gemini/settings.json</code>:
+        </p>
+        <pre><code>{{ geminiSettings }}</code></pre>
+        <p>then run <code>/mcp auth mossgoblin</code> in it and allow it here.</p>
+        <p>
           <a routerLink="/n/context">Context for Claude</a>: what Claude should always know about
           you and the garden, given to it at the start of every conversation.
         </p>
         <p><a routerLink="/activity">What Claude changed</a></p>
-        <button type="button" (click)="disconnect()">Disconnect Claude</button>
+        <button type="button" (click)="disconnect()">Disconnect all assistants</button>
         @if (claudeStatus()) {
           <p role="status">{{ claudeStatus() }}</p>
         }
@@ -317,16 +323,22 @@ export class Settings {
   }
 
   protected readonly mcpUrl = `${location.origin}/mcp`;
+  /** Gemini CLI's MCP setting for the garden (#142). */
+  protected readonly geminiSettings = JSON.stringify(
+    { mcpServers: { mossgoblin: { httpUrl: this.mcpUrl } } },
+    null,
+    2,
+  );
   protected readonly claudeStatus = signal('');
   private readonly claude = inject(CLAUDE_ACCESS_API);
 
-  /** Drops every token Claude holds; claude.ai must connect again. */
+  /** Drops every token any assistant holds; each must connect again. */
   protected async disconnect(): Promise<void> {
     const user = this.auth.user();
     if (!user) return;
     try {
       const n = await this.claude.revoke(await user.getIdToken());
-      this.claudeStatus.set(n ? 'Claude is disconnected.' : 'Claude was not connected.');
+      this.claudeStatus.set(n ? 'Every assistant is disconnected.' : 'No assistant was connected.');
     } catch (err) {
       this.claudeStatus.set(`Could not disconnect: ${(err as Error).message}`);
     }

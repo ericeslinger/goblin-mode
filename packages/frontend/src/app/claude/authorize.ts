@@ -16,9 +16,13 @@ const PARAMS = [
   'resource',
 ];
 
+/** An app on this computer: its callback is http on a loopback host (#142). */
+const LOOPBACK = /^http:\/\/(127\.0\.0\.1|\[::1\]|localhost)(:\d+)?$/;
+
 /**
- * OAuth consent for the Claude connector (DESIGN.md, MCP server): claude.ai
- * sends Eric here; signed in, he allows or denies, and goes back.
+ * OAuth consent for an MCP client (DESIGN.md, MCP server): claude.ai, or
+ * an app on the gardener's computer such as Gemini CLI, sends them here;
+ * signed in, they allow or deny, and go back.
  */
 @Component({
   selector: 'app-authorize',
@@ -28,15 +32,22 @@ const PARAMS = [
       <app-sign-in />
     } @else {
       <main class="page">
-        <h1>Connect Claude</h1>
+        <h1>Connect an AI assistant</h1>
         @if (error()) {
           <p role="alert">{{ error() }}</p>
         } @else if (consent(); as c) {
           <p>
             <strong>{{ c.clientName }}</strong> wants to read and change your notes and reminders.
           </p>
-          <p class="muted">You will go back to {{ c.redirectOrigin }}.</p>
-          <p class="muted">Allow this only if you just asked claude.ai to connect.</p>
+          @if (local(c)) {
+            <p class="muted">It is an app on this computer, at {{ c.redirectOrigin }}.</p>
+            <p class="muted">Allow this only if you just asked that app to connect.</p>
+          } @else {
+            <p class="muted">You will go back to {{ c.redirectOrigin }}.</p>
+            <p class="muted">
+              Allow this only if you just asked {{ c.redirectOrigin }} to connect.
+            </p>
+          }
           <div class="actions">
             <button type="button" class="primary" [disabled]="busy()" (click)="allow()">
               Allow
@@ -86,6 +97,10 @@ export class Authorize {
   protected readonly error = signal('');
   protected readonly busy = signal(false);
 
+  protected local(c: Consent): boolean {
+    return LOOPBACK.test(c.redirectOrigin);
+  }
+
   constructor() {
     const query = inject(ActivatedRoute).snapshot.queryParamMap;
     for (const name of PARAMS) {
@@ -120,7 +135,7 @@ export class Authorize {
     }
   }
 
-  /** Back to claude.ai with access_denied; only after the request checked out. */
+  /** Back to the client with access_denied; only after the request checked out. */
   protected deny(): void {
     const url = new URL(this.params['redirect_uri']);
     url.searchParams.set('error', 'access_denied');
