@@ -1390,13 +1390,18 @@ is slow.
   are swept whenever tokens are issued, so a connection that refreshes
   hourly stays a few dozen documents. Settings, Disconnect all
   assistants (Disconnect Claude before #142), deletes every token and
-  code, in chunks under the 500-write batch
-  limit, and every assistant must connect again.
+  code, in chunks under the 500-write batch limit, and every assistant
+  must connect again.
 - **Registration is open** (dynamic registration needs it), but codes
   only ever go to a claude.ai or claude.com callback or a loopback
-  one, and only Eric can approve. The consent page shows the name a client registered
-  with, which anyone can choose, so it also says to allow only a
-  request he just started.
+  one, and only Eric can approve. The consent page shows the name a
+  client registered with, which anyone can choose, so it also says to
+  allow only a request he just started. A loopback callback adds one
+  risk (review on #145): a link someone else made, with their own PKCE
+  challenge, sends the code to a port on Eric's computer, so a process
+  he did not start that listens there could redeem it. It needs both
+  that process and his Allow; the page shows the port and says it is an
+  app on this computer.
 - **MCP** is stateless Streamable HTTP (POST only, JSON responses): each
   request checks the bearer token belongs to the owner, then builds a
   server with the tools. Writes are validated against the zod
