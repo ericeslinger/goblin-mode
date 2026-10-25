@@ -70,6 +70,6 @@ test('Do it now runs the garden’s agent on the gardener’s key, and the back 
     },
   );
   // The run's writes are the garden's own agent's.
-  await page.getByRole('link', { name: 'What assistants changed' }).click();
+  await page.getByRole('link', { name: 'All assistants’ changes' }).click();
   await expect(page.getByRole('list', { name: 'Changes' })).toContainText('Mossgoblin:');
 });
