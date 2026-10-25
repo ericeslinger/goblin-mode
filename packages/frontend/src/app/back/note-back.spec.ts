@@ -91,7 +91,7 @@ describe('NoteBack (#112)', () => {
       [],
     );
     expect(el.querySelector('.times')!.textContent).toContain('on another device');
-    expect(el.textContent).toContain('Nothing Claude did lately touched this note.');
+    expect(el.textContent).toContain('No assistant changed this note lately.');
   });
 
   it('sets a recipe’s servings and source link, and shows its original text (#127)', async () => {
@@ -133,5 +133,30 @@ describe('NoteBack (#112)', () => {
     box.value = 'Ask where to.';
     box.dispatchEvent(new Event('change'));
     expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask where to.');
+  });
+
+  it('sends the note to an assistant, says it waits, and shows what was done (#143)', async () => {
+    const { el, notes } = await render(noteRecord('n1', 'Glaze notes'), []);
+    const box = el.querySelector<HTMLInputElement>('.send input')!;
+    box.value = 'File this under pottery';
+    el.querySelector<HTMLFormElement>('.send')!.dispatchEvent(new Event('submit'));
+    expect(notes.sendToAssistant).toHaveBeenCalledWith('n1', 'File this under pottery');
+    expect(box.value).toBe('');
+    TestBed.resetTestingModule();
+
+    const waiting = await render(
+      { ...noteRecord('n2', 'Seeds'), sendState: 'queued', sendAsk: 'Plant them', sentAt: 1 },
+      [],
+    );
+    expect(waiting.el.textContent).toContain('Waiting for your assistant');
+    expect(waiting.el.textContent).toContain('“Plant them”');
+    expect(waiting.el.querySelector('.send')).toBeNull();
+    TestBed.resetTestingModule();
+
+    const done = await render(
+      { ...noteRecord('n3', 'Moss'), sendState: 'done', sendOutcome: 'Linked it to pottery.' },
+      [],
+    );
+    expect(done.el.textContent).toContain('Done: Linked it to pottery.');
   });
 });

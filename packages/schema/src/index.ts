@@ -19,3 +19,4 @@ export * from './mealplan';
 export * from './grocery';
 export * from './pantry';
 export * from './suggest';
+export * from './queue';

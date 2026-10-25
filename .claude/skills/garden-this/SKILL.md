@@ -34,3 +34,7 @@ Follow them; they are not repeated here.
   plan with `plan_meal`, how one went with `log_meal`, and what Eric
   has on hand with `update_pantry`, not `capture`. For what to cook,
   `suggest_recipes`.
+- A note Eric sent from the app (Send to an assistant) waits in
+  `list_queue`, not in the chat: it is worked through by the queue
+  routine (`routines/send-to-queue.md`), and each is closed with
+  `finish_queued`. Gardening a chat does not touch the queue.

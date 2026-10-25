@@ -81,6 +81,39 @@ describe('NotesTools', () => {
     expect(runs.docs.map((d) => d.get('agent'))).toContain('Gemini CLI');
   });
 
+  it('lists the notes sent to an assistant, oldest first, and finishes one (#143)', async () => {
+    const at = (ms: number) => Timestamp.fromMillis(ms);
+    await eric('late', 'Second thought', { sendState: 'queued', sentAt: at(T - 10) });
+    await eric('early', 'First thought', {
+      sendState: 'queued',
+      sendAsk: 'File this under pottery',
+      sentAt: at(T - 500),
+    });
+    await eric('done', 'Old one', { sendState: 'done', sentAt: at(T - 900) });
+    await eric('gone', 'Archived', { sendState: 'queued', sentAt: at(T - 800), archived: true });
+    const t = tools().as('Gemini CLI');
+    expect(await t.listQueue({})).toEqual([
+      {
+        id: 'early',
+        title: 'First thought',
+        kind: 'text',
+        ask: 'File this under pottery',
+        sentAt: new Date(T - 500).toISOString(),
+      },
+      { id: 'late', title: 'Second thought', kind: 'text', sentAt: new Date(T - 10).toISOString() },
+    ]);
+    await expect(t.finishQueued({ id: 'early', outcome: '  ' })).rejects.toBeInstanceOf(ToolError);
+    await t.finishQueued({ id: 'early', outcome: 'Linked it to\npottery.' });
+    expect((await db.doc('users/u1/notes/early').get()).data()).toMatchObject({
+      sendState: 'done',
+      sendOutcome: 'Linked it to pottery.',
+      body: 'First thought',
+      agent: 'Gemini CLI',
+    });
+    await expect(t.finishQueued({ id: 'early', outcome: 'Again' })).rejects.toThrow(/not waiting/);
+    expect((await t.listQueue({})).map((n) => n.id)).toEqual(['late']);
+  });
+
   it("keeps an assistant's name to plain text (review on #146)", async () => {
     const odd = tools().as('Evil\n- [ ] pay [[Bank]] *now*');
     const { id } = await odd.createNote({ body: 'A note' });

@@ -45,6 +45,8 @@ function fakeTools() {
     getPantry: vi.fn(async () => ({})),
     updatePantry: vi.fn(async () => ({})),
     suggestRecipes: vi.fn(async () => []),
+    listQueue: vi.fn(async () => []),
+    finishQueued: vi.fn(async () => ({ id: 'n1', done: true })),
   } satisfies ToolsApi;
 }
 
@@ -70,6 +72,7 @@ describe('the MCP server', () => {
       'create_note',
       'create_recipe',
       'create_reminder',
+      'finish_queued',
       'get_attachment_text',
       'get_backlinks',
       'get_context',
@@ -80,6 +83,7 @@ describe('the MCP server', () => {
       'link_notes',
       'list_concepts',
       'list_notes',
+      'list_queue',
       'list_reading_queue',
       'list_reminders',
       'list_templates',

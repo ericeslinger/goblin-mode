@@ -4,6 +4,7 @@ import {
   MEALS,
   MODULES,
   type Meal,
+  QUEUE_PROMPT,
   WEEKDAYS,
   addDays,
   localDate,
@@ -181,6 +182,13 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
           <a routerLink="/n/context">Context for Claude</a>: what Claude should always know about
           you and the garden, given to it at the start of every conversation.
         </p>
+        <h3>Send to an assistant</h3>
+        <p>
+          A note you send (on its back, Send to an assistant) waits until your assistant checks. For
+          Claude, make a routine in Claude Code on the web that runs every hour with the Mossgoblin
+          connector, and give it this prompt; any assistant that runs on a schedule can use it too.
+        </p>
+        <pre class="prompt"><code>{{ queuePrompt }}</code></pre>
         <p><a routerLink="/activity">What assistants changed</a></p>
         <button type="button" (click)="disconnect()">Disconnect all assistants</button>
         @if (claudeStatus()) {
@@ -192,6 +200,10 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
     </main>
   `,
   styles: `
+    .prompt {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
     .kitchen {
       display: grid;
       gap: var(--space-2);
@@ -323,6 +335,8 @@ export class Settings {
   }
 
   protected readonly mcpUrl = `${location.origin}/mcp`;
+  /** The prompt for the routine that works through sent notes (#143). */
+  protected readonly queuePrompt = QUEUE_PROMPT;
   /** Gemini CLI's MCP setting for the garden (#142). */
   protected readonly geminiSettings = JSON.stringify(
     { mcpServers: { mossgoblin: { httpUrl: this.mcpUrl } } },
