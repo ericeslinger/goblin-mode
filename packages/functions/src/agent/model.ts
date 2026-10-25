@@ -8,9 +8,10 @@ import type {
   MessageParam,
   StopReason,
   Tool,
+  ToolUnion,
 } from '@anthropic-ai/sdk/resources/messages/messages';
 
-export type { ContentBlock, MessageParam, Tool };
+export type { ContentBlock, MessageParam, Tool, ToolUnion };
 
 /** Filing and research want a mid-size model that reads carefully. */
 export const AGENT_MODEL = 'claude-sonnet-5-5';
@@ -27,7 +28,8 @@ export interface ModelTurn {
 export type AgentModel = (req: {
   system: string;
   messages: MessageParam[];
-  tools: Tool[];
+  /** The garden's tools, or a server tool such as web search (step 4). */
+  tools: ToolUnion[];
 }) => Promise<ModelTurn>;
 
 /** Claude, on a client built for this run and dropped with it. */

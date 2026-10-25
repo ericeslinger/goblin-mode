@@ -234,6 +234,13 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
         @if (keyStatus()) {
           <p role="status">{{ keyStatus() }}</p>
         }
+        <h3>Ask it to look something up</h3>
+        <p>
+          End a checklist item with <code>&#64;goblin</code>, like “research good presents for my
+          nephews &#64;goblin”, and once you leave the note your assistant looks it up on the web,
+          writes what it found under the item, and ticks it. It needs your Anthropic key, and the
+          item’s words are the only instruction it takes.
+        </p>
         <h3>Send to an assistant</h3>
         <p>
           A note you send (on its back, Send to an assistant) waits until your assistant checks. For

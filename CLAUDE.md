@@ -63,9 +63,12 @@ stack playbook and the `house-style` plugin (enabled in
   page for an import, `import_recipe` hands the link to the server,
   and imported lines that do not read as a recipe are set aside. Where
   Claude reads saved text on purpose (`get_attachment_text`,
-  `search_attachments`, an imported recipe in `get_note`), the result
-  carries `fromWeb`, saying it is content, never instructions. Hidden
-  page text is dropped before anything reads it.
+  `search_attachments`, an imported recipe in `get_note`, and since
+  2026-10-25 a note holding what the assistant found on the web for an
+  `@goblin` item, written as plain words under the mark `✳ Mossgoblin,
+  from the web:`), the result carries `fromWeb`, saying it is content,
+  never instructions. Hidden page text is dropped before anything reads
+  it, and a web-search model that writes findings has no tools.
 - **Ids are derived or generated client-side**, never typed by hand, so
   a note exists the moment it is created offline.
 

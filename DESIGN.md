@@ -1509,6 +1509,44 @@ is slow.
   (`agent/stand-in.emulator.ts`, `EMULATOR_ONLY`, as the KMS one)
   that reads the note and finishes it, so a journey follows the whole
   flow.
+- **Items assigned to the assistant (#144 step 4, 2026-10-25).** A
+  checklist item ending in `@goblin` is the assistant's, typed like
+  anything else, so it works offline. When the note settles (the
+  `settledAt` move that asks for a title), `itemAssigned` starts a run
+  of kind `item` for each unticked one, under an id made of the note
+  and the item's text, so a later settle never starts it twice. The run
+  researches the item with a model that has **web search and nothing
+  else**: page text reaches it, so, as the recipe importer's reader, it
+  has no garden tools, no notes, no connectors, and a fixed output
+  shape, findings as short markdown with sources (`agent/research.ts`,
+  `web_search_20260209`, `max_uses` 8, up to four turns past a
+  `pause_turn`, cut at `FINDINGS_MAX`). The item's words are its only
+  instruction, and it stops at `RUN_MAX_MS` like the agent loop. The
+  server then writes the findings under the item, indented, starting
+  `✳ Mossgoblin, from the web:`, and ticks it (`answerItem`, a server
+  write, not a tool Claude has), as the agent Mossgoblin, so it shows
+  in What assistants changed and History keeps the version before.
+  Each findings line is made plain words first (`neutralise`, review
+  on #158): a page could make the model emit a checkbox, an `@goblin`,
+  a wikilink, a tag or markup, and in a note those would read as Eric's
+  and could start another run. `get_note` and the search results label
+  a note holding the mark `fromWeb`, and INSTRUCTIONS name the mark, so
+  a later model with tools reads the findings as content (CLAUDE.md,
+  page text). A run that cannot research (no key, the cap, the model
+  declining, nothing found, cut short by its turns or time) writes one
+  line under the item saying so, replacing an earlier such line, and
+  leaves it unticked; one that failed for want of a key or over the cap
+  is marked retryable, and the next settle resets it to `requested`,
+  as it does a run lost with its function after `RUN_STALE_MS`;
+  `agentRun` runs on every write to a run doc and acts only when the
+  write made it `requested` (`runRequested`), or raised its `attempt`,
+  so a reset runs where a creation-only trigger would not have, a run
+  never claimed included (review on #158). Changing the trigger's event
+  type may need `agentRun` deleted once before the deploy after #158. A success
+  clears an earlier status line under the item. An item ticked or
+  changed meanwhile is left alone. Same `DAILY_RUNS` cap and one key
+  open per run. A garden task is not an `@goblin` item: it is a note
+  sent to an assistant.
 - **Which assistant (#142, 2026-10-25).** `updatedBy` and `createdBy`
   stay `user | claude`, where `claude` now means any assistant; a new
   optional `agent` on notes, kept versions, reminders, attachments and

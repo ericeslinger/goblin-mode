@@ -94,7 +94,7 @@ Whatever uses a gardener's key runs as a second account,
 `goblin-runner`, which may decrypt and nothing else: today
 `attachmentTranscribe` (#47), which also reads the photo or PDF from
 the default bucket (`gcloud storage buckets list`), and `agentRun`
-(Do it now, #144 step 3).
+(Do it now and items assigned with `@goblin`, #144 steps 3 and 4).
 
 ```sh
 gcloud iam service-accounts create goblin-runner
