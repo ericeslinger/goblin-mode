@@ -1539,8 +1539,10 @@ is slow.
   is marked retryable, and the next settle resets it to `requested`,
   as it does a run lost with its function after `RUN_STALE_MS`;
   `agentRun` runs on every write to a run doc and acts only when the
-  write made it `requested` (`runRequested`), so a reset runs where a
-  creation-only trigger would not have (review on #158). A success
+  write made it `requested` (`runRequested`), or raised its `attempt`,
+  so a reset runs where a creation-only trigger would not have, a run
+  never claimed included (review on #158). Changing the trigger's event
+  type may need `agentRun` deleted once before the deploy after #158. A success
   clears an earlier status line under the item. An item ticked or
   changed meanwhile is left alone. Same `DAILY_RUNS` cap and one key
   open per run. A garden task is not an `@goblin` item: it is a note

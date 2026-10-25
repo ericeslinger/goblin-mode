@@ -124,6 +124,7 @@ export const itemAssigned = onDocumentWritten(
           itemText: item.text,
           itemKey: item.key,
           status: 'requested',
+          attempt: (typeof had?.['attempt'] === 'number' ? had['attempt'] : 0) + 1,
           steps: [],
           createdAt: FieldValue.serverTimestamp(),
         });

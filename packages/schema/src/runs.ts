@@ -35,6 +35,8 @@ export const Run = z.object({
   error: z.string().optional(),
   /** A failed item run the next settle may start again (no key yet, the cap). */
   retryable: z.boolean().optional(),
+  /** Which start this is, so a reset of a never-claimed run still runs. */
+  attempt: z.number().int().positive().optional(),
   /** Input tokens the run spent, for the gardener's own bill. */
   tokens: z.number().int().nonnegative().optional(),
   createdAt: Timestamp,

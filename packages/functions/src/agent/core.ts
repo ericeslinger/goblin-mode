@@ -17,10 +17,12 @@ export const DAILY_RUNS = 20;
  * The claim then makes it `working`, which this does not match.
  */
 export function runRequested(
-  before: { status?: unknown } | undefined,
-  after: { status?: unknown } | undefined,
+  before: { status?: unknown; attempt?: unknown } | undefined,
+  after: { status?: unknown; attempt?: unknown } | undefined,
 ): boolean {
-  return after?.status === 'requested' && before?.status !== 'requested';
+  if (after?.status !== 'requested') return false;
+  // A run never claimed and reset again is a new attempt (review on #158).
+  return before?.status !== 'requested' || before?.attempt !== after.attempt;
 }
 
 /** The note is no longer this run's to finish: gone, taken back, or sent again. */

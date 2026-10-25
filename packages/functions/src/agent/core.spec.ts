@@ -236,6 +236,9 @@ describe('executeRun', () => {
     expect(runRequested({ status: 'working' }, { status: 'requested' })).toBe(true);
     expect(runRequested({ status: 'requested' }, { status: 'working' })).toBe(false);
     expect(runRequested({ status: 'requested' }, { status: 'requested' })).toBe(false);
+    expect(
+      runRequested({ status: 'requested', attempt: 1 }, { status: 'requested', attempt: 2 }),
+    ).toBe(true);
     expect(runRequested({ status: 'working' }, { status: 'done' })).toBe(false);
     expect(runRequested({ status: 'requested' }, undefined)).toBe(false);
   });
