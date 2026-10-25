@@ -101,7 +101,8 @@ test('an item ending in @goblin is researched and answered under itself', async 
     .click();
   await expect(note).toContainText('Mossgoblin, from the web:', { timeout: 30_000 });
   await expect(note).toContainText('One thing, from https://example.com/one');
-  await expect(note.locator('.cm-line').filter({ hasText: 'nephews @goblin' })).toContainText(
-    '[x]',
+  // The item is ticked: the editor draws the box as a widget, with this class.
+  await expect(note.locator('.cm-line').filter({ hasText: 'nephews @goblin' })).toHaveClass(
+    /mg-done/,
   );
 });
