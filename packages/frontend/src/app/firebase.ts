@@ -9,6 +9,7 @@ import {
   persistentMultipleTabManager,
   waitForPendingWrites,
 } from 'firebase/firestore';
+import { type Functions, connectFunctionsEmulator, getFunctions } from 'firebase/functions';
 import { type FirebaseStorage, connectStorageEmulator, getStorage } from 'firebase/storage';
 import { EMULATOR_PORTS } from '../environments/emulator-ports';
 import { EMULATOR_PROJECT_ID, PRODUCTION_FIREBASE_CONFIG } from '../environments/firebase-config';
@@ -19,8 +20,13 @@ export interface FirebaseHandles {
   db: Firestore;
   /** Attachment files (#44). */
   storage: FirebaseStorage;
+  /** The callables (#144), in the functions' one region. */
+  functions: Functions;
   usingEmulators: boolean;
 }
+
+/** Every function's region (packages/functions/src/region.ts). */
+export const FUNCTIONS_REGION = 'us-central1';
 
 export const FIREBASE = new InjectionToken<FirebaseHandles>('firebase');
 
@@ -76,5 +82,7 @@ export function initFirebase(hostname: string): FirebaseHandles {
   }
   const storage = getStorage(app);
   if (usingEmulators) connectStorageEmulator(storage, '127.0.0.1', EMULATOR_PORTS.storage);
-  return { app, auth, db, storage, usingEmulators };
+  const functions = getFunctions(app, FUNCTIONS_REGION);
+  if (usingEmulators) connectFunctionsEmulator(functions, '127.0.0.1', EMULATOR_PORTS.functions);
+  return { app, auth, db, storage, functions, usingEmulators };
 }

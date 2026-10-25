@@ -18,6 +18,8 @@ const EXPORTS = [
   'attachmentCreated',
   'attachmentTranscribe',
   'recipeImport',
+  'saveKey',
+  'removeKey',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

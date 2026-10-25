@@ -10,6 +10,7 @@ configureFunctions();
 export { health } from './health/health';
 export { mcp } from './mcp/http';
 export { oauth } from './oauth/http';
+export { removeKey, saveKey } from './keys/callables';
 export { noteHistory, noteTitle } from './notes/triggers';
 export { recipeImport } from './kitchen/triggers';
 export { proposalAccepted } from './organize/triggers';

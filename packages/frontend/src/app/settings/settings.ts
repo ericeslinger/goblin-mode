@@ -4,6 +4,9 @@ import {
   MEALS,
   MODULES,
   type Meal,
+  PROVIDERS,
+  PROVIDER_INFO,
+  type Provider,
   QUEUE_PROMPT,
   WEEKDAYS,
   addDays,
@@ -15,6 +18,7 @@ import { ModulesService } from '../modules/modules.service';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
+import { KeysService } from '../keys/keys.service';
 import { GroceryService } from '../kitchen/grocery.service';
 import { NOW } from '../platform/platform';
 import { type PushState, PushService } from '../push/push.service';
@@ -182,6 +186,50 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
           <a routerLink="/n/context">Context for Claude</a>: what Claude should always know about
           you and the garden, given to it at the start of every conversation.
         </p>
+        <h3>Your API keys</h3>
+        <p>
+          Transcriptions and the assistant's on-demand work run on your own account. Make a key just
+          for Mossgoblin, with a spending limit, so it can be capped and revoked on its own. It is
+          checked with the provider, stored encrypted, and never shown again.
+        </p>
+        @if (keys.keys(); as kept) {
+          <ul class="keys" aria-label="API keys">
+            @for (p of providers; track p) {
+              <li>
+                <span class="provider">{{ providerName[p] }}</span>
+                @if (kept[p]; as key) {
+                  <span class="muted">
+                    <code>{{ key.masked }}</code>
+                    @if (key.broken) {
+                      , not accepted any more
+                    } @else if (key.updatedAt !== undefined) {
+                      , added {{ keyDate(key.updatedAt) }}
+                    }
+                  </span>
+                  <button type="button" [disabled]="keyBusy()" (click)="removeKey(p)">
+                    Remove
+                  </button>
+                } @else {
+                  <form class="key-form" (submit)="saveKey($event, p, keyInput)">
+                    <input
+                      #keyInput
+                      type="password"
+                      autocomplete="off"
+                      [attr.aria-label]="providerName[p] + ' key'"
+                      [placeholder]="'Starts with ' + providerPrefix[p]"
+                    />
+                    <button type="submit" [disabled]="keyBusy()">Save</button>
+                  </form>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="muted">Loading…</p>
+        }
+        @if (keyStatus()) {
+          <p role="status">{{ keyStatus() }}</p>
+        }
         <h3>Send to an assistant</h3>
         <p>
           A note you send (on its back, Send to an assistant) waits until your assistant checks. For
@@ -200,6 +248,32 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
     </main>
   `,
   styles: `
+    .keys {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: var(--space-2);
+    }
+    .keys li {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
+    }
+    .provider {
+      min-width: 6em;
+      font-weight: 600;
+    }
+    .key-form {
+      display: flex;
+      flex: 1;
+      gap: var(--space-2);
+    }
+    .key-form input {
+      flex: 1;
+      min-width: 8em;
+    }
     .prompt {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -344,6 +418,58 @@ export class Settings {
     2,
   );
   protected readonly claudeStatus = signal('');
+
+  /** The gardener's own provider keys (#144). */
+  protected readonly keys = inject(KeysService);
+  protected readonly providers = PROVIDERS;
+  protected readonly providerName = Object.fromEntries(
+    PROVIDERS.map((p) => [p, PROVIDER_INFO[p].name]),
+  ) as Record<Provider, string>;
+  protected readonly providerPrefix = Object.fromEntries(
+    PROVIDERS.map((p) => [p, PROVIDER_INFO[p].prefix]),
+  ) as Record<Provider, string>;
+  protected readonly keyStatus = signal('');
+  protected readonly keyBusy = signal(false);
+
+  protected keyDate(ms: number): string {
+    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(ms);
+  }
+
+  /** Sends a pasted key to be checked and kept; the field is cleared either way. */
+  protected async saveKey(
+    event: Event,
+    provider: Provider,
+    input: HTMLInputElement,
+  ): Promise<void> {
+    event.preventDefault();
+    const key = input.value;
+    input.value = '';
+    if (!key.trim()) return;
+    this.keyBusy.set(true);
+    this.keyStatus.set('Checking the key…');
+    try {
+      const { masked } = await this.keys.save(provider, key);
+      this.keyStatus.set(`${this.providerName[provider]} key ${masked} saved.`);
+    } catch (err) {
+      this.keyStatus.set(`Could not save the key: ${(err as Error).message}`);
+    } finally {
+      this.keyBusy.set(false);
+    }
+  }
+
+  protected async removeKey(provider: Provider): Promise<void> {
+    this.keyBusy.set(true);
+    try {
+      await this.keys.remove(provider);
+      this.keyStatus.set(
+        `${this.providerName[provider]} key removed here; revoke it at ${this.providerName[provider]} too.`,
+      );
+    } catch (err) {
+      this.keyStatus.set(`Could not remove the key: ${(err as Error).message}`);
+    } finally {
+      this.keyBusy.set(false);
+    }
+  }
   private readonly claude = inject(CLAUDE_ACCESS_API);
 
   /** Drops every token any assistant holds; each must connect again. */

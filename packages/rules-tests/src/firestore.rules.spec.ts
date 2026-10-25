@@ -240,6 +240,29 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(owner().doc('users/owner/usage/2026-10-08').set({ transcriptions: 0 }));
   });
 
+  it('keeps provider keys server-only: secrets/ denied, settings/keys read-only (#144)', async () => {
+    await seed('secrets/owner', { anthropic: { ciphertext: 'CiQA', updatedAt: now() } });
+    await assertFails(owner().doc('secrets/owner').get());
+    await assertFails(
+      owner()
+        .doc('secrets/owner')
+        .set({ anthropic: { ciphertext: 'mine' } }),
+    );
+    await assertFails(owner().doc('secrets/owner').delete());
+    await seed('users/owner/settings/keys', {
+      anthropic: { masked: 'sk-ant-…0123', updatedAt: now() },
+      updatedAt: now(),
+    });
+    await assertSucceeds(owner().doc('users/owner/settings/keys').get());
+    await assertFails(intruder().doc('users/owner/settings/keys').get());
+    await assertFails(
+      owner()
+        .doc('users/owner/settings/keys')
+        .set({ anthropic: { masked: 'faked', updatedAt: now() }, updatedAt: now() }),
+    );
+    await assertFails(owner().doc('users/owner/settings/keys').delete());
+  });
+
   it('keeps settings to one doc, app, holding a known theme and mode', async () => {
     const settings = valid['users/owner/settings/app'];
     await assertFails(owner().doc('users/owner/settings/other').set(settings()));

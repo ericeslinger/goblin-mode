@@ -14,7 +14,9 @@
 // | proposals | function, plus the owner's accept or dismiss | nightly organize (#35) |
 // | attachments | client, direct | a photo taken offline must be recorded offline (#43) |
 // | notes/replaced | function only | texts writes replaced, for merges (2026-10-07) |
+// | settings/keys | function only | a gardener's masked provider keys (#144) |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
+// | secrets (top level) | function only | a gardener's encrypted provider keys (#144), never client-readable |
 //
 // Direct-write collections get shape validators generated from these
 // schemas into firestore.rules; that generator lands with the first
@@ -478,6 +480,10 @@ export const paths = {
   activity: (uid: string) => `users/${uid}/activity`,
   proposals: (uid: string) => `users/${uid}/proposals`,
   attachments: (uid: string) => `users/${uid}/attachments`,
+  /** The gardener's masked provider keys (#144), read by the app. */
+  keys: (uid: string) => `users/${uid}/settings/keys`,
+  /** Server only: the gardener's encrypted provider keys (#144). */
+  secrets: (uid: string) => `secrets/${uid}`,
   /** Server only: a day's metered calls, e.g. transcriptions (#47). */
   usage: (uid: string, day: string) => `users/${uid}/usage/${day}`,
   /** Server only: the texts recent writes replaced, for merges. */
