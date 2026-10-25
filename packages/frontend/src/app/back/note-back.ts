@@ -9,7 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { madeLine, normalizeName, paths, templateParts } from '@mossgoblin/schema';
+import { RUN_STALE_MS, madeLine, normalizeName, paths, templateParts } from '@mossgoblin/schema';
 import { RunsService, type RunView } from '../agent/runs.service';
 import { AuthService } from '../auth.service';
 import { KeysService } from '../keys/keys.service';
@@ -126,7 +126,7 @@ function stamp(ms: number | undefined): string {
           <p role="status" class="run">
             @switch (r.status) {
               @case ('working') {
-                @if (r.stale) {
+                @if (stale()) {
                   The run seems lost after {{ r.steps }} {{ r.steps === 1 ? 'step' : 'steps' }}; try
                   again.
                 } @else {
@@ -383,8 +383,15 @@ export class NoteBack {
   /** With an Anthropic key kept, and no run already going. */
   protected readonly canRunNow = computed(() => {
     const run = this.run();
-    const going = run && (run.status === 'working' || run.status === 'requested') && !run.stale;
+    const going = run && (run.status === 'working' || run.status === 'requested') && !this.stale();
     return !!this.keys.keys()?.anthropic && !going;
+  });
+  /** Ticks while a run is watched, so a lost run reads as lost in time (review on #152). */
+  private readonly tick = signal(Date.now());
+  protected readonly stale = computed(() => {
+    const run = this.run();
+    if (!run || (run.status !== 'working' && run.status !== 'requested')) return false;
+    return run.since !== undefined && this.tick() - run.since > RUN_STALE_MS;
   });
   protected readonly starting = signal(false);
   protected readonly runStatus = signal('');
@@ -428,6 +435,9 @@ export class NoteBack {
       untracked(() => this.watched.set(undefined));
       if (!runId) return;
       onCleanup(this.agentRuns.watch(runId, (run) => this.watched.set(run)));
+      this.tick.set(Date.now());
+      const timer = setInterval(() => this.tick.set(Date.now()), 30_000);
+      onCleanup(() => clearInterval(timer));
     });
     let stop: (() => void) | undefined;
     effect(() => {

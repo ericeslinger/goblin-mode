@@ -11,6 +11,9 @@ import { DEFAULT_LIMITS, type LoopLimits, runLoop } from './loop';
 /** Runs an account may start in a day (UTC), like transcriptions. */
 export const DAILY_RUNS = 20;
 
+/** The note is no longer this run's to finish: gone, taken back, or sent again. */
+export class NoteGoneError extends Error {}
+
 export interface RunRecord {
   kind?: unknown;
   noteId?: unknown;
@@ -108,9 +111,9 @@ export async function executeRun(deps: RunDeps, uid: string, runId: string): Pro
   };
   try {
     const note = await deps.store.noteState(uid, noteId);
-    if (!note) throw new Error('the note is gone');
+    if (!note) throw new NoteGoneError('the note is gone');
     if (note.sendState !== 'queued' || note.sentAt !== sentAt) {
-      throw new Error('the note was taken back, or sent again');
+      throw new NoteGoneError('the note was taken back, or sent again');
     }
     built = await deps.garden(uid, { noteId, sentAt });
     const { garden } = built;
@@ -142,7 +145,7 @@ export async function executeRun(deps: RunDeps, uid: string, runId: string): Pro
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
     // A run that broke (the model, a tool, the key) still closes its
     // note, saying so; a note taken back is not ours to touch.
-    if (!/taken back|is gone/.test(message)) {
+    if (!(err instanceof NoteGoneError)) {
       await finishWith(`Could not do it: ${message}`).catch(() => undefined);
     }
     await deps.store.update(uid, runId, { status: 'failed', error: message });

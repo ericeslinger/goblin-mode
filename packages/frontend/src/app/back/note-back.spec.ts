@@ -192,16 +192,16 @@ describe('NoteBack (#112)', () => {
     fixture.componentRef.setInput('note', { ...queued, sendRun: 'r1' });
     await fixture.whenStable();
     expect(agentRuns.watch).toHaveBeenCalledWith('r1', expect.any(Function));
-    agentRuns.next!({ status: 'working', steps: 2, stale: false });
+    agentRuns.next!({ status: 'working', steps: 2, since: Date.now() });
     TestBed.tick();
     expect(el.textContent).toContain('Doing it now: 2 steps so far.');
     expect(button(el, 'Do it now')).toBeUndefined();
     // A run lost with its function can be tried again (review on #152).
-    agentRuns.next!({ status: 'working', steps: 2, stale: true });
+    agentRuns.next!({ status: 'working', steps: 2, since: Date.now() - 11 * 60_000 });
     TestBed.tick();
     expect(el.textContent).toContain('The run seems lost after 2 steps; try again.');
     expect(button(el, 'Do it now')).toBeTruthy();
-    agentRuns.next!({ status: 'failed', steps: 2, error: 'the note was taken back', stale: false });
+    agentRuns.next!({ status: 'failed', steps: 2, error: 'the note was taken back' });
     TestBed.tick();
     expect(el.textContent).toContain('Could not do it now: the note was taken back');
     expect(button(el, 'Do it now')).toBeTruthy();

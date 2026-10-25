@@ -1490,7 +1490,8 @@ is slow.
   `finish_queued` is bound to the run's own note and `sentAt`,
   whatever the model passes. `claude-sonnet-5-5`, 4096 tokens a turn,
   at most `RUN_MAX_STEPS` (30) tool calls, `RUN_MAX_INPUT_TOKENS`
-  (400k) and `RUN_MAX_MS` (six minutes, inside the trigger's nine)
+  (400k) and `RUN_MAX_MS` (four minutes: a last turn at its worst, a
+  120 s timeout and one retry, still ends inside the trigger's nine)
   per run; past any the run stops and says so. The key is opened once
   per run, not per turn. The note never stays queued after a run: if
   the model did not call `finish_queued`, the trigger finishes it with
@@ -1498,7 +1499,8 @@ is slow.
   model, a tool, the key) finishes it with "Could not do it" and why;
   only a note taken back meanwhile is left alone. Should the function
   itself be killed, the run stays `working`: after `RUN_STALE_MS` (ten
-  minutes) the back takes it for lost and offers Do it now again, and
+  minutes, kept in time by a timer while the back is open) the back
+  takes it for lost and offers Do it now again, and
   `startRun` replaces it; before that a second tap, or another device,
   is told the run is already going. The run doc records each step, the
   outcome and the tokens spent; the back shows "Doing it now: 3 steps

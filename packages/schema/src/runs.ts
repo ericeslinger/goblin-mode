@@ -41,10 +41,11 @@ export type Run = z.infer<typeof Run>;
 /**
  * Where a run stops on its own: tool calls, input tokens, and time, per
  * run. The time leaves room, inside the trigger's 540 s, for one more
- * turn (the model's own timeout is 120 s) and finishing the note.
+ * turn at its worst (a 120 s timeout and one retry, 240 s) and for
+ * finishing the note (review on #152).
  */
 export const RUN_MAX_STEPS = 30;
 export const RUN_MAX_INPUT_TOKENS = 400_000;
-export const RUN_MAX_MS = 360_000;
+export const RUN_MAX_MS = 240_000;
 /** A run working longer than this is taken for lost (its function was killed). */
 export const RUN_STALE_MS = 10 * 60_000;
