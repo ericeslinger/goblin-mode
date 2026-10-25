@@ -93,7 +93,8 @@ says so; nothing else is affected.
 Whatever uses a gardener's key runs as a second account,
 `goblin-runner`, which may decrypt and nothing else: today
 `attachmentTranscribe` (#47), which also reads the photo or PDF from
-the default bucket (`gcloud storage buckets list`).
+the default bucket (`gcloud storage buckets list`), and `agentRun`
+(Do it now, #144 step 3).
 
 ```sh
 gcloud iam service-accounts create goblin-runner

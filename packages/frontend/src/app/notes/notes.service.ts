@@ -98,6 +98,8 @@ export interface NoteRecord {
   sendAsk?: string;
   sentAt?: number;
   sendOutcome?: string;
+  /** The run doing it now (#144 step 3), if Eric asked for one. */
+  sendRun?: string;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -228,6 +230,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
       ? { sentAt: (data['sentAt'] as { toMillis: () => number }).toMillis() }
       : {}),
     ...(typeof data['sendOutcome'] === 'string' ? { sendOutcome: data['sendOutcome'] } : {}),
+    ...(typeof data['sendRun'] === 'string' ? { sendRun: data['sendRun'] } : {}),
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
@@ -631,7 +634,13 @@ export class NotesService {
   unsend(id: string): void {
     if (!this.uid || !this.find(id)?.sendState) return;
     const gone = this.api.removeField();
-    const update = { sendState: gone, sendAsk: gone, sentAt: gone, sendOutcome: gone };
+    const update = {
+      sendState: gone,
+      sendAsk: gone,
+      sentAt: gone,
+      sendOutcome: gone,
+      sendRun: gone,
+    };
     this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
 

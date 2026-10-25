@@ -1,7 +1,18 @@
-import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { madeLine, normalizeName, paths, templateParts } from '@mossgoblin/schema';
+import { RunsService, type RunView } from '../agent/runs.service';
 import { AuthService } from '../auth.service';
+import { KeysService } from '../keys/keys.service';
 import { ACTIVITY_API, toRun, type RunRecord } from '../claude/activity';
 import { FIREBASE } from '../firebase';
 import { ConceptHeader } from '../links/concept-header';
@@ -111,14 +122,41 @@ function stamp(ms: number | undefined): string {
 
       <h3 id="send-to">Send to an assistant</h3>
       @if (note().sendState === 'queued') {
-        <p role="status">
-          Waiting for your assistant since {{ sentAt() }}
-          @if (note().sendAsk; as ask) {
-            : “{{ ask }}”
+        @if (run(); as r) {
+          <p role="status" class="run">
+            @switch (r.status) {
+              @case ('working') {
+                Doing it now: {{ r.steps }} {{ r.steps === 1 ? 'step' : 'steps' }} so far.
+              }
+              @case ('failed') {
+                Could not do it now: {{ r.error || r.outcome }}
+              }
+              @case ('done') {
+                Done: {{ r.outcome }}
+              }
+              @default {
+                Starting…
+              }
+            }
+          </p>
+        } @else {
+          <p role="status">
+            Waiting for your assistant since {{ sentAt() }}
+            @if (note().sendAsk; as ask) {
+              : “{{ ask }}”
+            }
+            .
+          </p>
+        }
+        <div class="actions">
+          @if (canRunNow()) {
+            <button type="button" [disabled]="starting()" (click)="doItNow()">Do it now</button>
           }
-          .
-        </p>
-        <button type="button" class="link" (click)="notes.unsend(note().id)">Take it back</button>
+          <button type="button" class="link" (click)="notes.unsend(note().id)">Take it back</button>
+        </div>
+        @if (runStatus()) {
+          <p role="status">{{ runStatus() }}</p>
+        }
       } @else {
         @if (note().sendState === 'done') {
           <p role="status" class="done">
@@ -252,6 +290,11 @@ function stamp(ms: number | undefined): string {
     .send label {
       flex: 1 1 12em;
     }
+    .actions {
+      display: flex;
+      gap: var(--space-3);
+      align-items: center;
+    }
     .link {
       border: 0;
       padding: 0;
@@ -329,6 +372,31 @@ export class NoteBack {
   protected readonly edited = computed(() => stamp(this.note().updatedAt));
   protected readonly sentAt = computed(() => stamp(this.note().sentAt));
 
+  /** Do it now (#144 step 3): the garden's own agent, on Eric's Anthropic key. */
+  private readonly keys = inject(KeysService);
+  private readonly agentRuns = inject(RunsService);
+  /** With an Anthropic key kept, and no run already going. */
+  protected readonly canRunNow = computed(() => {
+    const status = this.run()?.status;
+    return !!this.keys.keys()?.anthropic && status !== 'working' && status !== 'requested';
+  });
+  protected readonly starting = signal(false);
+  protected readonly runStatus = signal('');
+  private readonly watched = signal<RunView | undefined>(undefined);
+  protected readonly run = computed(() => (this.note().sendRun ? this.watched() : undefined));
+
+  protected async doItNow(): Promise<void> {
+    this.starting.set(true);
+    this.runStatus.set('');
+    try {
+      await this.agentRuns.start(this.note().id);
+    } catch (err) {
+      this.runStatus.set(`Could not start: ${(err as Error).message}`);
+    } finally {
+      this.starting.set(false);
+    }
+  }
+
   /** Sends the note to Eric's assistant with what he asked (#143). */
   protected send(event: Event, ask: HTMLInputElement): void {
     event.preventDefault();
@@ -348,6 +416,13 @@ export class NoteBack {
   );
 
   constructor() {
+    // Watch the note's run while it has one (#144 step 3).
+    effect((onCleanup) => {
+      const runId = this.note().sendRun;
+      untracked(() => this.watched.set(undefined));
+      if (!runId) return;
+      onCleanup(this.agentRuns.watch(runId, (run) => this.watched.set(run)));
+    });
     let stop: (() => void) | undefined;
     effect(() => {
       const uid = this.auth.user()?.uid;

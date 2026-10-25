@@ -1,0 +1,43 @@
+// A run of the garden's own agent (#144 step 3): a note sent to an
+// assistant, done at once on the gardener's own key instead of waiting
+// for the hourly routine. Written by the functions under
+// users/{uid}/runs, read by the app to show progress on the note.
+import { z } from 'zod';
+import { Timestamp } from './model';
+
+/** The agent the garden runs for itself, as writes name it (#142). */
+export const GARDEN_AGENT = 'Mossgoblin';
+
+export const RunStatus = z.enum(['requested', 'working', 'done', 'failed']);
+export type RunStatus = z.infer<typeof RunStatus>;
+
+/** One tool call the run made. */
+export const RunStep = z.object({
+  at: Timestamp,
+  tool: z.string().min(1),
+  ok: z.boolean(),
+});
+export type RunStep = z.infer<typeof RunStep>;
+
+export const Run = z.object({
+  /** What the run is for; only sent notes so far. */
+  kind: z.literal('queued-note'),
+  noteId: z.string().min(1),
+  /** The note's `sentAt` when the run was asked for, as finish_queued needs it. */
+  sentAt: Timestamp,
+  status: RunStatus,
+  steps: z.array(RunStep),
+  /** The one line the run ends with, or why it failed. */
+  outcome: z.string().optional(),
+  error: z.string().optional(),
+  /** Input tokens the run spent, for the gardener's own bill. */
+  tokens: z.number().int().nonnegative().optional(),
+  createdAt: Timestamp,
+  startedAt: Timestamp.optional(),
+  finishedAt: Timestamp.optional(),
+});
+export type Run = z.infer<typeof Run>;
+
+/** Where a run stops on its own: tool calls, and input tokens, per run. */
+export const RUN_MAX_STEPS = 30;
+export const RUN_MAX_INPUT_TOKENS = 400_000;

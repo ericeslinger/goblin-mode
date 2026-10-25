@@ -197,6 +197,8 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...note(), sendState: 'sent' }));
     await assertFails(ref.set({ ...note(), sendAsk: 3 }));
     await assertFails(ref.set({ ...note(), sentAt: 'today' }));
+    await assertSucceeds(ref.set({ ...note(), sendState: 'queued', sendRun: 'run1' }));
+    await assertFails(ref.set({ ...note(), sendRun: 7 }));
   });
 
   it('lets the app settle a note with a merged server timestamp, and nothing else in it', async () => {
@@ -299,8 +301,12 @@ describe('client-written collections: notes, reminders, devices, settings, attac
   });
 });
 
-describe('function-only collections: notes/history, activity', () => {
-  for (const path of ['users/owner/notes/n1/history/v1', 'users/owner/activity/run1']) {
+describe('function-only collections: notes/history, activity, runs', () => {
+  for (const path of [
+    'users/owner/notes/n1/history/v1',
+    'users/owner/activity/run1',
+    'users/owner/runs/run1',
+  ]) {
     it(`${path}: the owner can read but not write or delete`, async () => {
       await seed(path);
       await assertSucceeds(owner().doc(path).get());

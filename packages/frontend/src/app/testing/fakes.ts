@@ -11,7 +11,9 @@ import {
   planId,
 } from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
+import { RunsService } from '../agent/runs.service';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
+import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
@@ -179,9 +181,24 @@ export class FakeModules {
   );
 }
 
+/** A stand-in KeysService: no keys kept until set (#144). */
+export class FakeKeys {
+  readonly keys = signal<Record<string, { masked: string; broken: boolean }> | undefined>({});
+  save = vi.fn(async (_provider: string, _key: string) => ({ masked: 'sk-ant-…0123' }));
+  remove = vi.fn(async (_provider: string) => undefined);
+}
+
+/** A stand-in RunsService: starts nothing, watches nothing (#144 step 3). */
+export class FakeRuns {
+  start = vi.fn(async (_noteId: string) => ({ runId: 'r1' }));
+  watch = vi.fn((_runId: string, _next: (run: unknown) => void) => () => undefined);
+}
+
 export function remindersTestProviders(api: FakeRemindersApi, now: () => number) {
   return [
     { provide: ModulesService, useValue: new FakeModules() },
+    { provide: KeysService, useValue: new FakeKeys() },
+    { provide: RunsService, useValue: new FakeRuns() },
     { provide: FIREBASE, useValue: fakeFirebase(true) },
     { provide: READING_API, useValue: new FakeReadingApi() },
     { provide: REMINDERS_API, useValue: api },
