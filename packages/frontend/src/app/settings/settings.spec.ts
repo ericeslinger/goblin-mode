@@ -111,12 +111,12 @@ describe('Settings', () => {
     auth.user.set({ email: 'e@x.test', getIdToken: async () => 'id-token' } as never);
     const el = await render(auth);
     expect(el.querySelector('code')?.textContent).toBe(`${location.origin}/mcp`);
-    button(el, 'Disconnect Claude')!.click();
+    button(el, 'Disconnect all assistants')!.click();
     await vi.waitFor(() => expect(claude.revoke).toHaveBeenCalledWith('id-token'));
     TestBed.tick();
     await vi.waitFor(() => {
       TestBed.tick();
-      expect(el.textContent).toContain('Claude is disconnected.');
+      expect(el.textContent).toContain('Every assistant is disconnected.');
     });
   });
 

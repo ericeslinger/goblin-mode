@@ -52,7 +52,9 @@ describe('Authorize', () => {
     const { el, api, fixture } = await render({});
     expect(api.consent).toHaveBeenCalledWith(QUERY);
     expect(el.textContent).toContain('Claude wants to read and change your notes and reminders.');
-    expect(el.textContent).toContain('https://claude.ai');
+    expect(el.textContent).toContain(
+      'Allow this only if you just asked https://claude.ai to connect.',
+    );
     button(el, 'Allow')!.click();
     await fixture.whenStable();
     await new Promise((r) => setTimeout(r));
@@ -61,6 +63,18 @@ describe('Authorize', () => {
       'id-token',
     );
     expect(api.go).toHaveBeenCalledWith('https://claude.ai/api/mcp/auth_callback?code=k&state=s1');
+  });
+
+  it('says when the app asking is on this computer (#142)', async () => {
+    const { el } = await render({
+      consent: vi.fn(async () => ({
+        clientName: 'Gemini CLI',
+        redirectOrigin: 'http://localhost:40123',
+      })),
+    });
+    expect(el.textContent).toContain('Gemini CLI wants to read and change your notes');
+    expect(el.textContent).toContain('It is an app on this computer, at http://localhost:40123.');
+    expect(el.textContent).toContain('Allow this only if you just asked that app to connect.');
   });
 
   it('denies by going back with access_denied', async () => {

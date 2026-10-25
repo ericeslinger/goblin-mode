@@ -1,12 +1,20 @@
-// The OAuth 2.1 authorization server claude.ai's custom connectors sign
-// in through (DESIGN.md, MCP server): dynamic client registration, the
+// The OAuth 2.1 authorization server MCP clients sign in through
+// (DESIGN.md, MCP server): claude.ai's custom connectors, and apps on
+// the gardener's own computer such as Gemini CLI (#142). Dynamic client
+// registration, the
 // authorization code flow with PKCE (S256 only), refresh token rotation.
 // The only identity is the owner's Firebase sign-in, checked at approve.
 // Pure over an OAuthStore; codes and tokens are stored only as hashes.
 import { createHash, randomBytes } from 'node:crypto';
 
-/** Where a registered client may send the code back (claude.ai's callback). */
+/** Hosted clients that may receive a code: claude.ai's callback. */
 export const ALLOWED_REDIRECT_ORIGINS = ['https://claude.ai', 'https://claude.com'];
+/**
+ * Loopback hosts an app on the gardener's own computer listens on
+ * (RFC 8252 section 7.3), over plain http. A code sent there reaches
+ * only that computer. `localhost` is allowed too: Gemini CLI uses it.
+ */
+const LOOPBACK_HOSTS = ['127.0.0.1', '[::1]', 'localhost'];
 
 export const CODE_TTL_MS = 5 * 60 * 1000;
 export const ACCESS_TTL_MS = 60 * 60 * 1000;
@@ -114,14 +122,40 @@ export function protectedResourceMetadata(origin: string) {
   };
 }
 
-function allowedRedirect(uri: unknown): uri is string {
-  if (typeof uri !== 'string') return false;
+function parse(uri: unknown): URL | undefined {
+  if (typeof uri !== 'string') return undefined;
   try {
     const url = new URL(uri);
-    return ALLOWED_REDIRECT_ORIGINS.includes(url.origin) && !url.hash;
+    return url.hash || url.username || url.password ? undefined : url;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+/** A loopback callback: http on a loopback host, any port. */
+function isLoopback(url: URL): boolean {
+  return url.protocol === 'http:' && LOOPBACK_HOSTS.includes(url.hostname);
+}
+
+function allowedRedirect(uri: unknown): uri is string {
+  const url = parse(uri);
+  return !!url && (ALLOWED_REDIRECT_ORIGINS.includes(url.origin) || isLoopback(url));
+}
+
+/**
+ * Whether `uri` is one the client registered. A loopback callback may
+ * differ in port only, since the app picks a free port each time (RFC
+ * 8252 section 7.3).
+ */
+export function registeredRedirect(client: Client, uri: string): boolean {
+  if (client.redirectUris.includes(uri)) return true;
+  const url = parse(uri);
+  if (!url || !isLoopback(url)) return false;
+  const portless = (u: URL) => `${u.protocol}//${u.hostname}${u.pathname}${u.search}`;
+  return client.redirectUris.some((r) => {
+    const reg = parse(r);
+    return !!reg && isLoopback(reg) && portless(reg) === portless(url);
+  });
 }
 
 /** RFC 7591 registration of a public client (no secret). */
@@ -134,13 +168,13 @@ export async function register(
   if (!Array.isArray(uris) || uris.length === 0 || !uris.every(allowedRedirect)) {
     throw new OAuthError(
       'invalid_redirect_uri',
-      `redirect_uris must be on ${ALLOWED_REDIRECT_ORIGINS.join(' or ')}`,
+      `redirect_uris must be on ${ALLOWED_REDIRECT_ORIGINS.join(' or ')}, or http on a loopback host`,
     );
   }
   const name = typeof body['client_name'] === 'string' ? body['client_name'].slice(0, 100) : '';
   const client: Client = {
     clientId: newSecret(),
-    clientName: name || 'Claude',
+    clientName: name || (uris.every((u) => isLoopback(new URL(u))) ? 'An app' : 'Claude'),
     redirectUris: uris as string[],
     createdAt: now,
   };
@@ -174,7 +208,7 @@ export async function checkAuthorize(
   }
   const client = await store.client(req.clientId);
   if (!client) throw new OAuthError('invalid_client', 'unknown client');
-  if (!client.redirectUris.includes(req.redirectUri)) {
+  if (!registeredRedirect(client, req.redirectUri)) {
     throw new OAuthError('invalid_request', 'redirect_uri is not registered for this client');
   }
   if (req.codeChallengeMethod !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(req.codeChallenge)) {
