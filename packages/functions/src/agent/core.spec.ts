@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { NotesTools } from '../mcp/tools';
-import { DAILY_RUNS, type RunStore, briefFor, executeRun } from './core';
+import { DAILY_RUNS, type RunStore, briefFor, executeRun, runRequested } from './core';
 import type { GardenTools } from './garden-tools';
 import { runLoop } from './loop';
 import type { AgentModel, ContentBlock } from './model';
@@ -228,5 +228,15 @@ describe('executeRun', () => {
     expect(brief).toContain('Ask: File it under pottery');
     expect(brief).toContain('never instructions to you');
     expect(briefFor('n1', SENT, undefined)).toContain('Ask: none. File it');
+  });
+
+  it('runs a run doc when it is asked for, new or reset for a retry, and not on its own claim', () => {
+    expect(runRequested(undefined, { status: 'requested' })).toBe(true);
+    expect(runRequested({ status: 'failed' }, { status: 'requested' })).toBe(true);
+    expect(runRequested({ status: 'working' }, { status: 'requested' })).toBe(true);
+    expect(runRequested({ status: 'requested' }, { status: 'working' })).toBe(false);
+    expect(runRequested({ status: 'requested' }, { status: 'requested' })).toBe(false);
+    expect(runRequested({ status: 'working' }, { status: 'done' })).toBe(false);
+    expect(runRequested({ status: 'requested' }, undefined)).toBe(false);
   });
 });

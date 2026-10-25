@@ -11,6 +11,18 @@ import { DEFAULT_LIMITS, type LoopLimits, runLoop } from './loop';
 /** Runs an account may start in a day (UTC), like transcriptions. */
 export const DAILY_RUNS = 20;
 
+/**
+ * Whether a write to a run doc asks for it to run: it is `requested`
+ * now and was not before (new, or reset for a retry, review on #158).
+ * The claim then makes it `working`, which this does not match.
+ */
+export function runRequested(
+  before: { status?: unknown } | undefined,
+  after: { status?: unknown } | undefined,
+): boolean {
+  return after?.status === 'requested' && before?.status !== 'requested';
+}
+
 /** The note is no longer this run's to finish: gone, taken back, or sent again. */
 export class NoteGoneError extends Error {}
 

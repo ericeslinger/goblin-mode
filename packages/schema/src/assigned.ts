@@ -65,12 +65,11 @@ export function answerItem(
   const add = lines.map((l) => (l.trim() ? `${indent}${l}` : ''));
   // A line saying why it could not be done replaces the last such line,
   // so a retry never piles them up (review on #158).
+  // Either way an earlier status line under the item makes way: a retry
+  // never piles them up, and a success leaves no stale "could not".
   const next = all[item.line + 1];
-  if (!tick && next !== undefined && next.trim().startsWith(`- ${STATUS_MARK}`)) {
-    all.splice(item.line + 1, 1, ...add);
-  } else {
-    all.splice(item.line + 1, 0, ...add);
-  }
+  const stale = next !== undefined && next.trim().startsWith(`- ${STATUS_MARK}`) ? 1 : 0;
+  all.splice(item.line + 1, stale, ...add);
   return { body: all.join('\n'), changed: true };
 }
 
@@ -80,16 +79,21 @@ export function answerItem(
  * written into a note those would be read as Eric's. Only words stay.
  */
 export function neutralise(line: string): string {
-  return line
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
-    .replace(/^\s*\[[ xX]\]\s*/, '')
-    .replace(/^\s*#{1,6}\s+/, '')
-    .replace(/\[\[([^\]]*)\]\]/g, '$1')
-    .replace(/@goblin/gi, 'goblin')
-    .replace(/(^|\s)#(?=\p{L})/gu, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    line
+      .replace(/<[^>]*>/g, ' ')
+      // An image would be fetched by Eric's browser, a link clicked: words only.
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]*)\]\(([^)]*)\)/g, '$1 $2')
+      .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
+      .replace(/^\s*\[[ xX]\]\s*/, '')
+      .replace(/^\s*#{1,6}\s+/, '')
+      .replace(/\[\[([^\]]*)\]\]/g, '$1')
+      .replace(/@goblin/gi, 'goblin')
+      .replace(/(^|\s)#(?=\p{L})/gu, '$1')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /** The findings as lines under an item: the mark, then the text's lines as bullets. */

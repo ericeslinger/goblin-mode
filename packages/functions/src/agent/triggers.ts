@@ -1,13 +1,13 @@
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
-import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { GARDEN_AGENT, RUN_STALE_MS, assignedItems, paths } from '@mossgoblin/schema';
 import { firestoreKeyStore } from '../keys/firestore-store';
 import { sealerFromEnv } from '../keys/sealer';
 import { withKey } from '../keys/use';
 import { contextOrNone, modulesOrNone } from '../mcp/http';
 import { NotesTools } from '../mcp/tools';
-import { executeRun } from './core';
+import { executeRun, runRequested } from './core';
 import { firestoreRunStore } from './firestore-store';
 import { gardenTools } from './garden-tools';
 import { executeItemRun, itemRunId } from './items';
@@ -22,7 +22,7 @@ const RUNNER_ACCOUNT = 'goblin-runner@';
  * gardener's Anthropic key, does the sent note now. The key is opened
  * for this run alone; the model built from it lives no longer.
  */
-export const agentRun = onDocumentCreated(
+export const agentRun = onDocumentWritten(
   {
     document: 'users/{uid}/runs/{runId}',
     serviceAccount: RUNNER_ACCOUNT,
@@ -30,6 +30,9 @@ export const agentRun = onDocumentCreated(
     timeoutSeconds: 540,
   },
   async (event) => {
+    // On every write, so a run reset to `requested` for a retry runs
+    // too (review on #158); a claim's own write to `working` does not.
+    if (!runRequested(event.data?.before.data(), event.data?.after.data())) return;
     const { uid, runId } = event.params;
     const db = getFirestore();
     const keys = firestoreKeyStore(db);
@@ -42,7 +45,7 @@ export const agentRun = onDocumentCreated(
         : withKey(keyDeps, owner, 'anthropic', 'do it now', (key) => use(anthropicModel(key)));
     };
     // An item assigned with @goblin (step 4): research, then written under it.
-    if (event.data?.data()?.['kind'] === 'item') {
+    if (event.data?.after.data()?.['kind'] === 'item') {
       const outcome = await executeItemRun(
         {
           store,

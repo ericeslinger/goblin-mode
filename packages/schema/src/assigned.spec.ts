@@ -72,11 +72,31 @@ describe('assigned items (#144 step 4)', () => {
       'See Secret note and urgent now',
     );
     expect(neutralise('## A heading')).toBe('A heading');
+    expect(
+      neutralise('![my bank login](https://evil.example/i.png) see [here](https://a.example)'),
+    ).toBe('my bank login see here https://a.example');
     expect(neutralise('Lego, from https://a.example #3 in sales')).toBe(
       'Lego, from https://a.example #3 in sales',
     );
     const lines = findingsLines('- [ ] buy this @Goblin\n<script>x</script>');
     expect(lines).toEqual([`- ${FINDINGS_MARK}`, '  - buy this goblin', '  - x']);
+  });
+
+  it('clears an earlier status line on success', () => {
+    const failed = answerItem(
+      NOTE,
+      'find the best glaze for celadon',
+      [`- ${STATUS_MARK} no key`],
+      false,
+    );
+    const done = answerItem(failed.body, 'find the best glaze for celadon', [
+      `- ${FINDINGS_MARK}`,
+      '  - Lego',
+    ]);
+    const lines = done.body.split('\n');
+    expect(lines.filter((l) => l.includes(STATUS_MARK))).toEqual([]);
+    expect(lines[4]).toBe('  - [x] find the best glaze for celadon @Goblin ');
+    expect(lines[5]).toBe(`    - ${FINDINGS_MARK}`);
   });
 
   it('replaces an earlier status line rather than piling them up', () => {
