@@ -86,11 +86,14 @@ gcloud projects add-iam-policy-binding <project> \
   --role=roles/datastore.user
 gcloud iam service-accounts add-iam-policy-binding \
   goblin-keys@<project>.iam.gserviceaccount.com \
-  --member=serviceAccount:<deploy account> --role=roles/iam.serviceAccountUser
+  --member=serviceAccount:<deploy account> \
+  --role=roles/iam.serviceAccountUser
 ```
- `saveKey` and
-`removeKey` always run as it. Without the key ring, saving a key fails
-and Settings says so; nothing else is affected.
+
+`<deploy account>` is the service account whose JSON key is
+`FIREBASE_SERVICE_ACCOUNT` above. `saveKey` and `removeKey` always run
+as `goblin-keys`. Without the key ring, saving a key fails and Settings
+says so; nothing else is affected.
 
 The deploy account cannot change project IAM, so the first deploy of
 the Firestore-triggered functions stops and asks a project owner to
