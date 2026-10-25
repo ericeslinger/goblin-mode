@@ -1601,15 +1601,20 @@ export class NotesTools {
           kind: String(d['kind'] ?? 'text'),
           ...(typeof d['sendAsk'] === 'string' && d['sendAsk'] ? { ask: d['sendAsk'] } : {}),
           sentAt: iso(d['sentAt']),
+          // An imported recipe's title is the page's words (review on #147).
+          ...webLabel(d),
         };
       });
   }
 
   /**
    * A sent note is done (#143): marked so, with one line saying what was
-   * done, shown on the note. Only a note still waiting can be finished.
+   * done, shown on the note. Only a note still waiting, sent when
+   * list_queue said (`sentAt`), can be finished: one Eric sent again
+   * meanwhile, with a new ask, waits for the next run (review on #147).
+   * The note's text and who last wrote it stay as they were.
    */
-  async finishQueued(args: { id: string; outcome: string }) {
+  async finishQueued(args: { id: string; sentAt: string; outcome: string }) {
     const outcome = args.outcome.replace(/\s+/g, ' ').trim().slice(0, SEND_OUTCOME_MAX);
     if (!outcome) throw new ToolError('outcome must say what was done');
     const ref = this.notes().doc(args.id);
@@ -1620,7 +1625,12 @@ export class NotesTools {
       if (current['sendState'] !== 'queued') {
         throw new ToolError(`note ${args.id} is not waiting in the queue`);
       }
-      const update = { ...this.stamp(), sendState: 'done', sendOutcome: outcome };
+      if (iso(current['sentAt']) !== args.sentAt) {
+        throw new ToolError(
+          `note ${args.id} was sent again since; call list_queue and do its new ask`,
+        );
+      }
+      const update = { sendState: 'done', sendOutcome: outcome };
       Note.parse({ ...current, ...update });
       tx.update(ref, update);
       tx.set(

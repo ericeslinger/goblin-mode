@@ -24,7 +24,8 @@ test('a note sent to an assistant waits in its queue, and shows what it did', as
       timeout: 15_000,
     })
     .toEqual([expect.objectContaining({ id, ask: 'File this under pottery' })]);
-  await call('finish_queued', { id, outcome: 'Linked it to pottery.' });
+  const [{ sentAt }] = (await call('list_queue', {})) as { sentAt: string }[];
+  await call('finish_queued', { id, sentAt, outcome: 'Linked it to pottery.' });
   await expect(back.getByRole('status')).toContainText('Done: Linked it to pottery.', {
     timeout: 15_000,
   });
