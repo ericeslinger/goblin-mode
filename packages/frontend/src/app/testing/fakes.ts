@@ -86,6 +86,8 @@ export class FakeNotes {
     (_id: string, _change: Parameters<NotesService['updateRecipe']>[1]) => undefined,
   );
   setInstructions = vi.fn((_id: string, _text: string) => undefined);
+  sendToAssistant = vi.fn((_id: string, _ask: string) => undefined);
+  unsend = vi.fn((_id: string) => undefined);
   makeContext = vi.fn(async () => undefined);
   newId = () => `new${++this.n}`;
   deviceId = () => 'here';

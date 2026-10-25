@@ -184,6 +184,19 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     // Which assistant wrote it (#142).
     await assertSucceeds(ref.set({ ...note(), updatedBy: 'claude', agent: 'Gemini CLI' }));
     await assertFails(ref.set({ ...note(), agent: 1 }));
+    // Sent to an assistant (#143).
+    await assertSucceeds(
+      ref.set({
+        ...note(),
+        sendState: 'queued',
+        sendAsk: 'File it',
+        sentAt: now(),
+      }),
+    );
+    await assertSucceeds(ref.set({ ...note(), sendState: 'done', sendOutcome: 'Filed.' }));
+    await assertFails(ref.set({ ...note(), sendState: 'sent' }));
+    await assertFails(ref.set({ ...note(), sendAsk: 3 }));
+    await assertFails(ref.set({ ...note(), sentAt: 'today' }));
   });
 
   it('lets the app settle a note with a merged server timestamp, and nothing else in it', async () => {

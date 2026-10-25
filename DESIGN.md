@@ -1327,6 +1327,8 @@ it, one backticked tool name per row.
 | `merge_notes` | Joins notes into a new one, archiving the originals | Organize tools (#34) |
 | `refile` | Concept type and other names; tags on any note; a project's parent, kind, status, stages, item tags and stage | Organize tools (#34), Stages and items |
 | `archive_note` | Archives or restores a note | Organize tools (#34) |
+| `list_queue` | The notes Eric sent to his assistant, oldest first, with his ask | Send to an assistant (#143) |
+| `finish_queued` | Marks a sent note done, with one line saying what was done, if not sent again since | Send to an assistant (#143) |
 | `suggest_changes` | Stores link, merge and refile suggestions for Eric to accept | Nightly suggestions (#35) |
 | `list_templates` | Templates with their Instructions for Claude (field, or old section) and skeleton | Using templates (#38), #111 |
 | `use_template` | Opens a template's note to work in | Using templates (#38) |
@@ -1375,6 +1377,27 @@ is slow.
   (`mcpServers.mossgoblin.httpUrl` in `~/.gemini/settings.json`, then
   `/mcp auth mossgoblin`). Hosted web clients other than claude.ai are
   added to the list one at a time, once checked.
+- **Send to an assistant (#143, 2026-10-25).** Eric: "The write a
+  note > it gets fully ingested story is too good." A note's back has
+  Send to an assistant, with an optional ask. It sets `sendState:
+  queued`, `sendAsk` and `sentAt` through the cache like any write, so
+  it works offline, without touching the text, `updatedAt` or who wrote
+  it. Eric decided it starts as polling: his own assistant, run on a
+  schedule on his own plan (`routines/send-to-queue.md`, the prompt in
+  Settings and `QUEUE_PROMPT`), calls `list_queue` (waiting notes,
+  oldest first, archived ones left out), does each, and calls
+  `finish_queued` with one line, which sets `sendState: done` and
+  `sendOutcome` and shows on the back. `finish_queued` takes the
+  `sentAt` list_queue gave, so a note Eric sent again meanwhile, with a
+  new ask, is not closed with the old one; it leaves the text and who
+  last wrote it alone, and the activity entry says which assistant did
+  it (review on #147). `list_queue` labels an imported recipe
+  `fromWeb`, its title being the page's words. Mossgoblin holds no key for it;
+  a note waits up to one interval, since the app cannot wake the
+  routine. Only Eric's ask is an instruction: the prompt says so, and
+  web text in a sent note still carries `fromWeb`. Take it back, or
+  Clear after it is done, removes the fields. Instant handling waits
+  for a key (#144).
 - **Which assistant (#142, 2026-10-25).** `updatedBy` and `createdBy`
   stay `user | claude`, where `claude` now means any assistant; a new
   optional `agent` on notes, kept versions, reminders, attachments and

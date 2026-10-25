@@ -116,6 +116,10 @@ export function agentOf(data: { agent?: unknown }): string {
   return typeof data.agent === 'string' && data.agent.trim() ? data.agent : 'Claude';
 }
 
+/** How long a Send to an assistant ask, and its outcome, may be (#143). */
+export const SEND_ASK_MAX = 500;
+export const SEND_OUTCOME_MAX = 300;
+
 export const Note = z.object({
   kind: NoteKind,
   body: z.string(),
@@ -176,6 +180,16 @@ export const Note = z.object({
    * plan covers, YYYY-MM-DD; its id is meals-<that day>.
    */
   periodStart: z.string().optional(),
+  /**
+   * Sent to an assistant (#143): Eric's Send to an assistant sets
+   * `queued`, with what he asks in `sendAsk` and when in `sentAt`. His
+   * own assistant, checking on a schedule (list_queue), does it and
+   * marks it `done` with one line in `sendOutcome` (finish_queued).
+   */
+  sendState: z.enum(['queued', 'done']).optional(),
+  sendAsk: z.string().max(SEND_ASK_MAX).optional(),
+  sentAt: Timestamp.optional(),
+  sendOutcome: z.string().max(SEND_OUTCOME_MAX).optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */

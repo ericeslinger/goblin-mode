@@ -96,6 +96,28 @@ describe('NotesService', () => {
     ]);
   });
 
+  it('sends a note to an assistant through the cache, and takes it back (#143)', () => {
+    const { notes, api, signIn } = setup();
+    signIn('u1');
+    notes.save('n1', 'Glaze notes');
+    notes.sendToAssistant('n1', '  file this\nunder pottery ');
+    expect(api.set).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'users/u1/notes/n1',
+      {
+        sendState: 'queued',
+        sendAsk: 'file this under pottery',
+        sentAt: 'SERVER_TIME',
+        sendOutcome: 'REMOVED',
+      },
+      true,
+    );
+    notes.sendToAssistant('n1', ' ');
+    expect(api.set.mock.lastCall![2]).toMatchObject({ sendState: 'queued', sendAsk: 'REMOVED' });
+    notes.sendToAssistant('nope', 'x');
+    expect(api.set.mock.lastCall![1]).toBe('users/u1/notes/n1');
+  });
+
   it('writes a new note in full, then merges updates', () => {
     const { notes, api, signIn } = setup();
     signIn('u1');

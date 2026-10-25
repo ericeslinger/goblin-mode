@@ -109,11 +109,46 @@ function stamp(ms: number | undefined): string {
         </div>
       }
 
+      <h3 id="send-to">Send to an assistant</h3>
+      @if (note().sendState === 'queued') {
+        <p role="status">
+          Waiting for your assistant since {{ sentAt() }}
+          @if (note().sendAsk; as ask) {
+            : “{{ ask }}”
+          }
+          .
+        </p>
+        <button type="button" class="link" (click)="notes.unsend(note().id)">Take it back</button>
+      } @else {
+        @if (note().sendState === 'done') {
+          <p role="status" class="done">
+            Done: {{ note().sendOutcome }}
+            <button type="button" class="link" (click)="notes.unsend(note().id)">Clear</button>
+          </p>
+        }
+        <form class="send" (submit)="send($event, ask)">
+          <label class="instructions">
+            What should it do?
+            <input
+              #ask
+              type="text"
+              maxlength="500"
+              placeholder="Optional: with nothing, it files the note"
+            />
+          </label>
+          <button type="submit">Send</button>
+        </form>
+        <p class="hint">
+          Your assistant picks it up the next time it checks; Settings, AI assistants, says how to
+          set that up.
+        </p>
+      }
+
       <h3 id="claude-changes">What assistants changed</h3>
       @if (!loaded()) {
         <p class="muted" role="status">Loading…</p>
       } @else if (changes().length === 0) {
-        <p class="muted">Nothing Claude did lately touched this note.</p>
+        <p class="muted">No assistant changed this note lately.</p>
       } @else {
         <ul aria-labelledby="claude-changes" class="changes">
           @for (run of changes(); track run.id) {
@@ -123,7 +158,7 @@ function stamp(ms: number | undefined): string {
           }
         </ul>
       }
-      <a routerLink="/activity" class="quiet-link">All of Claude’s changes</a>
+      <a routerLink="/activity" class="quiet-link">All assistants’ changes</a>
 
       <app-note-links
         [noteId]="note().id"
@@ -208,6 +243,23 @@ function stamp(ms: number | undefined): string {
     .inline input {
       width: 5em;
     }
+    .send {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: end;
+    }
+    .send label {
+      flex: 1 1 12em;
+    }
+    .link {
+      border: 0;
+      padding: 0;
+      font: inherit;
+      color: var(--accent);
+      background: none;
+      cursor: pointer;
+    }
     .original {
       white-space: pre-wrap;
       color: var(--quiet);
@@ -261,7 +313,7 @@ export class NoteBack {
   private readonly fb = inject(FIREBASE);
   private readonly auth = inject(AuthService);
 
-  /** Claude's latest runs (the last hundred, as What assistants changed shows). */
+  /** The latest runs (the last hundred, as What assistants changed shows). */
   private readonly runs = signal<RunRecord[]>([]);
   protected readonly loaded = signal(false);
   /** The runs that touched this note, newest first. */
@@ -275,6 +327,14 @@ export class NoteBack {
     madeLine(this.notes.made().get(normalizeName(this.note().title))),
   );
   protected readonly edited = computed(() => stamp(this.note().updatedAt));
+  protected readonly sentAt = computed(() => stamp(this.note().sentAt));
+
+  /** Sends the note to Eric's assistant with what he asked (#143). */
+  protected send(event: Event, ask: HTMLInputElement): void {
+    event.preventDefault();
+    this.notes.sendToAssistant(this.note().id, ask.value);
+    ask.value = '';
+  }
   /** Who wrote last: an assistant, this device, or another of Eric's. */
   protected readonly by = computed(() => {
     const note = this.note();

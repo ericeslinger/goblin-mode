@@ -82,6 +82,7 @@ import {
   textHash,
   withProjectSections,
   cleanAgentName,
+  SEND_OUTCOME_MAX,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -109,6 +110,8 @@ export function agentDevice(agent: string): string {
   return agent === DEFAULT_AGENT ? CLAUDE_DEVICE : `agent:${agent}`;
 }
 const LIST_LIMIT = 50;
+/** The most sent notes list_queue gives at once (#143). */
+const QUEUE_LIMIT = 20;
 /** The most notes one split or merge may make or take. */
 const MAX_PIECES = 20;
 
@@ -1575,6 +1578,67 @@ export class NotesTools {
         ]),
       );
       return { id: args.id, archived };
+    });
+  }
+
+  /**
+   * The notes Eric sent to an assistant (#143), oldest first: what each
+   * is and what he asked. His own assistant checks on a schedule, reads
+   * each with get_note, does it, and calls finishQueued.
+   */
+  async listQueue(args: { limit?: number }) {
+    const snap = await this.notes().where('sendState', '==', 'queued').get();
+    const at = (d: Data) => (d['sentAt'] instanceof Timestamp ? d['sentAt'].toMillis() : 0);
+    return snap.docs
+      .filter((doc) => doc.get('archived') !== true)
+      .sort((a, b) => at(a.data()) - at(b.data()))
+      .slice(0, args.limit ?? QUEUE_LIMIT)
+      .map((doc) => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          title: String(d['title'] ?? ''),
+          kind: String(d['kind'] ?? 'text'),
+          ...(typeof d['sendAsk'] === 'string' && d['sendAsk'] ? { ask: d['sendAsk'] } : {}),
+          sentAt: iso(d['sentAt']),
+          // An imported recipe's title is the page's words (review on #147).
+          ...webLabel(d),
+        };
+      });
+  }
+
+  /**
+   * A sent note is done (#143): marked so, with one line saying what was
+   * done, shown on the note. Only a note still waiting, sent when
+   * list_queue said (`sentAt`), can be finished: one Eric sent again
+   * meanwhile, with a new ask, waits for the next run (review on #147).
+   * The note's text and who last wrote it stay as they were.
+   */
+  async finishQueued(args: { id: string; sentAt: string; outcome: string }) {
+    const outcome = args.outcome.replace(/\s+/g, ' ').trim().slice(0, SEND_OUTCOME_MAX);
+    if (!outcome) throw new ToolError('outcome must say what was done');
+    const ref = this.notes().doc(args.id);
+    return this.db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      if (!doc.exists) throw new ToolError(`no note ${args.id}`);
+      const current = doc.data()!;
+      if (current['sendState'] !== 'queued') {
+        throw new ToolError(`note ${args.id} is not waiting in the queue`);
+      }
+      if (iso(current['sentAt']) !== args.sentAt) {
+        throw new ToolError(
+          `note ${args.id} was sent again since; call list_queue and do its new ask`,
+        );
+      }
+      const update = { sendState: 'done', sendOutcome: outcome };
+      Note.parse({ ...current, ...update });
+      tx.update(ref, update);
+      tx.set(
+        ...this.activity('finish_queued', `Did a note sent to it: ${outcome}`, [
+          touched(args.id, current),
+        ]),
+      );
+      return { id: args.id, done: true };
     });
   }
 

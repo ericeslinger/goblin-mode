@@ -40,6 +40,7 @@ import {
   textHash,
   type TitleSource,
   agentOf,
+  SEND_ASK_MAX,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -89,6 +90,14 @@ export interface NoteRecord {
   importError?: string;
   /** A meal plan's first day, YYYY-MM-DD (#129). */
   periodStart?: string;
+  /**
+   * Sent to an assistant (#143): waiting, with Eric's ask and when, or
+   * done, with the assistant's one line on what it did.
+   */
+  sendState?: 'queued' | 'done';
+  sendAsk?: string;
+  sentAt?: number;
+  sendOutcome?: string;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -211,6 +220,14 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
       : {}),
     ...(typeof data['importError'] === 'string' ? { importError: data['importError'] } : {}),
     ...(typeof data['periodStart'] === 'string' ? { periodStart: data['periodStart'] } : {}),
+    ...(data['sendState'] === 'queued' || data['sendState'] === 'done'
+      ? { sendState: data['sendState'] }
+      : {}),
+    ...(typeof data['sendAsk'] === 'string' && data['sendAsk'] ? { sendAsk: data['sendAsk'] } : {}),
+    ...(typeof (data['sentAt'] as { toMillis?: unknown } | undefined)?.toMillis === 'function'
+      ? { sentAt: (data['sentAt'] as { toMillis: () => number }).toMillis() }
+      : {}),
+    ...(typeof data['sendOutcome'] === 'string' ? { sendOutcome: data['sendOutcome'] } : {}),
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
@@ -589,6 +606,32 @@ export class NotesService {
       updatedBy: 'user',
       deviceId: this.deviceId(),
     };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+  }
+
+  /**
+   * Sends a note to Eric's assistant (#143): it waits, with what he
+   * asks, until his assistant next checks (list_queue). Through the
+   * cache like any write, so it works offline. Sending again replaces
+   * the ask and clears what was done before.
+   */
+  sendToAssistant(id: string, ask: string): void {
+    if (!this.uid || !this.exists(id)) return;
+    const text = ask.replace(/\s+/g, ' ').trim().slice(0, SEND_ASK_MAX);
+    const update = {
+      sendState: 'queued',
+      sendAsk: text || this.api.removeField(),
+      sentAt: this.api.serverTime(),
+      sendOutcome: this.api.removeField(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+  }
+
+  /** Takes a sent note out of the queue, or clears what was done (#143). */
+  unsend(id: string): void {
+    if (!this.uid || !this.find(id)?.sendState) return;
+    const gone = this.api.removeField();
+    const update = { sendState: gone, sendAsk: gone, sentAt: gone, sendOutcome: gone };
     this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
 
