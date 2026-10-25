@@ -36,3 +36,40 @@ test('a note sent to an assistant waits in its queue, and shows what it did', as
   await expect(page.getByRole('heading', { name: 'Send to an assistant' })).toBeVisible();
   await expect(page.getByText('Call list_queue.', { exact: false })).toBeVisible();
 });
+
+// Do it now (#144 step 3): with an Anthropic key kept, the garden's own
+// agent does the sent note at once. Under the emulator the model is a
+// scripted stand-in that reads the note and finishes it.
+test('Do it now runs the garden’s agent on the gardener’s key, and the back follows it', async ({
+  page,
+}) => {
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  const keys = page.getByRole('list', { name: 'API keys' });
+  await keys
+    .getByRole('textbox', { name: 'Anthropic key' })
+    .fill('sk-ant-api03-e2e-abcdefghijklmnopqrstuvwxyz0123');
+  await keys.getByRole('button', { name: 'Save' }).first().click();
+  await expect(keys).toContainText('sk-ant-…0123');
+
+  const call = await connectClaude(page);
+  const { id } = (await call('create_note', { body: 'Seed order\nCeladon and shino' })) as {
+    id: string;
+  };
+  await page.goto(`/n/${id}`);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  await back.getByRole('button', { name: 'Send' }).click();
+  await expect(back.getByRole('status')).toContainText('Waiting for your assistant');
+  await letItSave(page);
+  await back.getByRole('button', { name: 'Do it now' }).click();
+  await expect(back.getByRole('status').first()).toContainText(
+    'Done: Read it (emulator stand-in).',
+    {
+      timeout: 30_000,
+    },
+  );
+  // The run's writes are the garden's own agent's.
+  await page.getByRole('link', { name: 'All assistants’ changes' }).click();
+  await expect(page.getByRole('list', { name: 'Changes' })).toContainText('Mossgoblin:');
+});

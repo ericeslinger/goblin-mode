@@ -1,4 +1,4 @@
-import { ApplicationRef } from '@angular/core';
+import { ApplicationRef, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ModulesService } from '../modules/modules.service';
 import { provideRouter } from '@angular/router';
@@ -15,7 +15,20 @@ import {
   remindersTestProviders,
   FakeRemindersApi,
 } from '../testing/fakes';
+import { RunsService, type RunView } from '../agent/runs.service';
+import { KeysService } from '../keys/keys.service';
 import { NoteBack } from './note-back';
+
+/** Do it now (#144 step 3): a key kept or not, and one run to watch. */
+const keys = { keys: signal<Record<string, unknown> | undefined>({}) };
+const agentRuns = {
+  start: vi.fn(async () => ({ runId: 'r1' })),
+  next: undefined as ((run: RunView | undefined) => void) | undefined,
+  watch: vi.fn((_id: string, next: (run: RunView | undefined) => void) => {
+    agentRuns.next = next;
+    return () => undefined;
+  }),
+};
 
 async function render(note: NoteRecord, runs: { id: string; data: Record<string, unknown> }[]) {
   const notes = new FakeNotes();
@@ -37,6 +50,8 @@ async function render(note: NoteRecord, runs: { id: string; data: Record<string,
       { provide: NotesService, useValue: notes },
       { provide: AuthService, useValue: auth },
       { provide: ACTIVITY_API, useValue: activity },
+      { provide: KeysService, useValue: keys },
+      { provide: RunsService, useValue: agentRuns },
       {
         provide: LinksService,
         useValue: {
@@ -49,7 +64,7 @@ async function render(note: NoteRecord, runs: { id: string; data: Record<string,
   const fixture = TestBed.createComponent(NoteBack);
   fixture.componentRef.setInput('note', note);
   await fixture.whenStable();
-  return { el: fixture.nativeElement as HTMLElement, notes };
+  return { el: fixture.nativeElement as HTMLElement, notes, fixture };
 }
 
 const run = (id: string, summary: string, noteIds: string[]) => ({
@@ -158,5 +173,37 @@ describe('NoteBack (#112)', () => {
       [],
     );
     expect(done.el.textContent).toContain('Done: Linked it to pottery.');
+  });
+
+  const button = (el: HTMLElement, text: string) =>
+    [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+
+  it('does a sent note now with an Anthropic key, and follows the run (#144)', async () => {
+    const queued = { ...noteRecord('n4', 'Seeds'), sendState: 'queued' as const, sentAt: 1 };
+    keys.keys.set({});
+    const without = await render(queued, []);
+    expect(button(without.el, 'Do it now')).toBeUndefined();
+    TestBed.resetTestingModule();
+
+    keys.keys.set({ anthropic: { masked: 'sk-ant-…0123', broken: false } });
+    const { el, fixture } = await render(queued, []);
+    button(el, 'Do it now')!.click();
+    await vi.waitFor(() => expect(agentRuns.start).toHaveBeenCalledWith('n4'));
+    fixture.componentRef.setInput('note', { ...queued, sendRun: 'r1' });
+    await fixture.whenStable();
+    expect(agentRuns.watch).toHaveBeenCalledWith('r1', expect.any(Function));
+    agentRuns.next!({ status: 'working', steps: 2, since: Date.now() });
+    TestBed.tick();
+    expect(el.textContent).toContain('Doing it now: 2 steps so far.');
+    expect(button(el, 'Do it now')).toBeUndefined();
+    // A run lost with its function can be tried again (review on #152).
+    agentRuns.next!({ status: 'working', steps: 2, since: Date.now() - 11 * 60_000 });
+    TestBed.tick();
+    expect(el.textContent).toContain('The run seems lost after 2 steps; try again.');
+    expect(button(el, 'Do it now')).toBeTruthy();
+    agentRuns.next!({ status: 'failed', steps: 2, error: 'the note was taken back' });
+    TestBed.tick();
+    expect(el.textContent).toContain('Could not do it now: the note was taken back');
+    expect(button(el, 'Do it now')).toBeTruthy();
   });
 });

@@ -11,6 +11,7 @@
 // | devices | client, direct | the device's own push token |
 // | settings | client, direct | theme and mode, changed offline (#24, 2026-10-06); the modules switched on (#126) |
 // | activity | function only | "What assistants changed" records |
+// | runs | function only | the garden's own agent runs (#144 step 3) |
 // | proposals | function, plus the owner's accept or dismiss | nightly organize (#35) |
 // | attachments | client, direct | a photo taken offline must be recorded offline (#43) |
 // | notes/replaced | function only | texts writes replaced, for merges (2026-10-07) |
@@ -192,6 +193,8 @@ export const Note = z.object({
   sendAsk: z.string().max(SEND_ASK_MAX).optional(),
   sentAt: Timestamp.optional(),
   sendOutcome: z.string().max(SEND_OUTCOME_MAX).optional(),
+  /** The run doing it now (#144 step 3), under `runs`, if Eric asked for one. */
+  sendRun: z.string().optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */
@@ -478,6 +481,9 @@ export const paths = {
   settings: (uid: string) => `users/${uid}/settings/app`,
   modules: (uid: string) => `users/${uid}/settings/modules`,
   activity: (uid: string) => `users/${uid}/activity`,
+  /** The garden's own agent runs (#144 step 3), function-written. */
+  runs: (uid: string) => `users/${uid}/runs`,
+  run: (uid: string, id: string) => `users/${uid}/runs/${id}`,
   proposals: (uid: string) => `users/${uid}/proposals`,
   attachments: (uid: string) => `users/${uid}/attachments`,
   /** The gardener's masked provider keys (#144), read by the app. */

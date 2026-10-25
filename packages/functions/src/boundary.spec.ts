@@ -20,6 +20,8 @@ const EXPORTS = [
   'recipeImport',
   'saveKey',
   'removeKey',
+  'startRun',
+  'agentRun',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));
