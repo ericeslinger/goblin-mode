@@ -7,6 +7,8 @@ export interface NoteState {
   body: string;
   title: string;
   updatedBy: Author;
+  /** Which assistant, when updatedBy is claude (#142). */
+  agent?: string;
   deviceId: string;
   updatedAt?: number;
   createdAt?: number;
@@ -20,6 +22,7 @@ export interface KeptVersion {
   body: string;
   title: string;
   updatedBy: Author;
+  agent?: string;
   deviceId: string;
   updatedAt?: number;
   reason: KeepReason;
@@ -61,6 +64,7 @@ export async function recordHistory(
     body: before.body,
     title: before.title,
     updatedBy: before.updatedBy,
+    ...(before.updatedBy === 'claude' && before.agent ? { agent: before.agent } : {}),
     deviceId: before.deviceId,
     updatedAt: before.updatedAt,
     reason,

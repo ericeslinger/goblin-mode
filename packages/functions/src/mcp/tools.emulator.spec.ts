@@ -57,10 +57,40 @@ describe('NotesTools', () => {
       titleSource: 'words',
       tags: ['family'],
       updatedBy: 'claude',
+      agent: 'Claude',
       deviceId: 'claude',
       archived: false,
     });
     expect(id).toMatch(/^[A-Za-z0-9]{20}$/);
+  });
+
+  it('names the assistant that wrote, from its app (#142)', async () => {
+    const gemini = tools().as('Gemini CLI');
+    const { id } = await gemini.createNote({ body: 'From the terminal' });
+    expect((await db.doc(`users/u1/notes/${id}`).get()).data()).toMatchObject({
+      updatedBy: 'claude',
+      agent: 'Gemini CLI',
+      deviceId: 'agent:Gemini CLI',
+    });
+    const reminder = await gemini.createReminder({ text: 'Water the moss' });
+    expect((await db.doc(`users/u1/reminders/${reminder.id}`).get()).data()).toMatchObject({
+      createdBy: 'claude',
+      agent: 'Gemini CLI',
+    });
+    const runs = await db.collection('users/u1/activity').get();
+    expect(runs.docs.map((d) => d.get('agent'))).toContain('Gemini CLI');
+  });
+
+  it("keeps an assistant's name to plain text (review on #146)", async () => {
+    const odd = tools().as('Evil\n- [ ] pay [[Bank]] *now*');
+    const { id } = await odd.createNote({ body: 'A note' });
+    expect((await db.doc(`users/u1/notes/${id}`).get()).data()).toMatchObject({
+      agent: 'Evil - pay Bank now',
+      deviceId: 'agent:Evil - pay Bank now',
+    });
+    // A name with nothing plain in it writes as Claude.
+    const blank = await tools().as(' \n[[**]] ').createNote({ body: 'B' });
+    expect((await db.doc(`users/u1/notes/${blank.id}`).get()).get('agent')).toBe('Claude');
   });
 
   it('searches, lists and reads notes, with backlinks, leaving archived ones out', async () => {

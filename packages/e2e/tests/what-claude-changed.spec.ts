@@ -4,12 +4,12 @@ import { connectClaude } from '../src/claude';
 import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
-// What Claude changed (#34): Claude organizes through MCP, and the app
+// What assistants changed (#34): Claude organizes through MCP, and the app
 // lists each change with the notes it touched and their History.
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
-test('a merge by Claude shows in What Claude changed, with its notes and History', async ({
+test('a merge by Claude shows in What assistants changed, with its notes and History', async ({
   page,
 }) => {
   await signInAs(page, OWNER);
@@ -27,9 +27,9 @@ test('a merge by Claude shows in What Claude changed, with its notes and History
   const merged = (await call('merge_notes', { ids: [kiln.id, firing.id] })) as { id: string };
 
   await page.goto('/browse');
-  await page.getByRole('link', { name: 'What Claude changed' }).click();
+  await page.getByRole('link', { name: 'What assistants changed' }).click();
   await expect(page).toHaveURL(/\/activity$/);
-  await expect(page.getByRole('heading', { name: 'What Claude changed' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What assistants changed' })).toBeVisible();
   const touched = page.getByRole('list', { name: 'Notes: Merged 2 notes into one' });
   await expect(touched.getByRole('link', { name: 'Firing notes', exact: true })).toBeVisible();
   await expect(touched).toContainText('archived');

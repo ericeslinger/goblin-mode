@@ -144,7 +144,7 @@ describe('applyAccepted', () => {
   const tools = () => new NotesTools(db, 'u1', () => T);
   const status = async (id: string) => (await db.doc(`users/u1/proposals/${id}`).get()).data();
 
-  it('merges with the organize tool, once, and records it in What Claude changed', async () => {
+  it('merges with the organize tool, once, and records it in What assistants changed', async () => {
     await eric('a', 'Kiln log\nCone 6.');
     await eric('b', 'Firing notes\nShelf 2.');
     await accepted('p1', {

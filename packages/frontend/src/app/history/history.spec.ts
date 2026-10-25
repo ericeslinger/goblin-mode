@@ -98,9 +98,12 @@ describe('History', () => {
 
 describe('reasonLabel', () => {
   it('says whose version an author change kept', () => {
-    const v = { id: 'v', body: '', reason: 'author' as const };
+    const v = { id: 'v', body: '', reason: 'author' as const, agent: 'Claude' };
     expect(reasonLabel({ ...v, updatedBy: 'claude' })).toBe("Claude's version, before your edit");
-    expect(reasonLabel({ ...v, updatedBy: 'user' })).toBe('Before Claude edited it');
+    expect(reasonLabel({ ...v, updatedBy: 'claude', agent: 'Gemini CLI' })).toBe(
+      "Gemini CLI's version, before your edit",
+    );
+    expect(reasonLabel({ ...v, updatedBy: 'user' })).toBe('Before an assistant edited it');
     expect(reasonLabel({ ...v, updatedBy: 'user', reason: 'deleted' })).toBe(
       'Before the note was deleted',
     );

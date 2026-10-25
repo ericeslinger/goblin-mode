@@ -36,7 +36,7 @@ test('Context for Claude reaches Claude, and shows on the back what Claude added
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   const back = page.getByRole('region', { name: 'Back of the note' });
   await expect(back).toContainText('Made');
-  await expect(back.getByRole('list', { name: 'What Claude changed' })).toContainText(
+  await expect(back.getByRole('list', { name: 'What assistants changed' })).toContainText(
     'Context for Claude',
   );
   const { violations } = await new AxeBuilder({ page })

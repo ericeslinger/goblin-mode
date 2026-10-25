@@ -37,7 +37,13 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
           <span class="text">{{ r.text }}</span>
         }
         @if (r.createdBy === 'claude') {
-          <span class="glyph" role="img" aria-label="from Claude" title="From Claude">✳</span>
+          <span
+            class="glyph"
+            role="img"
+            [attr.aria-label]="'from ' + (r.agent ?? 'Claude')"
+            [title]="'From ' + (r.agent ?? 'Claude')"
+            >✳</span
+          >
         }
         @if (when()) {
           <span class="when">{{ when() }}</span>

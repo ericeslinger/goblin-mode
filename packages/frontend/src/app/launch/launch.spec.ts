@@ -291,7 +291,7 @@ describe('Launch', () => {
     await fixture.whenStable();
     const back = el.querySelector('[aria-label="Back of the note"]')!;
     expect(back.textContent).toContain('Made');
-    expect(back.textContent).toContain('What Claude changed');
+    expect(back.textContent).toContain('What assistants changed');
     expect(back.textContent).toContain('studio');
     expect(editor().classList).toContain('hidden');
     // A change synced to the open note keeps it on its back.

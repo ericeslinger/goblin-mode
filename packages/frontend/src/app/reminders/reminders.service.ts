@@ -19,6 +19,7 @@ import {
   paths,
   sectionOf,
   snoozeUntil,
+  agentOf,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -49,6 +50,8 @@ export interface ReminderRecord {
   stage?: string;
   tags?: string[];
   createdBy: 'user' | 'claude';
+  /** Which assistant made it, when createdBy is claude (#142). */
+  agent?: string;
 }
 
 /** A reminder placed in Right Now: its section and when it is due. */
@@ -131,6 +134,7 @@ function toRecord(id: string, data: Record<string, unknown>): ReminderRecord {
       ? { tags: data['tags'].map(String) }
       : {}),
     createdBy: data['createdBy'] === 'claude' ? 'claude' : 'user',
+    ...(data['createdBy'] === 'claude' ? { agent: agentOf(data) } : {}),
   };
 }
 

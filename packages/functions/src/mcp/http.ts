@@ -2,12 +2,12 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { getFirestore } from 'firebase-admin/firestore';
 import { onRequest } from 'firebase-functions/v2/https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { type OAuthStore, authenticate } from '../oauth/core';
+import { type OAuthStore, authenticateClient } from '../oauth/core';
 import { firestoreOAuthStore } from '../oauth/firestore-store';
 import { publicOrigin } from '../oauth/http';
 import { buildServer } from './server';
 import type { ModuleId } from '@mossgoblin/schema';
-import { NotesTools } from './tools';
+import { DEFAULT_AGENT, NotesTools } from './tools';
 
 /**
  * The context note's text, or none when it cannot be read: a failed read
@@ -70,8 +70,13 @@ export async function handleMcp(deps: McpDeps, req: Req, res: Res): Promise<void
   if (req.method === 'OPTIONS') return void res.status(204).end();
 
   const auth = req.headers['authorization'];
-  const uid = await authenticate(deps.store, Array.isArray(auth) ? auth[0] : auth, deps.now());
-  if (!uid || !deps.ownerUid || uid !== deps.ownerUid) {
+  const grant = await authenticateClient(
+    deps.store,
+    Array.isArray(auth) ? auth[0] : auth,
+    deps.now(),
+  );
+  const uid = grant?.uid;
+  if (!grant || !uid || !deps.ownerUid || uid !== deps.ownerUid) {
     const metadata = `${publicOrigin(req)}/.well-known/oauth-protected-resource`;
     res.set('WWW-Authenticate', `Bearer resource_metadata="${metadata}"`);
     return void res.status(401).json({ error: 'invalid_token' });
@@ -81,7 +86,9 @@ export async function handleMcp(deps: McpDeps, req: Req, res: Res): Promise<void
     return void res.status(405).json({ error: 'stateless server: POST only' });
   }
 
-  const tools = deps.toolsFor(uid);
+  // Writes name the assistant by the name its app registered with (#142).
+  const client = await deps.store.client(grant.clientId);
+  const tools = deps.toolsFor(uid).as(client?.clientName ?? DEFAULT_AGENT);
   // Instructions go out only on initialize: read the context note (#113)
   // and the modules (#126) then, not on every call.
   const starting = isInitialize(req.body);

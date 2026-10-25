@@ -144,6 +144,8 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     const ref = owner().doc('users/owner/reminders/r1');
     await assertSucceeds(ref.set({ ...reminder(), noteId: 'p', stage: 'draft', tags: ['urgent'] }));
     await assertFails(ref.set({ ...reminder(), stage: ['draft'] }));
+    await assertSucceeds(ref.set({ ...reminder(), createdBy: 'claude', agent: 'Gemini CLI' }));
+    await assertFails(ref.set({ ...reminder(), agent: false }));
     await assertFails(ref.set({ ...reminder(), tags: 'urgent' }));
   });
 
@@ -179,6 +181,9 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
     await assertSucceeds(ref.set({ ...note(), baseHash: '5-1a2b3c4d' }));
     await assertFails(ref.set({ ...note(), baseHash: 5 }));
+    // Which assistant wrote it (#142).
+    await assertSucceeds(ref.set({ ...note(), updatedBy: 'claude', agent: 'Gemini CLI' }));
+    await assertFails(ref.set({ ...note(), agent: 1 }));
   });
 
   it('lets the app settle a note with a merged server timestamp, and nothing else in it', async () => {

@@ -1,16 +1,18 @@
 import { Component, DestroyRef, InjectionToken, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { paths } from '@mossgoblin/schema';
+import { agentOf, paths } from '@mossgoblin/schema';
 import { type Firestore, collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
 import { ProposalsService } from './proposals.service';
 
-/** A Claude run as What Claude changed lists it; times in milliseconds. */
+/** A run as What assistants changed lists it; times in milliseconds. */
 export interface RunRecord {
   id: string;
   at?: number;
+  /** Which assistant (#142): Claude for runs before. */
+  agent: string;
   summary: string;
   notes: { id: string; title: string }[];
   reminders: { id: string; title: string }[];
@@ -56,6 +58,7 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
   return {
     id,
     at: millis(data['at']),
+    agent: agentOf(data),
     summary: String(data['summary'] ?? ''),
     notes: touched(data['notes']),
     reminders: touched(data['reminders']),
@@ -63,7 +66,8 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
 }
 
 /**
- * What Claude changed (#34): every run of a Claude tool that wrote
+ * What assistants changed (#34, renamed in #142): every run of a tool
+ * by an assistant that wrote
  * something, newest first, each linking the notes it touched and their
  * History, so any change can be read and put back. Above it, the nightly
  * run's suggestions (#35), to accept or dismiss.
@@ -74,7 +78,7 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
   template: `
     <main class="page">
       <a routerLink="/">Back</a>
-      <h1>What Claude changed</h1>
+      <h1>What assistants changed</h1>
       @if (proposals.shown().length) {
         <section aria-labelledby="suggestions">
           <h2 id="suggestions">Suggestions</h2>
@@ -152,15 +156,16 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
         <p class="muted" role="status">Loading…</p>
       } @else if (runs().length === 0) {
         <p class="muted">
-          Nothing yet. When Claude writes, links, splits, merges, refiles or archives a note, it
-          shows here.
+          Nothing yet. When an assistant writes, links, splits, merges, refiles or archives a note,
+          it shows here.
         </p>
       } @else {
         <ul aria-label="Changes" class="runs">
           @for (run of runs(); track run.id) {
             <li>
               <p class="summary">
-                <span class="when">{{ when(run) }}</span> {{ run.summary }}
+                <span class="when">{{ when(run) }}</span>
+                <span class="agent">{{ run.agent }}:</span> {{ run.summary }}
               </p>
               @if (run.notes.length) {
                 <ul class="touched" [attr.aria-label]="'Notes: ' + run.summary">

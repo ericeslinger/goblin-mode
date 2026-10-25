@@ -5,6 +5,7 @@
 // authorization code flow with PKCE (S256 only), refresh token rotation.
 // The only identity is the owner's Firebase sign-in, checked at approve.
 // Pure over an OAuthStore; codes and tokens are stored only as hashes.
+import { cleanAgentName } from '@mossgoblin/schema';
 import { createHash, randomBytes } from 'node:crypto';
 
 /** Hosted clients that may receive a code: claude.ai's callback. */
@@ -171,7 +172,9 @@ export async function register(
       `redirect_uris must be on ${ALLOWED_REDIRECT_ORIGINS.join(' or ')}, or http on a loopback host`,
     );
   }
-  const name = typeof body['client_name'] === 'string' ? body['client_name'].slice(0, 100) : '';
+  // Shown on the consent page and written into notes as the assistant's
+  // name (#142), so kept to plain text.
+  const name = typeof body['client_name'] === 'string' ? cleanAgentName(body['client_name']) : '';
   const client: Client = {
     clientId: newSecret(),
     clientName: name || (uris.every((u) => isLoopback(new URL(u))) ? 'An app' : 'Claude'),
@@ -345,9 +348,18 @@ export async function authenticate(
   header: string | undefined,
   now: number,
 ): Promise<string | undefined> {
+  return (await authenticateClient(store, header, now))?.uid;
+}
+
+/** As authenticate, with the client the token was issued to (#142). */
+export async function authenticateClient(
+  store: OAuthStore,
+  header: string | undefined,
+  now: number,
+): Promise<{ uid: string; clientId: string } | undefined> {
   const match = /^Bearer\s+(\S+)$/i.exec(header ?? '');
   if (!match) return undefined;
   const grant = await store.token(hash(match[1]));
   if (!grant || grant.kind !== 'access' || grant.spent || grant.expiresAt <= now) return undefined;
-  return grant.uid;
+  return { uid: grant.uid, clientId: grant.clientId };
 }

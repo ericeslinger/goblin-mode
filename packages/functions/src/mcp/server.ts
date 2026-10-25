@@ -15,7 +15,7 @@ export const INSTRUCTIONS = [
   'Times are ISO 8601 with an offset. Ask Eric for his time zone if you need one and do not know it.',
   'To organize, use list_concepts, get_backlinks, link_notes, split_note, merge_notes, refile ' +
     'and archive_note: they move his text without rewording it. Every change shows in the app ' +
-    'under What Claude changed. To suggest instead of change, use suggest_changes.',
+    'under What assistants changed. To suggest instead of change, use suggest_changes.',
   'When Eric asks for something a template covers (his shopping list, a journal entry), use ' +
     'list_templates and use_template, and follow its Instructions for Claude.',
   'To add to a note or tick its checklist items, use add_lines, check_item and uncheck_item ' +
@@ -51,7 +51,8 @@ export const INSTRUCTIONS = [
     'noteId), each with a stage from that list (refile or update_reminder: stage) and tags. ' +
     'Eric tracks things this way, e.g. each pot in pottery is a sub-project at a stage.',
   'Start any text of your own that you write by hand into a note (update_note, add_lines, ' +
-    "create_note) with '✳ Claude:' so Eric can tell it from his; capture adds the mark to its " +
+    "create_note) with '✳' and your name, e.g. '✳ Claude:' or '✳ Gemini:', so Eric can tell " +
+    'it from his; capture adds the mark to its ' +
     "summary itself. A note's titleSource says where its title came from: words (Eric's first " +
     'words), llm (a title the server gave it) or user (Eric set it; you cannot change it).',
   'When Eric says "garden this": find the project with list_concepts, then list the candidate ' +
@@ -63,7 +64,7 @@ export const INSTRUCTIONS = [
   "Eric's Context for Claude is the note with id context: what you should always know about " +
     'him and the garden. When he has written any, it follows these instructions; get_context ' +
     'reads it again. When he asks you to remember something for later, add it there with ' +
-    "add_lines, starting '✳ Claude:'. A template's Instructions for Claude are its own field " +
+    "add_lines, starting '✳' and your name. A template's Instructions for Claude are its own field " +
     '(list_templates, use_template; update_note instructions), not in its text.',
 ].join('\n');
 
@@ -121,9 +122,12 @@ const read = { readOnlyHint: true, openWorldHint: false };
 const write = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 const time = z.string().describe('ISO 8601 with an offset, e.g. 2026-10-07T21:00:00-07:00');
 
-/** The tools as the server calls them: any result goes back as JSON. */
-/** The tools; finishing an import the app asked for is the trigger's (#128). */
-type ToolMethods = Exclude<keyof NotesTools, 'finishRecipeImport'>;
+/**
+ * The tools as the server calls them: any result goes back as JSON.
+ * Finishing an import is the trigger's (#128); naming the assistant is
+ * the handler's (#142).
+ */
+type ToolMethods = Exclude<keyof NotesTools, 'finishRecipeImport' | 'as'>;
 export type ToolsApi = {
   [K in ToolMethods]: (args: Parameters<NotesTools[K]>[0]) => Promise<unknown>;
 };

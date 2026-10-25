@@ -141,7 +141,7 @@ describe('the MCP server', () => {
     // Naming conventions (#105).
     expect(INSTRUCTIONS).toMatch(/c-<slug>, e\.g\. c-mossgoblin/);
     expect(INSTRUCTIONS).toMatch(
-      /by hand .* with '✳ Claude:' .*; capture adds the mark to its summary/,
+      /by hand .* with '✳' and your name, e.g. '✳ Claude:'.*; capture adds the mark to its summary/,
     );
     expect(INSTRUCTIONS).toMatch(/titleSource .* words .* llm .* user/);
     expect(INSTRUCTIONS).toMatch(/Right Now, the reminders screen/);
