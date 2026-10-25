@@ -39,7 +39,7 @@ test('asking for a transcription reaches the server and comes back with its answ
   await expect(viewer).toBeVisible();
   await viewer.getByRole('button', { name: 'Transcribe' }).click();
   await expect(viewer.getByRole('status')).toContainText(
-    'Not transcribed: Claude is not set up for this garden yet.',
+    'Not transcribed: Add an Anthropic key in Settings, AI assistants, to transcribe.',
     { timeout: 20_000 },
   );
   await expect(viewer.getByRole('button', { name: 'Try again' })).toBeVisible();

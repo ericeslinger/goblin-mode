@@ -2,8 +2,8 @@
 // or a PDF, becomes a note of Claude's transcription that embeds the
 // original. The app asks by setting the attachment's `transcribe` to
 // 'requested'; this claims it against a per-account daily cap, calls
-// Claude, and writes the note as Claude's. Over small interfaces, so it
-// runs in specs.
+// Claude on the gardener's own key (#144), and writes the note as
+// Claude's. Over small interfaces, so it runs in specs.
 import { ATTACHMENT_SCHEME } from '@mossgoblin/editor/grammar';
 
 /** Transcriptions an account may ask for in a day (UTC), ready for M5. */
@@ -52,6 +52,9 @@ export interface TranscribeStore {
 
 export type TranscribeOutcome = 'done' | 'failed' | 'capped' | 'skipped';
 
+/** Said when the gardener has no Anthropic key yet (#144); no claim is spent. */
+export const NO_KEY = 'Add an Anthropic key in Settings, AI assistants, to transcribe.';
+
 /**
  * The largest PDF Claude is sent, in bytes: base64 grows it by a third,
  * and a request must stay under 32 MB (review on #102).
@@ -97,10 +100,7 @@ export async function transcribe(
   now: number,
 ): Promise<TranscribeOutcome> {
   if (!transcriber) {
-    await store.finish(uid, id, {
-      transcribe: 'failed',
-      transcribeError: 'Claude is not set up for this garden yet.',
-    });
+    await store.finish(uid, id, { transcribe: 'failed', transcribeError: NO_KEY });
     return 'failed';
   }
   const claim = await store.claim(uid, id, dayOf(now), DAILY_TRANSCRIPTIONS);

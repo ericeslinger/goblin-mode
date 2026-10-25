@@ -94,7 +94,9 @@ describe('transcribe', () => {
     const unset = store({ status: 'claimed', record: photo });
     expect(await transcribe(unset, null, vi.fn(), 'u1', 'a1', NOW)).toBe('failed');
     expect(unset.claim).not.toHaveBeenCalled();
-    expect(String(unset.finish.mock.calls[0][2]['transcribeError'])).toContain('not set up');
+    expect(String(unset.finish.mock.calls[0][2]['transcribeError'])).toContain(
+      'Add an Anthropic key in Settings',
+    );
   });
 });
 

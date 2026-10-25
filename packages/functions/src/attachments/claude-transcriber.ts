@@ -1,4 +1,4 @@
-import { type FederationConfig, claudeClient } from '../notes/claude-titler';
+import Anthropic from '@anthropic-ai/sdk';
 import { CUT_OFF, type Transcriber } from './transcribe';
 
 /** Reading handwriting and receipts well is worth a mid-size model. */
@@ -10,9 +10,13 @@ const SYSTEM =
   'markdown lists, checkboxes ("- [ ]") and headings only where the original has them. Write ' +
   '[illegible] for a word you cannot read. Add nothing of your own.';
 
-/** Claude's transcription through the same federation as titles (#47). */
-export function claudeTranscriber(config: FederationConfig): Transcriber {
-  const client = claudeClient(config);
+/**
+ * Claude's transcription (#47) on the gardener's own Anthropic key
+ * (#144 step 2): a client per call, built from the key opened for it,
+ * and dropped with it.
+ */
+export function claudeTranscriber(apiKey: string): Transcriber {
+  const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 240_000 });
   return async (input) => {
     const data = Buffer.from(input.bytes).toString('base64');
     const file =
