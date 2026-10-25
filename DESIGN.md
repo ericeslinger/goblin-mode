@@ -368,11 +368,12 @@ original embedded, then a line marking what follows as Claude's
 transcription. Eric's own notes on it, added below, stay his. The
 record ends `done` with `transcriptNoteId`, or `failed` with
 `transcribeError`, which the viewer shows; with no Anthropic key kept
-it says where to add one, and spends no claim. Review on #102: a transcription cut off at the reply's
-length says so on its last line; PDFs go up to 20 MB and 100 pages; a
-claim records `transcribeStartedAt`, and the viewer offers Try again
-on one still working after ten minutes; once the note is written the
-record is never marked failed, so asking again cannot write it twice.
+it says where to add one, and spends no claim. Review on #102: a
+transcription cut off at the reply's length says so on its last line;
+PDFs go up to 20 MB and 100 pages; a claim records
+`transcribeStartedAt`, and the viewer offers Try again on one still
+working after ten minutes; once the note is written the record is
+never marked failed, so asking again cannot write it twice.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
@@ -687,8 +688,12 @@ Gemini's help; this follows it:
   (`keys/use.ts`) opens the key for that call alone and hands it to a
   client built for the call, and an error comes back as its message
   and status, never the error (an HTTP library's can carry the key in
-  a header). A 401 or 403 marks the key `broken`, which Settings says
-  until a new key is saved; a call that works marks it used. The daily
+  a header), with the key itself replaced should a library have put
+  it there. A 401 marks the key `broken` (a 403 is a key short of a
+  model, not a bad one), only if the key is still the one refused, so
+  a key saved during a long call is left alone; a call that works
+  marks it used. Both marks are best effort: a bookkeeping failure
+  never fails the call (review on #151). The daily
   caps stay, so a bug cannot drain a gardener's credits. Transcription
   moved to this on 2026-10-25 (step 2), on the Anthropic key; Gemini
   and OpenRouter transcription would be their own request shapes and

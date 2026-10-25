@@ -53,12 +53,42 @@ describe('withKey (#144)', () => {
     expect(d.marks.markBroken).toHaveBeenCalledWith('u1', 'anthropic');
     expect(d.marks.markUsed).not.toHaveBeenCalled();
 
-    const other = Object.assign(new Error('overloaded'), { status: 529 });
+    const other = Object.assign(new Error(`overloaded, sent ${KEY}`), { status: 529 });
     await expect(
       withKey(d, 'u1', 'anthropic', 'transcribe', async () => {
         throw other;
       }),
-    ).rejects.toThrow('overloaded');
+    ).rejects.toThrow('overloaded, sent [key]');
+    // A 403 is a key short of a model or feature, not a bad key.
+    const short = Object.assign(new Error('forbidden'), { status: 403 });
+    await expect(
+      withKey(d, 'u1', 'anthropic', 'transcribe', async () => {
+        throw short;
+      }),
+    ).rejects.toThrow('forbidden');
     expect(d.marks.markBroken).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a key saved during the call alone, and never fails a call over a mark', async () => {
+    const d = await deps();
+    const refused = Object.assign(new Error('401'), { status: 401 });
+    const replaced = await d.sealer.seal('u1', 'anthropic', 'sk-ant-api03-newkeynewkeynewkey0123');
+    d.store.ciphertext.mockResolvedValueOnce(await d.sealer.seal('u1', 'anthropic', KEY));
+    d.store.ciphertext.mockResolvedValueOnce(replaced);
+    await expect(
+      withKey(d, 'u1', 'anthropic', 'transcribe', async () => {
+        throw refused;
+      }),
+    ).rejects.toThrow('no longer accepts');
+    expect(d.marks.markBroken).not.toHaveBeenCalled();
+
+    d.marks.markUsed.mockRejectedValueOnce(new Error('firestore down'));
+    expect(await withKey(d, 'u1', 'anthropic', 'transcribe', async () => 'done')).toBe('done');
+    d.marks.markBroken.mockRejectedValueOnce(new Error('firestore down'));
+    await expect(
+      withKey(d, 'u1', 'anthropic', 'transcribe', async () => {
+        throw refused;
+      }),
+    ).rejects.toThrow('no longer accepts');
   });
 });

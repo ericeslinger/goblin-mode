@@ -1,8 +1,9 @@
 // Using a gardener's key for one call (#144 step 2): opened for that
 // call alone, never cached or logged. A provider that refuses the key
 // marks it broken, which Settings shows; a use that works marks it used.
+import { logger } from 'firebase-functions/v2';
 import { type Provider, PROVIDER_INFO } from '@mossgoblin/schema';
-import { type KeyDeps, openKey } from './core';
+import { type KeyDeps } from './core';
 
 export interface KeyMarks {
   /** A call with the key worked: `lastUsedAt`. */
@@ -29,10 +30,22 @@ function statusOf(err: unknown): number | undefined {
   return typeof status === 'number' ? status : undefined;
 }
 
+/** A mark is bookkeeping: its failure never changes what the call did. */
+async function tryMark(what: string, mark: () => Promise<void>): Promise<void> {
+  try {
+    await mark();
+  } catch (err) {
+    logger.warn(`keys: could not mark ${what}`, {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 /**
  * Runs `use` with the gardener's key for `provider`. The key lives in
  * `use`'s argument for the call and nowhere else; an error from the
- * provider comes back as its message and status, never the request.
+ * provider comes back as its message and status, never the request,
+ * and never the key, should a library have put it in the message.
  */
 export async function withKey<T>(
   deps: UseDeps,
@@ -41,22 +54,30 @@ export async function withKey<T>(
   purpose: string,
   use: (key: string) => Promise<T>,
 ): Promise<T> {
-  const key = await openKey(deps, uid, provider);
-  if (key === undefined) throw new NoKeyError(provider, purpose);
+  const ciphertext = await deps.store.ciphertext(uid, provider);
+  if (ciphertext === undefined) throw new NoKeyError(provider, purpose);
+  const key = await deps.sealer.open(uid, provider, ciphertext);
   let out: T;
   try {
     out = await use(key);
   } catch (err) {
-    const status = statusOf(err);
-    if (status === 401 || status === 403) {
-      await deps.marks.markBroken(uid, provider);
+    if (statusOf(err) === 401) {
+      // Only this key: a new one saved during a long call is not the
+      // one refused (review on #151). 403 is a key short of a model or
+      // feature, not a bad key.
+      await tryMark('broken', async () => {
+        if ((await deps.store.ciphertext(uid, provider)) === ciphertext) {
+          await deps.marks.markBroken(uid, provider);
+        }
+      });
       throw new Error(
         `${PROVIDER_INFO[provider].name} no longer accepts your key; replace it in Settings, ` +
           'AI assistants.',
       );
     }
-    throw new Error(err instanceof Error ? err.message : String(err));
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(message.split(key).join('[key]'));
   }
-  await deps.marks.markUsed(uid, provider);
+  await tryMark('used', () => deps.marks.markUsed(uid, provider));
   return out;
 }
