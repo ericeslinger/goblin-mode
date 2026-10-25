@@ -58,9 +58,14 @@ and reads the photo or PDF, so also grant it
 For gardeners' own provider keys (#144, DESIGN.md, Gardener keys),
 create a Cloud KMS key ring `mossgoblin` in `us-central1` with a
 symmetric key `gardener-keys` rotating every 90 days, and a service
-account `goblin-keys` that may only encrypt with it:
+account `goblin-keys` that may only encrypt with it. First make sure
+`gcloud` points at this project, since a key ring cannot be deleted
+once made in the wrong one:
 
 ```sh
+gcloud config set project <project>
+gcloud config get-value project
+gcloud services enable cloudkms.googleapis.com
 gcloud kms keyrings create mossgoblin --location=us-central1
 gcloud kms keys create gardener-keys --location=us-central1 \
   --keyring=mossgoblin --purpose=encryption --rotation-period=90d \
@@ -73,7 +78,17 @@ gcloud kms keys add-iam-policy-binding gardener-keys \
 ```
 
 Also give `goblin-keys` `roles/datastore.user`, and let the deploy
-service account act as it, like `goblin-titles`. `saveKey` and
+service account act as it, like `goblin-titles`:
+
+```sh
+gcloud projects add-iam-policy-binding <project> \
+  --member=serviceAccount:goblin-keys@<project>.iam.gserviceaccount.com \
+  --role=roles/datastore.user
+gcloud iam service-accounts add-iam-policy-binding \
+  goblin-keys@<project>.iam.gserviceaccount.com \
+  --member=serviceAccount:<deploy account> --role=roles/iam.serviceAccountUser
+```
+ `saveKey` and
 `removeKey` always run as it. Without the key ring, saving a key fails
 and Settings says so; nothing else is affected.
 
