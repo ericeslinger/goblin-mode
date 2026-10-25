@@ -15,7 +15,7 @@ export const INSTRUCTIONS = [
   'Times are ISO 8601 with an offset. Ask Eric for his time zone if you need one and do not know it.',
   'To organize, use list_concepts, get_backlinks, link_notes, split_note, merge_notes, refile ' +
     'and archive_note: they move his text without rewording it. Every change shows in the app ' +
-    'under What Claude changed. To suggest instead of change, use suggest_changes.',
+    'under What assistants changed. To suggest instead of change, use suggest_changes.',
   'When Eric asks for something a template covers (his shopping list, a journal entry), use ' +
     'list_templates and use_template, and follow its Instructions for Claude.',
   'To add to a note or tick its checklist items, use add_lines, check_item and uncheck_item ' +
@@ -122,8 +122,11 @@ const read = { readOnlyHint: true, openWorldHint: false };
 const write = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 const time = z.string().describe('ISO 8601 with an offset, e.g. 2026-10-07T21:00:00-07:00');
 
-/** The tools as the server calls them: any result goes back as JSON. */
-/** The tools; finishing an import is the trigger's (#128), naming the assistant http's (#142). */
+/**
+ * The tools as the server calls them: any result goes back as JSON.
+ * Finishing an import is the trigger's (#128); naming the assistant is
+ * the handler's (#142).
+ */
 type ToolMethods = Exclude<keyof NotesTools, 'finishRecipeImport' | 'as'>;
 export type ToolsApi = {
   [K in ToolMethods]: (args: Parameters<NotesTools[K]>[0]) => Promise<unknown>;

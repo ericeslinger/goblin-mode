@@ -7,7 +7,7 @@ import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
 import { ProposalsService } from './proposals.service';
 
-/** An assistant's run as What assistants changed lists it; times in milliseconds. */
+/** A run as What assistants changed lists it; times in milliseconds. */
 export interface RunRecord {
   id: string;
   at?: number;

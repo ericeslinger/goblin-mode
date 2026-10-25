@@ -14,7 +14,7 @@ changed, and accepting runs the matching organize tool.
    time zone, with the Mossgoblin connector enabled. It needs no
    repository and no other connector.
 3. Paste the prompt below as the routine's prompt.
-4. Run it once by hand and check What Claude changed for the
+4. Run it once by hand and check What assistants changed for the
    suggestions.
 
 The prompt reads the last 48 hours, so one missed night costs nothing.
@@ -24,8 +24,8 @@ overlapping nights do not repeat themselves.
 The rule to write only through `suggest_changes` lives in this prompt
 alone: the routine holds the whole connector, so the other write tools
 stay callable. If one were used anyway, its change would still show
-under What Claude changed, and the tools archive instead of deleting,
-so History can put it back. Check What Claude changed after the first
+under What assistants changed, and the tools archive instead of deleting,
+so History can put it back. Check What assistants changed after the first
 few runs.
 
 ## The prompt

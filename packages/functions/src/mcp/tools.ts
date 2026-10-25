@@ -2,8 +2,9 @@
 // server), as plain functions over the owner's Firestore data. Every
 // write is checked against the zod contract before it lands; notes an
 // assistant writes carry updatedBy 'claude', its name in `agent` (#142)
-// and its own deviceId, so noteHistory keeps the version it replaced. Every write also records an activity
-// entry in the same commit, shown in the app as What Claude changed.
+// and its own deviceId, so noteHistory keeps the version it replaced.
+// Every write also records an activity entry in the same commit, shown
+// in the app as What assistants changed.
 import { driveFiles, findWikiLinks, parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   Activity,
@@ -80,6 +81,7 @@ import {
   templateParts,
   textHash,
   withProjectSections,
+  cleanAgentName,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -314,7 +316,7 @@ export class NotesTools {
 
   /** Names the assistant these tools write as, from its OAuth client. */
   as(agent: string): this {
-    this.agent = agent.trim().slice(0, 100) || DEFAULT_AGENT;
+    this.agent = cleanAgentName(agent) || DEFAULT_AGENT;
     return this;
   }
 

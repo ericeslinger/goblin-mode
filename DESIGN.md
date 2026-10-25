@@ -1387,7 +1387,10 @@ is slow.
   History keeps a version when one assistant writes over another's.
   What Claude changed is renamed What assistants changed, and each run
   shows its assistant. The name is the client's own choice, like the
-  consent page's: it says who claims to be asking, not who is. Text an
+  consent page's: it says who claims to be asking, not who is. Since it
+  goes into note text and deviceIds, it is kept to letters, digits,
+  spaces and plain punctuation, at most 60 characters, at registration
+  and again when written (`cleanAgentName`, review on #146). Text an
   assistant writes into a note starts with `✳` and its name.
 - **Consent.** The page asks the oauth function who is asking (client
   name, return origin), then on Allow posts the request with Eric's

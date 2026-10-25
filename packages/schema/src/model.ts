@@ -10,7 +10,7 @@
 // | reminders | client, direct | swipe to done/snooze must work offline |
 // | devices | client, direct | the device's own push token |
 // | settings | client, direct | theme and mode, changed offline (#24, 2026-10-06); the modules switched on (#126) |
-// | activity | function only | Claude's "What Claude changed" records |
+// | activity | function only | "What assistants changed" records |
 // | proposals | function, plus the owner's accept or dismiss | nightly organize (#35) |
 // | attachments | client, direct | a photo taken offline must be recorded offline (#43) |
 // | notes/replaced | function only | texts writes replaced, for merges (2026-10-07) |
@@ -94,6 +94,22 @@ export type Author = z.infer<typeof Author>;
  * absent on writes before #142, which were all Claude's.
  */
 export const AgentName = z.string().min(1).max(100);
+
+/**
+ * An assistant's name as stored: its app's registered name, kept to
+ * letters, digits, spaces and plain punctuation, at most 60 characters.
+ * It goes into note text (capture's `✳ <name>:`) and deviceIds, so no
+ * newline, link, markup or emphasis gets through (review on #146).
+ */
+export function cleanAgentName(raw: string): string {
+  return raw
+    .normalize('NFKC')
+    .replace(/[^\p{L}\p{N} .,'()-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60)
+    .trim();
+}
 
 /** The assistant a document names, read leniently: Claude when none. */
 export function agentOf(data: { agent?: unknown }): string {
@@ -300,7 +316,7 @@ export type Touched = z.infer<typeof Touched>;
 
 /**
  * One Claude tool run that changed something, under `activity`
- * (function-only), shown in the app as What Claude changed (#34).
+ * (function-only), shown in the app as What assistants changed (#34).
  */
 export const Activity = z.object({
   at: Timestamp,

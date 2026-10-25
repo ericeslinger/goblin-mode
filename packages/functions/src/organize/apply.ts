@@ -32,7 +32,7 @@ async function carryOut(p: Proposal, tools: Tools): Promise<string> {
 /**
  * Applies a proposal the gardener accepted (#35): claims it (so a
  * retried trigger cannot apply it twice), runs the matching organize
- * tool, which records the change in What Claude changed, and stores the
+ * tool, which records the change in What assistants changed, and stores the
  * outcome. Returns the final status, or undefined if it was not ours.
  */
 export async function applyAccepted(

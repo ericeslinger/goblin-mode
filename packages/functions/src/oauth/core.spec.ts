@@ -103,6 +103,12 @@ describe('OAuth', () => {
       T,
     );
     expect(client.clientName).toBe('Gemini CLI');
+    const odd = await register(
+      store,
+      { redirect_uris: ['http://localhost:7777/cb'], client_name: 'Gem\n[[x]]' },
+      T,
+    );
+    expect(odd.clientName).toBe('Gem x');
     const req = {
       clientId: client.clientId,
       redirectUri: 'http://localhost:40123/oauth/callback',
