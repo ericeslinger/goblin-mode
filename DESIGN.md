@@ -1375,6 +1375,20 @@ is slow.
   (`mcpServers.mossgoblin.httpUrl` in `~/.gemini/settings.json`, then
   `/mcp auth mossgoblin`). Hosted web clients other than claude.ai are
   added to the list one at a time, once checked.
+- **Which assistant (#142, 2026-10-25).** `updatedBy` and `createdBy`
+  stay `user | claude`, where `claude` now means any assistant; a new
+  optional `agent` on notes, kept versions, reminders, attachments and
+  activity names which one, by the name its app registered with
+  ("Claude", "Gemini CLI"). The MCP handler looks the name up from the
+  token's client and the tools write as it; the server's own Claude
+  calls (titles, transcriptions, imports) write as Claude. A document
+  without `agent` was written before #142, by Claude. Claude keeps
+  deviceId `claude`; another assistant writes as `agent:<name>`, so
+  History keeps a version when one assistant writes over another's.
+  What Claude changed is renamed What assistants changed, and each run
+  shows its assistant. The name is the client's own choice, like the
+  consent page's: it says who claims to be asking, not who is. Text an
+  assistant writes into a note starts with `✳` and its name.
 - **Consent.** The page asks the oauth function who is asking (client
   name, return origin), then on Allow posts the request with Eric's
   Firebase ID token. The function verifies the token and refuses any

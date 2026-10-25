@@ -113,7 +113,9 @@ test('Claude connects with OAuth, writes a note through MCP, and can be disconne
 // Another MCP client on the gardener's computer (#142), as Gemini CLI
 // does it: a localhost callback, registered on one port and asked for
 // on another, since the app picks a free port each time.
-test('an app on this computer connects through a localhost callback', async ({ page }) => {
+test('an app on this computer connects through a localhost callback, and is named', async ({
+  page,
+}) => {
   await signInAs(page, OWNER);
   const call = await connectClient(page, {
     name: 'Gemini CLI',
@@ -123,4 +125,7 @@ test('an app on this computer connects through a localhost callback', async ({ p
   await call('create_note', { body: 'Filed by Gemini\nfrom the terminal' });
   await page.goto('/browse');
   await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Filed by Gemini');
+  // The change names the app that made it.
+  await page.getByRole('link', { name: 'What assistants changed' }).click();
+  await expect(page.getByRole('list', { name: 'Changes' })).toContainText('Gemini CLI:');
 });

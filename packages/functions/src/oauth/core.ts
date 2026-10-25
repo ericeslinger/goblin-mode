@@ -345,9 +345,18 @@ export async function authenticate(
   header: string | undefined,
   now: number,
 ): Promise<string | undefined> {
+  return (await authenticateClient(store, header, now))?.uid;
+}
+
+/** As authenticate, with the client the token was issued to (#142). */
+export async function authenticateClient(
+  store: OAuthStore,
+  header: string | undefined,
+  now: number,
+): Promise<{ uid: string; clientId: string } | undefined> {
   const match = /^Bearer\s+(\S+)$/i.exec(header ?? '');
   if (!match) return undefined;
   const grant = await store.token(hash(match[1]));
   if (!grant || grant.kind !== 'access' || grant.spent || grant.expiresAt <= now) return undefined;
-  return grant.uid;
+  return { uid: grant.uid, clientId: grant.clientId };
 }

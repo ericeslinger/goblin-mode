@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { type KeepReason, paths } from '@mossgoblin/schema';
+import { type KeepReason, agentOf, paths } from '@mossgoblin/schema';
 import { type Firestore, collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { CaptureService } from '../capture/capture.service';
@@ -21,6 +21,8 @@ export interface VersionRecord {
   id: string;
   body: string;
   updatedBy: 'user' | 'claude';
+  /** Which assistant, when updatedBy is claude (#142). */
+  agent: string;
   reason: KeepReason;
   updatedAt?: number;
   savedAt?: number;
@@ -59,6 +61,7 @@ function toVersion(id: string, data: Record<string, unknown>): VersionRecord {
     id,
     body: String(data['body'] ?? ''),
     updatedBy: data['updatedBy'] === 'claude' ? 'claude' : 'user',
+    agent: agentOf(data),
     reason: (data['reason'] as KeepReason) ?? 'interval',
     updatedAt: millis(data['updatedAt']),
     savedAt: millis(data['savedAt']),
@@ -72,8 +75,8 @@ export function reasonLabel(v: VersionRecord): string {
       return 'Written over from another device';
     case 'author':
       return v.updatedBy === 'claude'
-        ? "Claude's version, before your edit"
-        : 'Before Claude edited it';
+        ? `${v.agent}'s version, before your edit`
+        : 'Before an assistant edited it';
     case 'deleted':
       return 'Before the note was deleted';
     default:

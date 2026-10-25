@@ -1,8 +1,8 @@
-// What Claude can do through the MCP connector (DESIGN.md, MCP server),
-// as plain functions over the owner's Firestore data. Every write is
-// checked against the zod contract before it lands; notes Claude writes
-// carry updatedBy 'claude' and deviceId 'claude', so noteHistory keeps
-// the version Claude replaced. Every write also records an activity
+// What an assistant can do through the MCP connector (DESIGN.md, MCP
+// server), as plain functions over the owner's Firestore data. Every
+// write is checked against the zod contract before it lands; notes an
+// assistant writes carry updatedBy 'claude', its name in `agent` (#142)
+// and its own deviceId, so noteHistory keeps the version it replaced. Every write also records an activity
 // entry in the same commit, shown in the app as What Claude changed.
 import { driveFiles, findWikiLinks, parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
@@ -99,6 +99,13 @@ import { addLines, setItem } from './lines';
 import { cutsOf, joined } from './verbatim';
 
 export const CLAUDE_DEVICE = 'claude';
+/** Who writes when no assistant is named: the server's own Claude calls. */
+export const DEFAULT_AGENT = 'Claude';
+
+/** An assistant's deviceId: Claude's as before #142, another's its own. */
+export function agentDevice(agent: string): string {
+  return agent === DEFAULT_AGENT ? CLAUDE_DEVICE : `agent:${agent}`;
+}
 const LIST_LIMIT = 50;
 /** The most notes one split or merge may make or take. */
 const MAX_PIECES = 20;
@@ -302,6 +309,20 @@ export class NotesTools {
       readRecipe(url, publicFetch, null),
   ) {}
 
+  /** The assistant these tools write as (#142); Claude unless named. */
+  private agent = DEFAULT_AGENT;
+
+  /** Names the assistant these tools write as, from its OAuth client. */
+  as(agent: string): this {
+    this.agent = agent.trim().slice(0, 100) || DEFAULT_AGENT;
+    return this;
+  }
+
+  /** Who wrote a note: an assistant, which one, and its device. */
+  private by(): { updatedBy: 'claude'; agent: string; deviceId: string } {
+    return { updatedBy: 'claude', agent: this.agent, deviceId: agentDevice(this.agent) };
+  }
+
   private attachments() {
     return this.db.collection(paths.attachments(this.uid));
   }
@@ -372,6 +393,7 @@ export class NotesTools {
       summary,
       notes,
       reminders,
+      agent: this.agent,
     });
     return [this.db.collection(paths.activity(this.uid)).doc(newId()), data];
   }
@@ -380,8 +402,7 @@ export class NotesTools {
   private stamp(): Data {
     return {
       updatedAt: Timestamp.fromMillis(this.now()),
-      updatedBy: 'claude',
-      deviceId: CLAUDE_DEVICE,
+      ...this.by(),
     };
   }
 
@@ -463,8 +484,7 @@ export class NotesTools {
       archived: false,
       createdAt: now,
       updatedAt: now,
-      updatedBy: 'claude',
-      deviceId: CLAUDE_DEVICE,
+      ...this.by(),
     });
     const id = newId();
     const batch = this.db.batch();
@@ -540,8 +560,7 @@ export class NotesTools {
       archived: false,
       createdAt: now,
       updatedAt: now,
-      updatedBy: 'claude',
-      deviceId: CLAUDE_DEVICE,
+      ...this.by(),
     });
     const ref = this.notes().doc(id);
     await this.db.runTransaction(async (tx) => {
@@ -606,8 +625,7 @@ export class NotesTools {
       archived: false,
       createdAt: now,
       updatedAt: now,
-      updatedBy: 'claude',
-      deviceId: CLAUDE_DEVICE,
+      ...this.by(),
     });
     const id = newId();
     const batch = this.db.batch();
@@ -680,8 +698,7 @@ export class NotesTools {
       archived: false,
       createdAt: now,
       updatedAt: now,
-      updatedBy: 'claude',
-      deviceId: CLAUDE_DEVICE,
+      ...this.by(),
     });
     const id = newId();
     const batch = this.db.batch();
@@ -833,7 +850,7 @@ export class NotesTools {
       if (plan.exists) return;
       const now = Timestamp.fromMillis(this.now());
       const base = { links: [], tags: [], archived: false, createdAt: now, updatedAt: now };
-      const by = { updatedBy: 'claude', deviceId: CLAUDE_DEVICE };
+      const by = this.by();
       const body = planBody(start, config);
       const fishNamed = names.get(normalizeName(FISH_NAME));
       if (body.includes(`[[${FISH_NAME}]]`) && !placeholder.exists && fishNamed === undefined) {
@@ -1068,8 +1085,7 @@ export class NotesTools {
       const current = doc.data()!;
       const update: Data = {
         updatedAt: Timestamp.fromMillis(this.now()),
-        updatedBy: 'claude',
-        deviceId: CLAUDE_DEVICE,
+        ...this.by(),
       };
       if (args.body !== undefined) {
         if (!args.body.trim())
@@ -1676,8 +1692,7 @@ export class NotesTools {
       archived: false,
       createdAt: now,
       updatedAt: now,
-      updatedBy: 'claude',
-      deviceId: CLAUDE_DEVICE,
+      ...this.by(),
     });
     const id = newId();
     const batch = this.db.batch();
@@ -1789,7 +1804,7 @@ export class NotesTools {
         title = `${base} (${this.today(args.timeZone)}${n > 1 ? ` ${n}` : ''})`;
       }
       const body = [
-        ...(summary ? [`✳ Claude: ${summary}`, ''] : []),
+        ...(summary ? [`✳ ${this.agent}: ${summary}`, ''] : []),
         text,
         '',
         ...(args.source ? [`From: ${args.source.trim()}`, ''] : []),
@@ -1807,8 +1822,7 @@ export class NotesTools {
         archived: false,
         createdAt: now,
         updatedAt: now,
-        updatedBy: 'claude',
-        deviceId: CLAUDE_DEVICE,
+        ...this.by(),
       });
       // The note and its line under Ideas land together, or neither does,
       // so a retry never makes a second copy (review on #97).
@@ -1891,6 +1905,7 @@ export class NotesTools {
       createdAt: now,
       updatedAt: now,
       createdBy: 'claude',
+      agent: this.agent,
     });
     const id = newId();
     const batch = this.db.batch();
@@ -2051,8 +2066,7 @@ export class NotesTools {
           archived: false,
           createdAt: now,
           updatedAt: now,
-          updatedBy: 'claude',
-          deviceId: CLAUDE_DEVICE,
+          ...this.by(),
         }),
       );
     });
@@ -2177,7 +2191,12 @@ export class NotesTools {
       recurrence = { freq: args.repeat, time, tz: args.timeZone };
       dueAt ??= firstOccurrence(recurrence, this.now());
     }
-    const data: Data = { text: args.text.trim(), status: 'open', createdBy: 'claude' };
+    const data: Data = {
+      text: args.text.trim(),
+      status: 'open',
+      createdBy: 'claude',
+      agent: this.agent,
+    };
     if (dueAt !== undefined) {
       data['dueAt'] = Timestamp.fromMillis(dueAt);
       data['nextFireAt'] = Timestamp.fromMillis(dueAt);

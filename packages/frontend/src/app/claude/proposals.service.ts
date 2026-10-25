@@ -98,7 +98,7 @@ function toRecord(id: string, data: Record<string, unknown>): ProposalRecord {
  * The nightly organize run's suggestions (#35). Accept and dismiss only
  * change the proposal, through the persistent cache and never awaited,
  * so they work offline; a function carries out an accepted one with the
- * organize tool, and What Claude changed records it.
+ * organize tool, and What assistants changed records it.
  */
 @Injectable({ providedIn: 'root' })
 export class ProposalsService {

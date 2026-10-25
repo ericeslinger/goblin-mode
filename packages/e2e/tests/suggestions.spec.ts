@@ -36,7 +36,7 @@ test('accepting a suggestion, even offline, carries it out; dismissing drops it'
   expect(result.stored).toHaveLength(2);
 
   await page.goto('/browse');
-  await page.getByRole('link', { name: 'What Claude changed 2 suggestions' }).click();
+  await page.getByRole('link', { name: 'What assistants changed 2 suggestions' }).click();
   await expect(page).toHaveURL(/\/activity$/);
   const suggestions = page.getByRole('list', { name: 'Suggestions' });
   const merge = suggestions.getByRole('listitem').filter({ hasText: 'Merge' });
@@ -65,7 +65,7 @@ test('accepting a suggestion, even offline, carries it out; dismissing drops it'
   // Nothing waits any more, and the originals are archived.
   await page.goto('/browse/archived');
   await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Firing notes');
-  await expect(page.getByRole('link', { name: 'What Claude changed' })).not.toContainText(
+  await expect(page.getByRole('link', { name: 'What assistants changed' })).not.toContainText(
     'suggestion',
   );
 });

@@ -57,10 +57,28 @@ describe('NotesTools', () => {
       titleSource: 'words',
       tags: ['family'],
       updatedBy: 'claude',
+      agent: 'Claude',
       deviceId: 'claude',
       archived: false,
     });
     expect(id).toMatch(/^[A-Za-z0-9]{20}$/);
+  });
+
+  it('names the assistant that wrote, from its app (#142)', async () => {
+    const gemini = tools().as('Gemini CLI');
+    const { id } = await gemini.createNote({ body: 'From the terminal' });
+    expect((await db.doc(`users/u1/notes/${id}`).get()).data()).toMatchObject({
+      updatedBy: 'claude',
+      agent: 'Gemini CLI',
+      deviceId: 'agent:Gemini CLI',
+    });
+    const reminder = await gemini.createReminder({ text: 'Water the moss' });
+    expect((await db.doc(`users/u1/reminders/${reminder.id}`).get()).data()).toMatchObject({
+      createdBy: 'claude',
+      agent: 'Gemini CLI',
+    });
+    const runs = await db.collection('users/u1/activity').get();
+    expect(runs.docs.map((d) => d.get('agent'))).toContain('Gemini CLI');
   });
 
   it('searches, lists and reads notes, with backlinks, leaving archived ones out', async () => {

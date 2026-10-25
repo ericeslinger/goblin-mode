@@ -83,8 +83,22 @@ export type TemplateMode = z.infer<typeof TemplateMode>;
 export const TitleSource = z.enum(['words', 'llm', 'user']);
 export type TitleSource = z.infer<typeof TitleSource>;
 
+/** Who wrote it: Eric, or an assistant (`claude`, whichever one; see `agent`). */
 export const Author = z.enum(['user', 'claude']);
 export type Author = z.infer<typeof Author>;
+
+/**
+ * Which assistant wrote it, by the name its app registered with (#142):
+ * "Claude", "Gemini CLI". Set on every write an assistant or the server
+ * makes (updatedBy or createdBy `claude`, which means any assistant);
+ * absent on writes before #142, which were all Claude's.
+ */
+export const AgentName = z.string().min(1).max(100);
+
+/** The assistant a document names, read leniently: Claude when none. */
+export function agentOf(data: { agent?: unknown }): string {
+  return typeof data.agent === 'string' && data.agent.trim() ? data.agent : 'Claude';
+}
 
 export const Note = z.object({
   kind: NoteKind,
@@ -160,6 +174,7 @@ export const Note = z.object({
   createdAt: Timestamp,
   updatedAt: Timestamp,
   updatedBy: Author,
+  agent: AgentName.optional(),
   /** The last device to write, so conflicts land in history. */
   deviceId: z.string(),
   /**
@@ -185,6 +200,7 @@ export const NoteVersion = z.object({
   /** When this version was written, and by whom, from where. */
   updatedAt: Timestamp,
   updatedBy: Author,
+  agent: AgentName.optional(),
   deviceId: z.string(),
   /** When history kept it. */
   savedAt: Timestamp,
@@ -227,6 +243,7 @@ export const Reminder = z.object({
   stage: z.string().optional(),
   tags: z.array(z.string()).optional(),
   createdBy: Author,
+  agent: AgentName.optional(),
 });
 export type Reminder = z.infer<typeof Reminder>;
 
@@ -293,6 +310,8 @@ export const Activity = z.object({
   summary: z.string().min(1),
   notes: z.array(Touched),
   reminders: z.array(Touched),
+  /** Which assistant made the change (#142); absent before, when it was Claude. */
+  agent: AgentName.optional(),
 });
 export type Activity = z.infer<typeof Activity>;
 
@@ -412,6 +431,7 @@ export const Attachment = z.object({
   createdAt: Timestamp,
   updatedAt: Timestamp,
   createdBy: Author,
+  agent: AgentName.optional(),
 });
 export type Attachment = z.infer<typeof Attachment>;
 

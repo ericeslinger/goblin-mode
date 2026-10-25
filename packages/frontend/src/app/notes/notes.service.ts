@@ -39,6 +39,7 @@ import {
   resolveLinks,
   textHash,
   type TitleSource,
+  agentOf,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -115,8 +116,9 @@ export interface NoteRecord {
   settledAt?: number;
   /** Who wrote it last: a device id (with a restore or keep suffix), or 'merge'. */
   deviceId?: string;
-  /** Whether that was Eric or Claude. */
+  /** Whether that was Eric or an assistant, and which one (#142). */
   updatedBy?: 'user' | 'claude';
+  agent?: string;
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -212,6 +214,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
+    ...(data['updatedBy'] === 'claude' ? { agent: agentOf(data) } : {}),
     links: Array.isArray(data['links']) ? data['links'].map(String) : [],
     ...(Array.isArray(data['tags']) && data['tags'].length
       ? { tags: data['tags'].map(String) }

@@ -181,7 +181,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
           <a routerLink="/n/context">Context for Claude</a>: what Claude should always know about
           you and the garden, given to it at the start of every conversation.
         </p>
-        <p><a routerLink="/activity">What Claude changed</a></p>
+        <p><a routerLink="/activity">What assistants changed</a></p>
         <button type="button" (click)="disconnect()">Disconnect all assistants</button>
         @if (claudeStatus()) {
           <p role="status">{{ claudeStatus() }}</p>

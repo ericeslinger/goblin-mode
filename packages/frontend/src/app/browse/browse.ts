@@ -33,7 +33,7 @@ import { NoteList } from './note-list';
           }
         </a>
         <a routerLink="/activity"
-          >What Claude changed
+          >What assistants changed
           @if (proposals.open()) {
             <span class="count"
               >{{ proposals.open() }}

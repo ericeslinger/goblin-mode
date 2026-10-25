@@ -109,7 +109,7 @@ function stamp(ms: number | undefined): string {
         </div>
       }
 
-      <h3 id="claude-changes">What Claude changed</h3>
+      <h3 id="claude-changes">What assistants changed</h3>
       @if (!loaded()) {
         <p class="muted" role="status">Loading…</p>
       } @else if (changes().length === 0) {
@@ -261,7 +261,7 @@ export class NoteBack {
   private readonly fb = inject(FIREBASE);
   private readonly auth = inject(AuthService);
 
-  /** Claude's latest runs (the last hundred, as What Claude changed shows). */
+  /** Claude's latest runs (the last hundred, as What assistants changed shows). */
   private readonly runs = signal<RunRecord[]>([]);
   protected readonly loaded = signal(false);
   /** The runs that touched this note, newest first. */
@@ -275,10 +275,10 @@ export class NoteBack {
     madeLine(this.notes.made().get(normalizeName(this.note().title))),
   );
   protected readonly edited = computed(() => stamp(this.note().updatedAt));
-  /** Who wrote last: Claude, this device, or another of Eric's. */
+  /** Who wrote last: an assistant, this device, or another of Eric's. */
   protected readonly by = computed(() => {
     const note = this.note();
-    if (note.updatedBy === 'claude') return 'by Claude';
+    if (note.updatedBy === 'claude') return `by ${note.agent ?? 'Claude'}`;
     if (!note.deviceId) return '';
     return note.deviceId.startsWith(this.notes.deviceId()) ? 'on this device' : 'on another device';
   });

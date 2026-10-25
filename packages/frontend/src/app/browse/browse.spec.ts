@@ -31,7 +31,7 @@ describe('Browse', () => {
     expect(el.querySelector('a')?.getAttribute('href')).toBe('/');
   });
 
-  it('says how many suggestions wait in What Claude changed', async () => {
+  it('says how many suggestions wait in What assistants changed', async () => {
     const proposals = new FakeProposals();
     const open = { kind: 'link' as const, reason: 'x', notes: [], status: 'open' as const };
     proposals.list.set([
@@ -51,7 +51,9 @@ describe('Browse', () => {
     const fixture = TestBed.createComponent(Browse);
     await fixture.whenStable();
     const link = (fixture.nativeElement as HTMLElement).querySelector('a[href="/activity"]')!;
-    expect(link.textContent!.replace(/\s+/g, ' ').trim()).toBe('What Claude changed 2 suggestions');
+    expect(link.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+      'What assistants changed 2 suggestions',
+    );
   });
 
   it('offers lenses with counts, each its own URL', async () => {
