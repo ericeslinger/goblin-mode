@@ -4,7 +4,7 @@
 // fixed output shape, findings as short markdown. The server writes
 // those under the item; this model never touches the note.
 import type { WebSearchTool20260209 } from '@anthropic-ai/sdk/resources/messages/messages';
-import { FINDINGS_MAX } from '@mossgoblin/schema';
+import { FINDINGS_MAX, RUN_MAX_MS } from '@mossgoblin/schema';
 import type { AgentModel, ContentBlock, MessageParam } from './model';
 
 /** Searches per run: enough for a comparison, not a crawl. */
@@ -41,19 +41,29 @@ export interface ResearchOutcome {
   findings: string;
   inputTokens: number;
   searches: number;
-  stopped: 'done' | 'turns' | 'refused';
+  stopped: 'done' | 'turns' | 'time' | 'refused';
 }
 
 /**
  * Asks the model to research `ask`, continuing while it pauses after
  * a search, and returns its findings cut to FINDINGS_MAX.
  */
-export async function research(model: AgentModel, ask: string): Promise<ResearchOutcome> {
+export async function research(
+  model: AgentModel,
+  ask: string,
+  ms = RUN_MAX_MS,
+  now: () => number = () => Date.now(),
+): Promise<ResearchOutcome> {
+  const deadline = now() + ms;
   const messages: MessageParam[] = [{ role: 'user', content: researchBrief(ask) }];
   let inputTokens = 0;
   let searches = 0;
   let findings = '';
   for (let turn = 0; turn < RESEARCH_MAX_TURNS; turn++) {
+    // No new turn past the deadline (review on #158), as the agent loop.
+    if (turn > 0 && now() >= deadline) {
+      return { findings: findings.slice(0, FINDINGS_MAX), inputTokens, searches, stopped: 'time' };
+    }
     const out = await model({ system: RESEARCH_SYSTEM, messages, tools: [WEB_SEARCH] });
     inputTokens += out.inputTokens;
     searches += out.content.filter((b) => b.type === 'server_tool_use').length;

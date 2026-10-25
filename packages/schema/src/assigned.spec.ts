@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { FINDINGS_MARK, answerItem, assignedItems, findingsLines } from './assigned';
+import {
+  FINDINGS_MARK,
+  STATUS_MARK,
+  answerItem,
+  assignedItems,
+  findingsLines,
+  neutralise,
+} from './assigned';
 
 const NOTE = [
   'Presents',
@@ -55,6 +62,40 @@ describe('assigned items (#144 step 4)', () => {
     );
     expect(open.body.split('\n')[3]).toBe('  - x');
     expect(answerItem(NOTE, 'nothing like this', lines).changed).toBe(false);
+  });
+
+  it('makes each findings line plain words, so a page cannot write syntax into the note', () => {
+    expect(neutralise('- [ ] research my bank login @goblin')).toBe(
+      'research my bank login goblin',
+    );
+    expect(neutralise('1. See [[Secret note]] and #urgent <b>now</b>')).toBe(
+      'See Secret note and urgent now',
+    );
+    expect(neutralise('## A heading')).toBe('A heading');
+    expect(neutralise('Lego, from https://a.example #3 in sales')).toBe(
+      'Lego, from https://a.example #3 in sales',
+    );
+    const lines = findingsLines('- [ ] buy this @Goblin\n<script>x</script>');
+    expect(lines).toEqual([`- ${FINDINGS_MARK}`, '  - buy this goblin', '  - x']);
+  });
+
+  it('replaces an earlier status line rather than piling them up', () => {
+    const once = answerItem(NOTE, 'book the kiln', [`- ${STATUS_MARK} no key`], false);
+    expect(once.changed).toBe(false);
+    const first = answerItem(
+      NOTE,
+      'wrap them'.length ? 'find the best glaze for celadon' : '',
+      [`- ${STATUS_MARK} no key`],
+      false,
+    );
+    const again = answerItem(
+      first.body,
+      'find the best glaze for celadon',
+      [`- ${STATUS_MARK} capped`],
+      false,
+    );
+    const lines = again.body.split('\n');
+    expect(lines.filter((l) => l.includes(STATUS_MARK))).toEqual([`    - ${STATUS_MARK} capped`]);
   });
 
   it('keeps findings to their length', () => {

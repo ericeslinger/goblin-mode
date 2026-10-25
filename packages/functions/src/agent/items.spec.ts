@@ -51,7 +51,12 @@ describe('research (#144 step 4)', () => {
     });
   });
 
-  it('stops after its turns, or on a refusal', async () => {
+  it('stops at its deadline, after its turns, or on a refusal', async () => {
+    let clock = 0;
+    const slow = researcher();
+    const timed = await research(slow, 'x', 100, () => (clock += 120));
+    expect(timed).toMatchObject({ stopped: 'time', findings: '' });
+    expect(slow.seen).toHaveLength(1);
     const pausing: AgentModel = async () => ({
       content: [searched],
       stop_reason: 'pause_turn',
@@ -106,6 +111,31 @@ describe('executeItemRun', () => {
     });
   });
 
+  it('writes partial findings unticked when cut short', async () => {
+    const pausing: AgentModel = async () => ({
+      content: [searched, say('So far: Lego')],
+      stop_reason: 'pause_turn',
+      inputTokens: 1,
+    });
+    const { d, answerItem, store } = deps(NOTE, pausing);
+    expect(await executeItemRun(d, 'u1', 'r1')).toBe('failed');
+    expect(answerItem).toHaveBeenCalledWith({
+      id: 'n1',
+      key: KEY,
+      lines: [
+        '- ✳ Mossgoblin, from the web:',
+        '  - So far: Lego',
+        '- ✳ Mossgoblin: Stopped before finishing; the findings above may be partial.',
+      ],
+      tick: false,
+    });
+    expect(store.update).toHaveBeenLastCalledWith(
+      'u1',
+      'r1',
+      expect.objectContaining({ status: 'failed', error: 'cut short (turns)' }),
+    );
+  });
+
   it('says under the item why it could not, and leaves it unticked', async () => {
     const noKey = deps(NOTE);
     noKey.d.withModel = async () => {
@@ -120,6 +150,12 @@ describe('executeItemRun', () => {
       ],
       tick: false,
     });
+    // Mended by saving a key: the next settle may start it again.
+    expect(noKey.store.update).toHaveBeenLastCalledWith(
+      'u1',
+      'r1',
+      expect.objectContaining({ retryable: true }),
+    );
     const nothing = deps(NOTE, researcher(''));
     expect(await executeItemRun(nothing.d, 'u1', 'r1')).toBe('failed');
     expect(String(nothing.store.update.mock.calls.at(-1)![2]['error'])).toBe('nothing was found');
@@ -140,6 +176,6 @@ describe('executeItemRun', () => {
   it('names a run by the note and the item, the same each time', () => {
     expect(itemRunId('n1', KEY)).toBe(itemRunId('n1', KEY));
     expect(itemRunId('n1', KEY)).not.toBe(itemRunId('n2', KEY));
-    expect(itemRunId('n1', KEY)).toMatch(/^item-n1-[a-z0-9]+$/);
+    expect(itemRunId('n1', KEY)).toMatch(/^item-n1-[0-9a-f]{16}$/);
   });
 });

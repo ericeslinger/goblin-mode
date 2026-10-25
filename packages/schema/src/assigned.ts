@@ -8,6 +8,8 @@ import { normalizeName } from './concepts';
 export const GOBLIN_MENTION = '@goblin';
 /** How the assistant's findings start, so their origin is plain. */
 export const FINDINGS_MARK = '✳ Mossgoblin, from the web:';
+/** How a line saying why an item could not be done starts. */
+export const STATUS_MARK = '✳ Mossgoblin:';
 /** The most of the findings kept, in characters. */
 export const FINDINGS_MAX = 2000;
 
@@ -60,8 +62,34 @@ export function answerItem(
       (_, lead, open, _mark, close, text, tail) => `${lead}${open}x${close}${text}${tail}`,
     );
   }
-  all.splice(item.line + 1, 0, ...lines.map((l) => (l.trim() ? `${indent}${l}` : '')));
+  const add = lines.map((l) => (l.trim() ? `${indent}${l}` : ''));
+  // A line saying why it could not be done replaces the last such line,
+  // so a retry never piles them up (review on #158).
+  const next = all[item.line + 1];
+  if (!tick && next !== undefined && next.trim().startsWith(`- ${STATUS_MARK}`)) {
+    all.splice(item.line + 1, 1, ...add);
+  } else {
+    all.splice(item.line + 1, 0, ...add);
+  }
   return { body: all.join('\n'), changed: true };
+}
+
+/**
+ * One line of findings as plain words (review on #158): a page can make
+ * the model emit a checkbox, an `@goblin`, a link, a tag or markup, and
+ * written into a note those would be read as Eric's. Only words stay.
+ */
+export function neutralise(line: string): string {
+  return line
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')
+    .replace(/^\s*\[[ xX]\]\s*/, '')
+    .replace(/^\s*#{1,6}\s+/, '')
+    .replace(/\[\[([^\]]*)\]\]/g, '$1')
+    .replace(/@goblin/gi, 'goblin')
+    .replace(/(^|\s)#(?=\p{L})/gu, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** The findings as lines under an item: the mark, then the text's lines as bullets. */
@@ -69,7 +97,7 @@ export function findingsLines(text: string): string[] {
   const cut = text.trim().slice(0, FINDINGS_MAX).trim();
   const body = cut
     .split('\n')
-    .map((l) => l.replace(/^\s*[-*+]\s+/, '').trim())
+    .map(neutralise)
     .filter(Boolean)
     .map((l) => `- ${l}`);
   return [`- ${FINDINGS_MARK}`, ...body.map((l) => `  ${l}`)];

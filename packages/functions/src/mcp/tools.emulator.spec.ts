@@ -64,6 +64,18 @@ describe('NotesTools', () => {
     expect(id).toMatch(/^[A-Za-z0-9]{20}$/);
   });
 
+  it('labels what the assistant found on the web for an @goblin item fromWeb (#144 step 4)', async () => {
+    await eric(
+      'g',
+      'Presents\n- [x] presents @goblin\n  - ✳ Mossgoblin, from the web:\n    - Lego',
+    );
+    expect(((await tools().getNote({ id: 'g' })) as { fromWeb?: string }).fromWeb).toContain(
+      'found on the web',
+    );
+    await eric('h', 'Plain');
+    expect((await tools().getNote({ id: 'h' })) as object).not.toHaveProperty('fromWeb');
+  });
+
   it('names the assistant that wrote, from its app (#142)', async () => {
     const gemini = tools().as('Gemini CLI');
     const { id } = await gemini.createNote({ body: 'From the terminal' });

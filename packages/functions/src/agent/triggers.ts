@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { GARDEN_AGENT, assignedItems, paths } from '@mossgoblin/schema';
+import { GARDEN_AGENT, RUN_STALE_MS, assignedItems, paths } from '@mossgoblin/schema';
 import { firestoreKeyStore } from '../keys/firestore-store';
 import { sealerFromEnv } from '../keys/sealer';
 import { withKey } from '../keys/use';
@@ -104,7 +104,17 @@ export const itemAssigned = onDocumentWritten(
     for (const item of items) {
       const ref = db.doc(paths.run(uid, itemRunId(noteId, item.key)));
       const made = await db.runTransaction(async (tx) => {
-        if ((await tx.get(ref)).exists) return false;
+        const had = (await tx.get(ref)).data();
+        if (had) {
+          // Started again only when it failed for a reason a later settle
+          // can mend, or was lost with its function (review on #158).
+          const since = had['startedAt'] ?? had['createdAt'];
+          const age = since instanceof Timestamp ? Date.now() - since.toMillis() : Infinity;
+          const lost =
+            (had['status'] === 'requested' || had['status'] === 'working') && age > RUN_STALE_MS;
+          const mendable = had['status'] === 'failed' && had['retryable'] === true;
+          if (!lost && !mendable) return false;
+        }
         tx.set(ref, {
           kind: 'item',
           noteId,

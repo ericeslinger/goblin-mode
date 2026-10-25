@@ -2,7 +2,8 @@
 // model and the garden's tools. The research model reads the web with
 // no tools that act; the server then writes what it found under the
 // item, as the agent Mossgoblin, and ticks it.
-import { FINDINGS_MARK, assignedItems, findingsLines } from '@mossgoblin/schema';
+import { createHash } from 'node:crypto';
+import { FINDINGS_MARK, STATUS_MARK, assignedItems, findingsLines } from '@mossgoblin/schema';
 import type { NotesTools } from '../mcp/tools';
 import { DAILY_RUNS, type RunDeps, type RunOutcome, type RunStore } from './core';
 import { research } from './research';
@@ -12,9 +13,7 @@ const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** The run id for an item: one per note and item text, so a settle never starts it twice. */
 export function itemRunId(noteId: string, itemKey: string): string {
-  let h = 0;
-  for (const c of itemKey) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return `item-${noteId}-${h.toString(36)}`;
+  return `item-${noteId}-${createHash('sha256').update(itemKey).digest('hex').slice(0, 16)}`;
 }
 
 export type ItemRunDeps = Pick<RunDeps, 'store' | 'withModel' | 'now'> & {
@@ -36,12 +35,18 @@ export async function executeItemRun(
   const key = typeof run?.itemKey === 'string' ? run.itemKey : '';
   const tools = deps.tools(uid);
   /** What the item gets when the run cannot research it: one line saying why. */
-  const sayUnder = async (line: string) => {
-    await tools.answerItem({ id: noteId, key, lines: [`- ✳ Mossgoblin: ${line}`], tick: false });
+  const sayUnder = async (line: string, findings: string[] = []) => {
+    await tools.answerItem({
+      id: noteId,
+      key,
+      lines: [...findings, `- ${STATUS_MARK} ${line}`],
+      tick: false,
+    });
   };
   if (claim.status === 'capped') {
+    // Retried at the next settle (review on #158), as is a missing key.
     const error = `Today’s ${DAILY_RUNS} runs are used up; try again tomorrow.`;
-    await deps.store.update(uid, runId, { status: 'failed', error });
+    await deps.store.update(uid, runId, { status: 'failed', error, retryable: true });
     await sayUnder(error).catch(() => undefined);
     return 'capped';
   }
@@ -50,7 +55,9 @@ export async function executeItemRun(
     const item = body === undefined ? undefined : assignedItems(body).find((i) => i.key === key);
     if (!item) throw new ItemGoneError('the item is gone, or changed');
     if (item.done) throw new ItemGoneError('the item was ticked meanwhile');
-    const out = await deps.withModel(uid, (model) => research(model, item.text));
+    const out = await deps.withModel(uid, (model) =>
+      research(model, item.text, undefined, deps.now),
+    );
     await deps.store.step(uid, runId, { tool: 'web_search', ok: out.stopped !== 'refused' });
     if (out.stopped === 'refused' || !out.findings) {
       const why =
@@ -59,6 +66,19 @@ export async function executeItemRun(
       await deps.store.update(uid, runId, {
         status: 'failed',
         error: why,
+        tokens: out.inputTokens,
+      });
+      return 'failed';
+    }
+    if (out.stopped !== 'done') {
+      // Cut short: what was found goes in, unticked, and says so.
+      await sayUnder(
+        'Stopped before finishing; the findings above may be partial.',
+        findingsLines(out.findings),
+      );
+      await deps.store.update(uid, runId, {
+        status: 'failed',
+        error: `cut short (${out.stopped})`,
         tokens: out.inputTokens,
       });
       return 'failed';
@@ -75,7 +95,13 @@ export async function executeItemRun(
     if (!(err instanceof ItemGoneError)) {
       await sayUnder(`Could not do it: ${message}`).catch(() => undefined);
     }
-    await deps.store.update(uid, runId, { status: 'failed', error: message });
+    // No key yet: retried at the next settle once one is saved.
+    const retryable = /Add an? \w+ key in Settings/.test(message);
+    await deps.store.update(uid, runId, {
+      status: 'failed',
+      error: message,
+      ...(retryable ? { retryable: true } : {}),
+    });
     return 'failed';
   }
 }

@@ -33,6 +33,8 @@ export const Run = z.object({
   /** The one line the run ends with, or why it failed. */
   outcome: z.string().optional(),
   error: z.string().optional(),
+  /** A failed item run the next settle may start again (no key yet, the cap). */
+  retryable: z.boolean().optional(),
   /** Input tokens the run spent, for the gardener's own bill. */
   tokens: z.number().int().nonnegative().optional(),
   createdAt: Timestamp,
