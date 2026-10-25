@@ -3,10 +3,10 @@
 // leaves KMS, and `uid:provider` goes along as additional authenticated
 // data, so a ciphertext copied to another gardener's record, or another
 // provider's field, fails to open. CRC32C checks catch corruption in
-// transit, as the KMS docs recommend. The emulator has no KMS: there, a
-// local AES-256-GCM sealer with the same AAD stands in.
+// transit, as the KMS docs recommend. The emulator has no KMS: the
+// emulator build alone carries a stand-in (stand-in.emulator.ts).
 import { KeyManagementServiceClient } from '@google-cloud/kms';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { standInSealer } from './stand-in';
 
 export interface Sealer {
   /** The key as base64 ciphertext, bound to this gardener and provider. */
@@ -20,7 +20,8 @@ export const KMS_LOCATION = 'us-central1';
 export const KMS_KEY_RING = 'mossgoblin';
 export const KMS_KEY = 'gardener-keys';
 
-const aad = (uid: string, provider: string) => Buffer.from(`${uid}:${provider}`, 'utf8');
+/** What binds a ciphertext to one gardener and provider. */
+export const aad = (uid: string, provider: string) => Buffer.from(`${uid}:${provider}`, 'utf8');
 
 // CRC32C (Castagnoli), table-based, as KMS computes it; pure JS so the
 // functions deploy grows no native module.
@@ -84,37 +85,14 @@ export function kmsSealer(projectId: string): Sealer {
 }
 
 /**
- * AES-256-GCM with the same AAD, keyed from `secret`: the emulator's
- * stand-in for KMS (there is none), and what specs use. The ciphertext
- * is iv, tag and data, base64.
- */
-export function localSealer(secret: string): Sealer {
-  const key = createHash('sha256').update(secret).digest();
-  return {
-    async seal(uid, provider, plaintext) {
-      const iv = randomBytes(12);
-      const cipher = createCipheriv('aes-256-gcm', key, iv);
-      cipher.setAAD(aad(uid, provider));
-      const data = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-      return Buffer.concat([iv, cipher.getAuthTag(), data]).toString('base64');
-    },
-    async open(uid, provider, ciphertext) {
-      const buf = Buffer.from(ciphertext, 'base64');
-      const decipher = createDecipheriv('aes-256-gcm', key, buf.subarray(0, 12));
-      decipher.setAuthTag(buf.subarray(12, 28));
-      decipher.setAAD(aad(uid, provider));
-      return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
-    },
-  };
-}
-
-/**
- * The sealer for this deployment: KMS, in the deployment's project,
- * except under the functions emulator, which has no KMS (like the
- * Cloud Tasks wake, which the emulator skips).
+ * The sealer for this deployment: KMS, in the deployment's project. The
+ * emulator build's stand-in takes over only under the functions
+ * emulator; a production bundle has no stand-in to take (CLAUDE.md,
+ * emulator-only code).
  */
 export function sealerFromEnv(env: NodeJS.ProcessEnv): Sealer {
-  if (env['FUNCTIONS_EMULATOR'] === 'true') return localSealer('mossgoblin-emulator');
+  const standIn = standInSealer(env);
+  if (standIn) return standIn;
   const config = env['FIREBASE_CONFIG'];
   const projectId =
     (config ? (JSON.parse(config) as { projectId?: string }).projectId : undefined) ??

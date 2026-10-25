@@ -688,12 +688,21 @@ Gemini's help; this follows it:
   the error (an HTTP library's can carry the key in a header). A 401
   marks the key `broken`, which Settings says. The daily caps stay, so
   a bug cannot drain a gardener's credits.
-- **The emulator has no KMS.** There, `sealerFromEnv` uses AES-256-GCM
-  with the same AAD and a fixed secret (like the Cloud Tasks wake, which
-  the emulator skips), and the provider check is skipped, the emulator
-  being off the network. The dry run keeps the marker `EMULATOR_ONLY`
-  out of the bundle; this branch is one line gated on
-  `FUNCTIONS_EMULATOR`, deliberately, as the only way to test the flow.
+- **The emulator has no KMS.** The emulator build
+  (`MOSSGOBLIN_EMULATOR_BUILD=1`, set by `scripts/emulators.sh` and
+  `scripts/e2e.sh`) swaps `keys/stand-in.emulator.ts`, marked
+  `EMULATOR_ONLY`, in for `keys/stand-in.ts`: AES-256-GCM with the same
+  AAD and a fixed secret, used only under the functions emulator and
+  logged once, and the provider check skipped, the emulator being off
+  the network. The production module has no stand-in at all, so a
+  deployed function always seals with KMS whatever its environment
+  says; the deploy builds without the flag, and its dry run fails if
+  the marker got in (review on #149, which found the first cut's
+  inline `FUNCTIONS_EMULATOR` gate could fail open).
+- **Exposure until App Check (#148).** Any signed-in gardener can call
+  `saveKey` as often as they like; each call costs one provider request
+  and one KMS encrypt. Key patterns are capped at 400 characters. A
+  per-uid rate limit comes with App Check if it proves needed.
 - **Removing** drops both records and reminds the gardener to revoke
   the key at the provider, which the app cannot do.
 - **App Check waits for GA** (#148).

@@ -11,9 +11,9 @@ export const Provider = z.enum(PROVIDERS);
 
 /** How each provider is named to the gardener, and what its keys start with. */
 export const PROVIDER_INFO: Record<Provider, { name: string; prefix: string; pattern: RegExp }> = {
-  anthropic: { name: 'Anthropic', prefix: 'sk-ant-', pattern: /^sk-ant-[A-Za-z0-9_-]{20,}$/ },
-  gemini: { name: 'Gemini', prefix: 'AIza', pattern: /^AIza[A-Za-z0-9_-]{30,}$/ },
-  openrouter: { name: 'OpenRouter', prefix: 'sk-or-', pattern: /^sk-or-[A-Za-z0-9_-]{20,}$/ },
+  anthropic: { name: 'Anthropic', prefix: 'sk-ant-', pattern: /^sk-ant-[A-Za-z0-9_-]{20,400}$/ },
+  gemini: { name: 'Gemini', prefix: 'AIza', pattern: /^AIza[A-Za-z0-9_-]{30,400}$/ },
+  openrouter: { name: 'OpenRouter', prefix: 'sk-or-', pattern: /^sk-or-[A-Za-z0-9_-]{20,400}$/ },
 };
 
 /** Whether `key` is shaped like one of the provider's, before any call. */

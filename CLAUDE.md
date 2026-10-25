@@ -35,8 +35,10 @@ stack playbook and the `house-style` plugin (enabled in
   create, link, split, merge, re-file and archive, but must keep his
   text verbatim. Merges archive originals instead of deleting them.
 - **Emulator-only code stays out of production bundles.** It never gets
-  imported from `packages/functions/src/index.ts`; the functions dry
-  run fails if the marker `EMULATOR_ONLY` reaches the bundle.
+  imported from `packages/functions/src/index.ts`; the emulator build
+  (`MOSSGOBLIN_EMULATOR_BUILD=1`, 2026-10-25) swaps marked modules in
+  for their production stand-ins, and the functions dry run fails if
+  the marker `EMULATOR_ONLY` reaches the bundle.
 - **The functions package declares no devDependencies.** The deploy runs
   `npm install --omit=dev` there and npm crashes on devDependency peers
   (`reading 'edgesOut'`). Build tools go in the root package.json.

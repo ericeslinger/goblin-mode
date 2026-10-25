@@ -54,7 +54,7 @@ wait_for_port() {
 }
 
 npm run build -w packages/frontend -- -c production,e2e --define 'BUILD_SHA="e2e"' --define 'BUILD_TIME="e2e"'
-node scripts/build-functions.mjs
+MOSSGOBLIN_EMULATOR_BUILD=1 node scripts/build-functions.mjs
 
 # firebase-tools sends emulator-to-emulator calls through HTTPS_PROXY and
 # ignores NO_PROXY, so start the suite with every proxy variable unset, in

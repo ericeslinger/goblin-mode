@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { type KeyStore, KeyError, openKey, removeKey, saveKey } from './core';
 import { type KeyCheck, checkKey } from './providers';
-import { crc32c, localSealer } from './sealer';
+import { localSealer } from './local-sealer';
+import { crc32c } from './sealer';
 
 const ANTHROPIC = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123';
 

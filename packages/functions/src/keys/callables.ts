@@ -10,6 +10,7 @@ import { KeyError, removeKey as drop, saveKey as save } from './core';
 import { firestoreKeyStore } from './firestore-store';
 import { checkKey } from './providers';
 import { sealerFromEnv } from './sealer';
+import { CHECK_SKIPPED } from './stand-in';
 
 /** The account that encrypts; the deploy's IAM gives it that role alone. */
 const KEYS_ACCOUNT = 'goblin-keys@';
@@ -18,11 +19,9 @@ function deps() {
   return {
     store: firestoreKeyStore(getFirestore()),
     sealer: sealerFromEnv(process.env),
-    // The emulator is off the network: a key that looks right is taken.
-    check:
-      process.env['FUNCTIONS_EMULATOR'] === 'true'
-        ? async () => 'ok' as const
-        : (provider: Provider, key: string) => checkKey(provider, key, fetch),
+    check: CHECK_SKIPPED
+      ? async () => 'ok' as const
+      : (provider: Provider, key: string) => checkKey(provider, key, fetch),
   };
 }
 
