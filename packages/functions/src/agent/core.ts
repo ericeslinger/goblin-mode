@@ -4,9 +4,9 @@
 // ends as the hourly routine would leave it, through finish_queued.
 import { GARDEN_AGENT, type RunStep } from '@mossgoblin/schema';
 import type { NotesTools } from '../mcp/tools';
-import { type GardenTools } from './garden-tools';
+import { type GardenTools, type NoteRunScope } from './garden-tools';
 import { type AgentModel } from './model';
-import { runLoop } from './loop';
+import { DEFAULT_LIMITS, type LoopLimits, runLoop } from './loop';
 
 /** Runs an account may start in a day (UTC), like transcriptions. */
 export const DAILY_RUNS = 20;
@@ -42,26 +42,28 @@ export interface RunStore {
 
 export interface RunDeps {
   store: RunStore;
-  /** The model on the gardener's key, or why there is none. */
-  model(uid: string): Promise<AgentModel>;
-  /** The garden's tools as the agent, with the context and modules read. */
-  garden(uid: string): Promise<{ tools: NotesTools; garden: GardenTools }>;
+  /**
+   * Runs `use` with the model on the gardener's key, opened once for
+   * the whole run (review on #152), or throws why there is none.
+   */
+  withModel<T>(uid: string, use: (model: AgentModel) => Promise<T>): Promise<T>;
+  /** The garden's tools as the agent, scoped to this run's note. */
+  garden(uid: string, scope: NoteRunScope): Promise<{ tools: NotesTools; garden: GardenTools }>;
   now(): number;
+  limits?: LoopLimits;
 }
 
 export type RunOutcome = 'done' | 'failed' | 'capped' | 'skipped';
 
-/** The brief: what the run is for, and the rules the routine's prompt gives. */
-export function briefFor(
-  noteId: string,
-  title: string,
-  sentAt: string,
-  ask: string | undefined,
-): string {
+/**
+ * The brief: what the run is for, and the rules the routine's prompt
+ * gives. The note's title is not here: it can be a page's words, and
+ * get_note labels those (review on #152).
+ */
+export function briefFor(noteId: string, sentAt: string, ask: string | undefined): string {
   return [
     'Eric sent you a note from Mossgoblin to do now.',
     `Note id: ${noteId}`,
-    `Title: ${title}`,
     `Sent at: ${sentAt}`,
     ask
       ? `Ask: ${ask}`
@@ -95,38 +97,41 @@ export async function executeRun(deps: RunDeps, uid: string, runId: string): Pro
   const { run } = claim;
   const noteId = typeof run.noteId === 'string' ? run.noteId : '';
   const sentAt = typeof run.sentAt === 'string' ? run.sentAt : '';
-  let garden: GardenTools | undefined;
+  let built: { tools: NotesTools; garden: GardenTools } | undefined;
+  /** The note never stays queued after a run (review on #152). */
+  const finishWith = async (line: string) => {
+    const after = await deps.store.noteState(uid, noteId);
+    if (after?.sendState !== 'queued' || after.sentAt !== sentAt) return false;
+    built ??= await deps.garden(uid, { noteId, sentAt });
+    await built.tools.finishQueued({ id: noteId, sentAt, outcome: line });
+    return true;
+  };
   try {
     const note = await deps.store.noteState(uid, noteId);
     if (!note) throw new Error('the note is gone');
     if (note.sendState !== 'queued' || note.sentAt !== sentAt) {
       throw new Error('the note was taken back, or sent again');
     }
-    const model = await deps.model(uid);
-    const built = await deps.garden(uid);
-    garden = built.garden;
-    const outcome = await runLoop(
-      model,
-      garden,
-      briefFor(noteId, note.title, sentAt, note.sendAsk),
-      (step) => deps.store.step(uid, runId, step),
+    built = await deps.garden(uid, { noteId, sentAt });
+    const { garden } = built;
+    const outcome = await deps.withModel(uid, (model) =>
+      runLoop(
+        model,
+        garden,
+        briefFor(noteId, sentAt, note.sendAsk),
+        (step) => deps.store.step(uid, runId, step),
+        deps.limits ?? DEFAULT_LIMITS,
+        deps.now,
+      ),
     );
-    // The note never stays queued after a run: finished with the
-    // model's last line, or with why the run stopped.
-    const after = await deps.store.noteState(uid, noteId);
-    let line = outcome.text;
-    if (after?.sendState === 'queued' && after.sentAt === sentAt) {
-      const why = {
-        done: outcome.text || 'Finished without saying what it did.',
-        steps: `Stopped after ${outcome.steps.length} steps without finishing.`,
-        tokens: 'Stopped: the run grew past its budget.',
-        refused: 'Stopped: the model declined.',
-      }[outcome.stopped];
-      line = why;
-      await built.tools.finishQueued({ id: noteId, sentAt, outcome: why });
-    } else {
-      line = after?.sendState === 'done' ? outcome.text || line : line;
-    }
+    const why = {
+      done: outcome.text || 'Finished without saying what it did.',
+      steps: `Stopped after ${outcome.steps.length} steps without finishing.`,
+      tokens: 'Stopped: the run grew past its budget.',
+      time: 'Stopped: the run took too long.',
+      refused: 'Stopped: the model declined.',
+    }[outcome.stopped];
+    const line = (await finishWith(why)) ? why : outcome.text || why;
     await deps.store.update(uid, runId, {
       status: outcome.stopped === 'done' ? 'done' : 'failed',
       outcome: line.slice(0, 1000),
@@ -134,13 +139,16 @@ export async function executeRun(deps: RunDeps, uid: string, runId: string): Pro
     });
     return outcome.stopped === 'done' ? 'done' : 'failed';
   } catch (err) {
-    await deps.store.update(uid, runId, {
-      status: 'failed',
-      error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
-    });
+    const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+    // A run that broke (the model, a tool, the key) still closes its
+    // note, saying so; a note taken back is not ours to touch.
+    if (!/taken back|is gone/.test(message)) {
+      await finishWith(`Could not do it: ${message}`).catch(() => undefined);
+    }
+    await deps.store.update(uid, runId, { status: 'failed', error: message });
     return 'failed';
   } finally {
-    await garden?.close();
+    await built?.garden.close();
   }
 }
 

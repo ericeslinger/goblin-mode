@@ -16,10 +16,24 @@ export interface GardenTools {
   close(): Promise<void>;
 }
 
+/**
+ * What a run for one sent note may not do (review on #152): fetch a
+ * URL unattended (text from a note could carry one that leaks what the
+ * run read), or touch the queue beyond its own note.
+ */
+export const DENIED_FOR_NOTE_RUN = new Set(['add_attachment', 'import_recipe', 'list_queue']);
+
+export interface NoteRunScope {
+  /** The one note this run may finish, with the sentAt it was asked at. */
+  noteId: string;
+  sentAt: string;
+}
+
 export async function gardenTools(
   tools: ToolsApi,
   context: string,
   modules: readonly ModuleId[] | undefined,
+  scope?: NoteRunScope,
 ): Promise<GardenTools> {
   const server = buildServer(tools, context, modules);
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -29,13 +43,24 @@ export async function gardenTools(
   const listed = (await client.listTools()).tools;
   return {
     instructions: instructionsWith(context, modules),
-    tools: listed.map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.inputSchema as Tool['input_schema'],
-    })),
+    tools: listed
+      .filter((t) => !scope || !DENIED_FOR_NOTE_RUN.has(t.name))
+      .map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.inputSchema as Tool['input_schema'],
+      })),
     async call(name, input) {
-      const result = await client.callTool({ name, arguments: input as Record<string, unknown> });
+      if (scope && DENIED_FOR_NOTE_RUN.has(name)) {
+        return { text: `${name} is not available in this run`, isError: true };
+      }
+      let args = (input ?? {}) as Record<string, unknown>;
+      // finish_queued closes this run's note and no other, whatever the
+      // model was told to pass.
+      if (scope && name === 'finish_queued') {
+        args = { ...args, id: scope.noteId, sentAt: scope.sentAt };
+      }
+      const result = await client.callTool({ name, arguments: args });
       const content = (result.content ?? []) as { type: string; text?: string }[];
       return {
         text: content.map((c) => (c.type === 'text' ? (c.text ?? '') : '')).join('\n'),

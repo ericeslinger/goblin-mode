@@ -1,7 +1,7 @@
 // The agent loop (#144 step 3), pure over a model and the garden's
 // tools: a brief goes in, tool calls go round until the model stops or
 // the budget runs out, and the model's last words come out.
-import { RUN_MAX_INPUT_TOKENS, RUN_MAX_STEPS } from '@mossgoblin/schema';
+import { RUN_MAX_INPUT_TOKENS, RUN_MAX_MS, RUN_MAX_STEPS } from '@mossgoblin/schema';
 import type { GardenTools } from './garden-tools';
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { AgentModel, ContentBlock, MessageParam } from './model';
@@ -15,7 +15,7 @@ export interface LoopOutcome {
   /** The model's closing text, if it gave any. */
   text: string;
   /** How the loop ended: the model stopped, or a budget did. */
-  stopped: 'done' | 'steps' | 'tokens' | 'refused';
+  stopped: 'done' | 'steps' | 'tokens' | 'time' | 'refused';
   steps: StepTaken[];
   inputTokens: number;
 }
@@ -26,13 +26,28 @@ const textOf = (content: ContentBlock[]) =>
     .join('')
     .trim();
 
+export interface LoopLimits {
+  steps: number;
+  inputTokens: number;
+  /** No new turn starts after this many milliseconds (review on #152). */
+  ms: number;
+}
+
+export const DEFAULT_LIMITS: LoopLimits = {
+  steps: RUN_MAX_STEPS,
+  inputTokens: RUN_MAX_INPUT_TOKENS,
+  ms: RUN_MAX_MS,
+};
+
 export async function runLoop(
   model: AgentModel,
   garden: GardenTools,
   brief: string,
   onStep?: (step: StepTaken) => Promise<void>,
-  limits = { steps: RUN_MAX_STEPS, inputTokens: RUN_MAX_INPUT_TOKENS },
+  limits: LoopLimits = DEFAULT_LIMITS,
+  now: () => number = () => Date.now(),
 ): Promise<LoopOutcome> {
+  const deadline = now() + limits.ms;
   const messages: MessageParam[] = [{ role: 'user', content: brief }];
   const steps: StepTaken[] = [];
   let inputTokens = 0;
@@ -48,6 +63,7 @@ export async function runLoop(
       return { text, stopped: 'done', steps, inputTokens };
     }
     if (inputTokens > limits.inputTokens) return { text, stopped: 'tokens', steps, inputTokens };
+    if (now() >= deadline) return { text, stopped: 'time', steps, inputTokens };
     // A tool's reply to the model: its text, as an error when it was one.
     const results: ToolResultBlockParam[] = [];
     for (const call of calls) {

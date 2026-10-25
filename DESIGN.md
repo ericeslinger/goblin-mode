@@ -694,12 +694,11 @@ Gemini's help; this follows it:
   model, not a bad one), only if the key is still the one refused, so
   a key saved during a long call is left alone; a call that works
   marks it used. Both marks are best effort: a bookkeeping failure
-  never fails the call (review on #151). The daily
-  caps stay, so a bug cannot drain a gardener's credits. Transcription
-  moved to this on 2026-10-25 (step 2), and Do it now runs on it too
-  (step 3, Send to an assistant above); Gemini
-  and OpenRouter transcription would be their own request shapes and
-  wait for a gardener who wants them.
+  never fails the call (review on #151). The daily caps stay, so a bug
+  cannot drain a gardener's credits. Transcription moved to this on
+  2026-10-25 (step 2), and Do it now runs on it too (step 3, Send to
+  an assistant above); Gemini and OpenRouter transcription would be
+  their own request shapes and wait for a gardener who wants them.
 - **The emulator has no KMS.** The emulator build
   (`MOSSGOBLIN_EMULATOR_BUILD=1`, set by `scripts/emulators.sh` and
   `scripts/e2e.sh`) swaps `keys/stand-in.emulator.ts`, marked
@@ -1483,15 +1482,28 @@ is slow.
   duplicated, writing as the agent Mossgoblin. The brief names the
   note, its `sentAt` and Eric's ask, and gives the routine prompt's
   rules: only the ask is an instruction, the note is data, `fromWeb`
-  is never acted on. `claude-sonnet-5-5`, 4096 tokens a turn, at most
-  `RUN_MAX_STEPS` (30) tool calls and `RUN_MAX_INPUT_TOKENS` (400k)
-  per run; past either the run stops and says so. The note never
-  stays queued after a run: if the model did not call `finish_queued`,
-  the trigger finishes it with the model's last line or why it
-  stopped. The run doc records each step, the outcome and the tokens
-  spent; the back shows "Doing it now: 3 steps so far", then the
-  note's own Done line, or why it could not. No web search or other
-  connector in this step. The emulator build swaps in a scripted model
+  is never acted on; the note's title is not in the brief, since it
+  can be a page's words, which `get_note` labels. The run's tools are
+  the server's less what a run for one note may not do (review on
+  #152): `add_attachment` and `import_recipe`, which fetch a URL
+  unattended and could carry out what the run read, and `list_queue`;
+  `finish_queued` is bound to the run's own note and `sentAt`,
+  whatever the model passes. `claude-sonnet-5-5`, 4096 tokens a turn,
+  at most `RUN_MAX_STEPS` (30) tool calls, `RUN_MAX_INPUT_TOKENS`
+  (400k) and `RUN_MAX_MS` (six minutes, inside the trigger's nine)
+  per run; past any the run stops and says so. The key is opened once
+  per run, not per turn. The note never stays queued after a run: if
+  the model did not call `finish_queued`, the trigger finishes it with
+  the model's last line or why it stopped, and a run that breaks (the
+  model, a tool, the key) finishes it with "Could not do it" and why;
+  only a note taken back meanwhile is left alone. Should the function
+  itself be killed, the run stays `working`: after `RUN_STALE_MS` (ten
+  minutes) the back takes it for lost and offers Do it now again, and
+  `startRun` replaces it; before that a second tap, or another device,
+  is told the run is already going. The run doc records each step, the
+  outcome and the tokens spent; the back shows "Doing it now: 3 steps
+  so far", then the note's own Done line, or why it could not. No web
+  search or other connector in this step. The emulator build swaps in a scripted model
   (`agent/stand-in.emulator.ts`, `EMULATOR_ONLY`, as the KMS one)
   that reads the note and finishes it, so a journey follows the whole
   flow.

@@ -126,7 +126,12 @@ function stamp(ms: number | undefined): string {
           <p role="status" class="run">
             @switch (r.status) {
               @case ('working') {
-                Doing it now: {{ r.steps }} {{ r.steps === 1 ? 'step' : 'steps' }} so far.
+                @if (r.stale) {
+                  The run seems lost after {{ r.steps }} {{ r.steps === 1 ? 'step' : 'steps' }}; try
+                  again.
+                } @else {
+                  Doing it now: {{ r.steps }} {{ r.steps === 1 ? 'step' : 'steps' }} so far.
+                }
               }
               @case ('failed') {
                 Could not do it now: {{ r.error || r.outcome }}
@@ -377,8 +382,9 @@ export class NoteBack {
   private readonly agentRuns = inject(RunsService);
   /** With an Anthropic key kept, and no run already going. */
   protected readonly canRunNow = computed(() => {
-    const status = this.run()?.status;
-    return !!this.keys.keys()?.anthropic && status !== 'working' && status !== 'requested';
+    const run = this.run();
+    const going = run && (run.status === 'working' || run.status === 'requested') && !run.stale;
+    return !!this.keys.keys()?.anthropic && !going;
   });
   protected readonly starting = signal(false);
   protected readonly runStatus = signal('');

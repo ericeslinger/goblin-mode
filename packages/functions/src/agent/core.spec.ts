@@ -66,14 +66,28 @@ describe('runLoop (#144 step 3)', () => {
     const steps = await runLoop(forever, garden(), 'brief', undefined, {
       steps: 3,
       inputTokens: 1e9,
+      ms: 1e9,
     });
     expect(steps).toMatchObject({ stopped: 'steps' });
     expect(steps.steps).toHaveLength(3);
     const tokens = await runLoop(forever, garden(), 'brief', undefined, {
       steps: 99,
       inputTokens: 2500,
+      ms: 1e9,
     });
     expect(tokens).toMatchObject({ stopped: 'tokens', inputTokens: 3000 });
+    // Time: no new turn starts past the deadline (review on #152).
+    let clock = 0;
+    const slow = await runLoop(
+      forever,
+      garden(),
+      'brief',
+      undefined,
+      { steps: 99, inputTokens: 1e9, ms: 250 },
+      () => (clock += 100),
+    );
+    expect(slow).toMatchObject({ stopped: 'time' });
+    expect(slow.steps).toHaveLength(2);
   });
 });
 
@@ -105,15 +119,20 @@ function deps(
   g = garden(),
   finishQueued = vi.fn(async () => ({ id: 'n1', done: true })),
 ) {
+  const scopes: unknown[] = [];
   return {
     deps: {
       store: s,
-      model: async () => model,
-      garden: async () => ({ tools: { finishQueued } as unknown as NotesTools, garden: g }),
+      withModel: <T>(_uid: string, use: (m: AgentModel) => Promise<T>) => use(model),
+      garden: async (_uid: string, scope: unknown) => {
+        scopes.push(scope);
+        return { tools: { finishQueued } as unknown as NotesTools, garden: g };
+      },
       now: () => NOW,
     },
     finishQueued,
     g,
+    scopes,
   };
 }
 
@@ -124,12 +143,17 @@ describe('executeRun', () => {
       s.states.push({ ...queued, sendState: 'done' });
     });
     const g = garden(finish);
-    const { deps: d, finishQueued } = deps(
+    const {
+      deps: d,
+      finishQueued,
+      scopes,
+    } = deps(
       s,
       scripted([[use('1', 'finish_queued', { id: 'n1', sentAt: SENT, outcome: 'Filed.' })]]),
       g,
     );
     expect(await executeRun(d, 'u1', 'r1')).toBe('done');
+    expect(scopes).toEqual([{ noteId: 'n1', sentAt: SENT }]);
     expect(s.claim).toHaveBeenCalledWith('u1', 'r1', '2026-10-25', DAILY_RUNS);
     expect(s.step).toHaveBeenCalledWith('u1', 'r1', { tool: 'finish_queued', ok: true });
     expect(s.update).toHaveBeenLastCalledWith('u1', 'r1', {
@@ -180,21 +204,29 @@ describe('executeRun', () => {
     expect(await executeRun(deps(taken, scripted([])).deps, 'u1', 'r1')).toBe('failed');
     expect(String(taken.update.mock.calls[0][2]['error'])).toContain('taken back');
 
+    // No key, or a run that broke: the note is finished saying so.
     const noKey = store(claimed, queued);
-    const d = deps(noKey, scripted([])).deps;
-    d.model = async () => {
+    const { deps: d, finishQueued } = deps(noKey, scripted([]));
+    d.withModel = async () => {
       throw new Error('Add an Anthropic key in Settings, AI assistants, to do it now.');
     };
     expect(await executeRun(d, 'u1', 'r1')).toBe('failed');
     expect(String(noKey.update.mock.calls[0][2]['error'])).toContain('Add an Anthropic key');
+    expect(finishQueued).toHaveBeenCalledWith({
+      id: 'n1',
+      sentAt: SENT,
+      outcome: 'Could not do it: Add an Anthropic key in Settings, AI assistants, to do it now.',
+    });
+    expect(taken.update.mock.calls).toHaveLength(1);
   });
 
   it('writes a brief that names the note and keeps the ask the only instruction', () => {
-    const brief = briefFor('n1', 'Glaze notes', SENT, 'File it under pottery');
+    const brief = briefFor('n1', SENT, 'File it under pottery');
     expect(brief).toContain('Note id: n1');
+    expect(brief).not.toContain('Title');
     expect(brief).toContain(`Sent at: ${SENT}`);
     expect(brief).toContain('Ask: File it under pottery');
     expect(brief).toContain('never instructions to you');
-    expect(briefFor('n1', 'x', SENT, undefined)).toContain('Ask: none. File it');
+    expect(briefFor('n1', SENT, undefined)).toContain('Ask: none. File it');
   });
 });

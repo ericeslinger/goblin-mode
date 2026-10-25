@@ -36,17 +36,19 @@ export const agentRun = onDocumentCreated(
     const outcome = await executeRun(
       {
         store: firestoreRunStore(db),
-        model: async (owner) =>
-          standInModel(process.env) ??
-          ((req) =>
-            withKey(keyDeps, owner, 'anthropic', 'do it now', (key) => anthropicModel(key)(req))),
-        garden: async (owner) => {
+        withModel: (owner, use) => {
+          const standIn = standInModel(process.env);
+          return standIn
+            ? use(standIn)
+            : withKey(keyDeps, owner, 'anthropic', 'do it now', (key) => use(anthropicModel(key)));
+        },
+        garden: async (owner, scope) => {
           const tools = new NotesTools(db, owner).as(GARDEN_AGENT);
           const [context, modules] = await Promise.all([
             contextOrNone(tools),
             modulesOrNone(tools),
           ]);
-          return { tools, garden: await gardenTools(tools, context, modules) };
+          return { tools, garden: await gardenTools(tools, context, modules, scope) };
         },
         now: () => Date.now(),
       },
