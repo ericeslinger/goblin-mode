@@ -48,12 +48,7 @@ Also create a Google service account named `goblin-titles` in the
 project, with `roles/datastore.user`, and let the deploy service
 account act as it (`roles/iam.serviceAccountUser` on it): `noteTitle`
 always runs as that account, even with titles off. DESIGN.md, Titles,
-covers the Claude side. `attachmentTranscribe` (#47) runs as it too
-and reads the photo or PDF, so also grant it
-`roles/storage.objectViewer` on the default bucket
-(`gcloud storage buckets add-iam-policy-binding gs://<bucket>
---member=serviceAccount:goblin-titles@<project>.iam.gserviceaccount.com
---role=roles/storage.objectViewer`).
+covers the Claude side.
 
 For gardeners' own provider keys (#144, DESIGN.md, Gardener keys),
 create a Cloud KMS key ring `mossgoblin` in `us-central1` with a
@@ -95,6 +90,32 @@ gcloud iam service-accounts add-iam-policy-binding \
 as `goblin-keys`. Without the key ring, saving a key fails and Settings
 says so; nothing else is affected.
 
+Whatever uses a gardener's key runs as a second account,
+`goblin-runner`, which may decrypt and nothing else: today
+`attachmentTranscribe` (#47), which also reads the photo or PDF from
+the default bucket (`gcloud storage buckets list`).
+
+```sh
+gcloud iam service-accounts create goblin-runner
+gcloud kms keys add-iam-policy-binding gardener-keys \
+  --location=us-central1 --keyring=mossgoblin \
+  --member=serviceAccount:goblin-runner@<project>.iam.gserviceaccount.com \
+  --role=roles/cloudkms.cryptoKeyDecrypter
+gcloud projects add-iam-policy-binding <project> \
+  --member=serviceAccount:goblin-runner@<project>.iam.gserviceaccount.com \
+  --role=roles/datastore.user
+gcloud storage buckets add-iam-policy-binding gs://<bucket> \
+  --member=serviceAccount:goblin-runner@<project>.iam.gserviceaccount.com \
+  --role=roles/storage.objectViewer
+gcloud iam service-accounts add-iam-policy-binding \
+  goblin-runner@<project>.iam.gserviceaccount.com \
+  --member=serviceAccount:<deploy account> \
+  --role=roles/iam.serviceAccountUser
+```
+
+As a trigger's account it also needs the `run.invoker` and
+`eventarc.eventReceiver` grants below.
+
 The deploy account cannot change project IAM, so the first deploy of
 the Firestore-triggered functions stops and asks a project owner to
 grant, once (with `<number>` your project number):
@@ -102,8 +123,9 @@ grant, once (with `<number>` your project number):
 - `roles/iam.serviceAccountTokenCreator` to
   `service-<number>@gcp-sa-pubsub.iam.gserviceaccount.com`;
 - `roles/run.invoker` and `roles/eventarc.eventReceiver` to
-  `<number>-compute@developer.gserviceaccount.com` and to
-  `goblin-titles@<project>.iam.gserviceaccount.com`.
+  `<number>-compute@developer.gserviceaccount.com`, to
+  `goblin-titles@<project>.iam.gserviceaccount.com` and to
+  `goblin-runner@<project>.iam.gserviceaccount.com`.
 
 If the next deploy then reports "Permission denied while using the
 Eventarc Service Agent", wait a few minutes and re-run it; if it

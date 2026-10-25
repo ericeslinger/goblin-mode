@@ -188,9 +188,10 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
         </p>
         <h3>Your API keys</h3>
         <p>
-          Transcriptions and the assistant's on-demand work run on your own account. Make a key just
-          for Mossgoblin, with a spending limit, so it can be capped and revoked on its own. It is
-          checked with the provider, stored encrypted, and never shown again.
+          Transcriptions and the assistant's on-demand work run on your own account; transcriptions
+          use your Anthropic key. Make a key just for Mossgoblin, with a spending limit, so it can
+          be capped and revoked on its own. It is checked with the provider, stored encrypted, and
+          never shown again.
         </p>
         @if (keys.keys(); as kept) {
           <ul class="keys" aria-label="API keys">
@@ -204,6 +205,9 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
                       , not accepted any more
                     } @else if (key.updatedAt !== undefined) {
                       , added {{ keyDate(key.updatedAt) }}
+                    }
+                    @if (!key.broken && key.lastUsedAt !== undefined) {
+                      , last used {{ keyDate(key.lastUsedAt) }}
                     }
                   </span>
                   <button type="button" [disabled]="keyBusy()" (click)="removeKey(p)">

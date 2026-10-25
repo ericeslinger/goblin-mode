@@ -355,23 +355,25 @@ opens the same file through its Google Drive connector.
 **Transcribe (#47, 2026-10-08).** The photo and PDF viewers have a
 Transcribe button. It sets the attachment's `transcribe` to
 `requested` (through the offline cache, once the file has uploaded).
-`attachmentTranscribe`, running as `goblin-titles` like titles, claims
-it in a transaction that counts it in `users/{uid}/usage/<UTC day>`
-(server only; no rule lets a client touch it) and refuses past
-`DAILY_TRANSCRIPTIONS`, 20 a day, ready for M5. It sends a photo as
-an upright JPEG of at most 2400 px, or a PDF as a document, to Claude
-through the same federation, asking for the words as written. The
+`attachmentTranscribe` (running as `goblin-titles` until #144 step 2,
+2026-10-25; now as `goblin-runner`, on the gardener's own Anthropic
+key, see Gardener keys) claims it in a transaction that counts it in
+`users/{uid}/usage/<UTC day>` (server only; no rule lets a client
+touch it) and refuses past `DAILY_TRANSCRIPTIONS`, 20 a day, ready
+for M5. It sends a photo as an upright JPEG of at most 2400 px, or a
+PDF as a document, to Claude, asking for the words as written. The
 result is a new note written as Claude's (`NotesTools.createNote`, so
 it shows in What Claude changed): "Transcription of <name>", the
 original embedded, then a line marking what follows as Claude's
 transcription. Eric's own notes on it, added below, stay his. The
 record ends `done` with `transcriptNoteId`, or `failed` with
-`transcribeError`, which the viewer shows; with no federation set up
-it says so. Review on #102: a transcription cut off at the reply's
-length says so on its last line; PDFs go up to 20 MB and 100 pages; a
-claim records `transcribeStartedAt`, and the viewer offers Try again
-on one still working after ten minutes; once the note is written the
-record is never marked failed, so asking again cannot write it twice.
+`transcribeError`, which the viewer shows; with no Anthropic key kept
+it says where to add one, and spends no claim. Review on #102: a
+transcription cut off at the reply's length says so on its last line;
+PDFs go up to 20 MB and 100 pages; a claim records
+`transcribeStartedAt`, and the viewer offers Try again on one still
+working after ten minutes; once the note is written the record is
+never marked failed, so asking again cannot write it twice.
 
 Every write stores the result: the app's `NotesService.save` and the
 MCP tools both parse the body with the grammar (`wikiLinkTargets`, so a
@@ -682,12 +684,20 @@ Gemini's help; this follows it:
   in one batch. No callable ever returns a key.
 - **Two accounts.** `saveKey` and `removeKey` run as `goblin-keys`,
   which may only encrypt. Whatever calls a provider for the gardener
-  (transcription next, #144 step 2) runs as an account that may only
-  decrypt, opens the key for that call alone, builds the provider's
-  client per request, and logs an error's message and status, never
-  the error (an HTTP library's can carry the key in a header). A 401
-  marks the key `broken`, which Settings says. The daily caps stay, so
-  a bug cannot drain a gardener's credits.
+  runs as `goblin-runner`, which may only decrypt: `withKey`
+  (`keys/use.ts`) opens the key for that call alone and hands it to a
+  client built for the call, and an error comes back as its message
+  and status, never the error (an HTTP library's can carry the key in
+  a header), with the key itself replaced should a library have put
+  it there. A 401 marks the key `broken` (a 403 is a key short of a
+  model, not a bad one), only if the key is still the one refused, so
+  a key saved during a long call is left alone; a call that works
+  marks it used. Both marks are best effort: a bookkeeping failure
+  never fails the call (review on #151). The daily
+  caps stay, so a bug cannot drain a gardener's credits. Transcription
+  moved to this on 2026-10-25 (step 2), on the Anthropic key; Gemini
+  and OpenRouter transcription would be their own request shapes and
+  wait for a gardener who wants them.
 - **The emulator has no KMS.** The emulator build
   (`MOSSGOBLIN_EMULATOR_BUILD=1`, set by `scripts/emulators.sh` and
   `scripts/e2e.sh`) swaps `keys/stand-in.emulator.ts`, marked

@@ -8,8 +8,10 @@ import {
 } from 'firebase-functions/v2/firestore';
 import { defineString } from 'firebase-functions/params';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
+import { firestoreKeyStore } from '../keys/firestore-store';
+import { sealerFromEnv } from '../keys/sealer';
+import { withKey } from '../keys/use';
 import { NotesTools } from '../mcp/tools';
-import { federationFromEnv } from '../notes/claude-titler';
 import { claudeTranscriber } from './claude-transcriber';
 import { importLink, publicFetch } from './import';
 import { type Transcriber, transcribe } from './transcribe';
@@ -76,28 +78,39 @@ export const attachmentCreated = onDocumentCreated(
   },
 );
 
-let transcriber: Transcriber | null | undefined;
+/**
+ * The account that may open gardeners' keys (decrypt only), and read
+ * the photo or PDF; the deploy's IAM gives it those roles and no more.
+ */
+const RUNNER_ACCOUNT = 'goblin-runner@';
 
 /**
  * Transcribe (#47): when the app asks, Claude reads the photo or PDF and
- * a note of its transcription is written. Runs as the service account
- * the Claude federation rule trusts, like titles.
+ * a note of its transcription is written, on the gardener's own
+ * Anthropic key (#144 step 2). The key is opened for this one call and
+ * the client built from it lives no longer; without a key the request
+ * fails with where to add one, and no claim is spent.
  */
 export const attachmentTranscribe = onDocumentWritten(
   {
     document: 'users/{uid}/attachments/{attachmentId}',
-    serviceAccount: 'goblin-titles@',
+    serviceAccount: RUNNER_ACCOUNT,
     memory: '1GiB',
     timeoutSeconds: 300,
   },
   async (event) => {
     if (event.data?.after.data()?.['transcribe'] !== 'requested') return;
-    if (transcriber === undefined) {
-      const config = federationFromEnv(process.env);
-      transcriber = config ? claudeTranscriber(config) : null;
-    }
     const { uid, attachmentId } = event.params;
     const db = getFirestore();
+    const keys = firestoreKeyStore(db);
+    const keyDeps = { store: keys, sealer: sealerFromEnv(process.env), marks: keys };
+    const transcriber: Transcriber | null =
+      (await keys.ciphertext(uid, 'anthropic')) === undefined
+        ? null
+        : (input) =>
+            withKey(keyDeps, uid, 'anthropic', 'transcribe', (key) =>
+              claudeTranscriber(key)(input),
+            );
     const outcome = await transcribe(
       transcribeStore(getStorage().bucket(), db, async (owner, body, title) => {
         const note = await new NotesTools(db, owner).createNote({ body, title });
