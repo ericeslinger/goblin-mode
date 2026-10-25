@@ -8,6 +8,7 @@ import { ModulesService } from '../modules/modules.service';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
 import { type ReminderRecord, RemindersService } from '../reminders/reminders.service';
+import { KeysService } from '../keys/keys.service';
 import { Settings } from './settings';
 
 function fakePush(state: PushState = 'off') {
@@ -23,6 +24,17 @@ function fakePush(state: PushState = 'off') {
 const reminders = { reminders: signal<ReminderRecord[]>([]), add: vi.fn() };
 
 const claude = { consent: vi.fn(), approve: vi.fn(), revoke: vi.fn(async () => 2), go: vi.fn() };
+
+function fakeKeys() {
+  return {
+    keys: signal<
+      Record<string, { masked: string; updatedAt?: number; broken: boolean }> | undefined
+    >({}),
+    save: vi.fn(async () => ({ masked: 'sk-ant-…0123' })),
+    remove: vi.fn(async () => undefined),
+  };
+}
+const keys = fakeKeys();
 
 async function render(
   auth: FakeAuthService,
@@ -40,6 +52,7 @@ async function render(
       { provide: NotesService, useValue: notes },
       { provide: ModulesService, useValue: modules },
       { provide: RemindersService, useValue: reminders },
+      { provide: KeysService, useValue: keys },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Settings);
@@ -104,6 +117,36 @@ describe('Settings', () => {
   it('shows no notification controls when signed out', async () => {
     const el = await render(new FakeAuthService());
     expect(el.textContent).not.toContain('Notifications');
+  });
+
+  it('saves a pasted provider key, shows the masked one, and removes it (#144)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    keys.keys.set({});
+    const el = await render(auth);
+    const input = el.querySelector<HTMLInputElement>('input[aria-label="Anthropic key"]')!;
+    input.value = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123';
+    input.closest('form')!.dispatchEvent(new Event('submit'));
+    expect(keys.save).toHaveBeenCalledWith(
+      'anthropic',
+      'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123',
+    );
+    expect(input.value).toBe('');
+    await vi.waitFor(() => {
+      TestBed.tick();
+      expect(el.textContent).toContain('Anthropic key sk-ant-…0123 saved.');
+    });
+
+    keys.keys.set({ anthropic: { masked: 'sk-ant-…0123', updatedAt: Date.now(), broken: false } });
+    TestBed.tick();
+    expect(el.textContent).toContain('sk-ant-…0123');
+    expect(el.querySelector('input[aria-label="Anthropic key"]')).toBeNull();
+    button(el, 'Remove')!.click();
+    expect(keys.remove).toHaveBeenCalledWith('anthropic');
+    await vi.waitFor(() => {
+      TestBed.tick();
+      expect(el.textContent).toContain('revoke it at Anthropic too');
+    });
   });
 
   it('shows the connector URL and disconnects Claude', async () => {

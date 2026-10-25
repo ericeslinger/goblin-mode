@@ -6,8 +6,8 @@ rules_version = '2';
 // devices and settings directly (offline-first), and those writes must
 // match the shape the zod contract defines (the generated isValid*
 // functions); history and activity are written only by functions.
-// Anything not listed here is denied, and oauth/ is server-only (the
-// admin SDK bypasses rules).
+// Anything not listed here is denied, and oauth/ and secrets/ (#144)
+// are server-only (the admin SDK bypasses rules).
 service cloud.firestore {
   match /databases/{database}/documents {
     function isOwner(uid) {
@@ -149,9 +149,12 @@ service cloud.firestore {
       }
 
       // settings/app: theme and mode; settings/modules: the modules
-      // switched on (#126). Written by any device.
+      // switched on (#126). Written by any device. settings/keys: the
+      // gardener's masked provider keys (#144), written by the saveKey
+      // and removeKey functions only.
       match /settings/{settingsId} {
-        allow read, delete: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow delete: if isOwner(uid) && settingsId != 'keys';
         allow create, update: if isOwner(uid) && (
           (settingsId == 'app' && isValidSettings(request.resource.data))
           || (settingsId == 'modules' && isValidModuleSettings(request.resource.data)));

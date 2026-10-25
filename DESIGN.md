@@ -61,8 +61,10 @@ users/{uid}
   reminders/{reminderId}
   devices/{deviceId}          push tokens
   settings/app                theme and mode, shared by devices
+  settings/keys               masked provider keys, function-written (#144)
   activity/{runId}            "What Claude changed" records
 oauth/...                     MCP auth state, server-only
+secrets/{uid}                 encrypted provider keys, server-only (#144)
 ```
 
 Ids are generated client-side (Firestore auto ids) so a note exists the
@@ -650,6 +652,64 @@ Anthropic account. The emulator has no metadata server, so locally
 titles fall back to first words and specs use a fake. Claude on
 Vertex AI (keyless through ADC) was the alternative, rejected because
 it moves billing and quotas to GCP.
+
+**Gardener keys (#144, Eric's BYOK design, 2026-10-25).** Titles
+stay on Eric's own account through the federation above (a separate
+Anthropic key of his, 2026-10-25). Transcriptions and every on-demand
+feature (ingest now, research, items assigned to the assistant) run on
+the gardener's own key: Anthropic, Gemini or OpenRouter, pasted in
+Settings, AI assistants, Your API keys. Eric designed the storage with
+Gemini's help; this follows it:
+
+- **`onCall` for everything the app asks the server to do** (Eric,
+  2026-10-25: always, unless there is a technical reason). `saveKey`
+  and `removeKey` are callables; the app reaches them through the
+  Functions SDK, the emulator's on localhost. `/oauth/*` and `/mcp`
+  stay `onRequest`, being protocols other clients speak, and
+  transcription and recipe import stay triggers, since their request
+  is a document write that must work offline.
+- **Saving.** The callable checks the key's shape for its provider
+  (`sk-ant-`, `AIza`, `sk-or-`), makes one cheap call to the provider
+  (list models) so a typo or a revoked key is refused at once, and
+  seals it with Cloud KMS: one symmetric key, `mossgoblin/gardener-keys`
+  in us-central1, rotating every 90 days, that never leaves KMS. The
+  gardener's uid and the provider go along as additional authenticated
+  data, so a ciphertext copied to another gardener's record, or another
+  provider's field, fails to open. CRC32C checks on both sides, pure
+  JS. The ciphertext goes under `secrets/{uid}`, server-only like
+  `oauth/`; the masked key (`sk-ant-…0123`) and when it was added go
+  under `settings/keys`, which the app reads and no client may write,
+  in one batch. No callable ever returns a key.
+- **Two accounts.** `saveKey` and `removeKey` run as `goblin-keys`,
+  which may only encrypt. Whatever calls a provider for the gardener
+  (transcription next, #144 step 2) runs as an account that may only
+  decrypt, opens the key for that call alone, builds the provider's
+  client per request, and logs an error's message and status, never
+  the error (an HTTP library's can carry the key in a header). A 401
+  marks the key `broken`, which Settings says. The daily caps stay, so
+  a bug cannot drain a gardener's credits.
+- **The emulator has no KMS.** The emulator build
+  (`MOSSGOBLIN_EMULATOR_BUILD=1`, set by `scripts/emulators.sh` and
+  `scripts/e2e.sh`) swaps `keys/stand-in.emulator.ts`, marked
+  `EMULATOR_ONLY`, in for `keys/stand-in.ts`: AES-256-GCM with the same
+  AAD and a fixed secret, used only under the functions emulator and
+  logged once, and the provider check skipped, the emulator being off
+  the network. The production module has no stand-in at all, so a
+  deployed function always seals with KMS whatever its environment
+  says; the deploy builds without the flag, and its dry run fails if
+  the marker got in (review on #149, which found the first cut's
+  inline `FUNCTIONS_EMULATOR` gate could fail open).
+- **Exposure until App Check (#148).** Any signed-in gardener can call
+  `saveKey` as often as they like; each call costs one provider request
+  and one KMS encrypt. Key patterns are capped at 400 characters. A
+  per-uid rate limit comes with App Check if it proves needed.
+- **Removing** drops both records and reminds the gardener to revoke
+  the key at the provider, which the app cannot do.
+- **App Check waits for GA** (#148).
+- **Later:** Connect with OpenRouter (PKCE, a key the gardener owns with
+  a spend limit) alongside pasting; Sign in with ChatGPT if OpenAI
+  opens it to apps like this. Anthropic and Gemini offer no delegated
+  sign-in for third-party apps (researched 2026-10-24).
 
 **Layout.** One column on the phone (capture on top, Right Now below);
 two panes from 900 px (list left, note right). The handle between note

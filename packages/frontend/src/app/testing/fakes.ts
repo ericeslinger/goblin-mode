@@ -21,7 +21,14 @@ import type { NoteRecord, NotesService } from '../notes/notes.service';
 import type { Transcription } from '../attachments/attachments.service';
 
 export function fakeFirebase(usingEmulators: boolean): FirebaseHandles {
-  return { app: {}, auth: {}, db: {}, storage: {}, usingEmulators } as unknown as FirebaseHandles;
+  return {
+    app: {},
+    auth: {},
+    db: {},
+    storage: {},
+    functions: {},
+    usingEmulators,
+  } as unknown as FirebaseHandles;
 }
 
 /** A stand-in for AuthService with a settable user. */

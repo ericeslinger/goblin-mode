@@ -55,6 +55,28 @@ and reads the photo or PDF, so also grant it
 --member=serviceAccount:goblin-titles@<project>.iam.gserviceaccount.com
 --role=roles/storage.objectViewer`).
 
+For gardeners' own provider keys (#144, DESIGN.md, Gardener keys),
+create a Cloud KMS key ring `mossgoblin` in `us-central1` with a
+symmetric key `gardener-keys` rotating every 90 days, and a service
+account `goblin-keys` that may only encrypt with it:
+
+```sh
+gcloud kms keyrings create mossgoblin --location=us-central1
+gcloud kms keys create gardener-keys --location=us-central1 \
+  --keyring=mossgoblin --purpose=encryption --rotation-period=90d \
+  --next-rotation-time=$(date -u -d "+90 days" +%Y-%m-%dT%H:%M:%SZ)
+gcloud iam service-accounts create goblin-keys
+gcloud kms keys add-iam-policy-binding gardener-keys \
+  --location=us-central1 --keyring=mossgoblin \
+  --member=serviceAccount:goblin-keys@<project>.iam.gserviceaccount.com \
+  --role=roles/cloudkms.cryptoKeyEncrypter
+```
+
+Also give `goblin-keys` `roles/datastore.user`, and let the deploy
+service account act as it, like `goblin-titles`. `saveKey` and
+`removeKey` always run as it. Without the key ring, saving a key fails
+and Settings says so; nothing else is affected.
+
 The deploy account cannot change project IAM, so the first deploy of
 the Firestore-triggered functions stops and asks a project owner to
 grant, once (with `<number>` your project number):
