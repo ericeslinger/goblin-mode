@@ -21,6 +21,20 @@ export function standInModel(env: NodeJS.ProcessEnv): AgentModel | undefined {
   return async ({ messages }) => {
     const first = messages[0]?.content;
     const brief = typeof first === 'string' ? first : '';
+    // A research brief (step 4): fixed findings, no search.
+    if (brief.startsWith('Research: ')) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Findings for "${brief.slice('Research: '.length)}" (emulator stand-in).\n- One thing, from https://example.com/one\n- Another, from https://example.com/two`,
+            citations: null,
+          },
+        ],
+        stop_reason: 'end_turn',
+        inputTokens: 100,
+      };
+    }
     const id = fromBrief(brief, 'Note id');
     const sentAt = fromBrief(brief, 'Sent at');
     const turns = messages.filter((m) => m.role === 'assistant').length;

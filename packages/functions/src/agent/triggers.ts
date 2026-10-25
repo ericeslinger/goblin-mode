@@ -1,7 +1,7 @@
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
-import { GARDEN_AGENT } from '@mossgoblin/schema';
+import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { GARDEN_AGENT, assignedItems, paths } from '@mossgoblin/schema';
 import { firestoreKeyStore } from '../keys/firestore-store';
 import { sealerFromEnv } from '../keys/sealer';
 import { withKey } from '../keys/use';
@@ -10,6 +10,7 @@ import { NotesTools } from '../mcp/tools';
 import { executeRun } from './core';
 import { firestoreRunStore } from './firestore-store';
 import { gardenTools } from './garden-tools';
+import { executeItemRun, itemRunId } from './items';
 import { type AgentModel, anthropicModel } from './model';
 import { standInModel } from './stand-in';
 
@@ -33,15 +34,36 @@ export const agentRun = onDocumentCreated(
     const db = getFirestore();
     const keys = firestoreKeyStore(db);
     const keyDeps = { store: keys, sealer: sealerFromEnv(process.env), marks: keys };
+    const store = firestoreRunStore(db);
+    const withModel = <T>(owner: string, use: (m: AgentModel) => Promise<T>) => {
+      const standIn = standInModel(process.env);
+      return standIn
+        ? use(standIn)
+        : withKey(keyDeps, owner, 'anthropic', 'do it now', (key) => use(anthropicModel(key)));
+    };
+    // An item assigned with @goblin (step 4): research, then written under it.
+    if (event.data?.data()?.['kind'] === 'item') {
+      const outcome = await executeItemRun(
+        {
+          store,
+          withModel,
+          now: () => Date.now(),
+          tools: (owner) => new NotesTools(db, owner).as(GARDEN_AGENT),
+          body: async (owner, noteId) => {
+            const doc = await db.doc(paths.note(owner, noteId)).get();
+            return doc.exists ? String(doc.get('body') ?? '') : undefined;
+          },
+        },
+        uid,
+        runId,
+      );
+      logger.info('agentRun item', { outcome });
+      return;
+    }
     const outcome = await executeRun(
       {
-        store: firestoreRunStore(db),
-        withModel: (owner, use) => {
-          const standIn = standInModel(process.env);
-          return standIn
-            ? use(standIn)
-            : withKey(keyDeps, owner, 'anthropic', 'do it now', (key) => use(anthropicModel(key)));
-        },
+        store,
+        withModel,
         garden: async (owner, scope) => {
           const tools = new NotesTools(db, owner).as(GARDEN_AGENT);
           const [context, modules] = await Promise.all([
@@ -56,6 +78,47 @@ export const agentRun = onDocumentCreated(
       runId,
     );
     logger.info('agentRun', { outcome });
+  },
+);
+
+/**
+ * Items assigned to the assistant (#144 step 4): when a note settles,
+ * each unticked item ending in @goblin that has no run yet gets one.
+ * The run id is the note's and the item's, so a later settle, or an
+ * edit elsewhere in the note, never starts it twice.
+ */
+export const itemAssigned = onDocumentWritten(
+  { document: 'users/{uid}/notes/{noteId}' },
+  async (event) => {
+    const after = event.data?.after.data();
+    if (!after || after['archived'] === true) return;
+    const settled = after['settledAt'];
+    const was = event.data?.before.data()?.['settledAt'];
+    const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
+    if (ms(settled) === undefined || ms(settled) === ms(was)) return;
+    const items = assignedItems(String(after['body'] ?? '')).filter((i) => !i.done);
+    if (!items.length) return;
+    const { uid, noteId } = event.params;
+    const db = getFirestore();
+    let started = 0;
+    for (const item of items) {
+      const ref = db.doc(paths.run(uid, itemRunId(noteId, item.key)));
+      const made = await db.runTransaction(async (tx) => {
+        if ((await tx.get(ref)).exists) return false;
+        tx.set(ref, {
+          kind: 'item',
+          noteId,
+          itemText: item.text,
+          itemKey: item.key,
+          status: 'requested',
+          steps: [],
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return true;
+      });
+      if (made) started++;
+    }
+    if (started) logger.info('itemAssigned', { noteId, started });
   },
 );
 

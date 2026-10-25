@@ -19,6 +19,9 @@ export interface RunRecord {
   noteId?: unknown;
   sentAt?: unknown;
   status?: unknown;
+  /** An assigned item's (step 4). */
+  itemKey?: unknown;
+  itemText?: unknown;
 }
 
 export interface RunStore {

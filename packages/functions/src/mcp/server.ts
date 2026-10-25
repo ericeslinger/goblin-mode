@@ -133,7 +133,7 @@ const time = z.string().describe('ISO 8601 with an offset, e.g. 2026-10-07T21:00
  * Finishing an import is the trigger's (#128); naming the assistant is
  * the handler's (#142).
  */
-type ToolMethods = Exclude<keyof NotesTools, 'finishRecipeImport' | 'as'>;
+type ToolMethods = Exclude<keyof NotesTools, 'finishRecipeImport' | 'as' | 'answerItem'>;
 export type ToolsApi = {
   [K in ToolMethods]: (args: Parameters<NotesTools[K]>[0]) => Promise<unknown>;
 };

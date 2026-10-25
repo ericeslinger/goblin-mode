@@ -20,11 +20,14 @@ export const RunStep = z.object({
 export type RunStep = z.infer<typeof RunStep>;
 
 export const Run = z.object({
-  /** What the run is for; only sent notes so far. */
-  kind: z.literal('queued-note'),
+  /** A sent note done now (step 3), or an item assigned with @goblin (step 4). */
+  kind: z.enum(['queued-note', 'item']),
   noteId: z.string().min(1),
-  /** The note's `sentAt` when the run was asked for, as finish_queued needs it. */
-  sentAt: Timestamp,
+  /** A sent note's `sentAt` when the run was asked for, as finish_queued needs it. */
+  sentAt: Timestamp.optional(),
+  /** An assigned item's ask, and what names it across edits (step 4). */
+  itemText: z.string().optional(),
+  itemKey: z.string().optional(),
   status: RunStatus,
   steps: z.array(RunStep),
   /** The one line the run ends with, or why it failed. */

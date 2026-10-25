@@ -83,6 +83,7 @@ import {
   withProjectSections,
   cleanAgentName,
   SEND_OUTCOME_MAX,
+  answerItem,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -1822,6 +1823,23 @@ export class NotesTools {
         args.heading ? `, under ${args.heading.replace(/^#+\s*/, '')}` : ''
       }`,
     }));
+  }
+
+  /**
+   * The assistant's answer under an item assigned to it (#144 step 4):
+   * the server's, not a tool Claude has. Writes `lines` indented under
+   * the item named by `key` and ticks it when `tick`; the item gone or
+   * ticked meanwhile, nothing changes. Eric's lines stay as written.
+   */
+  async answerItem(args: { id: string; key: string; lines: string[]; tick: boolean }) {
+    return this.editBody(args.id, 'answer_item', (body, title) => {
+      const next = answerItem(body, args.key, args.lines, args.tick);
+      if (!next.changed) return undefined;
+      return {
+        body: next.body,
+        summary: `${args.tick ? 'Answered' : 'Could not answer'} an item in ${title || 'a note'}`,
+      };
+    });
   }
 
   /**
