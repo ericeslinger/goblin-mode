@@ -8,9 +8,10 @@ describe('moduleOn (#126)', () => {
     expect(moduleOn({}, 'projects')).toBe(true);
     expect(moduleOn({ projects: { enabled: false } }, 'projects')).toBe(false);
     expect(moduleOn({ projects: { enabled: 'no' } }, 'projects')).toBe(true);
-    expect(MODULES.map((m) => m.id)).toEqual(['projects', 'kitchen']);
+    expect(MODULES.map((m) => m.id)).toEqual(['projects', 'kitchen', 'reader']);
     expect(moduleOn(undefined, 'kitchen')).toBe(false);
     expect(moduleOn({ kitchen: { enabled: true } }, 'kitchen')).toBe(true);
+    expect(moduleOn(undefined, 'reader')).toBe(false);
   });
 
   it('keeps a module’s config as it is', () => {

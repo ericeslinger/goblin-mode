@@ -16,6 +16,7 @@ import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
+import { READER_API, type ReaderApi } from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import type { ProposalRecord } from '../claude/proposals.service';
@@ -167,6 +168,7 @@ export class FakeModules {
   private readonly stored = signal<Partial<Record<ModuleId, boolean>>>({});
   readonly projects = computed(() => this.on('projects'));
   readonly kitchen = computed(() => this.on('kitchen'));
+  readonly reader = computed(() => this.on('reader'));
   readonly config = signal<Partial<KitchenConfig>>({});
   readonly kitchenConfig = computed(() => kitchenConfig(this.config()));
   readonly loaded = signal(true);
@@ -201,6 +203,7 @@ export function remindersTestProviders(api: FakeRemindersApi, now: () => number)
     { provide: RunsService, useValue: new FakeRuns() },
     { provide: FIREBASE, useValue: fakeFirebase(true) },
     { provide: READING_API, useValue: new FakeReadingApi() },
+    { provide: READER_API, useValue: new FakeReaderApi() },
     { provide: REMINDERS_API, useValue: api },
     { provide: NOW, useValue: now },
     { provide: TIME_ZONE, useValue: 'America/New_York' },
@@ -223,6 +226,30 @@ export class FakeReadingApi implements ReadingApi {
   set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
     Promise.resolve(),
   );
+  serverTime = () => 'SERVER_TIME';
+
+  push(docs: { id: string; data: Record<string, unknown> }[]): void {
+    this.next(docs);
+  }
+}
+
+/** A stand-in Firestore seam for ReaderService (#159); `push` is a snapshot. */
+export class FakeReaderApi implements ReaderApi {
+  private next: (docs: { id: string; data: Record<string, unknown> }[]) => void = () => undefined;
+  listen = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    ) => {
+      this.next = next;
+      return vi.fn();
+    },
+  );
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
+    Promise.resolve(),
+  );
+  remove = vi.fn((_db: unknown, _path: string) => Promise.resolve());
   serverTime = () => 'SERVER_TIME';
 
   push(docs: { id: string; data: Record<string, unknown> }[]): void {

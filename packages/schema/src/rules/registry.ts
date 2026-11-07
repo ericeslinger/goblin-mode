@@ -2,7 +2,17 @@
 // generated shape validators in firestore.rules. Function-only
 // collections (history, activity, oauth) are `allow write: if false`
 // and need none. See the write-path table in model.ts.
-import { Attachment, Device, ModuleSettings, Note, Reminder, Settings, Timestamp } from '../model';
+import {
+  Attachment,
+  Device,
+  Feed,
+  ModuleSettings,
+  Note,
+  ReaderSettings,
+  Reminder,
+  Settings,
+  Timestamp,
+} from '../model';
 import { generatedBlock, type ValidatedCollection } from './generate';
 
 export const CLIENT_WRITTEN: ValidatedCollection[] = [
@@ -12,6 +22,8 @@ export const CLIENT_WRITTEN: ValidatedCollection[] = [
   { name: 'Settings', schema: Settings },
   { name: 'ModuleSettings', schema: ModuleSettings },
   { name: 'Attachment', schema: Attachment },
+  { name: 'Feed', schema: Feed },
+  { name: 'ReaderSettings', schema: ReaderSettings },
 ];
 
 /** The generated block for firestore.rules, plus any warnings. */

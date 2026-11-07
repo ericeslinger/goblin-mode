@@ -16,6 +16,9 @@
 // | attachments | client, direct | a photo taken offline must be recorded offline (#43) |
 // | notes/replaced | function only | texts writes replaced, for merges (2026-10-07) |
 // | settings/keys | function only | a gardener's masked provider keys (#144) |
+// | feeds | client, direct | the feeds followed (#159): an OPML import works offline; functions add fetch state |
+// | feedItems | function, plus the owner's read and saved marks | the Reader's articles (#159), written by the fetcher |
+// | settings/reader | client, direct | the Reader's folder order and switches (#159) |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 // | secrets (top level) | function only | a gardener's encrypted provider keys (#144), never client-readable |
 //
@@ -322,6 +325,7 @@ export type ModuleSetting = z.infer<typeof ModuleSetting>;
 export const ModuleSettings = z.object({
   projects: ModuleSetting.optional(),
   kitchen: ModuleSetting.optional(),
+  reader: ModuleSetting.optional(),
   updatedAt: Timestamp,
 });
 export type ModuleSettings = z.infer<typeof ModuleSettings>;
@@ -470,6 +474,86 @@ export const Attachment = z.object({
 });
 export type Attachment = z.infer<typeof Attachment>;
 
+/**
+ * A feed the gardener follows (#159, Reader module), under `feeds`.
+ * Its id is derived from its URL (`feedId`), so an OPML import works
+ * offline and importing twice is once. The app writes the first block;
+ * the fetcher (a function) keeps the second, and the app leaves it be.
+ */
+export const Feed = z.object({
+  /** The feed itself (RSS, Atom or JSON Feed). */
+  url: z.string(),
+  title: z.string(),
+  /** The site the feed is for, when known. */
+  site: z.string().optional(),
+  /** Folder names; none means Uncategorized. A feed can be in several. */
+  folders: z.array(z.string()),
+  addedAt: Timestamp,
+  updatedAt: Timestamp,
+  /** When the fetcher should look next; the app sets it to now on adding. */
+  nextFetchAt: Timestamp.optional(),
+  // The fetcher's own (#161): conditional-request tokens, when it last
+  // looked, its adaptive interval in minutes, errors and their count,
+  // the newest item seen, and whether it has given the feed up.
+  etag: z.string().optional(),
+  lastModified: z.string().optional(),
+  fetchedAt: Timestamp.optional(),
+  claimedAt: Timestamp.optional(),
+  interval: z.number().optional(),
+  errorCount: z.number().optional(),
+  error: z.string().optional(),
+  lastItemAt: Timestamp.optional(),
+  dead: z.boolean().optional(),
+});
+export type Feed = z.infer<typeof Feed>;
+
+/** Reader mode on an item (#163): asked, claimed, kept, or why not. */
+export const ReaderState = z.enum(['requested', 'working', 'done', 'failed']);
+export type ReaderState = z.infer<typeof ReaderState>;
+
+/**
+ * One article from a feed (#159), under `feedItems`, written by the
+ * fetcher; its id is derived from the feed and the item's guid or link,
+ * so a refresh never duplicates. The app may change only `read`,
+ * `readAt`, `saved` and `updatedAt` (firestore.rules). Content is kept
+ * on the document, as the app's markdown, so an article once loaded
+ * reads offline.
+ */
+export const FeedItem = z.object({
+  feedId: z.string(),
+  title: z.string(),
+  link: z.string(),
+  author: z.string().optional(),
+  published: Timestamp,
+  /** The first lines, plain text, for the compact list. */
+  summary: z.string(),
+  /** What the feed gave, as markdown, capped. */
+  content: z.string(),
+  read: z.boolean(),
+  readAt: Timestamp.optional(),
+  saved: z.boolean(),
+  /** The reading-queue record made by Save for later (#163). */
+  attachmentId: z.string().optional(),
+  /** The clipping made by File in the garden (#163). */
+  noteId: z.string().optional(),
+  readerState: ReaderState.optional(),
+  readerContent: z.string().optional(),
+  readerError: z.string().optional(),
+  createdAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type FeedItem = z.infer<typeof FeedItem>;
+
+/** The Reader's own settings (#159), one doc, `settings/reader`. */
+export const ReaderSettings = z.object({
+  /** Folder names in the order the gardener wants them; the rest follow, sorted. */
+  folderOrder: z.array(z.string()),
+  /** Whether articles show their images. */
+  images: z.boolean(),
+  updatedAt: Timestamp,
+});
+export type ReaderSettings = z.infer<typeof ReaderSettings>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,
@@ -486,6 +570,12 @@ export const paths = {
   run: (uid: string, id: string) => `users/${uid}/runs/${id}`,
   proposals: (uid: string) => `users/${uid}/proposals`,
   attachments: (uid: string) => `users/${uid}/attachments`,
+  /** The Reader (#159): the feeds followed, their articles, its settings. */
+  feeds: (uid: string) => `users/${uid}/feeds`,
+  feed: (uid: string, id: string) => `users/${uid}/feeds/${id}`,
+  feedItems: (uid: string) => `users/${uid}/feedItems`,
+  feedItem: (uid: string, id: string) => `users/${uid}/feedItems/${id}`,
+  reader: (uid: string) => `users/${uid}/settings/reader`,
   /** The gardener's masked provider keys (#144), read by the app. */
   keys: (uid: string) => `users/${uid}/settings/keys`,
   /** Server only: the gardener's encrypted provider keys (#144). */

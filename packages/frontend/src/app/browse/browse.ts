@@ -26,6 +26,9 @@ import { NoteList } from './note-list';
         @if (modules.kitchen()) {
           <a routerLink="/kitchen">This week’s meals</a>
         }
+        @if (modules.reader()) {
+          <a routerLink="/reader">Reader</a>
+        }
         <a routerLink="/reading"
           >Reading queue
           @if (reading.unread().length) {

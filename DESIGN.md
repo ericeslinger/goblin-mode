@@ -62,8 +62,11 @@ users/{uid}
   devices/{deviceId}          push tokens
   settings/app                theme and mode, shared by devices
   settings/keys               masked provider keys, function-written (#144)
+  settings/reader             the Reader's folder order and switches (#159)
   activity/{runId}            "What Claude changed" records
   runs/{runId}                the garden's own agent runs (#144 step 3)
+  feeds/{feedId}              feeds followed, id from the URL (#159)
+  feedItems/{itemId}          their articles, fetcher-written (#159)
 oauth/...                     MCP auth state, server-only
 secrets/{uid}                 encrypted provider keys, server-only (#144)
 ```
@@ -986,6 +989,51 @@ slide into Overdue while the app is open.
 Not yet: tapping a reminder opens its note only when it has `noteId`
 (Claude sets it; the app has no way to link one yet), templates wait
 for the feelings template, and calendar events are Phase 2.
+
+### The Reader (#159, Eric, 2026-11-07)
+
+A feed reader in the garden, as a module: the feeds Eric follows (an
+OPML export from Feedly to start), refreshed by the server, read in
+the app in a compact list with swipes, and three gestures of intent on
+an article: save for later, reader mode, file in the garden. Eric's
+brief and the design are on epic #159; the steps are #160 to #164.
+
+**Its own collections, not notes (2026-11-07).** Every client holds
+one live listener on the whole notes collection, which is what makes
+Browse and search instant; thousands of articles cannot go there. So
+`feeds/{feedId}` and `feedItems/{itemId}` are their own collections
+under the gardener (`Feed`, `FeedItem` in `model.ts`), with the
+Reader's own settings in `settings/reader` (`ReaderSettings`). A
+feed's id is derived from its URL and an item's from its feed and
+guid (`feedId`, `feedItemId` in `packages/schema/src/reader.ts`,
+FNV-1a 64, the same on every device and on the server, no async
+crypto), so an import works offline, importing twice is once, and a
+refresh never duplicates. Feeds are the gardener's: the app creates,
+moves and removes them through the persistent cache, never awaited,
+and the fetcher (#161) adds its own fields (`etag`, `lastModified`,
+`fetchedAt`, `nextFetchAt`, `interval`, `errorCount`, `error`,
+`lastItemAt`, `dead`), which the shape allows and the app leaves
+alone; a new feed is written with `nextFetchAt` now, so the next tick
+looks at it. Articles are the fetcher's: the rules let the owner
+change only `read`, `readAt`, `saved` and `updatedAt`, so the text
+stays what the feed gave. Content lives on the item document, as the
+app's markdown, capped, so an article loaded once reads offline;
+everything is kept (Eric: searchable and gardenable later), with a
+retention knob for later (#164). `firestore.indexes.json` has the
+composite index the list needs (`read`, `published desc`) and a
+collection-group index on `nextFetchAt` for the fetcher.
+
+**Step 1 (#160, built 2026-11-07).** The Reader module (`MODULES`,
+off by default) and `/reader`, linked from Browse and More when it is
+on: the folders with their feeds (`folderList`: sorted, Uncategorized
+last, a feed in several folders listed in each), Import feeds from an
+OPML file chosen on the device and parsed there (`parseOpml`: outlines
+with an `xmlUrl` are feeds, the ones around them folders; Feedly
+repeats a feed that is in two collections, which is one feed in both;
+feeds already followed gain the file's folders; past `FEED_CAP`, 500,
+the rest are refused), a feed's folders edited in place as a
+comma-separated field, Remove, and Follow a feed by its link into a
+folder. Nothing here touches the network: the server fetches.
 
 ## Themes (#23, 2026-10-06)
 
@@ -1922,5 +1970,11 @@ Each step is one or more PRs, each with a journey.
    titles come on settle.
 7. MCP: OAuth, tools, connector set up in claude.ai. Built 2026-10-06;
    the connector is added in claude.ai by Eric (QUESTIONS.md).
+
+Later epics each carry their own build order on their issue: modules
+and the Kitchen (#125), other assistants (#142), send to an assistant
+(#143), the gardener's keys and the garden's own agent (#144), and the
+Reader (#159, 2026-11-07: schema and import, the fetcher, reading, the
+gestures of intent and the assistant's tools, then the rest).
 
 First deploy to mossgoblin.garden: done 2026-10-06.
