@@ -198,9 +198,18 @@ export class ReaderArticle {
   protected openLink(event: MouseEvent): void {
     const a = (event.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
-    // A footnote's link to a place in the article stays in it (review on #167).
-    if (a.getAttribute('href')?.startsWith('#')) return;
     event.preventDefault();
+    // A footnote's link to a place in the article scrolls to it: left to
+    // the page it would resolve against the app's base href and leave the
+    // article (review on #167).
+    const fragment = a.getAttribute('href') ?? '';
+    if (fragment.startsWith('#')) {
+      const id = decodeURIComponent(fragment.slice(1));
+      const target =
+        document.getElementById(id) ?? document.querySelector(`.body [name="${CSS.escape(id)}"]`);
+      target?.scrollIntoView({ block: 'start' });
+      return;
+    }
     window.open(a.href, '_blank', 'noopener');
   }
 
