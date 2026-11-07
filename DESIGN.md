@@ -1156,8 +1156,12 @@ too). The time kept is now, or the folder's newest article if a feed's
 clock puts that later, and nothing is written when nothing in the
 folder is newer than the last time; All, Saved, one feed's list and
 any other shelf of the app's own (Podcasts, #178) note nothing, and an
-episode counts in its feed's folders. Right Now (under the launch panel's items, at the top of
-the full screen) then has a line per folder with unread articles newer
+episode counts in its feed's folders. "New" is by the article's
+`published` time against `seenAt`, so an unread article dated before
+the last open but stored after it (a back-dated post, a feed added
+late, a device syncing late) is not counted; a known limit (review on
+#186). Right Now (under the launch panel's items, at the top of the
+full screen) then has a line per folder with unread articles newer
 than its `seenAt`, "14 new in Design" linking to that folder's list,
 most first then by name, at most three, then "and 2 more folders"
 linking to the Reader. A folder never opened counts all its unread
