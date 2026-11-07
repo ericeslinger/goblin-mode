@@ -95,8 +95,8 @@ export interface ReaderApi {
   clear(): unknown;
   /** The refreshFeeds callable (#161): every feed looked at now. */
   refresh(): Promise<TickReport>;
-  /** The applyRetentionNow callable (#171): the keep-for months applied to what is stored. */
-  applyRetention(): Promise<{ touched: number }>;
+  /** The applyRetentionNow callable (#171): these keep-for months applied to what is stored. */
+  applyRetention(keepMonths: number | null): Promise<{ touched: number }>;
   /** The sweepArticles callable (#171): old unread, unsaved, unfiled articles removed. */
   sweep(): Promise<{ removed: number }>;
 }
@@ -122,8 +122,13 @@ function readerApi(functions: Functions): ReaderApi {
   return {
     refresh: async () =>
       (await httpsCallable<unknown, TickReport>(functions, 'refreshFeeds')({})).data,
-    applyRetention: async () =>
-      (await httpsCallable<unknown, { touched: number }>(functions, 'applyRetentionNow')({})).data,
+    applyRetention: async (keepMonths) =>
+      (
+        await httpsCallable<unknown, { touched: number }>(
+          functions,
+          'applyRetentionNow',
+        )({ keepMonths })
+      ).data,
     sweep: async () =>
       (await httpsCallable<unknown, { removed: number }>(functions, 'sweepArticles')({})).data,
     clear: () => deleteField(),
@@ -332,13 +337,14 @@ export class ReaderService {
   async setKeepMonths(months: number | undefined): Promise<string> {
     this.writeSettings({ keepMonths: months });
     try {
-      const { touched } = await this.api.applyRetention();
+      // The months go with the call: the write above may not have landed yet.
+      const { touched } = await this.api.applyRetention(months ?? null);
       return months
         ? `Keeping articles for ${months} months; applied to ${touched} stored ${touched === 1 ? 'article' : 'articles'}.`
         : `Keeping everything; ${touched} ${touched === 1 ? 'article' : 'articles'} will no longer expire.`;
     } catch (err) {
       console.error('retention not applied', err);
-      return 'The setting is kept; it applies to stored articles once you are online.';
+      return 'The setting is kept and shapes new articles; choose it again online to apply it to the stored ones.';
     }
   }
 

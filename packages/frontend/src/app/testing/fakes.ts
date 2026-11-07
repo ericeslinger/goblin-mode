@@ -262,7 +262,7 @@ export class FakeReaderApi implements ReaderApi {
   serverTime = () => 'SERVER_TIME';
   clear = () => 'CLEAR';
   refresh = vi.fn(async () => ({ fetched: 2, added: 5, failed: 0, skipped: 0 }));
-  applyRetention = vi.fn(async () => ({ touched: 7 }));
+  applyRetention = vi.fn(async (_keepMonths: number | null) => ({ touched: 7 }));
   sweep = vi.fn(async () => ({ removed: 3 }));
 
   push(docs: { id: string; data: Record<string, unknown> }[]): void {

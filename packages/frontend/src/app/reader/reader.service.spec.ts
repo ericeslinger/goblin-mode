@@ -193,13 +193,14 @@ describe('ReaderService (#159)', () => {
       keepMonths: 3,
       updatedAt: 'SERVER_TIME',
     });
-    expect(api.applyRetention).toHaveBeenCalled();
+    expect(api.applyRetention).toHaveBeenCalledWith(3);
     expect(await reader.setKeepMonths(undefined)).toBe(
       'Keeping everything; 7 articles will no longer expire.',
     );
     expect(settings.set.mock.lastCall![2]).not.toHaveProperty('keepMonths');
+    expect(api.applyRetention).toHaveBeenLastCalledWith(null);
     api.applyRetention.mockRejectedValueOnce(new Error('offline'));
-    expect(await reader.setKeepMonths(6)).toMatch(/once you are online/);
+    expect(await reader.setKeepMonths(6)).toMatch(/choose it again online/);
     expect(await reader.sweep()).toBe('Removed 3 old unread articles.');
   });
 

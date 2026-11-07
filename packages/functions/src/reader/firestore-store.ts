@@ -104,7 +104,10 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
     keepMonths: async (uid) => {
       const doc = await db.doc(paths.reader(uid)).get();
       const months = doc.data()?.['keepMonths'];
-      return typeof months === 'number' && months > 0 ? months : undefined;
+      // Whole months, 1 to 120 (review on #181): anything else keeps everything.
+      return typeof months === 'number' && Number.isInteger(months) && months >= 1 && months <= 120
+        ? months
+        : undefined;
     },
     countFetch: async (uid, day) => {
       await db
@@ -206,23 +209,29 @@ export async function applyRetention(
  */
 export async function sweepOld(db: Firestore, uid: string, cutoff: number): Promise<number> {
   let removed = 0;
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
   for (;;) {
-    const snap = await db
+    // Pages by a cursor (review on #181), so kept ones (saved, filed)
+    // ahead never hide deletable ones behind them.
+    let query = db
       .collection(paths.feedItems(uid))
       .where('read', '==', false)
       .where('published', '<', Timestamp.fromMillis(cutoff))
       .orderBy('published', 'desc')
-      .limit(400)
-      .get();
+      .limit(400);
+    if (after) query = query.startAfter(after);
+    const snap = await query.get();
+    if (snap.empty) return removed;
     const docs = snap.docs.filter(
       (d) => d.data()['saved'] !== true && typeof d.data()['noteId'] !== 'string',
     );
-    if (!docs.length) return removed;
-    const batch = db.batch();
-    for (const d of docs) batch.delete(d.ref);
-    await batch.commit();
-    removed += docs.length;
-    // Kept ones (saved, filed) stay in the window; stop once a page held only those.
+    if (docs.length) {
+      const batch = db.batch();
+      for (const d of docs) batch.delete(d.ref);
+      await batch.commit();
+      removed += docs.length;
+    }
     if (snap.size < 400) return removed;
+    after = snap.docs[snap.docs.length - 1];
   }
 }

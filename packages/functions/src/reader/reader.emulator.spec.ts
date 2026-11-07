@@ -64,13 +64,16 @@ describe('retention (#171)', () => {
 
   it('sweeps the unread, unsaved, unfiled articles older than the cutoff, and no others', async () => {
     await article('old', 120);
+    // Older still, behind a kept one in the page order (review on #181).
+    await article('older', 400);
     await article('old-read', 120, { read: true });
     await article('old-saved', 120, { saved: true });
     await article('old-filed', 120, { noteId: 'n1' });
     await article('recent', 5);
-    expect(await sweepOld(db, 'u1', NOW - 90 * DAY)).toBe(1);
+    expect(await sweepOld(db, 'u1', NOW - 90 * DAY)).toBe(2);
     const left = (await db.collection('users/u1/feedItems').get()).docs.map((d) => d.id).sort();
     expect(left).toEqual(['old-filed', 'old-read', 'old-saved', 'recent']);
+    expect(left).not.toContain('older');
     expect(await sweepOld(db, 'u1', NOW - 90 * DAY)).toBe(0);
   });
 });

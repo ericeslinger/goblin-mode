@@ -177,13 +177,21 @@ export const fetchArticle = onCall({ memory: '512MiB', timeoutSeconds: 120 }, as
 export const applyRetentionNow = onCall({ timeoutSeconds: 300 }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
   const uid = request.auth.uid;
-  const db = getFirestore();
-  const months = (await db.doc(paths.reader(uid)).get()).data()?.['keepMonths'];
-  const keep = typeof months === 'number' && months > 0 ? months : undefined;
-  const touched = await applyRetention(db, uid, keep);
+  // The months come with the call (review on #181): the app's write of
+  // the setting is still on its way, so a read here could be stale.
+  const months = (request.data as { keepMonths?: unknown } | null)?.keepMonths;
+  if (months !== null && months !== undefined && !validMonths(months)) {
+    throw new HttpsError('invalid-argument', 'keepMonths is whole months, 1 to 120, or null.');
+  }
+  const keep = validMonths(months) ? months : undefined;
+  const touched = await applyRetention(getFirestore(), uid, keep);
   logger.info('applyRetention', { keep, touched });
   return { keepMonths: keep ?? null, touched };
 });
+
+/** Whole months, 1 to 120: what the setting may hold (review on #181). */
+const validMonths = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 120;
 
 /** Removes the unread, unsaved, unfiled articles older than the fetcher's cutoff (#171). */
 export const sweepArticles = onCall({ timeoutSeconds: 300 }, async (request) => {

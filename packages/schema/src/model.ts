@@ -568,7 +568,7 @@ export const ReaderSettings = z.object({
    * keeps everything. The fetcher writes `expireAt` from it and a TTL
    * policy removes what expires.
    */
-  keepMonths: z.number().optional(),
+  keepMonths: z.number().int().min(1).max(120).optional(),
   /** Mark articles read as they scroll past in the list (#172). */
   readOnScroll: z.boolean().optional(),
   /** When each folder's list was last opened, folder name to time (#173). */
