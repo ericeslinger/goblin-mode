@@ -10,8 +10,14 @@ import { FEED_CAP, paths } from '@mossgoblin/schema';
 import { publicFetch } from '../attachments/import';
 import { readerMarkdown } from './article';
 import { decodeBody, feedFetch } from './fetch';
-import { firestoreRefreshStore, markAllDue, removeFeedItems } from './firestore-store';
-import { type RefreshDeps, refreshDue } from './refresh';
+import {
+  applyRetention,
+  firestoreRefreshStore,
+  markAllDue,
+  removeFeedItems,
+  sweepOld,
+} from './firestore-store';
+import { ITEM_MAX_AGE_MS, type RefreshDeps, refreshDue } from './refresh';
 import { standInFeedFetcher, standInPageFetcher } from './stand-in';
 
 /** Refresh in the app no more often than this, per gardener. */
@@ -160,4 +166,38 @@ export const fetchArticle = onCall({ memory: '512MiB', timeoutSeconds: 120 }, as
       .catch(() => undefined);
     throw new HttpsError('unavailable', `Could not fetch the page: ${message}`);
   }
+});
+
+/**
+ * Retention (#171), from Settings: applies the keep-for months to the
+ * articles already stored (`expireAt` set or cleared), after the app
+ * has written the setting. onCall, as everything the app asks the
+ * server to do is.
+ */
+export const applyRetentionNow = onCall({ timeoutSeconds: 300 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = request.auth.uid;
+  // The months come with the call (review on #181): the app's write of
+  // the setting is still on its way, so a read here could be stale.
+  const months = (request.data as { keepMonths?: unknown } | null)?.keepMonths;
+  if (months !== null && months !== undefined && !validMonths(months)) {
+    throw new HttpsError('invalid-argument', 'keepMonths is whole months, 1 to 120, or null.');
+  }
+  const keep = validMonths(months) ? months : undefined;
+  const touched = await applyRetention(getFirestore(), uid, keep);
+  logger.info('applyRetention', { keep, touched });
+  return { keepMonths: keep ?? null, touched };
+});
+
+/** Whole months, 1 to 120: what the setting may hold (review on #181). */
+const validMonths = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 120;
+
+/** Removes the unread, unsaved, unfiled articles older than the fetcher's cutoff (#171). */
+export const sweepArticles = onCall({ timeoutSeconds: 300 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = request.auth.uid;
+  const removed = await sweepOld(getFirestore(), uid, Date.now() - ITEM_MAX_AGE_MS);
+  logger.info('sweepArticles', { removed });
+  return { removed };
 });

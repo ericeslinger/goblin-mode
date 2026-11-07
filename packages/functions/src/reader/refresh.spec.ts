@@ -10,6 +10,7 @@ import {
   type NewItem,
   type RefreshStore,
   backoff,
+  monthsAfter,
   nextInterval,
   refreshDue,
   refreshFeed,
@@ -33,6 +34,7 @@ function store(knownIds: string[] = [], claimed = true) {
     writeItems: vi.fn(async (_uid: string, _items: NewItem[]) => undefined),
     updateFeed: vi.fn(async (_uid: string, _id: string, _update: FeedUpdate) => undefined),
     countFetch: vi.fn(async () => undefined),
+    keepMonths: vi.fn(async (_uid: string): Promise<number | undefined> => undefined),
   } satisfies RefreshStore;
   return s;
 }
@@ -106,6 +108,18 @@ describe('refreshFeed (#161)', () => {
       lastItemAt: NOW - 200 * 24 * H,
       interval: INTERVAL_MAX,
     });
+  });
+
+  it('writes expireAt from the gardener’s keep-for months (#171)', async () => {
+    const s = store();
+    s.keepMonths.mockResolvedValue(3);
+    await refreshFeed({ store: s, fetch: ok(RSS(item('a', 1))), now: () => NOW }, feed);
+    const written = s.writeItems.mock.calls[0][1][0];
+    expect(written.expireAt).toBe(monthsAfter(NOW - H, 3));
+    expect(new Date(written.expireAt!).toISOString()).toBe('2027-02-07T11:00:00.000Z');
+    expect(monthsAfter(Date.parse('2026-11-30T00:00:00Z'), 3)).toBe(
+      Date.parse('2027-03-02T00:00:00Z'),
+    );
   });
 
   it('keeps a gardener’s own name for a feed, and an item’s date never in the far future', async () => {

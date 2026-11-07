@@ -15,7 +15,14 @@ export { startRun } from './agent/callables';
 export { agentRun, itemAssigned } from './agent/triggers';
 export { noteHistory, noteTitle } from './notes/triggers';
 export { recipeImport } from './kitchen/triggers';
-export { feedRemoved, feedsRefresh, fetchArticle, refreshFeeds } from './reader/functions';
+export {
+  applyRetentionNow,
+  feedRemoved,
+  feedsRefresh,
+  fetchArticle,
+  refreshFeeds,
+  sweepArticles,
+} from './reader/functions';
 export { proposalAccepted } from './organize/triggers';
 export { sendDuePush } from './push/send-due-push';
 export { reminderScheduled, reminderWake } from './push/reminder-wake';

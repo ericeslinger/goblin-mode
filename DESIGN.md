@@ -1109,6 +1109,22 @@ Two more composite indexes serve the read and saved shelves
 (`read`, `readAt desc`; `saved`, `published desc`). Browse's Reader
 link carries the unread count.
 
+**Retention (#171, Eric, 2026-11-07).** Everything is kept unless
+the gardener says otherwise: Settings, Reader, Keep articles for (3,
+6 or 12 months, `settings/reader.keepMonths`). With it set, the
+fetcher writes `expireAt` (`published` plus the months) on each
+article it stores, and a Firestore TTL policy on `feedItems.expireAt`
+removes them in time; saving or filing an article clears `expireAt`
+(the one write to it the rules allow the owner, and only as a
+removal), so saved and filed ones stay. Changing the knob calls
+`applyRetentionNow` (`onCall`), which sets or clears `expireAt` on the
+unsaved, unfiled articles already stored, in pages by document id.
+"Remove unread articles older than three months" is `sweepArticles`
+(`onCall`): the unread, unsaved, unfiled ones older than the fetcher's
+cutoff go, in batches, for the backlog a first import brought in
+before the cutoff existed. The same doc carries `readOnScroll` (#172)
+and `seenAt` (#173) so those steps change no schema.
+
 **Step 4, the gestures of intent and the assistant's tools (#163,
 built 2026-11-07).** Three things an article can become, each a
 gesture in the app and, for the assistant, a tool. **Save for later**

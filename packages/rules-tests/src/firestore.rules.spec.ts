@@ -369,6 +369,15 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
       ref.set({ attachmentId: 'a1', saved: true, updatedAt: now() }, { merge: true }),
     );
     await assertSucceeds(ref.set({ noteId: 'n9', updatedAt: now() }, { merge: true }));
+    // expireAt (#171): the fetcher's; the owner clears it on save, never sets it.
+    await assertFails(ref.set({ expireAt: now(), updatedAt: now() }, { merge: true }));
+    await seed(path, { ...item(), expireAt: now() });
+    await assertSucceeds(
+      ref.set(
+        { saved: true, expireAt: firebase.firestore.FieldValue.delete(), updatedAt: now() },
+        { merge: true },
+      ),
+    );
     await assertFails(ref.set({ noteId: 9, updatedAt: now() }, { merge: true }));
     await assertFails(ref.set({ title: 'Mine now', updatedAt: now() }, { merge: true }));
     await assertFails(
@@ -382,6 +391,20 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
   it('keeps the Reader’s settings to their shape', async () => {
     const ref = owner().doc('users/owner/settings/reader');
     await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));
+    // Keep-for months (#171), read on scroll (#172), seen times (#173).
+    await assertSucceeds(
+      ref.set({
+        folderOrder: [],
+        images: true,
+        keepMonths: 3,
+        readOnScroll: true,
+        seenAt: { Design: now() },
+        updatedAt: now(),
+      }),
+    );
+    await assertFails(
+      ref.set({ folderOrder: [], images: true, keepMonths: '3', updatedAt: now() }),
+    );
     await assertFails(ref.set(valid['users/owner/settings/app']()));
   });
 });

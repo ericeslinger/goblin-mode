@@ -6,6 +6,7 @@ import {
   type FeedUpdate,
   type NewItem,
   type RefreshStore,
+  monthsAfter,
 } from './refresh';
 
 const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
@@ -66,10 +67,11 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
       for (let at = 0; at < items.length; at += 400) {
         const batch = db.batch();
         for (const item of items.slice(at, at + 400)) {
-          const { id, published, ...rest } = item;
+          const { id, published, expireAt, ...rest } = item;
           batch.set(db.doc(paths.feedItem(uid, id)), {
             ...rest,
             published: Timestamp.fromMillis(published),
+            ...(expireAt === undefined ? {} : { expireAt: Timestamp.fromMillis(expireAt) }),
             read: false,
             saved: false,
             createdAt: FieldValue.serverTimestamp(),
@@ -98,6 +100,14 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
           if (err.code !== 5) throw err;
           await removeFeedItems(db, uid, id);
         });
+    },
+    keepMonths: async (uid) => {
+      const doc = await db.doc(paths.reader(uid)).get();
+      const months = doc.data()?.['keepMonths'];
+      // Whole months, 1 to 120 (review on #181): anything else keeps everything.
+      return typeof months === 'number' && Number.isInteger(months) && months >= 1 && months <= 120
+        ? months
+        : undefined;
     },
     countFetch: async (uid, day) => {
       await db
@@ -149,4 +159,85 @@ export async function markAllDue(db: Firestore, uid: string, now: number): Promi
     await batch.commit();
   }
   return live.length;
+}
+
+/**
+ * Applies the keep-for months (#171) to the articles already stored:
+ * `expireAt` set from `published` on each unsaved, unfiled one, or
+ * cleared when there is no limit. Returns how many were touched.
+ */
+export async function applyRetention(
+  db: Firestore,
+  uid: string,
+  months: number | undefined,
+  pageSize = 400,
+): Promise<number> {
+  let touched = 0;
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let query = db
+      .collection(paths.feedItems(uid))
+      .where('saved', '==', false)
+      .orderBy(FieldPath.documentId())
+      .limit(pageSize);
+    if (after) query = query.startAfter(after);
+    const snap = await query.get();
+    if (snap.empty) return touched;
+    const batch = db.batch();
+    let writes = 0;
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (typeof data['noteId'] === 'string') continue;
+      const published = data['published'] instanceof Timestamp ? data['published'].toMillis() : 0;
+      const want =
+        months && published ? Timestamp.fromMillis(monthsAfter(published, months)) : undefined;
+      const have = data['expireAt'] instanceof Timestamp ? data['expireAt'] : undefined;
+      if (want ? have?.isEqual(want) : have === undefined) continue;
+      batch.update(d.ref, { expireAt: want ?? FieldValue.delete() });
+      writes++;
+    }
+    if (writes) await batch.commit();
+    touched += writes;
+    if (snap.size < pageSize) return touched;
+    after = snap.docs[snap.docs.length - 1];
+  }
+}
+
+/**
+ * Removes the articles that are unread, unsaved and unfiled and older
+ * than `cutoff` (#171): the backlog a first import brought in. Returns
+ * how many went.
+ */
+export async function sweepOld(
+  db: Firestore,
+  uid: string,
+  cutoff: number,
+  pageSize = 400,
+): Promise<number> {
+  let removed = 0;
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    // Pages by a cursor (review on #181), so kept ones (saved, filed)
+    // ahead never hide deletable ones behind them.
+    let query = db
+      .collection(paths.feedItems(uid))
+      .where('read', '==', false)
+      .where('published', '<', Timestamp.fromMillis(cutoff))
+      .orderBy('published', 'desc')
+      .limit(pageSize);
+    if (after) query = query.startAfter(after);
+    const snap = await query.get();
+    if (snap.empty) return removed;
+    const docs = snap.docs.filter(
+      (d) => d.data()['saved'] !== true && typeof d.data()['noteId'] !== 'string',
+    );
+    if (docs.length) {
+      const batch = db.batch();
+      for (const d of docs) batch.delete(d.ref);
+      await batch.commit();
+      removed += docs.length;
+    }
+    if (snap.size < pageSize) return removed;
+    after = snap.docs[snap.docs.length - 1];
+  }
 }

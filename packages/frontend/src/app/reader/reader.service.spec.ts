@@ -179,6 +179,31 @@ describe('ReaderService (#159)', () => {
     ]);
   });
 
+  it('keeps articles for a while (#171): the setting written whole, then applied by the server', async () => {
+    const { reader, api, settings } = setup();
+    settings.push({ folderOrder: ['Games'], images: false, readOnScroll: true, updatedAt: 1 });
+    expect(await reader.setKeepMonths(3)).toBe(
+      'Keeping articles for 3 months; applied to 7 stored articles.',
+    );
+    expect(reader.keepMonths()).toBe(3);
+    expect(settings.set.mock.lastCall![2]).toEqual({
+      folderOrder: ['Games'],
+      images: false,
+      readOnScroll: true,
+      keepMonths: 3,
+      updatedAt: 'SERVER_TIME',
+    });
+    expect(api.applyRetention).toHaveBeenCalledWith(3);
+    expect(await reader.setKeepMonths(undefined)).toBe(
+      'Keeping everything; 7 articles will no longer expire.',
+    );
+    expect(settings.set.mock.lastCall![2]).not.toHaveProperty('keepMonths');
+    expect(api.applyRetention).toHaveBeenLastCalledWith(null);
+    api.applyRetention.mockRejectedValueOnce(new Error('offline'));
+    expect(await reader.setKeepMonths(6)).toMatch(/choose it again online/);
+    expect(await reader.sweep()).toBe('Removed 3 old unread articles.');
+  });
+
   it('listens to nothing while the module is off', () => {
     const { api, modules } = setup();
     expect(api.listen).toHaveBeenCalledTimes(1);

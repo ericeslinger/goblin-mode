@@ -157,6 +157,28 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
               />
               Show images in articles
             </label>
+            <label>
+              Keep articles for
+              <select #keep (change)="keepArticles(keep.value)" [disabled]="tidying()">
+                <option value="" [selected]="!readerSettings.keepMonths()">
+                  as long as I like
+                </option>
+                @for (m of keepChoices; track m) {
+                  <option [value]="m" [selected]="readerSettings.keepMonths() === m">
+                    {{ m }} months
+                  </option>
+                }
+              </select>
+            </label>
+            <p class="muted">
+              Saved and filed articles are always kept; unsaved ones go after that long.
+            </p>
+            <button type="button" [disabled]="tidying()" (click)="sweepArticles()">
+              Remove unread articles older than three months
+            </button>
+            @if (retentionStatus()) {
+              <p role="status">{{ retentionStatus() }}</p>
+            }
             <p class="muted">
               <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a>
             </p>
@@ -421,6 +443,31 @@ export class Settings {
   protected readonly templates = inject(TemplatesService);
   protected readonly modules = inject(ModulesService);
   protected readonly readerSettings = inject(ReaderService);
+  protected readonly keepChoices = [3, 6, 12];
+  protected readonly tidying = signal(false);
+  protected readonly retentionStatus = signal('');
+
+  /** Keep articles for (#171): the setting, then applied to what is stored. */
+  protected async keepArticles(value: string): Promise<void> {
+    this.tidying.set(true);
+    try {
+      this.retentionStatus.set(
+        await this.readerSettings.setKeepMonths(value ? Number(value) : undefined),
+      );
+    } finally {
+      this.tidying.set(false);
+    }
+  }
+
+  /** The sweep (#171): old unread, unsaved, unfiled articles removed now. */
+  protected async sweepArticles(): Promise<void> {
+    this.tidying.set(true);
+    try {
+      this.retentionStatus.set(await this.readerSettings.sweep());
+    } finally {
+      this.tidying.set(false);
+    }
+  }
   protected readonly moduleList = MODULES;
   private readonly router = inject(Router);
 

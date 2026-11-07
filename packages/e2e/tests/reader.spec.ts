@@ -245,4 +245,17 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await letItSave(page);
   await page.reload();
   await expect(images).not.toBeChecked();
+
+  // Retention (#171): keep for three months, applied to what is stored; the sweep.
+  await page.getByRole('combobox', { name: 'Keep articles for' }).selectOption('3');
+  await expect(page.getByRole('status').last()).toContainText(
+    /Keeping articles for 3 months; applied to \d+ stored/,
+    { timeout: 15_000 },
+  );
+  await page
+    .getByRole('button', { name: 'Remove unread articles older than three months' })
+    .click();
+  await expect(page.getByRole('status').last()).toContainText('Removed 0 old unread articles.', {
+    timeout: 15_000,
+  });
 });
