@@ -30,14 +30,14 @@ and variables, Actions); nothing in the code names a deployment.
 
 | Name | Kind | Value |
 | --- | --- | --- |
-| `FIREBASE_PROJECT_ID` | variable | The Firebase project id |
+| `FIREBASE_PROJECT_ID` | variable | The Firebase project id; the Worker also checks podcast downloads' ID tokens against it |
 | `FIREBASE_WEB_CONFIG` | variable | The web app's config as JSON (Project settings, Your apps) |
 | `APP_DOMAIN` | variable | The domain to serve, on your Cloudflare account |
 | `CLOUDFLARE_ACCOUNT_ID` | variable | Your Cloudflare account id |
 | `CLOUDFLARE_API_TOKEN` | secret | Token that can deploy Workers and set custom domains |
 | `FIREBASE_SERVICE_ACCOUNT` | secret | JSON key of the deploy service account |
 | `WEB_PUSH_PUBLIC_KEY` | variable, optional | Cloud Messaging Web Push public key; notifications |
-| `OWNER_UID` | variable, optional | Your Firebase Auth uid; the MCP server's one account |
+| `OWNER_UID` | variable, optional | Your Firebase Auth uid; the MCP server's one account, and the only one the Worker's podcast download proxy serves (off without it) |
 | `ANTHROPIC_FEDERATION_RULE_ID` | variable, optional | Claude titles (DESIGN.md, Titles) |
 | `ANTHROPIC_ORGANIZATION_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | variable, optional | Claude titles |

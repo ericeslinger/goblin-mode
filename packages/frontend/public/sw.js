@@ -1,10 +1,13 @@
-// The app's service worker: the share target (#46), then Angular's.
+// The app's service worker: the share target (#46), downloaded podcast
+// episodes (#180), then Angular's.
 //
 // A share from another app is a POST to /share (manifest share_target).
 // The files go into a cache the page reads at /?shared=<n>; the title,
 // text and link ride along in the query. Listened for before Angular's
 // worker loads, which would answer every fetch itself.
 const SHARE_CACHE = 'mossgoblin-share';
+/** Episodes the app downloaded through the Worker's /api/episode (#180). */
+const EPISODE_CACHE = 'mossgoblin-episodes';
 
 /**
  * Whether a share came from this device (Android's share sheet, or this
@@ -63,5 +66,62 @@ self.addEventListener('fetch', (event) => {
     })(),
   );
 });
+
+// A downloaded episode (#180): the app keeps the whole file in the
+// episodes cache under its /api/episode link, and the player asks for
+// byte ranges of it, so a hit is answered here, a slice of the cached
+// file with 206 and Content-Range, offline too. A miss goes to the
+// network (the Worker's proxy) as it would without this worker.
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET') return;
+  if (url.origin !== self.location.origin || url.pathname !== '/api/episode') return;
+  event.stopImmediatePropagation();
+  event.respondWith(episode(event.request));
+});
+
+async function episode(request) {
+  let hit;
+  try {
+    const cache = await caches.open(EPISODE_CACHE);
+    hit = await cache.match(request.url, { ignoreVary: true });
+  } catch {
+    // No cache to read: the network, then.
+  }
+  if (!hit) return fetch(request);
+  const type = hit.headers.get('content-type') || 'audio/mpeg';
+  const range = /^bytes=(\d*)-(\d*)$/.exec((request.headers.get('range') || '').trim());
+  const file = await hit.blob();
+  const size = file.size;
+  const base = { 'content-type': type, 'accept-ranges': 'bytes', 'cache-control': 'no-store' };
+  if (!range || (range[1] === '' && range[2] === '')) {
+    return new Response(file, {
+      status: 200,
+      headers: { ...base, 'content-length': String(size) },
+    });
+  }
+  let start;
+  let end;
+  if (range[1] === '') {
+    // The last n bytes.
+    start = Math.max(0, size - Number(range[2]));
+    end = size - 1;
+  } else {
+    start = Number(range[1]);
+    end = range[2] === '' ? size - 1 : Math.min(Number(range[2]), size - 1);
+  }
+  if (start >= size || start > end) {
+    return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
+  }
+  // A Blob's slice is read lazily, so a seek does not load the file.
+  return new Response(file.slice(start, end + 1, type), {
+    status: 206,
+    headers: {
+      ...base,
+      'content-length': String(end - start + 1),
+      'content-range': `bytes ${start}-${end}/${size}`,
+    },
+  });
+}
 
 importScripts('ngsw-worker.js');

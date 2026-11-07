@@ -15,7 +15,8 @@
 #   Google credentials for firebase-tools (GOOGLE_APPLICATION_CREDENTIALS)
 # Optional (the feature stays off without them):
 #   WEB_PUSH_PUBLIC_KEY     notifications
-#   OWNER_UID               the MCP server's one allowed account (step 7)
+#   OWNER_UID               the MCP server's one allowed account (step 7),
+#                           and the episode proxy's (#180)
 #   ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID,
 #   ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_WORKSPACE_ID   Claude titles
 set -euo pipefail
@@ -72,7 +73,11 @@ for name in OWNER_UID ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID \
 done
 bash scripts/deploy-functions.sh --project "$FIREBASE_PROJECT_ID"
 
-npx wrangler deploy --config infra/worker/wrangler.toml --domain "$APP_DOMAIN" \
-  --var "FUNCTIONS_ORIGIN:https://$region-$FIREBASE_PROJECT_ID.cloudfunctions.net"
+# The project id and the owner's uid let the Worker check ID tokens for
+# the episode proxy (#180); without OWNER_UID the proxy stays off (503).
+worker_vars=(--var "FUNCTIONS_ORIGIN:https://$region-$FIREBASE_PROJECT_ID.cloudfunctions.net"
+  --var "FIREBASE_PROJECT_ID:$FIREBASE_PROJECT_ID")
+if [ -n "${OWNER_UID:-}" ]; then worker_vars+=(--var "OWNER_UID:$OWNER_UID"); fi
+npx wrangler deploy --config infra/worker/wrangler.toml --domain "$APP_DOMAIN" "${worker_vars[@]}"
 
 echo "deployed $sha"

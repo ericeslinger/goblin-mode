@@ -9,6 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { STORAGE } from '../platform/platform';
+import { DownloadsService } from './downloads.service';
 import { type ItemRecord, ItemsService } from './items.service';
 import { PlayerPresence } from './player-presence';
 import { ReaderService } from './reader.service';
@@ -46,8 +47,9 @@ const RATE_KEY = 'goblin.player.rate';
 
 /**
  * The podcast player (#179): one audio element for the whole app,
- * made lazily, playing straight from the enclosure's link (downloads
- * come with step 3). The position is kept on the item, through the
+ * made lazily, playing a downloaded episode from the cache through the
+ * proxy's link, which the service worker answers offline (#180), and
+ * any other straight from the enclosure's link. The position is kept on the item, through the
  * persistent cache, every 15 seconds of play and on pause, seek, stop
  * and leaving the page; the episode in hand is remembered on the
  * device, so a reload finds it where it was. Heard to the end, it is
@@ -64,10 +66,16 @@ export class PlayerService {
   private readonly makeAudio = inject(AUDIO_FACTORY);
   private readonly storage = inject(STORAGE);
   private readonly presence = inject(PlayerPresence);
+  private readonly downloads = inject(DownloadsService);
 
   private audio?: AudioLike;
   /** Whether the audio element holds the current episode's link yet. */
   private attached = false;
+  /**
+   * Whether the element holds the proxy's link for a downloaded episode
+   * and may still fall back to the enclosure's, once (review on #192).
+   */
+  private proxied = false;
   /** Where to start once the audio has its metadata. */
   private startAt?: number;
   /** The position at the last write, for the 15 s rhythm. */
@@ -191,7 +199,9 @@ export class PlayerService {
     if (!this.attached) {
       this.attached = true;
       this.startAt = this.position();
-      audio.src = it.enclosure.url;
+      const src = this.downloads.source(it) ?? it.enclosure.url;
+      this.proxied = src !== it.enclosure.url;
+      audio.src = src;
       audio.defaultPlaybackRate = this.rate();
       audio.playbackRate = this.rate();
       // Before the metadata this is the default start; again once it lands.
@@ -284,8 +294,30 @@ export class PlayerService {
       this.audio.load();
     }
     this.attached = false;
+    this.proxied = false;
     this.startAt = undefined;
     this.playing.set(false);
+  }
+
+  /**
+   * The proxy's link failed (review on #192): a page the service worker
+   * does not control sends it without a token, or the cached file is
+   * gone. The enclosure's link takes over at the same place, playing,
+   * once; the download is forgotten if its file is gone.
+   */
+  private fallBack(): void {
+    const it = this.item();
+    if (!this.attached || !this.proxied || !it?.enclosure || !this.audio) return;
+    this.proxied = false;
+    void this.downloads.forgetIfGone(it.id);
+    const audio = this.audio;
+    this.startAt = this.position();
+    audio.src = it.enclosure.url;
+    audio.currentTime = this.position();
+    audio.play().catch((err) => {
+      console.error('could not play', err);
+      this.playing.set(false);
+    });
   }
 
   private element(): AudioLike {
@@ -322,6 +354,7 @@ export class PlayerService {
       // At the end, `ended` keeps it, as played.
       if (!audio.ended) this.flush();
     });
+    audio.addEventListener('error', () => this.fallBack());
     audio.addEventListener('ended', () => {
       this.playing.set(false);
       this.position.set(this.duration() || audio.currentTime);

@@ -70,6 +70,10 @@ export const routes: Routes = [
     loadComponent: () => import('./reader/reader-feeds').then((m) => m.ReaderFeeds),
   },
   {
+    path: 'reader/downloads',
+    loadComponent: () => import('./reader/reader-downloads').then((m) => m.ReaderDownloads),
+  },
+  {
     path: 'reader/f/:folder',
     loadComponent: () => import('./reader/reader-list').then((m) => m.ReaderList),
   },

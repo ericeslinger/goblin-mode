@@ -27,6 +27,8 @@ public and indexable. Nothing here is public, and the launch screen must
 open from the service worker cache with no network, so the client is a
 static SPA. The Worker exists only to serve assets and to proxy the
 server routes below to Cloud Functions under the same origin.
+Since #180 (2026-11-07) it also has one route of its own,
+`/api/episode`, the podcast episode proxy (Client, Podcasts, step 3).
 
 ## Repository layout
 
@@ -1325,6 +1327,100 @@ part-way and not played, the latest played first, each "12:34 of
 downloads through the Worker's proxy, which the player then prefers
 to the enclosure's link (#177).
 
+**Podcasts, step 3: downloads for offline playback (#180, epic #177,
+2026-11-07).** Podcast hosts rarely send CORS, so the app could only
+cache an opaque response of an episode, which cannot be read or
+seeked. Eric chose the Worker proxy (2026-11-07): `/api/episode?url=`
+is the Worker's own route (`infra/worker/src/episode.ts`), ahead of
+the functions' routes, so the bytes are same-origin and Cloudflare's
+egress is free. It wants the caller's Firebase ID token in
+`Authorization: Bearer`, checked as the Admin SDK checks one: RS256,
+signed by the Google key its `kid` names (the securetoken JWKs, kept
+in memory for their `max-age`, fetched again for an unknown `kid` at
+most once a minute), issued by and for `FIREBASE_PROJECT_ID` (a Worker
+variable `scripts/deploy.sh` passes from the GitHub variable of that
+name), not expired, issued and signed in before now, and for the
+owner: its uid must be `OWNER_UID` (passed the same way, 403 for any
+other account; without either variable the route answers 503). The
+Worker cannot resolve a name, so it refuses by what the link says:
+http(s) only, no credentials in it, IPv4 literals in the private,
+loopback, link-local, carrier-grade NAT, documentation, benchmarking,
+multicast and reserved ranges, any IPv6 literal outside global
+unicast (so loopback, link-local, unique-local, mapped and NAT64) or
+in documentation, 6to4 or Teredo, single-label names, and the
+private-network suffixes (`localhost`, `.local`, `.internal`,
+`.invalid`, `.test`, `.example`, `.lan`, `.home`, `.corp`,
+`.intranet`, `.home.arpa`, `.onion`). Redirects are followed by hand,
+five at most, each checked the same way. A Worker's fetch leaves from
+Cloudflare's edge, with no private network or metadata server behind
+it, so these are the second line, as `publicRequest`'s are for the
+functions. The caller's `Range` is forwarded; the answer must be 200
+or 206 (416 passes through), `audio/*` or an octet-stream whose link
+ends in an audio extension (415 otherwise), and at most 500 MB by its
+stated size, or cut off past that when it states none (413). It goes
+back streamed with its status, `Content-Type`, `Content-Length`,
+`Content-Range`, `Accept-Ranges`, `Cache-Control: private,
+max-age=0` and `nosniff`, and none of the host's other headers.
+
+`DownloadsService` fetches the whole episode through the proxy with
+the gardener's ID token and keeps the response in the Cache Storage
+(`mossgoblin-episodes`) under that same link. The cache is the record:
+the response carries the item's id, feed, title, date, enclosure link
+and whether it came on its own in `x-mossgoblin-*` headers, so the
+Downloads list reads nothing else, and its size from `Content-Length`
+or the stored body. `sw.js` answers a GET of `/api/episode` itself,
+before Angular's worker: a hit is the cached file, or for a `Range`
+(`bytes=a-b`, `a-`, `-n`) a slice of it with 206 and `Content-Range`
+(416 past the end), read lazily from the Blob; a miss goes to the
+network. The player plays a downloaded episode from that link, so it
+plays and seeks offline, and any other from the enclosure's link as
+in step 2. When the proxy's link fails (a page the service worker
+does not control sends it without a token, or the file was evicted),
+the player falls back to the enclosure's link at the same place, once,
+and a download whose cached file is gone is forgotten (review on #192,
+2026-11-07). The Worker answers 502 when the host cannot be reached or
+redirects to a link that does not parse. The episode's page has Download, its progress, then
+"Downloaded, 47 KB" and Remove download, and its meta line starts
+"Downloaded ·"; a downloaded episode's row says so. Downloads
+(`/reader/downloads`, linked from the Reader's front once anything is
+downloaded or a podcast keeps its newest) lists them newest first with
+the podcast, the size and Remove, and the total against the cap.
+
+The limits are the device's, in local storage beside the player's
+speed, not in `settings/reader` (so no schema or rules change): the
+files are this device's, and a phone and a laptop want their own. In
+Settings, Reader: keep up to 250 MB, 500 MB (the default), 1, 2 or 5
+GB, and Download new episodes on their own only on Wi-Fi (on by
+default). The Wi-Fi rule is for automatic downloads only; a tap on
+Download is the gardener's choice and works on any connection. It
+reads `navigator.connection` where there is one: cellular, Bluetooth
+or Data Saver wait; no information allows it (Chrome on Android says
+the type, desktop browsers mostly do not, Safari has no such API). A
+podcast's row in Manage feeds chooses how many of its newest episodes
+this device keeps downloaded: by hand only (the default), the newest,
+or the newest 2, 3, 5 or 10. While the Reader is open, as its episodes
+arrive, the newest that many unplayed ones are downloaded, newest
+first, one at a time, into the room under the cap only; its automatic
+downloads past those go, never the episode in hand, and one that
+failed waits an hour. A download by hand makes room instead, removing
+the oldest downloads by date published, never the episode in hand,
+and removes nothing when even that would not fit; a lower cap removes
+the oldest until the rest fit.
+
+The journey (`reader.spec.ts`, the third) runs under the service
+worker: it follows the fixture podcast, presses Download, sees
+"Downloaded", the Downloads list with the size and the total against
+the cap, then sets the browser offline, opens the episode from the
+list, plays it and sees the position move, with no request reaching
+the network, then online again removes it and finds the cache empty.
+The e2e app is served by `scripts/serve-static.mjs`, not the Worker,
+and the Worker wants Google-signed tokens, so the journey answers
+`/api/episode` itself at the context level with the same silent WAV,
+ranges included, and checks that a Bearer token was sent. The proxy's
+token check, address checks, redirects and header shaping are covered
+by `episode.spec.ts` (keys made in the spec, a fake fetch), not by a
+journey; automatic downloads and the cap are unit specs.
+
 ## Themes (#23, 2026-10-06)
 
 Eric chose all five style directions from the UX Spec, switchable
@@ -1672,6 +1768,7 @@ Functions, so the MCP endpoint and OAuth live on mossgoblin.garden:
 | `/.well-known/oauth-authorization-server` | `oauth` | Authorization server metadata |
 | `/oauth/register`, `/oauth/token` | `oauth` | Dynamic client registration, token exchange |
 | `/oauth/authorize` | client route | Google sign-in, then consent |
+| `/api/episode` | the Worker itself | Podcast episodes for offline downloads (#180) |
 
 Other functions: `noteHistory`, `noteTitle` and `reminderScheduled`
 (Firestore triggers), `reminderWake` (a Cloud Tasks queue) and
@@ -2179,8 +2276,10 @@ them to `scripts/deploy.sh`:
   and localhost always uses the emulators.
 - Functions get `OWNER_UID` and the `ANTHROPIC_*` federation ids from
   a `.env.<project>` file the script writes for the deploy and deletes.
-- The Worker gets its custom domain from `APP_DOMAIN` (`--domain`) and
-  `FUNCTIONS_ORIGIN` from `FIREBASE_PROJECT_ID`.
+- The Worker gets its custom domain from `APP_DOMAIN` (`--domain`),
+  `FUNCTIONS_ORIGIN` from `FIREBASE_PROJECT_ID`, and, for the episode
+  proxy's token check, `FIREBASE_PROJECT_ID` and `OWNER_UID` as they
+  are (#180, 2026-11-07).
 
 The deploy fails before building when a required variable is missing
 or the web config names another project. Optional ones leave their
