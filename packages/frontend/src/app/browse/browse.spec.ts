@@ -3,9 +3,10 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { type ProposalRecord, ProposalsService } from '../claude/proposals.service';
+import { ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
 import { NotesService } from '../notes/notes.service';
-import { FakeModules, FakeNotes, noteRecord, FakeProposals } from '../testing/fakes';
+import { FakeModules, FakeNotes, noteRecord, FakeProposals, FakeItems } from '../testing/fakes';
 import { ModulesService } from '../modules/modules.service';
 import { Browse } from './browse';
 
@@ -18,6 +19,7 @@ describe('Browse', () => {
       providers: [
         provideRouter([]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ItemsService, useValue: new FakeItems() },
         { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
@@ -43,6 +45,7 @@ describe('Browse', () => {
       providers: [
         provideRouter([]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ItemsService, useValue: new FakeItems() },
         { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: new FakeNotes() },
         { provide: ProposalsService, useValue: proposals },
@@ -69,6 +72,7 @@ describe('Browse', () => {
           { path: 'browse/:lens', component: Browse },
         ]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ItemsService, useValue: new FakeItems() },
         { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
@@ -95,6 +99,7 @@ describe('Browse', () => {
       providers: [
         provideRouter([]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ItemsService, useValue: new FakeItems() },
         { provide: ModulesService, useValue: modules },
         { provide: NotesService, useValue: new FakeNotes() },
         { provide: ProposalsService, useValue: new FakeProposals() },
@@ -121,6 +126,7 @@ describe('Browse', () => {
           { path: 'browse/:lens', component: Browse },
         ]),
         { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ItemsService, useValue: new FakeItems() },
         { provide: ModulesService, useValue: modules },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },

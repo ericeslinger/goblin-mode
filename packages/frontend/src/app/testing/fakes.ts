@@ -16,9 +16,11 @@ import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
+import { ITEMS_API, type ItemsApi, type Shelf } from '../reader/items.service';
 import { READER_API, type ReaderApi } from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
+import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
 import type { ProposalRecord } from '../claude/proposals.service';
 import type { NoteRecord, NotesService } from '../notes/notes.service';
 import type { Transcription } from '../attachments/attachments.service';
@@ -204,6 +206,8 @@ export function remindersTestProviders(api: FakeRemindersApi, now: () => number)
     { provide: FIREBASE, useValue: fakeFirebase(true) },
     { provide: READING_API, useValue: new FakeReadingApi() },
     { provide: READER_API, useValue: new FakeReaderApi() },
+    { provide: ITEMS_API, useValue: new FakeItemsApi() },
+    { provide: SETTINGS_API, useValue: new FakeSettingsApi() },
     { provide: REMINDERS_API, useValue: api },
     { provide: NOW, useValue: now },
     { provide: TIME_ZONE, useValue: 'America/New_York' },
@@ -257,6 +261,85 @@ export class FakeReaderApi implements ReaderApi {
   push(docs: { id: string; data: Record<string, unknown> }[]): void {
     this.next(docs);
   }
+}
+
+/** A stand-in for the settings-doc seam (theme, modules, reader settings). */
+export class FakeSettingsApi implements SettingsApi {
+  private next: (
+    data: Record<string, unknown> | undefined,
+    fromCache: boolean,
+    local: boolean,
+  ) => void = () => undefined;
+  readonly stop = vi.fn();
+  listen = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      next: (data: Record<string, unknown> | undefined, fromCache: boolean, local: boolean) => void,
+    ) => {
+      this.next = next;
+      return this.stop;
+    },
+  );
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
+  now = () => 'SERVER_TIME';
+
+  push(data: Record<string, unknown> | undefined, fromCache = false, local = false): void {
+    this.next(data, fromCache, local);
+  }
+}
+
+/** A stand-in Firestore seam for ItemsService (#162); `push` is one shelf's snapshot. */
+export class FakeItemsApi implements ItemsApi {
+  private readonly nexts = new Map<
+    Shelf,
+    (docs: { id: string; data: Record<string, unknown> }[]) => void
+  >();
+  listen = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      shelf: Shelf,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    ) => {
+      this.nexts.set(shelf, next);
+      return vi.fn();
+    },
+  );
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
+  setMany = vi.fn((_db: unknown, _writes: { path: string; data: Record<string, unknown> }[]) =>
+    Promise.resolve(),
+  );
+  serverTime = () => 'SERVER_TIME';
+  clear = () => 'CLEAR';
+
+  push(shelf: Shelf, docs: { id: string; data: Record<string, unknown> }[]): void {
+    this.nexts.get(shelf)?.(docs);
+  }
+}
+
+/** A stand-in for ReaderService (#159): no feeds, images on. */
+export class FakeReader {
+  readonly feeds = signal<never[]>([]);
+  readonly loaded = signal(true);
+  readonly folders = computed(() => [] as { name: string; feeds: never[] }[]);
+  readonly folderNames = computed(() => [] as string[]);
+  readonly images = signal(true);
+  setImages = vi.fn((images: boolean) => this.images.set(images));
+  refresh = vi.fn(async () => 'Looked at 0 feeds: 0 new articles.');
+}
+
+/** A stand-in for ItemsService (#162): nothing unread. */
+export class FakeItems {
+  readonly loaded = signal(true);
+  readonly items = signal<never[]>([]);
+  readonly unreadCounts = signal<Record<string, number>>({ all: 0, saved: 0 });
+  inShelf = () => [];
+  find = () => undefined;
+  setRead = vi.fn();
+  setSaved = vi.fn();
+  markAllRead = vi.fn(() => 0);
+  age = () => 'just now';
 }
 
 /** A stand-in for ProposalsService: set `list`, watch accept and dismiss. */

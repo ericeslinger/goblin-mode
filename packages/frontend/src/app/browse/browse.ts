@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 import { ProposalsService } from '../claude/proposals.service';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
+import { ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
 import { LENSES, inLens, lensId } from './lenses';
 import { NoteList } from './note-list';
@@ -27,7 +28,12 @@ import { NoteList } from './note-list';
           <a routerLink="/kitchen">This week’s meals</a>
         }
         @if (modules.reader()) {
-          <a routerLink="/reader">Reader</a>
+          <a routerLink="/reader"
+            >Reader
+            @if (articles.unreadCounts()['all']) {
+              <span class="count">{{ articles.unreadCounts()['all'] }} unread</span>
+            }
+          </a>
         }
         <a routerLink="/reading"
           >Reading queue
@@ -141,6 +147,7 @@ export class Browse {
   protected readonly modules = inject(ModulesService);
   protected readonly proposals = inject(ProposalsService);
   protected readonly reading = inject(ReadingService);
+  protected readonly articles = inject(ItemsService);
   protected readonly lens = toSignal(
     inject(ActivatedRoute).paramMap.pipe(map((p) => lensId(p.get('lens')))),
     { initialValue: lensId(undefined) },

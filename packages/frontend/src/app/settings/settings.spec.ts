@@ -3,8 +3,9 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { NotesService } from '../notes/notes.service';
-import { FakeAuthService, FakeModules, FakeNotes, noteRecord } from '../testing/fakes';
+import { FakeAuthService, FakeModules, FakeNotes, noteRecord, FakeReader } from '../testing/fakes';
 import { ModulesService } from '../modules/modules.service';
+import { ReaderService } from '../reader/reader.service';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
 import { type ReminderRecord, RemindersService } from '../reminders/reminders.service';
@@ -51,6 +52,7 @@ async function render(
       { provide: CLAUDE_ACCESS_API, useValue: claude },
       { provide: NotesService, useValue: notes },
       { provide: ModulesService, useValue: modules },
+      { provide: ReaderService, useValue: new FakeReader() },
       { provide: RemindersService, useValue: reminders },
       { provide: KeysService, useValue: keys },
     ],
