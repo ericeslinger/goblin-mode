@@ -1052,9 +1052,12 @@ https images; a page's `*`, `_`, `[`, `]` and tag-starting `#` are
 escaped, so a feed's `[[name]]`, `- [ ] do this @goblin` or `#tag`
 stays words once filed in the garden), capped at 20k characters, and
 its first 300 characters as `summary`. A feed named by its address
-takes the feed's own name. Nothing older than ninety days is stored (Eric, 2026-11-07: his OPML's
-first look brought in years of archive), so a feed's first look is its
-recent posts, not its history. **The interval** is half the median gap
+takes the feed's own name. Nothing older than ninety days is stored
+(Eric, 2026-11-07: his OPML's first look brought in years of archive),
+so a feed's first look is its recent posts, not its history; the
+feed's rhythm below is still read from everything it lists, so a
+dormant feed keeps its daily interval. **The interval** is half the
+median gap
 between its last ten items and no less than a quarter of the quiet
 since the newest, 30 minutes to a day, so an hourly feed is read every
 half hour and a silent one daily; an error doubles it and counts, and
