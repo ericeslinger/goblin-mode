@@ -15,7 +15,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { ALL, type ItemRecord, ItemsService, PODCASTS, SAVED, type Shelf2 } from './items.service';
-import { ReaderService } from './reader.service';
+import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 
 /** The shelf a list shows, from its route: `/reader/f/<folder>` or `/reader/s/<feedId>`. */
@@ -42,6 +42,18 @@ export function shelfFromParam(value: string | null): Shelf2 {
   if (value?.startsWith('s:')) return { kind: 'feed', id: value.slice(2) };
   if (value?.startsWith('f:')) return { kind: 'folder', name: value.slice(2) };
   return { kind: 'folder', name: ALL };
+}
+
+/** A shelf's list: `/reader/f/<folder>` or `/reader/s/<feedId>`. */
+export function shelfLink(shelf: Shelf2): string[] {
+  return shelf.kind === 'feed' ? ['/reader/s', shelf.id] : ['/reader/f', shelf.name];
+}
+
+/** A shelf's name as its list's heading shows it. */
+export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string {
+  if (shelf.kind === 'feed') return feeds.find((f) => f.id === shelf.id)?.title ?? 'Feed';
+  if (shelf.name === PODCASTS) return 'Podcasts';
+  return shelf.name === ALL ? 'All' : shelf.name === SAVED ? 'Saved' : shelf.name;
 }
 
 /**
@@ -283,13 +295,7 @@ export class ReaderList {
     return this.items.inShelf(this.shelf(), true).filter((i) => ids.has(i.id) || held.has(i.id));
   });
   protected readonly unreadCount = computed(() => this.list().filter((i) => !i.read).length);
-  protected readonly title = computed(() => {
-    const shelf = this.shelf();
-    if (shelf.kind === 'feed')
-      return this.reader.feeds().find((f) => f.id === shelf.id)?.title ?? 'Feed';
-    if (shelf.name === PODCASTS) return 'Podcasts';
-    return shelf.name === ALL ? 'All' : shelf.name === SAVED ? 'Saved' : shelf.name;
-  });
+  protected readonly title = computed(() => shelfTitle(this.shelf(), this.reader.feeds()));
   /** One feed's site, when the list is that feed's. */
   protected readonly feedLink = computed(() => {
     const shelf = this.shelf();

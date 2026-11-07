@@ -1,11 +1,22 @@
-import { Component, HostListener, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { renderNoteHtml } from '@mossgoblin/editor';
 import { map } from 'rxjs';
 import { type ItemRecord, ItemsService } from './items.service';
-import { shelfFromParam, shelfParam } from './reader-list';
+import { CaughtUp } from './caught-up';
+import { shelfFromParam, shelfLink, shelfParam, shelfTitle } from './reader-list';
 import { ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 
@@ -27,40 +38,49 @@ export function articleHtml(markdown: string, images: boolean): string {
 /**
  * One article (#162): rendered as notes are, with Open the page, Keep
  * unread, Save, and next and previous by swipe (left for next) or j and
- * k. Opening marks it read; links inside open in a new tab.
+ * k. Opening marks it read; links inside open in a new tab. Next from
+ * the shelf's last article is the caught-up page (Eric, 2026-11-07).
  */
 @Component({
   selector: 'app-reader-article',
-  imports: [RouterLink, Swipe],
+  imports: [RouterLink, Swipe, CaughtUp],
   template: `
     <main
       class="page"
       appSwipe
-      #swipe="appSwipe"
-      [canLeft]="!!next()"
+      #main
+      [canLeft]="!!next() || atEnd()"
       [canRight]="!!prev()"
       (left)="go(1)"
       (right)="go(-1)"
     >
-      @if (swipe.dx() !== 0) {
-        <!-- The stories either side, drawn beside this one while it is dragged (Eric, 2026-11-07). -->
+      @if (dragging()) {
+        <!-- The stories either side, drawn beside this one while it is dragged, from the top
+             of the screen however far down this one is read (Eric, 2026-11-07). -->
         @if (prev(); as p) {
-          <article class="pane prev" aria-hidden="true">
+          <article class="pane prev" aria-hidden="true" [style.top.px]="paneTop()">
             <h1>{{ p.title }}</h1>
             <p class="meta">{{ sourceOf(p) }} · {{ when(p) }}</p>
             <div class="body" [innerHTML]="prevHtml()"></div>
           </article>
         }
         @if (next(); as n) {
-          <article class="pane next" aria-hidden="true">
+          <article class="pane next" aria-hidden="true" [style.top.px]="paneTop()">
             <h1>{{ n.title }}</h1>
             <p class="meta">{{ sourceOf(n) }} · {{ when(n) }}</p>
             <div class="body" [innerHTML]="nextHtml()"></div>
           </article>
+        } @else if (atEnd()) {
+          <div class="pane next" aria-hidden="true" [style.top.px]="paneTop()">
+            <app-reader-caught-up [shelf]="shelfTitle()" />
+          </div>
         }
       }
       <a [routerLink]="backLink()" class="back">Back</a>
-      @if (item(); as it) {
+      @if (pendingDone()) {
+        <!-- The caught-up page, shown here while its route loads. -->
+        <app-reader-caught-up [shelf]="shelfTitle()" />
+      } @else if (item(); as it) {
         <article>
           <header>
             <h1>{{ it.title }}</h1>
@@ -112,7 +132,7 @@ export function articleHtml(markdown: string, images: boolean): string {
         </article>
         <nav class="prevnext" aria-label="Next and previous">
           <button type="button" [disabled]="!prev()" (click)="go(-1)">Previous</button>
-          <button type="button" [disabled]="!next()" (click)="go(1)">Next</button>
+          <button type="button" [disabled]="!next() && !atEnd()" (click)="go(1)">Next</button>
         </nav>
       } @else if (items.loaded()) {
         <p class="muted">This article is not on this device. Open it online, or go back.</p>
@@ -122,7 +142,9 @@ export function articleHtml(markdown: string, images: boolean): string {
   styles: `
     :host {
       display: block;
-      overflow-x: hidden;
+      /* Clip, not hidden: hidden would make the host a scroller for a
+         pane that reaches below a short article. */
+      overflow-x: clip;
     }
     main {
       position: relative;
@@ -136,10 +158,15 @@ export function articleHtml(markdown: string, images: boolean): string {
         transition: none;
       }
     }
+    /* A screenful, from the top of the screen (paneTop), so the title
+       is where the eye is; not fixed, since the dragged main's
+       transform would make fixed act as absolute anyway. */
     .pane {
       position: absolute;
       top: 0;
       width: 100%;
+      height: 100dvh;
+      overflow: hidden;
       box-sizing: border-box;
       padding: inherit;
       pointer-events: none;
@@ -232,10 +259,8 @@ export class ReaderArticle {
   protected readonly item = computed(() => this.items.find(this.currentId()));
   protected readonly fetching = signal(false);
   protected readonly said = signal('');
-  protected readonly backLink = computed(() => {
-    const shelf = this.shelf();
-    return shelf.kind === 'feed' ? ['/reader/s', shelf.id] : ['/reader/f', shelf.name];
-  });
+  protected readonly backLink = computed(() => shelfLink(this.shelf()));
+  protected readonly shelfTitle = computed(() => shelfTitle(this.shelf(), this.reader.feeds()));
   protected readonly source = computed(() => this.sourceOf(this.item()));
 
   protected sourceOf(it: ItemRecord | undefined): string {
@@ -245,6 +270,13 @@ export class ReaderArticle {
   /** The stories either side, and their HTML rendered once each (review on #169). */
   protected readonly prev = computed(() => this.neighbour(-1));
   protected readonly next = computed(() => this.neighbour(1));
+  /** This is the shelf's last article: next is the caught-up page (Eric, 2026-11-07). */
+  protected readonly atEnd = computed(() => {
+    const seq = this.sequence();
+    return seq.length > 0 && seq[seq.length - 1].id === this.currentId();
+  });
+  /** The slide to the caught-up page finished; it shows here until its route is in. */
+  protected readonly pendingDone = signal(false);
   protected readonly prevHtml = computed(() => this.htmlOf(this.prev()));
   protected readonly nextHtml = computed(() => this.htmlOf(this.next()));
 
@@ -261,6 +293,21 @@ export class ReaderArticle {
     // would strip the image attributes, so it is trusted as it is.
     return this.sanitizer.bypassSecurityTrustHtml(articleHtml(markdown, this.reader.images()));
   });
+  private readonly swipe = viewChild(Swipe);
+  private readonly main = viewChild<ElementRef<HTMLElement>>('main');
+  protected readonly dragging = computed(() => (this.swipe()?.dx() ?? 0) !== 0);
+  /**
+   * Where the panes start, measured once as a drag begins: the top of
+   * the screen within the article, so the story either side has its
+   * title at the top however far down this one is read, and go()'s
+   * scroll to the top leaves the arriving story where its pane was
+   * (Eric, 2026-11-07).
+   */
+  protected readonly paneTop = computed(() =>
+    this.dragging()
+      ? untracked(() => Math.max(0, -(this.main()?.nativeElement.getBoundingClientRect().top ?? 0)))
+      : 0,
+  );
   /** The articles opened in this sitting: read now, but still on the way back. */
   private readonly visited = signal<ReadonlySet<string>>(new Set());
   /**
@@ -324,6 +371,17 @@ export class ReaderArticle {
 
   protected go(step: 1 | -1): void {
     const next = this.neighbour(step);
+    if (!next && step === 1 && this.atEnd() && !this.pendingDone()) {
+      this.pendingDone.set(true);
+      // A history entry of its own, so going back from it is this article.
+      void this.router
+        .navigate(['/reader/done'], { queryParams: { in: shelfParam(this.shelf()) } })
+        .then((ok) => {
+          if (!ok) this.pendingDone.set(false);
+        });
+      window.scrollTo({ top: 0 });
+      return;
+    }
     if (!next) return;
     this.pendingId.set(next.id);
     void this.router.navigate(['/reader/a', next.id], {

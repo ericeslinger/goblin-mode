@@ -82,6 +82,10 @@ export const routes: Routes = [
     loadComponent: () => import('./reader/reader-article').then((m) => m.ReaderArticle),
   },
   {
+    path: 'reader/done',
+    loadComponent: () => import('./reader/reader-done').then((m) => m.ReaderDone),
+  },
+  {
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),
   },

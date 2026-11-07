@@ -1112,6 +1112,17 @@ Two more composite indexes serve the read and saved shelves
 (`read`, `readAt desc`; `saved`, `published desc`). Browse's Reader
 link carries the unread count.
 
+**The swipe between articles (Eric, 2026-11-07).** While an article
+is dragged, the stories either side are drawn at the top of the
+screen, a screenful each, wherever this one is scrolled to: the next
+title is the anchor, so it is where the eye is, and the story that
+slides in starts at its top as its pane did. Past the shelf's last
+article a swipe left, j or Next goes on to the caught-up page
+(`/reader/done`, with the same `in`): a goblin opening an empty box
+that a fly leaves, which the last article's next pane shows too, so
+the slide lands on what it showed. A swipe right or k there goes back
+to that article, and Back is the shelf's list.
+
 **Retention (#171, Eric, 2026-11-07).** Everything is kept unless
 the gardener says otherwise: Settings, Reader, Keep articles for (3,
 6 or 12 months, `settings/reader.keepMonths`). With it set, the
