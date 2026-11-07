@@ -7,11 +7,11 @@ import { OWNER } from '../src/personas';
 // The Reader (#159): the module switched on, an OPML file imported into
 // folders (#160), the server's refresh against the emulator's fixture
 // feeds (#161), then reading: folders with counts, the compact list,
-// swipes, the article, next by keyboard, Saved, Mark all read (#162),
-// marking read on scroll with its Undo (#172), what is new in each
-// folder, in Right Now (#173), a podcast's episodes on their own shelf
-// (#178), and last, feed discovery from a site's
-// address (#174).
+// swipes, the article, next by keyboard, the caught-up page past a
+// shelf's last article, Saved, Mark all read (#162), marking read on
+// scroll with its Undo (#172), what is new in each folder, in Right
+// Now (#173), a podcast's episodes on their own shelf (#178), and
+// last, feed discovery from a site's address (#174).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -259,7 +259,6 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('link', { name: 'In the garden' })).toBeVisible();
   await page.keyboard.press('j');
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
   // Swipe right goes back to the story just read, swipe left forward again.
   const pageSwipe = async (dx: number) => {
     const box = (await page.locator('main').boundingBox())!;
@@ -277,6 +276,21 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'Save for later' }).click();
   await expect(page.getByRole('button', { name: 'Unsave' })).toBeVisible();
+  // Past the shelf's last article, the caught-up page (Eric, 2026-11-07);
+  // a swipe right goes back to that article, Back to the list.
+  const caughtUp = page.getByRole('heading', { name: 'You are all caught up', level: 1 });
+  await pageSwipe(-140);
+  await expect(caughtUp).toBeVisible();
+  await expect(page).toHaveURL(/\/reader\/done\?in=f(:|%3A)Design$/);
+  await expect(page.getByText('Nothing more in Design.')).toBeVisible();
+  await expect(
+    page.getByRole('img', { name: 'A goblin opens an empty box, and a fly buzzes out of it' }),
+  ).toBeVisible();
+  await axe(page);
+  await pageSwipe(140);
+  await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
+  await page.keyboard.press('j');
+  await expect(caughtUp).toBeVisible();
   await page.getByRole('link', { name: 'Back' }).click();
   await expect(page.getByRole('heading', { name: 'Design', level: 1 })).toBeVisible();
   await expect(page.getByText('All caught up.')).toBeVisible();
