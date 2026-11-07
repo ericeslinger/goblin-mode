@@ -82,6 +82,21 @@ function readSettings(data: Record<string, unknown>): ReaderSettingsView {
   };
 }
 
+/**
+ * When each folder's list was last opened (#173), as millis by folder
+ * name. The app writes millis; a Timestamp or anything with `toMillis`
+ * is read too, and anything else is left out.
+ */
+function readSeenAt(seen: Record<string, unknown> | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [folder, at] of Object.entries(seen ?? {})) {
+    const ms =
+      typeof at === 'number' ? at : (at as { toMillis?: () => unknown } | null)?.toMillis?.();
+    if (typeof ms === 'number' && Number.isFinite(ms)) out[folder] = ms;
+  }
+  return out;
+}
+
 /** The Firestore calls the service makes, as a seam for unit specs. */
 export interface ReaderApi {
   listen(
@@ -212,6 +227,11 @@ export class ReaderService {
   readonly keepMonths = computed(() => this.settings()?.keepMonths);
   /** Whether the list marks articles read as they scroll past (#172); off until switched on. */
   readonly readOnScroll = computed(() => this.settings()?.readOnScroll ?? false);
+  /** When each folder's list was last opened (#173), millis by name; a folder never opened has none. */
+  readonly seenAt = computed(() => readSeenAt(this.settings()?.seenAt));
+  /** Whether the settings doc has been read (it may not exist), so a write keeps what it holds. */
+  readonly settingsLoaded = computed(() => this.settingsRead());
+  private readonly settingsRead = signal(false);
   private readonly read = signal(false);
   readonly feeds = computed(() => this.list());
   /** Whether the feeds have been read, so an empty list means none. */
@@ -236,11 +256,15 @@ export class ReaderService {
       this.list.set([]);
       this.read.set(false);
       this.settings.set(undefined);
+      this.settingsRead.set(false);
       if (!uid) return;
       const stopSettings = this.settingsApi.listen(
         this.fb.db,
         paths.reader(uid),
-        (data) => this.settings.set(data ? readSettings(data) : undefined),
+        (data) => {
+          this.settings.set(data ? readSettings(data) : undefined);
+          this.settingsRead.set(true);
+        },
         (err) => console.error('reader settings listener', err),
       );
       const stopFeeds = this.api.listen(
@@ -390,6 +414,16 @@ export class ReaderService {
   /** Marks articles read as the list scrolls past them, or not (#172), for every device. */
   setReadOnScroll(readOnScroll: boolean): void {
     this.writeSettings({ readOnScroll });
+  }
+
+  /**
+   * Notes that a folder's list was opened at `at` (#173), so Right Now
+   * counts only what is newer. Stored as millis, which the schema's
+   * passthrough `seenAt` allows: a plain number reads back the same on
+   * every device and in specs, where a server time would not.
+   */
+  markSeen(folder: string, at: number): void {
+    this.writeSettings({ seenAt: { ...this.settings()?.seenAt, [folder]: at } });
   }
 
   /**

@@ -8,8 +8,9 @@ import { OWNER } from '../src/personas';
 // folders (#160), the server's refresh against the emulator's fixture
 // feeds (#161), then reading: folders with counts, the compact list,
 // swipes, the article, next by keyboard, Saved, Mark all read (#162),
-// marking read on scroll with its Undo (#172), a podcast's episodes on
-// their own shelf (#178), and last, feed discovery from a site's
+// marking read on scroll with its Undo (#172), what is new in each
+// folder, in Right Now (#173), a podcast's episodes on their own shelf
+// (#178), and last, feed discovery from a site's
 // address (#174).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -188,6 +189,26 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   );
   await page.getByRole('link', { name: 'Back' }).click();
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
+
+  // What is new, in Right Now (#173): a line per folder never opened,
+  // which goes once its list is opened; opening reads nothing.
+  await page.goto('/right-now');
+  const fresh = page.getByRole('list', { name: 'New in the Reader' });
+  // Most first, then by name; Apple's one feed could not be read.
+  await expect(fresh.getByRole('link')).toHaveText([
+    '3 new in Design',
+    '2 new in Games',
+    '2 new in Listening',
+  ]);
+  await fresh.getByRole('link', { name: /new in Design/ }).click();
+  await expect(page.getByRole('heading', { name: 'Design', level: 1 })).toBeVisible();
+  await expect(articles.getByRole('listitem')).toHaveCount(3);
+  await letItSave(page);
+  await page.goto('/right-now');
+  await expect(fresh.getByRole('link')).toHaveText(['2 new in Games', '2 new in Listening']);
+  await expect(page.getByRole('link', { name: /new in Design/ })).toHaveCount(0);
+  await page.goto('/reader');
+  await expect(nav.getByRole('link', { name: /^Design/ })).toContainText('3 unread');
 
   // Step 3: the list, a swipe, the article, next by key, Show read.
   await nav.getByRole('link', { name: /^Design/ }).click();

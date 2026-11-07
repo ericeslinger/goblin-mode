@@ -339,6 +339,11 @@ export class FakeReader {
   readonly images = signal(true);
   readonly keepMonths = signal<number | undefined>(undefined);
   readonly readOnScroll = signal(false);
+  readonly seenAt = signal<Record<string, number>>({});
+  readonly settingsLoaded = signal(true);
+  markSeen = vi.fn((folder: string, at: number) =>
+    this.seenAt.update((s) => ({ ...s, [folder]: at })),
+  );
   setImages = vi.fn((images: boolean) => this.images.set(images));
   setReadOnScroll = vi.fn((v: boolean) => this.readOnScroll.set(v));
   setKeepMonths = vi.fn(async (months: number | undefined) => {
@@ -354,6 +359,8 @@ export class FakeItems {
   readonly loaded = signal(true);
   readonly items = signal<never[]>([]);
   readonly unreadCounts = signal<Record<string, number>>({ all: 0, saved: 0 });
+  readonly newSince = signal<{ folder: string; count: number }[]>([]);
+  markSeen = vi.fn((_folder: string) => undefined);
   inShelf = () => [];
   find = () => undefined;
   setRead = vi.fn();

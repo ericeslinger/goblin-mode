@@ -1,5 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { ReaderNew } from '../reader/reader-new';
 import { ReadingService } from '../reading/reading.service';
 import { ReminderRow } from './reminder-row';
 import { RemindersService } from './reminders.service';
@@ -10,11 +11,12 @@ export const PANEL_ITEMS = 3;
 
 /**
  * Right Now on the launch screen: what is overdue or due today, at most
- * three, the rest one tap away on the full list.
+ * three, the rest one tap away on the full list; then what has waited
+ * in the reading queue, and what is new in the Reader (#173).
  */
 @Component({
   selector: 'app-right-now-panel',
-  imports: [RouterLink, ReminderRow, UndoBar],
+  imports: [RouterLink, ReaderNew, ReminderRow, UndoBar],
   template: `
     <h2 id="right-now-title">
       <a routerLink="/right-now" class="title">Right Now</a>
@@ -37,6 +39,7 @@ export const PANEL_ITEMS = 3;
         >{{ waited === 1 ? '1 thing' : waited + ' things' }} saved to read a week ago or more</a
       >
     }
+    <app-reader-new />
   `,
   styles: `
     h2 {

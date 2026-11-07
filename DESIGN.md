@@ -963,6 +963,9 @@ after that Soon, and no time at all is Someday. The launch panel shows
 up to three Overdue and Today items, soonest first, with "N more"
 linking to the full list. The sort re-runs every 30 seconds, so items
 slide into Overdue while the app is open.
+With the Reader on, a line per folder with new articles sits under
+the panel's items and at the top of the full list (#173, 2026-11-07;
+Reader, What is new, in Right Now).
 
 - **Done** finishes a one-off (`status: 'done'`, times removed). A
   repeat stays open and moves `dueAt` to its next occurrence after both
@@ -1144,6 +1147,27 @@ its Undo on screen. Only a page the gardener has moved counts: nothing
 is passed until a scroll follows a wheel, a touch, a key or a press,
 so rows a reload or Back leaves above the top, or a scroll the browser
 restores, are not marked (review on #182).
+
+**What is new, in Right Now (#173, 2026-11-07).** Opening a folder's
+list notes when it was seen, in `settings/reader.seenAt` by folder
+name, as millis (a plain number reads back the same on every device;
+the schema's passthrough object allows it, and a Timestamp is read
+too). The time kept is now, or the folder's newest article if a feed's
+clock puts that later, and nothing is written when nothing in the
+folder is newer than the last time; All, Saved, one feed's list and
+any other shelf of the app's own (Podcasts, #178) note nothing, and an
+episode counts in its feed's folders. Right Now (under the launch panel's items, at the top of
+the full screen) then has a line per folder with unread articles newer
+than its `seenAt`, "14 new in Design" linking to that folder's list,
+most first then by name, at most three, then "and 2 more folders"
+linking to the Reader. A folder never opened counts all its unread
+ones; a feed in two folders counts in both, and a feed in none under
+Uncategorized. The counts come from the articles already at hand on
+the device (`ItemsService.newSince`), no server work, and nothing
+shows when the module is off or nothing is new. Opening a list marks
+nothing read: the unread counts stay as they were. With the module on,
+the launch screen now starts the articles' listeners itself rather
+than waiting for the Reader to be opened.
 
 **Step 4, the gestures of intent and the assistant's tools (#163,
 built 2026-11-07).** Three things an article can become, each a

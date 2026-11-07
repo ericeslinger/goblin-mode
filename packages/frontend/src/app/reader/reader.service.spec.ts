@@ -246,6 +246,25 @@ describe('ReaderService (#159)', () => {
     });
   });
 
+  it('keeps when each folder was seen (#173), as millis, reading a Timestamp too', () => {
+    const { reader, settings } = setup();
+    expect(reader.settingsLoaded()).toBe(false);
+    expect(reader.seenAt()).toEqual({});
+    settings.push({
+      folderOrder: [],
+      images: true,
+      seenAt: { Design: 1000, Games: { toMillis: () => 2000 }, Odd: 'soon' },
+      updatedAt: 1,
+    });
+    expect(reader.settingsLoaded()).toBe(true);
+    expect(reader.seenAt()).toEqual({ Design: 1000, Games: 2000 });
+    reader.markSeen('Design', 5000);
+    expect(reader.seenAt()['Design']).toBe(5000);
+    const written = settings.set.mock.lastCall![2];
+    expect(written['seenAt']).toMatchObject({ Design: 5000, Odd: 'soon' });
+    expect(written).toMatchObject({ folderOrder: [], images: true, updatedAt: 'SERVER_TIME' });
+  });
+
   it('keeps articles for a while (#171): the setting written whole, then applied by the server', async () => {
     const { reader, api, settings } = setup();
     settings.push({ folderOrder: ['Games'], images: false, readOnScroll: true, updatedAt: 1 });
