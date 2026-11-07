@@ -122,6 +122,39 @@ describe('refreshFeed (#161)', () => {
     );
   });
 
+  it('writes an episode’s audio, artwork and number, and marks the feed a podcast (#178)', async () => {
+    const s = store([feedItemId('f-1', 'ep-1')]);
+    const episode = (guid: string, hoursAgo: number, n: number) =>
+      `<item><title>${guid}</title><guid>${guid}</guid><pubDate>${new Date(NOW - hoursAgo * H).toUTCString()}</pubDate><enclosure url="https://cdn.example/${guid}.mp3" type="audio/mpeg" length="1000"/><itunes:duration>42:00</itunes:duration><itunes:image href="https://cdn.example/${guid}.jpg"/><itunes:episode>${n}</itunes:episode></item>`;
+    const pod = `<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Pod</title>${episode('ep-2', 1, 2)}${episode('ep-1', 30, 1)}</channel></rss>`;
+    await refreshFeed({ store: s, fetch: ok(pod), now: () => NOW }, feed);
+    const [written] = s.writeItems.mock.calls[0][1];
+    expect(s.writeItems.mock.calls[0][1]).toHaveLength(1);
+    expect(written).toMatchObject({
+      id: feedItemId('f-1', 'ep-2'),
+      enclosure: {
+        url: 'https://cdn.example/ep-2.mp3',
+        type: 'audio/mpeg',
+        bytes: 1000,
+        seconds: 2520,
+      },
+      image: 'https://cdn.example/ep-2.jpg',
+      episode: 2,
+    });
+    expect(s.updateFeed.mock.calls[0][2]).toMatchObject({ kind: 'podcast' });
+    // Nothing new, still a podcast: the stored episodes say so.
+    const again = store([feedItemId('f-1', 'ep-1'), feedItemId('f-1', 'ep-2')]);
+    await refreshFeed({ store: again, fetch: ok(pod), now: () => NOW }, feed);
+    expect(again.writeItems).not.toHaveBeenCalled();
+    expect(again.updateFeed.mock.calls[0][2]).toMatchObject({ kind: 'podcast' });
+    // An article feed is no podcast, and its items carry none of the fields.
+    const plain = store();
+    await refreshFeed({ store: plain, fetch: ok(RSS(item('a', 1))), now: () => NOW }, feed);
+    expect(plain.updateFeed.mock.calls[0][2]).not.toHaveProperty('kind');
+    expect(plain.writeItems.mock.calls[0][1][0]).not.toHaveProperty('enclosure');
+    expect(plain.writeItems.mock.calls[0][1][0]).not.toHaveProperty('image');
+  });
+
   it('keeps a gardener’s own name for a feed, and an item’s date never in the far future', async () => {
     const s = store();
     const named = { ...feed, title: 'My Kottke', site: 'https://mine.example/' };

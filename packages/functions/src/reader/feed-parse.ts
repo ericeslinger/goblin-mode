@@ -2,7 +2,10 @@
 // one shape. Pure over text, so the fixtures run in specs. Feeds break
 // in the usual ways: CDATA, relative links, missing or unreadable dates,
 // repeated guids, content in one of three places; each is handled here
-// so the refresher never sees it.
+// so the refresher never sees it. Podcasts (#178): an item's audio
+// enclosure, its duration, artwork and episode number, read from RSS
+// `<enclosure>` and the itunes: tags, Atom `rel="enclosure"` links and
+// JSON Feed attachments.
 import { XMLParser } from 'fast-xml-parser';
 import { decode } from '../attachments/import';
 
@@ -17,6 +20,20 @@ export interface ParsedItem {
   published?: number;
   /** The item's content as the feed gave it, HTML or plain text. */
   html: string;
+  /** A podcast episode's audio (#178): the first audio enclosure. */
+  enclosure?: Enclosure;
+  /** The episode's artwork, else the show's (#178). */
+  image?: string;
+  /** The episode's number, when the feed says (#178). */
+  episode?: number;
+}
+
+/** An item's audio (#178); `bytes` as the feed stated, `seconds` its duration. */
+export interface Enclosure {
+  url: string;
+  type: string;
+  bytes?: number;
+  seconds?: number;
 }
 
 export interface ParsedFeed {
@@ -102,6 +119,83 @@ function when(value: string): number | undefined {
   return Number.isNaN(fixed) ? undefined : fixed;
 }
 
+/**
+ * A duration in seconds from `h:mm:ss`, `mm:ss` or plain seconds
+ * (#178), as itunes:duration and JSON Feed write it; undefined for
+ * anything else.
+ */
+export function durationSeconds(value: string | number | undefined): number | undefined {
+  if (typeof value === 'number')
+    return Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined;
+  const t = (value ?? '').trim();
+  if (/^\d+(\.\d+)?$/.test(t)) return Math.round(Number(t));
+  const m = /^(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:\.\d+)?$/.exec(t);
+  if (!m) return undefined;
+  const [h, min, sec] = [Number(m[1] ?? 0), Number(m[2]), Number(m[3])];
+  if (sec > 59 || (m[1] !== undefined && min > 59)) return undefined;
+  return h * 3600 + min * 60 + sec;
+}
+
+/** Whether an enclosure is audio: its type says so, or with none, its file does (#178). */
+function isAudio(type: string, url: string): boolean {
+  if (type) return type.toLowerCase().startsWith('audio/');
+  return /\.(mp3|m4a|ogg|oga|opus|aac)(?:[?#]|$)/i.test(url);
+}
+
+/** A stated byte length, when it is a whole number above zero. */
+function byteLength(value: unknown): number | undefined {
+  const n = Number(typeof value === 'string' ? value.trim() : value);
+  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+
+/** The first audio enclosure among candidates, its link resolved and http(s) only. */
+function audio(
+  candidates: { url: unknown; type: unknown; length: unknown; seconds?: number }[],
+  base: string,
+  itemSeconds?: number,
+): Enclosure | undefined {
+  for (const c of candidates) {
+    const seconds = c.seconds ?? itemSeconds;
+    const url = typeof c.url === 'string' ? absolute(c.url, base) : '';
+    const type = typeof c.type === 'string' ? c.type.trim() : '';
+    if (!url || !isAudio(type, url)) continue;
+    const bytes = byteLength(c.length);
+    return {
+      url,
+      type: type || 'audio/mpeg',
+      ...(bytes === undefined ? {} : { bytes }),
+      ...(seconds === undefined ? {} : { seconds }),
+    };
+  }
+  return undefined;
+}
+
+/** A positive whole episode number, when there is one. */
+function episodeOf(value: string): number | undefined {
+  const n = Number(value.trim());
+  return value.trim() && Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+
+/** An `itunes:image href` as an http(s) link. */
+function itunesImage(node: Record<string, unknown>, base: string): string {
+  const href = list(node['itunes:image'])[0]?.['@href'];
+  return typeof href === 'string' ? absolute(href, base) : '';
+}
+
+/** The podcast fields of an item, only those it has. */
+function podcast(
+  enclosure: Enclosure | undefined,
+  image: string,
+  episode: number | undefined,
+): Pick<ParsedItem, 'enclosure' | 'image' | 'episode'> {
+  return {
+    ...(enclosure ? { enclosure } : {}),
+    // Artwork and number belong to episodes; an article keeps neither.
+    ...(enclosure && image ? { image } : {}),
+    ...(enclosure && episode !== undefined ? { episode } : {}),
+  };
+}
+
 /** Atom links: `rel="alternate"` (or none) with an href, the first one. */
 function atomLink(entry: Record<string, unknown>, base: string): string {
   const links = list(entry['link']);
@@ -116,6 +210,7 @@ function atomLink(entry: Record<string, unknown>, base: string): string {
 
 function fromRss(channel: Record<string, unknown>, base: string): ParsedFeed {
   const site = first(channel, 'link');
+  const show = itunesImage(channel, base);
   return {
     title: plain(first(channel, 'title')),
     ...(site ? { site: absolute(site, base) } : {}),
@@ -127,6 +222,15 @@ function fromRss(channel: Record<string, unknown>, base: string): ParsedFeed {
       const guid = first(item, 'guid') || link || rawTitle;
       const date = first(item, 'pubDate', 'dc:date', 'date');
       const author = plain(first(item, 'dc:creator', 'author'));
+      const enclosure = audio(
+        list(item['enclosure']).map((e) => ({
+          url: e['@url'],
+          type: e['@type'],
+          length: e['@length'],
+        })),
+        base,
+        durationSeconds(first(item, 'itunes:duration')),
+      );
       return {
         guid,
         title,
@@ -134,6 +238,11 @@ function fromRss(channel: Record<string, unknown>, base: string): ParsedFeed {
         ...(author ? { author } : {}),
         ...(when(date) === undefined ? {} : { published: when(date) }),
         html: first(item, 'content:encoded', 'description', 'summary'),
+        ...podcast(
+          enclosure,
+          itunesImage(item, base) || show,
+          episodeOf(first(item, 'itunes:episode')),
+        ),
       };
     }),
   };
@@ -166,6 +275,7 @@ function fromRdf(root: Record<string, unknown>, base: string): ParsedFeed {
 
 function fromAtom(feed: Record<string, unknown>, base: string): ParsedFeed {
   const site = atomLink(feed, base);
+  const show = itunesImage(feed, base);
   return {
     title: plain(first(feed, 'title')),
     ...(site ? { site } : {}),
@@ -175,6 +285,13 @@ function fromAtom(feed: Record<string, unknown>, base: string): ParsedFeed {
       const title = plain(rawTitle);
       const date = first(entry, 'published', 'updated');
       const author = plain(text(list(entry['author'])[0]?.['name'] as Node));
+      const enclosure = audio(
+        list(entry['link'])
+          .filter((l) => l['@rel'] === 'enclosure')
+          .map((l) => ({ url: l['@href'], type: l['@type'], length: l['@length'] })),
+        base,
+        durationSeconds(first(entry, 'itunes:duration')),
+      );
       return {
         guid: first(entry, 'id') || link || rawTitle,
         title,
@@ -182,6 +299,11 @@ function fromAtom(feed: Record<string, unknown>, base: string): ParsedFeed {
         ...(author ? { author } : {}),
         ...(when(date) === undefined ? {} : { published: when(date) }),
         html: first(entry, 'content', 'summary'),
+        ...podcast(
+          enclosure,
+          itunesImage(entry, base) || show,
+          episodeOf(first(entry, 'itunes:episode')),
+        ),
       };
     }),
   };
@@ -200,6 +322,7 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
   const feed = doc as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const site = str(feed['home_page_url']);
+  const show = absolute(str(feed['icon']), base);
   return {
     title: plain(str(feed['title'])),
     ...(site ? { site: absolute(site, base) } : {}),
@@ -210,6 +333,16 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
       const date = str(item['date_published']) || str(item['date_modified']);
       const authors = list(item['authors']);
       const author = str(authors[0]?.['name']) || str(list(item['author'])[0]?.['name']);
+      // JSON Feed gives each attachment its own size and duration.
+      const enclosure = audio(
+        list(item['attachments']).map((a) => ({
+          url: a['url'],
+          type: a['mime_type'],
+          length: a['size_in_bytes'],
+          seconds: durationSeconds(a['duration_in_seconds'] as string | number | undefined),
+        })),
+        base,
+      );
       return {
         guid: str(item['id']) || link || rawTitle,
         title,
@@ -217,6 +350,7 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
         ...(author ? { author } : {}),
         ...(when(date) === undefined ? {} : { published: when(date) }),
         html: str(item['content_html']) || str(item['content_text']) || str(item['summary']),
+        ...podcast(enclosure, absolute(str(item['image']), base) || show, undefined),
       };
     }),
   };

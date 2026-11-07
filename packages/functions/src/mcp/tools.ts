@@ -200,13 +200,13 @@ function attachmentView(id: string, d: Data) {
 }
 
 /** The feeds by id, as the Reader's tools need them (#163). */
-type FeedIndex = Map<string, { title: string; folders: string[] }>;
+export type FeedIndex = Map<string, { title: string; folders: string[] }>;
 
 /**
  * An article from a feed as an assistant sees it (#163): a page's
  * words throughout, so every view carries the label.
  */
-function feedItemView(id: string, d: Data, feeds: FeedIndex) {
+export function feedItemView(id: string, d: Data, feeds: FeedIndex) {
   const link = typeof d['link'] === 'string' && d['link'] ? d['link'] : '';
   const feedId = String(d['feedId'] ?? '');
   return {
@@ -225,6 +225,31 @@ function feedItemView(id: string, d: Data, feeds: FeedIndex) {
     saved: d['saved'] === true,
     ...(typeof d['noteId'] === 'string' ? { noteId: d['noteId'] } : {}),
     hasReaderText: d['readerState'] === 'done',
+    ...episodeView(d),
+  };
+}
+
+/**
+ * A podcast episode's audio, artwork and number (#178), when the item
+ * has them: the fetcher's fields, read back defensively.
+ */
+function episodeView(d: Data) {
+  const e = d['enclosure'] as Data | undefined;
+  const web = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v);
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const enclosure =
+    e && typeof e === 'object' && web(e['url'])
+      ? {
+          url: e['url'],
+          type: typeof e['type'] === 'string' ? e['type'] : '',
+          ...(num(e['bytes']) ? { bytes: e['bytes'] } : {}),
+          ...(num(e['seconds']) ? { seconds: e['seconds'] } : {}),
+        }
+      : undefined;
+  return {
+    ...(enclosure ? { enclosure } : {}),
+    ...(web(d['image']) ? { image: d['image'] } : {}),
+    ...(num(d['episode']) ? { episode: d['episode'] } : {}),
   };
 }
 

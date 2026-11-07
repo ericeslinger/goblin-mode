@@ -509,8 +509,28 @@ export const Feed = z.object({
   error: z.string().optional(),
   lastItemAt: Timestamp.optional(),
   dead: z.boolean().optional(),
+  /**
+   * Set by the fetcher once the feed's items carry audio (#178), and
+   * never unset: the Reader shows its episodes on the Podcasts shelf.
+   */
+  kind: z.enum(['podcast']).optional(),
 });
 export type Feed = z.infer<typeof Feed>;
+
+/** A web link, http or https only (#178), for what a feed points at. */
+const WebUrl = z.string().regex(/^https?:\/\//i);
+
+/**
+ * An item's audio (#178): a podcast episode's file, as the feed gave
+ * it. `bytes` is the feed's stated length, `seconds` its duration.
+ */
+export const Enclosure = z.object({
+  url: WebUrl,
+  type: z.string(),
+  bytes: z.number().int().nonnegative().optional(),
+  seconds: z.number().int().nonnegative().optional(),
+});
+export type Enclosure = z.infer<typeof Enclosure>;
 
 /** Reader mode on an item (#163): asked, claimed, kept, or why not. */
 export const ReaderState = z.enum(['requested', 'working', 'done', 'failed']);
@@ -552,6 +572,13 @@ export const FeedItem = z.object({
    * filing keeps an article).
    */
   expireAt: Timestamp.optional(),
+  /**
+   * A podcast episode's audio, its artwork and its number (#178),
+   * written by the fetcher; an item with an enclosure is an episode.
+   */
+  enclosure: Enclosure.optional(),
+  image: WebUrl.optional(),
+  episode: z.number().int().positive().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });

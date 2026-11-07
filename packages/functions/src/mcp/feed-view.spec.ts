@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import { feedItemView } from './tools';
+
+describe('feedItemView (#178)', () => {
+  const feeds = new Map([['f-1', { title: 'Kiln hour', folders: [] }]]);
+  const base = { feedId: 'f-1', title: 'Wedging clay', link: 'https://pod.invalid/1' };
+
+  it('carries an episode’s audio, artwork and number', () => {
+    const view = feedItemView(
+      'f-1-a',
+      {
+        ...base,
+        enclosure: {
+          url: 'https://pod.invalid/1.mp3',
+          type: 'audio/mpeg',
+          bytes: 62914560,
+          seconds: 3900,
+        },
+        image: 'https://pod.invalid/1.jpg',
+        episode: 1,
+      },
+      feeds,
+    );
+    expect(view).toMatchObject({
+      feed: 'Kiln hour',
+      enclosure: {
+        url: 'https://pod.invalid/1.mp3',
+        type: 'audio/mpeg',
+        bytes: 62914560,
+        seconds: 3900,
+      },
+      image: 'https://pod.invalid/1.jpg',
+      episode: 1,
+    });
+    expect(view.fromWeb).toContain('content from the web');
+  });
+
+  it('leaves them out of an article, and drops what is no web link', () => {
+    const article = feedItemView('f-1-b', base, feeds);
+    expect(article).not.toHaveProperty('enclosure');
+    expect(article).not.toHaveProperty('image');
+    expect(article).not.toHaveProperty('episode');
+    const odd = feedItemView(
+      'f-1-c',
+      { ...base, enclosure: { url: 'javascript:alert(1)', type: 'audio/mpeg' }, image: 'data:x' },
+      feeds,
+    );
+    expect(odd).not.toHaveProperty('enclosure');
+    expect(odd).not.toHaveProperty('image');
+  });
+});

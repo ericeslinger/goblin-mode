@@ -1208,6 +1208,31 @@ paths resolve against the address as pasted, since `publicRequest` does
 not say where its redirects ended, so a site that redirects to another
 host can come back with no feed found.
 
+**Podcasts, step 1: episodes in the data (#178, epic #177,
+2026-11-07).** An episode is a feed item with an audio enclosure, not
+a new kind of document. `parseFeed` reads RSS `<enclosure>`, Atom
+`link rel="enclosure"` and JSON Feed `attachments`, keeping the first
+whose type starts with `audio/` (or, typeless, whose file is an .mp3,
+.m4a, .ogg and the like) with an http(s) link, its stated length and
+`itunes:duration` (h:mm:ss, mm:ss or seconds; JSON Feed's own
+`duration_in_seconds`); an episode also keeps `itunes:image` (else the
+show's) and `itunes:episode`. The fetcher writes them on the item as
+`enclosure { url, type, bytes?, seconds? }`, `image` and `episode`,
+fields the owner's update rule never lets the app touch, and a look
+that finds audio among a feed's stored items sets `Feed.kind:
+'podcast'` (the only kind), never unset. The Reader's front shows a
+Podcasts shelf after Saved (`/reader/f/podcasts`, the `PODCASTS`
+special folder beside All and Saved) once any feed is a podcast: the
+unread episodes across podcast feeds, newest first. An episode's row,
+on any shelf, shows its duration ("42 min", "1 h 05 min") and a play
+glyph, and Manage feeds says "podcast" in a podcast's meta line.
+`list_feed_items`, `get_feed_item` and `search_feed_items` return
+`enclosure`, `image` and `episode` when an item has them. Deferred:
+step 2 is the player, the mini-player and the listening position on
+the item, synced across devices (a rules change); step 3 is offline
+downloads through the Worker; the play glyph is decorative until step
+2 (#177).
+
 ## Themes (#23, 2026-10-06)
 
 Eric chose all five style directions from the UX Spec, switchable
@@ -1630,9 +1655,9 @@ it, one backticked tool name per row.
 | `capture` | Files chat words under a project, verbatim ("garden this") | Garden this (#42) |
 | `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
-| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked | The Reader, step 4 (#163) |
-| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time | The Reader, step 4 (#163) |
-| `search_feed_items` | Articles holding every word of a query, the last 30 days by default, with snippets | The Reader, step 4 (#163) |
+| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178) | The Reader, step 4 (#163) |
+| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178) | The Reader, step 4 (#163) |
+| `search_feed_items` | Articles holding every word of a query, the last 30 days by default, with snippets (and an episode's `enclosure`, #178) | The Reader, step 4 (#163) |
 | `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |
 | `search_attachments` | Full-text search across every PDF and saved page | Attachment text, server half (#45) |

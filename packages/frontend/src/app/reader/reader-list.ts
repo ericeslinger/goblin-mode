@@ -14,7 +14,7 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
-import { ALL, type ItemRecord, ItemsService, SAVED, type Shelf2 } from './items.service';
+import { ALL, type ItemRecord, ItemsService, PODCASTS, SAVED, type Shelf2 } from './items.service';
 import { ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 
@@ -46,7 +46,8 @@ export function shelfFromParam(value: string | null): Shelf2 {
 
 /**
  * The compact list (#162): a folder's or a feed's articles, newest
- * first, unread unless Show read. Swipe a row left to mark it read,
+ * first, unread unless Show read; an episode's row says so and how
+ * long it is (#178). Swipe a row left to mark it read,
  * right to save it (buttons do the same for keyboards and screen
  * readers); tap to open. On a keyboard j and k move, m marks read, s
  * saves, Enter opens.
@@ -110,6 +111,14 @@ export function shelfFromParam(value: string | null): Shelf2 {
               <span class="title">{{ item.title }}</span>
               <span class="meta">
                 {{ source(item) }} · {{ items.age(item.published) }}
+                @if (item.enclosure) {
+                  <span class="episode"
+                    ><span role="img" aria-label="episode">▶</span>
+                    @if (item.enclosure.seconds !== undefined) {
+                      {{ items.duration(item.enclosure.seconds) }}
+                    }
+                  </span>
+                }
                 @if (item.saved) {
                   <span class="saved" role="img" aria-label="saved">★</span>
                 }
@@ -275,6 +284,7 @@ export class ReaderList {
     const shelf = this.shelf();
     if (shelf.kind === 'feed')
       return this.reader.feeds().find((f) => f.id === shelf.id)?.title ?? 'Feed';
+    if (shelf.name === PODCASTS) return 'Podcasts';
     return shelf.name === ALL ? 'All' : shelf.name === SAVED ? 'Saved' : shelf.name;
   });
   /** One feed's site, when the list is that feed's. */

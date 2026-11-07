@@ -5,7 +5,7 @@
 // how often it posts and backs off on errors; one that fails for about
 // a month is given up until the gardener asks again.
 import { FEED_CAP, feedItemId } from '@mossgoblin/schema';
-import { parseFeed } from './feed-parse';
+import { type Enclosure, parseFeed } from './feed-parse';
 import { CONTENT_MAX, htmlToMarkdown, summaryOf } from './markdown';
 
 /** Minutes between looks: no sooner than this, no later than a day. */
@@ -71,6 +71,10 @@ export interface NewItem {
   content: string;
   /** When a TTL policy removes it, from the gardener's keep-for months (#171). */
   expireAt?: number;
+  /** A podcast episode's audio, artwork and number (#178), only when the feed gave them. */
+  enclosure?: Enclosure;
+  image?: string;
+  episode?: number;
 }
 
 /** What a look at a feed changes on it; times in milliseconds, null clears. */
@@ -86,6 +90,8 @@ export interface FeedUpdate {
   error: string | null;
   lastItemAt?: number;
   dead?: boolean;
+  /** Set once the feed's items carry audio (#178); never cleared. */
+  kind?: 'podcast';
 }
 
 export interface RefreshStore {
@@ -231,6 +237,9 @@ export async function refreshFeed(
       summary: summaryOf(content),
       content,
       ...(keep ? { expireAt: monthsAfter(item.published, keep) } : {}),
+      ...(item.enclosure ? { enclosure: item.enclosure } : {}),
+      ...(item.image ? { image: item.image } : {}),
+      ...(item.episode === undefined ? {} : { episode: item.episode }),
     });
   });
   if (fresh.length) await store.writeItems(feed.uid, fresh);
@@ -253,6 +262,9 @@ export async function refreshFeed(
     errorCount: 0,
     error: null,
     ...(newest ? { lastItemAt: newest } : {}),
+    // A feed whose stored items carry audio is a podcast (#178); one
+    // that stops is still one, so this is never cleared.
+    ...(items.some((i) => i.enclosure) ? { kind: 'podcast' as const } : {}),
   });
   return { outcome: fresh.length ? 'new' : 'unchanged', added: fresh.length };
 }

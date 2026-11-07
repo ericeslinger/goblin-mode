@@ -39,6 +39,16 @@ export const READ_LIMIT = 200;
 /** The special folders. */
 export const ALL = 'all';
 export const SAVED = 'saved';
+/** The episodes of every podcast feed (#178), shown once one is followed. */
+export const PODCASTS = 'podcasts';
+
+/** A podcast episode's audio (#178), as the fetcher stored it. */
+export interface EnclosureRecord {
+  url: string;
+  type: string;
+  bytes?: number;
+  seconds?: number;
+}
 
 /** An article as the app shows it (#162). */
 export interface ItemRecord {
@@ -60,6 +70,26 @@ export interface ItemRecord {
   readerState?: 'requested' | 'working' | 'done' | 'failed';
   readerContent?: string;
   readerError?: string;
+  /** An episode's audio, artwork and number (#178); an item with audio is an episode. */
+  enclosure?: EnclosureRecord;
+  image?: string;
+  episode?: number;
+}
+
+const isWeb = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v);
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** The enclosure as stored, when it is one (#178). */
+function toEnclosure(v: unknown): EnclosureRecord | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const e = v as Record<string, unknown>;
+  if (!isWeb(e['url'])) return undefined;
+  return {
+    url: e['url'],
+    type: typeof e['type'] === 'string' ? e['type'] : '',
+    ...(isNum(e['bytes']) ? { bytes: e['bytes'] } : {}),
+    ...(isNum(e['seconds']) ? { seconds: e['seconds'] } : {}),
+  };
 }
 
 /** Which articles a listener follows. */
@@ -138,6 +168,7 @@ function itemsApi(functions: Functions): ItemsApi {
 
 function toItem(id: string, d: Record<string, unknown>): ItemRecord {
   const at = (d['published'] as { toMillis?: () => number } | undefined)?.toMillis?.();
+  const enclosure = toEnclosure(d['enclosure']);
   return {
     id,
     feedId: String(d['feedId'] ?? ''),
@@ -156,6 +187,9 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
       : {}),
     ...(typeof d['readerContent'] === 'string' ? { readerContent: d['readerContent'] } : {}),
     ...(typeof d['readerError'] === 'string' ? { readerError: d['readerError'] } : {}),
+    ...(enclosure ? { enclosure } : {}),
+    ...(isWeb(d['image']) ? { image: d['image'] } : {}),
+    ...(isNum(d['episode']) ? { episode: d['episode'] } : {}),
   };
 }
 
@@ -203,16 +237,29 @@ export class ItemsService {
 
   /** Unread articles per folder name, the special folders included. */
   readonly unreadCounts = computed(() => {
-    const counts: Record<string, number> = { [ALL]: 0, [SAVED]: 0 };
+    const counts: Record<string, number> = { [ALL]: 0, [SAVED]: 0, [PODCASTS]: 0 };
     const folders = this.foldersOf();
+    const podcasts = this.podcastFeeds();
     for (const i of this.items()) {
       if (i.saved) counts[SAVED] = (counts[SAVED] ?? 0) + (i.read ? 0 : 1);
       if (i.read) continue;
       counts[ALL]++;
+      if (podcasts.has(i.feedId)) counts[PODCASTS]++;
       for (const f of folders.get(i.feedId) ?? [UNCATEGORIZED]) counts[f] = (counts[f] ?? 0) + 1;
     }
     return counts;
   });
+
+  /** The ids of the feeds the fetcher marked podcasts (#178). */
+  private readonly podcastFeeds = computed(
+    () =>
+      new Set(
+        this.feeds
+          .feeds()
+          .filter((f) => f.kind === 'podcast')
+          .map((f) => f.id),
+      ),
+  );
 
   private readonly foldersOf = computed(() => {
     const map = new Map<string, string[]>();
@@ -266,15 +313,18 @@ export class ItemsService {
     inject(DestroyRef).onDestroy(() => this.stops.forEach((s) => s()));
   }
 
-  /** The articles on a shelf: a folder (All and Saved included) or one feed. */
+  /** The articles on a shelf: a folder (All, Saved and Podcasts included) or one feed. */
   inShelf(shelf: Shelf2, showRead: boolean): ItemRecord[] {
     const folders = this.foldersOf();
+    const podcasts = this.podcastFeeds();
     return this.items().filter((i) => {
       if (shelf.kind === 'feed') {
         if (i.feedId !== shelf.id) return false;
       } else if (shelf.name === SAVED) {
         if (!i.saved) return false;
         return true;
+      } else if (shelf.name === PODCASTS) {
+        if (!podcasts.has(i.feedId)) return false;
       } else if (shelf.name !== ALL) {
         if (!(folders.get(i.feedId) ?? [UNCATEGORIZED]).includes(shelf.name)) return false;
       }
@@ -415,6 +465,15 @@ export class ItemsService {
       )
       .catch((err) => console.error('read marks not saved', err));
     return ids.length;
+  }
+
+  /** An episode's length for its row (#178): "42 min", "1 h 05 min", never "0 min". */
+  duration(seconds: number): string {
+    const min = Math.max(1, Math.round(seconds / 60));
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    const rest = min % 60;
+    return rest ? `${h} h ${String(rest).padStart(2, '0')} min` : `${h} h`;
   }
 
   /** "3 min ago", "yesterday", "Nov 2", for a row. */

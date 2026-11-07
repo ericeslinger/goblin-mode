@@ -79,10 +79,43 @@ const NOTES = JSON.stringify({
   ],
 });
 
+/** A podcast (#178): two episodes, each an MP3 with its length and duration. */
+const POD = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Kiln hour (fixture)</title>
+  <link>https://pod.invalid/</link>
+  <itunes:image href="https://pod.invalid/show.jpg"/>
+  <item>
+    <title>Reduction firing</title>
+    <link>https://pod.invalid/2</link>
+    <guid>pod-2</guid>
+    <pubDate>Fri, 06 Nov 2026 07:00:00 GMT</pubDate>
+    <description>Why the flame goes orange, and what it does to the glaze.</description>
+    <enclosure url="https://pod.invalid/2.mp3" type="audio/mpeg" length="40265318"/>
+    <itunes:duration>42:10</itunes:duration>
+    <itunes:image href="https://pod.invalid/2.jpg"/>
+    <itunes:episode>2</itunes:episode>
+  </item>
+  <item>
+    <title>Wedging clay</title>
+    <link>https://pod.invalid/1</link>
+    <guid>pod-1</guid>
+    <pubDate>Tue, 03 Nov 2026 07:00:00 GMT</pubDate>
+    <description>Ram's head or spiral, and why it matters.</description>
+    <enclosure url="https://pod.invalid/1.mp3" type="audio/mpeg" length="62914560"/>
+    <itunes:duration>1:05:00</itunes:duration>
+    <itunes:episode>1</itunes:episode>
+  </item>
+</channel>
+</rss>`;
+
 const FIXTURES: Record<string, { body: string; contentType: string }> = {
   'design.xml': { body: DESIGN, contentType: 'application/rss+xml; charset=utf-8' },
   'games.atom': { body: GAMES, contentType: 'application/atom+xml' },
   'notes.json': { body: NOTES, contentType: 'application/feed+json' },
+
+  'pod.xml': { body: POD, contentType: 'application/rss+xml' },
   'page.html': { body: '<html><body>not a feed</body></html>', contentType: 'text/html' },
 };
 

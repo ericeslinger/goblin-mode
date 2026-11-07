@@ -355,6 +355,8 @@ export class ReaderFeeds {
     } catch {
       // The link as it is, then.
     }
+    // A podcast says so first (#178).
+    if (feed.kind === 'podcast') host = `${host} · podcast`;
     if (feed.dead) return `${host} · not answering for a month, given up`;
     if (feed.error) return `${host} · last look failed: ${feed.error}`;
     if (feed.fetchedAt === undefined) return `${host} · not looked at yet`;

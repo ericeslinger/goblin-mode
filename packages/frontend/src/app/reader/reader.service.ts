@@ -45,6 +45,8 @@ export interface FeedRecord {
   dead: boolean;
   /** Milliseconds, once the fetcher has looked. */
   fetchedAt?: number;
+  /** Set by the fetcher once its items carry audio (#178). */
+  kind?: 'podcast';
 }
 
 /** What an import did. */
@@ -183,6 +185,7 @@ function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
     ...(typeof d['error'] === 'string' ? { error: d['error'] } : {}),
     dead: d['dead'] === true,
     ...(at === undefined ? {} : { fetchedAt: at }),
+    ...(d['kind'] === 'podcast' ? { kind: 'podcast' as const } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseFeed } from './feed-parse';
+import { durationSeconds, parseFeed } from './feed-parse';
 
 const RSS = `<?xml version="1.0"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -158,5 +158,151 @@ describe('parseFeed (#161)', () => {
     expect(parseFeed('{"not": "a feed"}', 'https://x.example/')).toBeUndefined();
     expect(parseFeed('', 'https://x.example/')).toBeUndefined();
     expect(parseFeed('<<<', 'https://x.example/')).toBeUndefined();
+  });
+
+  describe('podcasts (#178)', () => {
+    const POD = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Kiln talk</title>
+  <link>https://kiln.example/</link>
+  <itunes:image href="https://kiln.example/show.jpg"/>
+  <item>
+    <title>Episode two</title>
+    <link>https://kiln.example/2</link>
+    <guid>kiln-2</guid>
+    <pubDate>Fri, 06 Nov 2026 10:00:00 GMT</pubDate>
+    <enclosure url="https://cdn.kiln.example/2.mp3" type="audio/mpeg" length="40265318"/>
+    <itunes:duration>1:05:09</itunes:duration>
+    <itunes:image href="/art/2.jpg"/>
+    <itunes:episode>2</itunes:episode>
+  </item>
+  <item>
+    <title>Episode one</title>
+    <guid>kiln-1</guid>
+    <enclosure url="https://cdn.kiln.example/1.pdf" type="application/pdf" length="10"/>
+    <enclosure url="/1.m4a" length="0"/>
+    <itunes:duration>2520</itunes:duration>
+    <itunes:episode>zero</itunes:episode>
+  </item>
+  <item>
+    <title>Show notes only</title>
+    <guid>kiln-notes</guid>
+    <enclosure url="https://cdn.kiln.example/cover.jpg" type="image/jpeg" length="10"/>
+    <itunes:image href="https://kiln.example/notes.jpg"/>
+  </item>
+  <item>
+    <title>Scripted audio</title>
+    <guid>kiln-js</guid>
+    <enclosure url="javascript:alert(1)" type="audio/mpeg"/>
+  </item>
+</channel>
+</rss>`;
+
+    it('reads an RSS enclosure, itunes:duration, itunes:image and itunes:episode', () => {
+      const feed = parseFeed(POD, 'https://kiln.example/feed.xml')!;
+      expect(feed.items[0]).toMatchObject({
+        guid: 'kiln-2',
+        enclosure: {
+          url: 'https://cdn.kiln.example/2.mp3',
+          type: 'audio/mpeg',
+          bytes: 40265318,
+          seconds: 3909,
+        },
+        image: 'https://kiln.example/art/2.jpg',
+        episode: 2,
+      });
+      // The first audio one; a type-less file counts by its name; the show's art.
+      expect(feed.items[1].enclosure).toEqual({
+        url: 'https://kiln.example/1.m4a',
+        type: 'audio/mpeg',
+        seconds: 2520,
+      });
+      expect(feed.items[1].image).toBe('https://kiln.example/show.jpg');
+      expect(feed.items[1].episode).toBeUndefined();
+      // No audio, no episode: an article keeps none of the podcast fields.
+      for (const item of feed.items.slice(2)) {
+        expect(item).not.toHaveProperty('enclosure');
+        expect(item).not.toHaveProperty('image');
+        expect(item).not.toHaveProperty('episode');
+      }
+    });
+
+    it('reads an Atom enclosure link', () => {
+      const atom = `<feed xmlns="http://www.w3.org/2005/Atom" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <title>Atom pod</title>
+  <entry>
+    <title>One</title>
+    <id>a-1</id>
+    <link rel="alternate" href="https://atom.example/1"/>
+    <link rel="enclosure" type="audio/ogg" length="1234" href="/1.ogg"/>
+    <itunes:duration>42:00</itunes:duration>
+  </entry>
+  <entry>
+    <title>Two</title>
+    <id>a-2</id>
+    <link rel="enclosure" type="video/mp4" href="https://atom.example/2.mp4"/>
+  </entry>
+</feed>`;
+      const feed = parseFeed(atom, 'https://atom.example/feed')!;
+      expect(feed.items[0].link).toBe('https://atom.example/1');
+      expect(feed.items[0].enclosure).toEqual({
+        url: 'https://atom.example/1.ogg',
+        type: 'audio/ogg',
+        bytes: 1234,
+        seconds: 2520,
+      });
+      expect(feed.items[1]).not.toHaveProperty('enclosure');
+    });
+
+    it('reads JSON Feed attachments', () => {
+      const json = JSON.stringify({
+        version: 'https://jsonfeed.org/version/1.1',
+        title: 'JSON pod',
+        icon: 'https://json.example/icon.png',
+        items: [
+          {
+            id: '1',
+            title: 'One',
+            attachments: [
+              { url: 'https://json.example/1.txt', mime_type: 'text/plain' },
+              {
+                url: 'https://json.example/1.mp3',
+                mime_type: 'audio/mpeg',
+                size_in_bytes: 900,
+                duration_in_seconds: 61.4,
+              },
+            ],
+          },
+          { id: '2', title: 'Two', image: 'https://json.example/2.png' },
+        ],
+      });
+      const feed = parseFeed(json, 'https://json.example/feed.json')!;
+      expect(feed.items[0]).toMatchObject({
+        enclosure: {
+          url: 'https://json.example/1.mp3',
+          type: 'audio/mpeg',
+          bytes: 900,
+          seconds: 61,
+        },
+        image: 'https://json.example/icon.png',
+      });
+      expect(feed.items[1]).not.toHaveProperty('enclosure');
+      expect(feed.items[1]).not.toHaveProperty('image');
+    });
+
+    it('reads a duration as h:mm:ss, mm:ss or seconds, and nothing else', () => {
+      expect(durationSeconds('1:05:09')).toBe(3909);
+      expect(durationSeconds('01:00:00')).toBe(3600);
+      expect(durationSeconds('42:07')).toBe(2527);
+      expect(durationSeconds('75:30')).toBe(4530);
+      expect(durationSeconds('2520')).toBe(2520);
+      expect(durationSeconds(' 90.6 ')).toBe(91);
+      expect(durationSeconds(61)).toBe(61);
+      for (const junk of ['', 'an hour', '1:2:3:4', '1:75', '1:60:00', '-5', 'NaN', undefined]) {
+        expect(durationSeconds(junk)).toBeUndefined();
+      }
+      expect(durationSeconds(-1)).toBeUndefined();
+    });
   });
 });
