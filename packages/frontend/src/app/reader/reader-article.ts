@@ -33,21 +33,29 @@ export function articleHtml(markdown: string, images: boolean): string {
   selector: 'app-reader-article',
   imports: [RouterLink, Swipe],
   template: `
-    <main class="page" appSwipe #swipe="appSwipe" (left)="go(1)" (right)="go(-1)">
+    <main
+      class="page"
+      appSwipe
+      #swipe="appSwipe"
+      [canLeft]="!!next()"
+      [canRight]="!!prev()"
+      (left)="go(1)"
+      (right)="go(-1)"
+    >
       @if (swipe.dx() !== 0) {
         <!-- The stories either side, drawn beside this one while it is dragged (Eric, 2026-11-07). -->
-        @if (neighbour(-1); as prev) {
+        @if (prev(); as p) {
           <article class="pane prev" aria-hidden="true">
-            <h1>{{ prev.title }}</h1>
-            <p class="meta">{{ sourceOf(prev) }} · {{ when(prev) }}</p>
-            <div class="body" [innerHTML]="htmlOf(prev)"></div>
+            <h1>{{ p.title }}</h1>
+            <p class="meta">{{ sourceOf(p) }} · {{ when(p) }}</p>
+            <div class="body" [innerHTML]="prevHtml()"></div>
           </article>
         }
-        @if (neighbour(1); as next) {
+        @if (next(); as n) {
           <article class="pane next" aria-hidden="true">
-            <h1>{{ next.title }}</h1>
-            <p class="meta">{{ sourceOf(next) }} · {{ when(next) }}</p>
-            <div class="body" [innerHTML]="htmlOf(next)"></div>
+            <h1>{{ n.title }}</h1>
+            <p class="meta">{{ sourceOf(n) }} · {{ when(n) }}</p>
+            <div class="body" [innerHTML]="nextHtml()"></div>
           </article>
         }
       }
@@ -103,8 +111,8 @@ export function articleHtml(markdown: string, images: boolean): string {
           <div class="body" [innerHTML]="html()" (click)="openLink($event)"></div>
         </article>
         <nav class="prevnext" aria-label="Next and previous">
-          <button type="button" [disabled]="!neighbour(-1)" (click)="go(-1)">Previous</button>
-          <button type="button" [disabled]="!neighbour(1)" (click)="go(1)">Next</button>
+          <button type="button" [disabled]="!prev()" (click)="go(-1)">Previous</button>
+          <button type="button" [disabled]="!next()" (click)="go(1)">Next</button>
         </nav>
       } @else if (items.loaded()) {
         <p class="muted">This article is not on this device. Open it online, or go back.</p>
@@ -214,7 +222,14 @@ export class ReaderArticle {
     { initialValue: shelfFromParam(null) },
   );
 
-  protected readonly item = computed(() => this.items.find(this.id()));
+  /**
+   * The story shown: the route's, or the one a finished slide chose a
+   * moment before the route caught up, so the switch is in the same
+   * frame as the slide's end (review on #169).
+   */
+  private readonly pendingId = signal<string | undefined>(undefined);
+  private readonly currentId = computed(() => this.pendingId() ?? this.id());
+  protected readonly item = computed(() => this.items.find(this.currentId()));
   protected readonly fetching = signal(false);
   protected readonly said = signal('');
   protected readonly backLink = computed(() => {
@@ -227,8 +242,14 @@ export class ReaderArticle {
     return this.reader.feeds().find((f) => f.id === it?.feedId)?.title ?? 'Unknown feed';
   }
 
-  /** A neighbour's HTML while it slides in; the same rendering as the current one. */
-  protected htmlOf(it: ItemRecord): SafeHtml {
+  /** The stories either side, and their HTML rendered once each (review on #169). */
+  protected readonly prev = computed(() => this.neighbour(-1));
+  protected readonly next = computed(() => this.neighbour(1));
+  protected readonly prevHtml = computed(() => this.htmlOf(this.prev()));
+  protected readonly nextHtml = computed(() => this.htmlOf(this.next()));
+
+  private htmlOf(it: ItemRecord | undefined): SafeHtml | undefined {
+    if (!it) return undefined;
     return this.sanitizer.bypassSecurityTrustHtml(
       articleHtml(it.readerContent || it.content || '', this.reader.images()),
     );
@@ -248,7 +269,7 @@ export class ReaderArticle {
    * previous story (Eric, 2026-11-07).
    */
   private readonly sequence = computed(() => {
-    const id = this.id();
+    const id = this.currentId();
     const visited = this.visited();
     return this.items
       .inShelf(this.shelf(), true)
@@ -256,6 +277,12 @@ export class ReaderArticle {
   });
 
   constructor() {
+    // The route caught up with a slide's choice.
+    effect(() => {
+      if (this.pendingId() !== undefined && this.id() === this.pendingId()) {
+        this.pendingId.set(undefined);
+      }
+    });
     // Opening an article reads it, once it is here, and keeps it in the
     // sequence for the way back.
     let marked = '';
@@ -291,13 +318,14 @@ export class ReaderArticle {
 
   protected neighbour(step: 1 | -1): ItemRecord | undefined {
     const seq = this.sequence();
-    const at = seq.findIndex((i) => i.id === this.id());
+    const at = seq.findIndex((i) => i.id === this.currentId());
     return at < 0 ? undefined : seq[at + step];
   }
 
   protected go(step: 1 | -1): void {
     const next = this.neighbour(step);
     if (!next) return;
+    this.pendingId.set(next.id);
     void this.router.navigate(['/reader/a', next.id], {
       queryParams: { in: shelfParam(this.shelf()) },
       replaceUrl: true,

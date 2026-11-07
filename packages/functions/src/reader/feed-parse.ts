@@ -121,8 +121,10 @@ function fromRss(channel: Record<string, unknown>, base: string): ParsedFeed {
     ...(site ? { site: absolute(site, base) } : {}),
     items: list(channel['item']).map((item) => {
       const link = absolute(first(item, 'link'), base);
-      const title = plain(first(item, 'title'));
-      const guid = first(item, 'guid') || link || title;
+      const rawTitle = first(item, 'title');
+      const title = plain(rawTitle);
+      // The guid falls back to the title as written, so cleaning it never renames an item (review on #169).
+      const guid = first(item, 'guid') || link || rawTitle;
       const date = first(item, 'pubDate', 'dc:date', 'date');
       const author = plain(first(item, 'dc:creator', 'author'));
       return {
@@ -146,11 +148,12 @@ function fromRdf(root: Record<string, unknown>, base: string): ParsedFeed {
     // RSS 1.0 lists items beside the channel, not inside it.
     items: list(root['item']).map((item) => {
       const link = absolute(first(item, 'link') || String(item['@rdf:about'] ?? ''), base);
-      const title = plain(first(item, 'title'));
+      const rawTitle = first(item, 'title');
+      const title = plain(rawTitle);
       const date = first(item, 'dc:date');
       const author = plain(first(item, 'dc:creator'));
       return {
-        guid: String(item['@rdf:about'] ?? '') || link || title,
+        guid: String(item['@rdf:about'] ?? '') || link || rawTitle,
         title,
         link,
         ...(author ? { author } : {}),
@@ -168,11 +171,12 @@ function fromAtom(feed: Record<string, unknown>, base: string): ParsedFeed {
     ...(site ? { site } : {}),
     items: list(feed['entry']).map((entry) => {
       const link = atomLink(entry, base);
-      const title = plain(first(entry, 'title'));
+      const rawTitle = first(entry, 'title');
+      const title = plain(rawTitle);
       const date = first(entry, 'published', 'updated');
       const author = plain(text(list(entry['author'])[0]?.['name'] as Node));
       return {
-        guid: first(entry, 'id') || link || title,
+        guid: first(entry, 'id') || link || rawTitle,
         title,
         link,
         ...(author ? { author } : {}),
@@ -201,12 +205,13 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
     ...(site ? { site: absolute(site, base) } : {}),
     items: list(feed['items']).map((item) => {
       const link = absolute(str(item['url']) || str(item['external_url']), base);
-      const title = plain(str(item['title']));
+      const rawTitle = str(item['title']);
+      const title = plain(rawTitle);
       const date = str(item['date_published']) || str(item['date_modified']);
       const authors = list(item['authors']);
       const author = str(authors[0]?.['name']) || str(list(item['author'])[0]?.['name']);
       return {
-        guid: str(item['id']) || link || title,
+        guid: str(item['id']) || link || rawTitle,
         title,
         link,
         ...(author ? { author } : {}),

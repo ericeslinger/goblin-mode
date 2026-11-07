@@ -1,4 +1,4 @@
-import { Directive, ElementRef, inject, output, signal } from '@angular/core';
+import { Directive, ElementRef, inject, input, output, signal } from '@angular/core';
 
 /** How far a swipe must travel to count (as the reminder rows). */
 export const SWIPE_PX = 80;
@@ -31,6 +31,9 @@ export const SETTLE_MS = 180;
 export class Swipe {
   readonly left = output<void>();
   readonly right = output<void>();
+  /** Whether a swipe that way has anywhere to go; otherwise it snaps back (review on #169). */
+  readonly canLeft = input(true);
+  readonly canRight = input(true);
   readonly dx = signal(0);
   /**
    * A swipe that counted finishes its slide off the edge (SETTLE_MS,
@@ -84,18 +87,16 @@ export class Swipe {
     setTimeout(() => (this.swiped = false));
     if (Math.abs(dx) < SWIPE_PX) return;
     const sign = dx > 0 ? 1 : -1;
+    if (sign > 0 ? !this.canRight() : !this.canLeft()) return;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const finish = () => {
-      // The change first, the reset two frames later, so what slid in is
-      // already in place when the slide is undone, with no transition.
+      // The change and the reset in one tick, with no transition: the
+      // listener switches what is shown at once, so the story that slid
+      // in is in place in the same frame the slide is undone.
+      this.settling.set(false);
+      this.dx.set(0);
       if (sign > 0) this.right.emit();
       else this.left.emit();
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          this.settling.set(false);
-          this.dx.set(0);
-        }),
-      );
     };
     if (reduced) return finish();
     this.settling.set(true);
@@ -104,6 +105,8 @@ export class Swipe {
   }
 
   protected cancel(): void {
+    // A cancel during the settle changes nothing: the slide finishes.
+    if (this.settling()) return;
     this.start = null;
     this.dx.set(0);
   }
