@@ -40,6 +40,8 @@ export { ALL, PODCASTS, RESERVED_FOLDERS, SAVED, type Shelf2, shelfParam } from 
 export const UNREAD_LIMIT = 1000;
 /** Recently read articles kept at hand, for Show read and undo. */
 export const READ_LIMIT = 200;
+/** Articles opened from a search that no shelf holds, kept at hand at most (#175). */
+const OPENED_MAX = 20;
 
 /** A podcast episode's audio (#178), as the fetcher stored it. */
 export interface EnclosureRecord {
@@ -118,6 +120,13 @@ export interface ItemsApi {
   clear(): unknown;
   /** The fetchArticle callable (#163): the page's article kept on the item. */
   fetchArticle(itemId: string): Promise<{ state: string }>;
+  /** One article's document (#175), for one search found that no shelf holds; undefined when gone. */
+  listenOne(
+    db: Firestore,
+    path: string,
+    next: (data: Record<string, unknown> | undefined) => void,
+    error: (err: unknown) => void,
+  ): () => void;
 }
 
 export const ITEMS_API = new InjectionToken<ItemsApi>('items-api', {
@@ -159,6 +168,12 @@ function itemsApi(functions: Functions): ItemsApi {
         error,
       );
     },
+    listenOne: (db, path, next, error) =>
+      onSnapshot(
+        doc(db, path),
+        (snap) => next(snap.exists() ? snap.data({ serverTimestamps: 'estimate' }) : undefined),
+        error,
+      ),
     set: (db, path, data) => setDoc(doc(db, path), data, { merge: true }),
     setMany: async (db, writes) => {
       for (let at = 0; at < writes.length; at += 400) {
@@ -246,6 +261,14 @@ export class ItemsService {
   private readonly visited = signal<{ shelf: string; ids: ReadonlySet<string> }>(
     this.storedVisits(),
   );
+
+  /**
+   * Articles opened that no shelf holds (#175): a search can find one
+   * read long ago, past the two hundred kept at hand. One listener
+   * each, by id, through the persistent cache; never counted on a shelf.
+   */
+  private readonly openedDocs = signal<Record<string, ItemRecord>>({});
+  private opened = new Map<string, () => void>();
 
   /** Whether the unread shelf has been read once, so empty means caught up. */
   readonly loaded = computed(() => this.read());
@@ -337,6 +360,9 @@ export class ItemsService {
       for (const stop of this.stops) stop();
       this.stops = [];
       const was = this.uid;
+      for (const stop of this.opened.values()) stop();
+      this.opened.clear();
+      this.openedDocs.set({});
       this.uid = uid;
       this.unreadDocs.set([]);
       this.readDocs.set([]);
@@ -373,7 +399,10 @@ export class ItemsService {
         );
       }
     });
-    inject(DestroyRef).onDestroy(() => this.stops.forEach((s) => s()));
+    inject(DestroyRef).onDestroy(() => {
+      this.stops.forEach((s) => s());
+      this.opened.forEach((s) => s());
+    });
   }
 
   /** The articles on a shelf: a folder (All, Saved and Podcasts included) or one feed. */
@@ -443,7 +472,41 @@ export class ItemsService {
   }
 
   find(id: string): ItemRecord | undefined {
-    return this.items().find((i) => i.id === id);
+    const shelved = this.items().find((i) => i.id === id);
+    if (shelved) return shelved;
+    const opened = this.openedDocs()[id];
+    return opened && { ...opened, ...this.local()[id] };
+  }
+
+  /**
+   * Fetches an article no shelf holds (#175), one a search found, so
+   * it opens as any other does; it stays at hand while signed in. At
+   * most twenty such, the first opened let go first.
+   */
+  open(id: string): void {
+    const uid = this.uid;
+    if (!uid || !id || this.opened.has(id) || this.items().some((i) => i.id === id)) return;
+    if (this.opened.size >= OPENED_MAX) {
+      const [first, stop] = this.opened.entries().next().value!;
+      stop();
+      this.opened.delete(first);
+      this.openedDocs.update(({ [first]: _, ...rest }) => rest);
+    }
+    this.opened.set(
+      id,
+      this.api.listenOne(
+        this.fb.db,
+        paths.feedItem(uid, id),
+        (data) => {
+          this.openedDocs.update(({ [id]: _, ...rest }) =>
+            data ? { ...rest, [id]: toItem(id, data) } : rest,
+          );
+          // The echo carries this device's marks, as a shelf's does.
+          this.local.update(({ [id]: _, ...rest }) => rest);
+        },
+        (err) => console.error('article listener', err),
+      ),
+    );
   }
 
   /** Marks one read (now) or unread again. */

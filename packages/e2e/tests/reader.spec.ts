@@ -10,9 +10,10 @@ import { OWNER } from '../src/personas';
 // swipes, the article, next by keyboard, the caught-up page past a
 // shelf's last article, Saved, Mark all read (#162), marking read on
 // scroll with its Undo (#172), what is new in each folder, in Right
-// Now (#173), a podcast's episodes on their own shelf (#178), and
-// last, feed discovery from a site's address (#174), and a folder
-// named for a special shelf, renamed (#185).
+// Now (#173), a podcast's episodes on their own shelf (#178), search
+// across every article and its index (#175), and last, feed discovery
+// from a site's address (#174), and a folder named for a special
+// shelf, renamed (#185).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -126,6 +127,22 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(nav.getByRole('link', { name: /^Apple/ })).not.toContainText('unread');
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText('Refreshed a moment ago');
+
+  // Search across every article (#175), from the front: the server's
+  // word index, which the fetcher wrote; "chairs" finds the chairs.
+  const searchBox = page.getByRole('searchbox', { name: 'Search articles' });
+  await searchBox.fill('chairs');
+  await searchBox.press('Enter');
+  const foundArticles = page.getByRole('list', { name: 'Articles found' });
+  await expect(foundArticles.getByRole('listitem')).toHaveCount(1, { timeout: 15_000 });
+  await expect(foundArticles.getByRole('link', { name: /Three chairs/ })).toContainText(
+    'Design notes ·',
+  );
+  await searchBox.fill('zeppelin');
+  await searchBox.press('Enter');
+  await expect(page.getByText('Nothing found.')).toBeVisible({ timeout: 15_000 });
+  await expect(foundArticles).toHaveCount(0);
+  await axe(page);
 
   // Mark read on scroll (#172): the switch on, All in a short window
   // scrolled to its end, the rows passed marked in one batch and kept in
@@ -349,6 +366,13 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
     snippet: string;
   }[];
   expect(hits.map((h) => h.id)).toEqual([games[0].id]);
+  // Across every article (#175), no date window: the word index.
+  const celadon = (await call('search_feed_items', { query: 'celadon' })) as {
+    title: string;
+    fromWeb: string;
+  }[];
+  expect(celadon.map((h) => h.title)).toEqual(['Celadon glazes']);
+  expect(celadon[0].fromWeb).toContain('content from the web');
   const clipped = (await call('clip_feed_item', { id: games[0].id, tags: ['rpg'] })) as {
     id: string;
     title: string;
@@ -379,6 +403,12 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
     .getByRole('button', { name: 'Remove unread articles older than three months' })
     .click();
   await expect(page.getByRole('status').last()).toContainText('Removed 0 old unread articles.', {
+    timeout: 15_000,
+  });
+  // The word index for what was stored before it (#175): the fetcher
+  // and reader mode indexed every article here already.
+  await page.getByRole('button', { name: 'Index articles for search' }).click();
+  await expect(page.getByRole('status').last()).toHaveText('Indexed 0 articles.', {
     timeout: 15_000,
   });
 

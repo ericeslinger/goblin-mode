@@ -189,6 +189,16 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             @if (retentionStatus()) {
               <p role="status">{{ retentionStatus() }}</p>
             }
+            <button type="button" [disabled]="indexing()" (click)="indexArticles()">
+              Index articles for search
+            </button>
+            <p class="muted">
+              New articles are indexed as they arrive; this indexes the ones stored before, once a
+              day.
+            </p>
+            @if (indexStatus()) {
+              <p role="status">{{ indexStatus() }}</p>
+            }
             <label>
               Keep up to
               <select
@@ -499,6 +509,20 @@ export class Settings {
       );
     } finally {
       this.tidying.set(false);
+    }
+  }
+
+  protected readonly indexing = signal(false);
+  protected readonly indexStatus = signal('');
+
+  /** Index articles for search (#175): the word index on the articles stored before it. */
+  protected async indexArticles(): Promise<void> {
+    this.indexing.set(true);
+    this.indexStatus.set('');
+    try {
+      this.indexStatus.set(await this.readerSettings.indexArticles());
+    } finally {
+      this.indexing.set(false);
     }
   }
 

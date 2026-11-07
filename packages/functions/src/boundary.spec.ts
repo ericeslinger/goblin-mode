@@ -30,6 +30,8 @@ const EXPORTS = [
   'applyRetentionNow',
   'sweepArticles',
   'discoverFeeds',
+  'indexArticles',
+  'searchArticles',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

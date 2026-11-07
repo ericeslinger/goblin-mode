@@ -206,6 +206,42 @@ describe('ReaderService (#159)', () => {
     expect(await reader.discover('https://site.test/')).toBe('Could not look. Are you online?');
   });
 
+  it('searches every article through the server, or says why not (#175)', async () => {
+    const { reader, api } = setup();
+    expect(await reader.search('   ')).toEqual([]);
+    expect(api.searchArticles).not.toHaveBeenCalled();
+    const hit = {
+      id: 'i1',
+      feedId: 'f1',
+      title: 'Three chairs',
+      link: 'https://design.test/chairs',
+      published: 1,
+      summary: 'A look',
+      read: true,
+      saved: false,
+    };
+    api.searchArticles.mockResolvedValueOnce([hit]);
+    expect(await reader.search('  three\n chairs ')).toEqual([hit]);
+    expect(api.searchArticles).toHaveBeenCalledWith('three chairs', 20);
+    api.searchArticles.mockRejectedValueOnce(new Error('internal'));
+    expect(await reader.search('chairs')).toBe('Could not search. Are you online?');
+  });
+
+  it('indexes the articles stored before the index, once a day (#175)', async () => {
+    const { reader, api } = setup();
+    expect(await reader.indexArticles()).toBe('Indexed 4 articles.');
+    api.indexArticles.mockResolvedValueOnce({ indexed: 1 });
+    expect(await reader.indexArticles()).toBe('Indexed 1 article.');
+    api.indexArticles.mockRejectedValueOnce(
+      new Error('Indexed today already; new articles are indexed as they arrive. [429]'),
+    );
+    expect(await reader.indexArticles()).toBe(
+      'Indexed today already; new articles are indexed as they arrive.',
+    );
+    api.indexArticles.mockRejectedValueOnce(new Error('internal'));
+    expect(await reader.indexArticles()).toBe('Could not index the articles. Are you online?');
+  });
+
   it('follows a discovered feed under its own name; a known one keeps its name (#174)', () => {
     const { reader, api } = setup();
     api.push([

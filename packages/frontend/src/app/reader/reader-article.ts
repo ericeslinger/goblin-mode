@@ -503,6 +503,12 @@ export class ReaderArticle {
         this.pendingId.set(undefined);
       }
     });
+    // An article no shelf holds, one a search found (#175), is fetched
+    // by its id once the shelves are in and it is not among them.
+    effect(() => {
+      const id = this.currentId();
+      if (id && this.items.loaded() && !this.item()) untracked(() => this.items.open(id));
+    });
     // Opening an article reads it, once it is here, and keeps it in the
     // sequence for the way back. An episode is read once it is heard to
     // the end (#179).

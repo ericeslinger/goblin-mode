@@ -8,6 +8,7 @@ import {
   type RefreshStore,
   monthsAfter,
 } from './refresh';
+import { queryTerms, rarestTerm, termsOfItem } from './terms';
 
 const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
@@ -238,6 +239,107 @@ export async function sweepOld(
       removed += docs.length;
     }
     if (snap.size < pageSize) return removed;
+    after = snap.docs[snap.docs.length - 1];
+  }
+}
+
+/** Documents a search page reads from the index (#175). */
+export const SEARCH_PAGE = 50;
+/** Pages a search reads at most before it settles for what it found. */
+export const SEARCH_PAGES = 5;
+
+/** An article search found: its id and stored fields. */
+export interface FoundItem {
+  id: string;
+  data: FirebaseFirestore.DocumentData;
+}
+
+/**
+ * Articles holding every term of `query` (#175), newest first, across
+ * every one stored, by the word index: the longest term (`rarestTerm`,
+ * the guess at the rarest, as there is no table of frequencies) is
+ * asked for with `array-contains`, ordered by `published` desc, fifty
+ * a page, and each document's own `terms` are checked for the rest,
+ * until `limit` are found or five pages are read; so a search over
+ * years costs a handful of reads. `before` and `since` (millis) bound
+ * `published`. A query with no terms (only stop words) finds nothing:
+ * the caller decides what to do then. Articles stored before the index
+ * have no `terms` until `indexItems` has run over them.
+ */
+export async function searchItems(
+  db: Firestore,
+  uid: string,
+  query: string,
+  options: { limit?: number; before?: number; since?: number } = {},
+): Promise<FoundItem[]> {
+  const terms = queryTerms(query);
+  const key = rarestTerm(terms);
+  if (!key) return [];
+  const rest = terms.filter((t) => t !== key);
+  const limit = Math.max(1, options.limit ?? 20);
+  let base = db
+    .collection(paths.feedItems(uid))
+    .where('terms', 'array-contains', key)
+    .orderBy('published', 'desc');
+  if (options.before !== undefined) {
+    base = base.where('published', '<', Timestamp.fromMillis(options.before));
+  }
+  if (options.since !== undefined) {
+    base = base.where('published', '>=', Timestamp.fromMillis(options.since));
+  }
+  const found: FoundItem[] = [];
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  for (let page = 0; page < SEARCH_PAGES; page++) {
+    const snap = await (after ? base.startAfter(after) : base).limit(SEARCH_PAGE).get();
+    for (const d of snap.docs) {
+      const have = d.get('terms');
+      if (!Array.isArray(have) || !rest.every((t) => have.includes(t))) continue;
+      found.push({ id: d.id, data: d.data() });
+      if (found.length >= limit) return found;
+    }
+    if (snap.size < SEARCH_PAGE) break;
+    after = snap.docs[snap.docs.length - 1];
+  }
+  return found;
+}
+
+/**
+ * The word index for the articles already stored (#175): `terms` set
+ * on each whose terms are missing or not what its title and text give
+ * now (reader mode's text included), in pages by document id, as
+ * `applyRetention` pages. Returns how many were written.
+ */
+export async function indexItems(db: Firestore, uid: string, pageSize = 400): Promise<number> {
+  let indexed = 0;
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let query = db
+      .collection(paths.feedItems(uid))
+      .orderBy(FieldPath.documentId())
+      .select('title', 'content', 'readerContent', 'terms')
+      .limit(pageSize);
+    if (after) query = query.startAfter(after);
+    const snap = await query.get();
+    if (snap.empty) return indexed;
+    const batch = db.batch();
+    let writes = 0;
+    for (const d of snap.docs) {
+      const data = d.data();
+      const want = termsOfItem(data);
+      const have = data['terms'];
+      if (
+        Array.isArray(have) &&
+        have.length === want.length &&
+        have.every((t, i) => t === want[i])
+      ) {
+        continue;
+      }
+      batch.update(d.ref, { terms: want });
+      writes++;
+    }
+    if (writes) await batch.commit();
+    indexed += writes;
+    if (snap.size < pageSize) return indexed;
     after = snap.docs[snap.docs.length - 1];
   }
 }

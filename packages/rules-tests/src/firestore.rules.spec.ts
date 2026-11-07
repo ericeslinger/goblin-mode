@@ -396,6 +396,13 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
       ref.set({ enclosure: { ...enclosure, seconds: 1 }, updatedAt: now() }, { merge: true }),
     );
     await assertFails(ref.set({ title: 'Mine now', updatedAt: now() }, { merge: true }));
+    // The word index (#175) is the fetcher's: the owner neither adds nor changes it.
+    await assertFails(ref.set({ terms: ['chair'], updatedAt: now() }, { merge: true }));
+    await seed(path, { ...item(), terms: ['chair'] });
+    await assertSucceeds(ref.set({ read: true, updatedAt: now() }, { merge: true }));
+    await assertFails(
+      ref.set({ terms: ['chair', 'mine'], read: true, updatedAt: now() }, { merge: true }),
+    );
     await assertFails(
       ref.set({ content: 'rewritten', read: true, updatedAt: now() }, { merge: true }),
     );

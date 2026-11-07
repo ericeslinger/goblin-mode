@@ -21,7 +21,9 @@ export {
   feedRemoved,
   feedsRefresh,
   fetchArticle,
+  indexArticles,
   refreshFeeds,
+  searchArticles,
   sweepArticles,
 } from './reader/functions';
 export { proposalAccepted } from './organize/triggers';

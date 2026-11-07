@@ -591,6 +591,13 @@ export const FeedItem = z.object({
   position: z.number().nonnegative().optional(),
   playedAt: Timestamp.optional(),
   played: z.boolean().optional(),
+  /**
+   * The word index (#175): up to 200 distinct stemmed lowercase words
+   * of the title and text (`termsOf` in the functions' reader), which
+   * search asks for with `array-contains`. Written by the fetcher, and
+   * again when reader mode keeps the page's text; never the app's.
+   */
+  terms: z.array(z.string().max(40)).max(200).optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });

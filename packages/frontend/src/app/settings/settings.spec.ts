@@ -42,6 +42,7 @@ async function render(
   push = fakePush(),
   notes = new FakeNotes(),
   modules = new FakeModules(),
+  reader = new FakeReader(),
 ) {
   await TestBed.configureTestingModule({
     imports: [Settings],
@@ -52,7 +53,7 @@ async function render(
       { provide: CLAUDE_ACCESS_API, useValue: claude },
       { provide: NotesService, useValue: notes },
       { provide: ModulesService, useValue: modules },
-      { provide: ReaderService, useValue: new FakeReader() },
+      { provide: ReaderService, useValue: reader },
       { provide: RemindersService, useValue: reminders },
       { provide: KeysService, useValue: keys },
     ],
@@ -177,6 +178,22 @@ describe('Settings', () => {
     projects.checked = false;
     projects.dispatchEvent(new Event('change'));
     expect(modules.set).toHaveBeenCalledWith('projects', false);
+  });
+
+  it('indexes the Reader’s articles for search, and says how many (#175)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const modules = new FakeModules();
+    modules.set('reader', true);
+    const reader = new FakeReader();
+    reader.indexArticles.mockResolvedValueOnce('Indexed 12 articles.');
+    const el = await render(auth, fakePush(), new FakeNotes(), modules, reader);
+    button(el, 'Index articles for search')!.click();
+    await new Promise((r) => setTimeout(r));
+    TestBed.inject(ApplicationRef).tick();
+    expect(reader.indexArticles).toHaveBeenCalledTimes(1);
+    const said = [...el.querySelectorAll('[role=status]')].map((p) => p.textContent?.trim());
+    expect(said).toContain('Indexed 12 articles.');
   });
 
   it('lists templates and makes new ones, opening them to write', async () => {

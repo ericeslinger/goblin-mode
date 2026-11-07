@@ -119,6 +119,24 @@ export interface ReaderApi {
   sweep(): Promise<{ removed: number }>;
   /** The discoverFeeds callable (#174): the feeds at a site's address, with their names. */
   discoverFeeds(url: string): Promise<DiscoveredFeed[]>;
+  /** The searchArticles callable (#175): every stored article holding the words, newest first. */
+  searchArticles(q: string, limit: number): Promise<SearchHit[]>;
+  /** The indexArticles callable (#175): the word index written on the articles stored before it. */
+  indexArticles(): Promise<{ indexed: number }>;
+}
+
+/** An article search found (#175), a row's worth: no text. */
+export interface SearchHit {
+  id: string;
+  feedId: string;
+  title: string;
+  link: string;
+  /** Milliseconds. */
+  published: number;
+  summary: string;
+  read: boolean;
+  saved: boolean;
+  noteId?: string;
 }
 
 /** A feed discovery found (#174). */
@@ -174,6 +192,15 @@ function readerApi(functions: Functions): ReaderApi {
           'discoverFeeds',
         )({ url })
       ).data.feeds,
+    searchArticles: async (q, limit) =>
+      (
+        await httpsCallable<unknown, { items: SearchHit[] }>(
+          functions,
+          'searchArticles',
+        )({ q, limit })
+      ).data.items,
+    indexArticles: async () =>
+      (await httpsCallable<unknown, { indexed: number }>(functions, 'indexArticles')({})).data,
     clear: () => deleteField(),
     listen: (db, path, next, error) =>
       onSnapshot(
@@ -422,6 +449,38 @@ export class ReaderService {
       return /Refreshed a moment ago/.test(message)
         ? message
         : 'Could not refresh. Are you online?';
+    }
+  }
+
+  /**
+   * Search across every article stored (#175): a call to the server,
+   * which asks the word index, so it needs the network; the articles
+   * holding every word, newest first, or a message saying why not.
+   * The shelves on the device are not searched apart: one path.
+   */
+  async search(text: string, limit = 20): Promise<SearchHit[] | string> {
+    if (!this.auth.user()?.uid) return 'Sign in first.';
+    const q = text.replace(/\s+/g, ' ').trim();
+    if (!q) return [];
+    try {
+      return await this.api.searchArticles(q, limit);
+    } catch (err) {
+      console.error('search failed', err);
+      return 'Could not search. Are you online?';
+    }
+  }
+
+  /** Index articles for search (#175): the ones stored before the index, once a day. */
+  async indexArticles(): Promise<string> {
+    if (!this.auth.user()?.uid) return 'Sign in first.';
+    try {
+      const { indexed } = await this.api.indexArticles();
+      return `Indexed ${indexed} ${indexed === 1 ? 'article' : 'articles'}.`;
+    } catch (err) {
+      const message = callableMessage(err);
+      return /^Indexed today already/.test(message)
+        ? message
+        : 'Could not index the articles. Are you online?';
     }
   }
 

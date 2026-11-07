@@ -14,12 +14,15 @@ import { decodeBody, discoverFeedFetch, discoverPageFetch, feedFetch } from './f
 import {
   applyRetention,
   firestoreRefreshStore,
+  indexItems,
   markAllDue,
   removeFeedItems,
+  searchItems,
   sweepOld,
 } from './firestore-store';
 import { ITEM_MAX_AGE_MS, type RefreshDeps, refreshDue } from './refresh';
 import { standInFeedFetcher, standInPageFetcher } from './stand-in';
+import { termsOfItem } from './terms';
 
 /** Refresh in the app no more often than this, per gardener. */
 export const REFRESH_EVERY_MS = 5 * 60_000;
@@ -27,6 +30,8 @@ export const REFRESH_EVERY_MS = 5 * 60_000;
 export const DAILY_ARTICLES = 50;
 /** Feed discoveries a day per gardener (#174), counted in the usage record. */
 export const DAILY_DISCOVERIES = 50;
+/** Index articles for search, once a day per gardener (#175): new ones are indexed as fetched. */
+export const DAILY_INDEXES = 1;
 /** A reader-mode fetch claimed this long ago is a lost one's, and may be asked again. */
 const ARTICLE_STALE_MS = 2 * 60_000;
 
@@ -140,7 +145,12 @@ export const fetchArticle = onCall({ memory: '512MiB', timeoutSeconds: 120 }, as
       readerError: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
     });
-    return { done: false as const, link: String(d['link'] ?? '') };
+    return {
+      done: false as const,
+      link: String(d['link'] ?? ''),
+      title: String(d['title'] ?? ''),
+      content: String(d['content'] ?? ''),
+    };
   });
   if (claim.done) return { state: 'done' };
   try {
@@ -154,6 +164,8 @@ export const fetchArticle = onCall({ memory: '512MiB', timeoutSeconds: 120 }, as
     await ref.update({
       readerState: 'done',
       readerContent: markdown,
+      // The page's words join the index (#175), so search finds them too.
+      terms: termsOfItem({ title: claim.title, content: claim.content, readerContent: markdown }),
       updatedAt: FieldValue.serverTimestamp(),
     });
     logger.info('fetchArticle', { itemId, chars: markdown.length });
@@ -253,4 +265,73 @@ export const sweepArticles = onCall({ timeoutSeconds: 300 }, async (request) => 
   const removed = await sweepOld(getFirestore(), uid, Date.now() - ITEM_MAX_AGE_MS);
   logger.info('sweepArticles', { removed });
   return { removed };
+});
+
+/**
+ * Index articles for search (#175), from Settings: the word index
+ * written on the articles stored before it, or whose index is out of
+ * date, in pages by document id. Once a day per gardener (`indexRuns`
+ * in the usage record), given back when the run fails; the fetcher
+ * indexes new articles itself.
+ */
+export const indexArticles = onCall({ timeoutSeconds: 540, memory: '512MiB' }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = request.auth.uid;
+  const db = getFirestore();
+  const usageRef = db.doc(paths.usage(uid, new Date().toISOString().slice(0, 10)));
+  await db.runTransaction(async (tx) => {
+    const used = Number((await tx.get(usageRef)).data()?.['indexRuns'] ?? 0);
+    if (used >= DAILY_INDEXES) {
+      throw new HttpsError(
+        'resource-exhausted',
+        'Indexed today already; new articles are indexed as they arrive. Try again tomorrow.',
+      );
+    }
+    tx.set(usageRef, { indexRuns: used + 1 }, { merge: true });
+  });
+  try {
+    const indexed = await indexItems(db, uid);
+    logger.info('indexArticles', { indexed });
+    return { indexed };
+  } catch (err) {
+    await usageRef
+      .set({ indexRuns: FieldValue.increment(-1) }, { merge: true })
+      .catch(() => undefined);
+    throw err;
+  }
+});
+
+/** What the app's search shows of an article (#175): a row's worth, no text. */
+function searchHit(id: string, d: FirebaseFirestore.DocumentData) {
+  const published = d['published'] instanceof Timestamp ? d['published'].toMillis() : 0;
+  return {
+    id,
+    feedId: String(d['feedId'] ?? ''),
+    title: String(d['title'] ?? ''),
+    link: typeof d['link'] === 'string' ? d['link'] : '',
+    published,
+    summary: String(d['summary'] ?? ''),
+    read: d['read'] === true,
+    saved: d['saved'] === true,
+    ...(typeof d['noteId'] === 'string' ? { noteId: d['noteId'] } : {}),
+  };
+}
+
+/**
+ * Search across every article (#175), from the Reader's front: the
+ * word index (`searchItems`), newest first, a row's worth of each.
+ * onCall, as everything the app asks the server to do is; a handful
+ * of reads a search, so no daily budget.
+ */
+export const searchArticles = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const data = request.data as { q?: unknown; limit?: unknown } | null;
+  const q = typeof data?.q === 'string' ? data.q.trim().slice(0, 200) : '';
+  if (!q) throw new HttpsError('invalid-argument', 'Search for a word.');
+  const limit =
+    typeof data?.limit === 'number' && Number.isInteger(data.limit)
+      ? Math.min(Math.max(1, data.limit), 50)
+      : 20;
+  const found = await searchItems(getFirestore(), request.auth.uid, q, { limit });
+  return { items: found.map((f) => searchHit(f.id, f.data)) };
 });
