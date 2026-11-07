@@ -51,6 +51,7 @@ function setup() {
   const notes = new FakeNotes();
   const reading = { save: vi.fn((_url: string) => 'att1') };
   const user = signal<User | null | undefined>({ uid: 'u1' } as User);
+  const settings = new FakeSettingsApi();
   TestBed.configureTestingModule({
     providers: [
       { provide: FIREBASE, useValue: fakeFirebase(true) },
@@ -58,7 +59,7 @@ function setup() {
       { provide: NotesService, useValue: notes },
       { provide: ReadingService, useValue: reading },
       { provide: READER_API, useValue: feeds },
-      { provide: SETTINGS_API, useValue: new FakeSettingsApi() },
+      { provide: SETTINGS_API, useValue: settings },
       { provide: ModulesService, useValue: modules },
       { provide: AuthService, useValue: { user } },
       { provide: NOW, useValue: () => NOW_MS },
@@ -71,7 +72,7 @@ function setup() {
     { id: 'f2', data: { url: 'https://b.test/f', title: 'Dice', folders: ['Games', 'Design'] } },
     { id: 'f3', data: { url: 'https://c.test/f', title: 'Loose', folders: [] } },
   ]);
-  return { items, api, feeds, user, modules, notes, reading };
+  return { items, api, feeds, user, modules, notes, reading, settings };
 }
 
 describe('ItemsService (#162)', () => {
@@ -274,6 +275,53 @@ describe('ItemsService (#162)', () => {
     });
     expect(items.setReadMany([], true)).toBe(0);
     expect(api.setMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts what is new per folder since its list was opened, and notes it seen (#173)', () => {
+    const { items, api, settings } = setup();
+    settings.push({
+      folderOrder: [],
+      images: true,
+      seenAt: { Design: NOW_MS - 2.5 * H },
+      updatedAt: 1,
+    });
+    api.push('unread', [
+      item('a', 'f1', 1),
+      item('b', 'f2', 2),
+      item('c', 'f1', 3),
+      item('d', 'f3', 4),
+      item('e', 'f2', 5),
+      item('r', 'f2', 0.5, { read: true }),
+    ]);
+    // Design was seen between b and c; Games and Uncategorized never were.
+    expect(items.newSince()).toEqual([
+      { folder: 'Design', count: 2 },
+      { folder: 'Games', count: 2 },
+      { folder: 'Uncategorized', count: 1 },
+    ]);
+    items.markSeen('Games');
+    expect(settings.set).toHaveBeenCalledTimes(1);
+    expect(settings.set.mock.lastCall![2]['seenAt']).toEqual({
+      Design: NOW_MS - 2.5 * H,
+      Games: NOW_MS,
+    });
+    expect(items.newSince()).toEqual([
+      { folder: 'Design', count: 2 },
+      { folder: 'Uncategorized', count: 1 },
+    ]);
+    // Nothing newer since: no write.
+    items.markSeen('Games');
+    expect(settings.set).toHaveBeenCalledTimes(1);
+    // A folder with nothing unread is not written either.
+    items.markSeen('Apple');
+    expect(settings.set).toHaveBeenCalledTimes(1);
+    // One dated ahead of this clock is seen too.
+    api.push('unread', [item('z', 'f3', -2)]);
+    items.markSeen('Uncategorized');
+    expect(
+      (settings.set.mock.lastCall![2]['seenAt'] as Record<string, number>)['Uncategorized'],
+    ).toBe(NOW_MS + 2 * H);
+    expect(items.newSince()).toEqual([]);
   });
 
   it('says how old an article is, in words', () => {

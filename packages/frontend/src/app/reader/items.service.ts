@@ -261,6 +261,30 @@ export class ItemsService {
       ),
   );
 
+  /**
+   * Folders with unread articles newer than when their list was last
+   * opened (#173), for Right Now: every unread one in a folder never
+   * opened. Most first, then by name; none with nothing new.
+   */
+  readonly newSince = computed(() => {
+    const seen = this.feeds.seenAt();
+    const folders = this.foldersOf();
+    const counts = new Map<string, number>();
+    for (const i of this.items()) {
+      if (i.read) continue;
+      for (const f of folders.get(i.feedId) ?? [UNCATEGORIZED]) {
+        const at = seen[f];
+        if (at === undefined || i.published > at) counts.set(f, (counts.get(f) ?? 0) + 1);
+      }
+    }
+    return [...counts]
+      .map(([folder, count]) => ({ folder, count }))
+      .sort(
+        (a, b) =>
+          b.count - a.count || a.folder.localeCompare(b.folder, undefined, { sensitivity: 'base' }),
+      );
+  });
+
   private readonly foldersOf = computed(() => {
     const map = new Map<string, string[]>();
     for (const f of this.feeds.feeds())
@@ -427,6 +451,20 @@ export class ItemsService {
         ? message
         : 'Could not fetch the page. Are you online?';
     }
+  }
+
+  /**
+   * Notes a folder's list as opened now (#173), so its articles stop
+   * counting as new in Right Now. Nothing is written when nothing in it
+   * is newer than the last time. The time kept is never before its
+   * newest article, so one dated ahead by a feed's clock is seen too.
+   */
+  markSeen(folder: string): void {
+    const newest = this.inShelf({ kind: 'folder', name: folder }, false)[0]?.published;
+    if (newest === undefined) return;
+    const seen = this.feeds.seenAt()[folder];
+    if (seen !== undefined && newest <= seen) return;
+    this.feeds.markSeen(folder, Math.max(this.now(), newest));
   }
 
   /** Marks every unread article at hand on a shelf read; returns how many. */

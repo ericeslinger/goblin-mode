@@ -2,16 +2,20 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { SECTIONS } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
+import { ReaderNew } from '../reader/reader-new';
 import { SignIn } from '../sign-in/sign-in';
 import { AddReminder } from './add-reminder';
 import { ReminderRow } from './reminder-row';
 import { RemindersService } from './reminders.service';
 import { UndoBar } from './undo-bar';
 
-/** Right Now, full screen: every open reminder by section, and +. Signed out, only sign-in. */
+/**
+ * Right Now, full screen: what is new in the Reader (#173), every open
+ * reminder by section, and +. Signed out, only sign-in.
+ */
 @Component({
   selector: 'app-right-now',
-  imports: [RouterLink, AddReminder, ReminderRow, SignIn, UndoBar],
+  imports: [RouterLink, AddReminder, ReaderNew, ReminderRow, SignIn, UndoBar],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
@@ -35,6 +39,7 @@ import { UndoBar } from './undo-bar';
           <app-add-reminder (closed)="adding.set(false)" />
         }
         <app-undo-bar />
+        <app-reader-new />
         @for (s of sections(); track s.id) {
           <section [attr.aria-labelledby]="'section-' + s.id">
             <h2 [id]="'section-' + s.id">{{ s.label }}</h2>

@@ -5,7 +5,8 @@ import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
-import { FakeAuthService, FakeRemindersApi, remindersTestProviders } from './fakes';
+import { NotesService } from '../notes/notes.service';
+import { FakeAuthService, FakeNotes, FakeRemindersApi, remindersTestProviders } from './fakes';
 import { RemindersService } from '../reminders/reminders.service';
 
 export const HOUR = 60 * 60 * 1000;
@@ -33,6 +34,8 @@ export async function renderWithReminders<T>(
       provideRouter([]),
       ...remindersTestProviders(api, () => NOW),
       { provide: AuthService, useValue: auth },
+      // Right Now's Reader line (#173) reaches it through ItemsService.
+      { provide: NotesService, useValue: new FakeNotes() },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(component);

@@ -59,6 +59,9 @@ export function shelfFromParam(value: string | null): Shelf2 {
  * or the shelf changes, so nothing moves under the finger; the status
  * bar at the foot of the screen offers Undo for the last batch for a
  * few seconds. Only a page the gardener has moved counts.
+ *
+ * Opening a folder's list notes when it was seen (#173), so Right Now
+ * counts only the articles newer than that.
  */
 @Component({
   selector: 'app-reader-list',
@@ -314,8 +317,24 @@ export class ReaderList {
   private touched = false;
   private settleTimer?: ReturnType<typeof setTimeout>;
   private undoTimer?: ReturnType<typeof setTimeout>;
+  /** The shelf already noted as seen, so it is noted once (#173). */
+  private seenShelf?: Shelf2;
 
   constructor() {
+    // A folder's list opened: what is in it stops being new in Right
+    // Now (#173). Once everything is read, so the folder is known and
+    // the settings doc is written whole; once per shelf.
+    effect(() => {
+      const shelf = this.shelf();
+      if (shelf.kind !== 'folder' || shelf.name === ALL || shelf.name === SAVED) return;
+      if (!this.items.loaded() || !this.reader.loaded() || !this.reader.settingsLoaded()) return;
+      // Only a folder the feeds are in: a shelf of the app's own, such
+      // as Podcasts, is never a line in Right Now, so it is not noted.
+      if (!this.reader.folderNames().includes(shelf.name)) return;
+      if (this.seenShelf === shelf) return;
+      this.seenShelf = shelf;
+      untracked(() => this.items.markSeen(shelf.name));
+    });
     // Another shelf starts afresh: no hold, nothing waiting, no Undo.
     effect(() => {
       this.shelf();

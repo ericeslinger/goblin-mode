@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { of } from 'rxjs';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
@@ -40,7 +41,7 @@ const item = (id: string, hoursAgo: number) => ({
 /** The observer the list makes, so a spec can say a row left above the top. */
 let seen: (entries: Partial<IntersectionObserverEntry>[]) => void;
 
-function setup(readOnScroll: boolean) {
+function setup(readOnScroll: boolean, folder?: string) {
   vi.stubGlobal(
     'IntersectionObserver',
     class {
@@ -70,11 +71,14 @@ function setup(readOnScroll: boolean) {
       { provide: ModulesService, useValue: modules },
       { provide: AuthService, useValue: { user: signal<User | null>({ uid: 'u1' } as User) } },
       { provide: NOW, useValue: () => NOW_MS },
+      ...(folder
+        ? [{ provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ folder })) } }]
+        : []),
     ],
   });
   const items = TestBed.inject(ItemsService);
   TestBed.tick();
-  feeds.push([{ id: 'f1', data: { url: 'https://a.test/f', title: 'Blog', folders: [] } }]);
+  feeds.push([{ id: 'f1', data: { url: 'https://a.test/f', title: 'Blog', folders: ['Design'] } }]);
   settings.push({ folderOrder: [], images: true, readOnScroll, updatedAt: 1 });
   api.push('unread', [item('a', 1), item('b', 2), item('c', 3)]);
   const fixture = TestBed.createComponent(ReaderList);
@@ -106,7 +110,7 @@ function setup(readOnScroll: boolean) {
     window.dispatchEvent(new Event('touchmove'));
     window.dispatchEvent(new Event('scroll'));
   };
-  return { fixture, el, items, api, leave, back, move, status };
+  return { fixture, el, items, api, settings, leave, back, move, status };
 }
 
 describe('ReaderList, mark read on scroll (#172)', () => {
@@ -189,5 +193,26 @@ describe('ReaderList, mark read on scroll (#172)', () => {
     leave('a');
     vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
     expect(api.setMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReaderList, a folder seen (#173)', () => {
+  it('notes a folder as seen when its list opens, once, so nothing in it is new', () => {
+    const { fixture, items, settings } = setup(false, 'Design');
+    expect(settings.set).toHaveBeenCalledTimes(1);
+    expect(settings.set.mock.lastCall![2]['seenAt']).toEqual({ Design: NOW_MS });
+    expect(items.newSince()).toEqual([]);
+    fixture.detectChanges();
+    expect(settings.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('notes nothing for All', () => {
+    const { settings } = setup(false);
+    expect(settings.set).not.toHaveBeenCalled();
+  });
+
+  it('notes nothing for a shelf that is no folder of the feeds', () => {
+    const { settings } = setup(false, 'podcasts');
+    expect(settings.set).not.toHaveBeenCalled();
   });
 });
