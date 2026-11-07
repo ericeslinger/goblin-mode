@@ -31,17 +31,14 @@ import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import { ReaderService, callableMessage } from './reader.service';
+import { ALL, PODCASTS, SAVED, type Shelf2 } from './shelves';
+
+export { ALL, PODCASTS, RESERVED_FOLDERS, SAVED, type Shelf2 } from './shelves';
 
 /** The newest unread articles the app listens to; the rest come as these are read. */
 export const UNREAD_LIMIT = 1000;
 /** Recently read articles kept at hand, for Show read and undo. */
 export const READ_LIMIT = 200;
-
-/** The special folders. */
-export const ALL = 'all';
-export const SAVED = 'saved';
-/** The episodes of every podcast feed (#178), shown once one is followed. */
-export const PODCASTS = 'podcasts';
 
 /** A podcast episode's audio (#178), as the fetcher stored it. */
 export interface EnclosureRecord {
@@ -206,9 +203,6 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
     ...(d['played'] === true ? { played: true } : {}),
   };
 }
-
-/** A list the reader shows: a folder, one feed, everything, or what is saved. */
-export type Shelf2 = { kind: 'folder'; name: string } | { kind: 'feed'; id: string };
 
 /**
  * The articles (#162): the newest thousand unread, the last two hundred

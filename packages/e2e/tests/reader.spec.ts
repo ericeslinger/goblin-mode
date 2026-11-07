@@ -11,7 +11,8 @@ import { OWNER } from '../src/personas';
 // shelf's last article, Saved, Mark all read (#162), marking read on
 // scroll with its Undo (#172), what is new in each folder, in Right
 // Now (#173), a podcast's episodes on their own shelf (#178), and
-// last, feed discovery from a site's address (#174).
+// last, feed discovery from a site's address (#174), and a folder
+// named for a special shelf, renamed (#185).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -417,6 +418,14 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(followStatus).toHaveText('Already following Dice; now in Tabletop too.');
   await expect(tabletop.getByRole('listitem')).toHaveCount(2);
   await expect(tabletop).toContainText('Dice');
+  // A folder named for a special shelf (#185) is renamed, so it keeps its own feeds.
+  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/all.xml');
+  await page.getByRole('combobox', { name: 'Folder' }).fill('All');
+  await page.getByRole('button', { name: 'Follow' }).click();
+  await expect(followStatus).toHaveText(
+    "Following. Its name and articles arrive once the server has looked. A folder cannot be called 'All'; it is in 'All (folder)'.",
+  );
+  await expect(folders.locator('summary', { hasText: 'All (folder)' })).toBeVisible();
 });
 
 /**

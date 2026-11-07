@@ -15,7 +15,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { DownloadsService } from './downloads.service';
-import { ALL, type ItemRecord, ItemsService, PODCASTS, SAVED, type Shelf2 } from './items.service';
+import { type ItemRecord, ItemsService } from './items.service';
+import { ALL, PODCASTS, SAVED, type Shelf2 } from './shelves';
 import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 

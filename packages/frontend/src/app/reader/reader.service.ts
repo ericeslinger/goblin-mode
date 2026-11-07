@@ -28,6 +28,7 @@ import {
 } from 'firebase/firestore';
 import { type Functions, httpsCallable } from 'firebase/functions';
 import { AuthService } from '../auth.service';
+import { RESERVED_FOLDERS } from './shelves';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { SETTINGS_API } from '../theme/theme-sync.service';
@@ -205,6 +206,23 @@ function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
 }
 
 /**
+ * A folder name as kept (#185): trimmed, and a name the special shelves
+ * use (All, Saved, Podcasts, in any letter case) becomes "<name>
+ * (folder)", so the folder shows its own feeds. Renamed, not refused,
+ * so an OPML import never loses a feed. Uncategorized is left as it is:
+ * it already names the feeds in no folder.
+ */
+export function cleanFolder(name: string): string {
+  const trimmed = name.trim();
+  return RESERVED_FOLDERS.includes(trimmed.toLowerCase()) ? `${trimmed} (folder)` : trimmed;
+}
+
+/** Folder names as kept: cleaned, blanks dropped, each once. */
+function cleanFolders(names: readonly string[]): string[] {
+  return [...new Set(names.map(cleanFolder).filter(Boolean))];
+}
+
+/**
  * The feeds followed (#159), in folders. Feeds are written through the
  * persistent cache, never awaited, so an import or a move works
  * offline; the fetcher (a function) fills in each feed's state when
@@ -298,7 +316,8 @@ export class ReaderService {
     if (!uid || !this.read() || feeds.length === 0) return undefined;
     const outcome: ImportOutcome = { added: 0, known: 0, refused: 0 };
     let count = this.list().length;
-    for (const feed of feeds) {
+    for (const parsed of feeds) {
+      const feed = { ...parsed, folders: cleanFolders(parsed.folders) };
       const id = feedId(feed.url);
       const known = this.list().find((f) => f.id === id);
       if (known) {
@@ -332,7 +351,7 @@ export class ReaderService {
     if (!uid || !this.read() || !url) return undefined;
     const id = feedId(url);
     const known = this.list().find((f) => f.id === id);
-    const folders = folder?.trim() ? [folder.trim()] : [];
+    const folders = cleanFolders(folder ? [folder] : []);
     if (known) {
       if (folders[0] && !known.folders.includes(folders[0])) {
         this.setFolders(id, [...known.folders, folders[0]]);
@@ -374,7 +393,7 @@ export class ReaderService {
   setFolders(id: string, folders: string[]): void {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
-    const clean = [...new Set(folders.map((f) => f.trim()).filter(Boolean))];
+    const clean = cleanFolders(folders);
     this.list.update((l) => l.map((f) => (f.id === id ? { ...f, folders: clean } : f)));
     void this.api
       .set(
