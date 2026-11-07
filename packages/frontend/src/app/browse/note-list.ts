@@ -181,6 +181,7 @@ export class NoteList {
     people: 'No people yet. Set a concept’s type to Person.',
     projects: 'No projects yet. Set a concept’s type to Project.',
     recipes: 'No recipes yet. Name one above to start it.',
+    clippings: 'No clippings yet. File an article from the Reader.',
     journal: 'No journal entries yet. Add a feelings journal in Settings.',
     tags: 'No tagged notes yet.',
     archived: 'Nothing archived.',

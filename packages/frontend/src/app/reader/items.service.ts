@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { UNCATEGORIZED, paths } from '@mossgoblin/schema';
+import { UNCATEGORIZED, clippingBody, paths } from '@mossgoblin/schema';
 import {
   type Firestore,
   collection,
@@ -22,10 +22,13 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
+import { type Functions, httpsCallable } from 'firebase/functions';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
+import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
+import { ReadingService } from '../reading/reading.service';
 import { ReaderService } from './reader.service';
 
 /** The newest unread articles the app listens to; the rest come as these are read. */
@@ -50,8 +53,13 @@ export interface ItemRecord {
   content: string;
   read: boolean;
   saved: boolean;
+  /** The reading-queue record Save for later made (#163). */
+  attachmentId?: string;
+  /** The clipping File in the garden made (#163). */
   noteId?: string;
+  readerState?: 'requested' | 'working' | 'done' | 'failed';
   readerContent?: string;
+  readerError?: string;
 }
 
 /** Which articles a listener follows. */
@@ -71,11 +79,22 @@ export interface ItemsApi {
   setMany(db: Firestore, writes: { path: string; data: Record<string, unknown> }[]): Promise<void>;
   serverTime(): unknown;
   clear(): unknown;
+  /** The fetchArticle callable (#163): the page's article kept on the item. */
+  fetchArticle(itemId: string): Promise<{ state: string }>;
 }
 
 export const ITEMS_API = new InjectionToken<ItemsApi>('items-api', {
   providedIn: 'root',
-  factory: () => ({
+  factory: () => {
+    const { functions } = inject(FIREBASE);
+    return itemsApi(functions);
+  },
+});
+
+function itemsApi(functions: Functions): ItemsApi {
+  return {
+    fetchArticle: async (itemId) =>
+      (await httpsCallable<unknown, { state: string }>(functions, 'fetchArticle')({ itemId })).data,
     listen: (db, path, shelf, next, error) => {
       const items = collection(db, path);
       const q =
@@ -114,8 +133,8 @@ export const ITEMS_API = new InjectionToken<ItemsApi>('items-api', {
     },
     serverTime: () => serverTimestamp(),
     clear: () => deleteField(),
-  }),
-});
+  };
+}
 
 function toItem(id: string, d: Record<string, unknown>): ItemRecord {
   const at = (d['published'] as { toMillis?: () => number } | undefined)?.toMillis?.();
@@ -130,8 +149,13 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
     content: String(d['content'] ?? ''),
     read: d['read'] === true,
     saved: d['saved'] === true,
+    ...(typeof d['attachmentId'] === 'string' ? { attachmentId: d['attachmentId'] } : {}),
     ...(typeof d['noteId'] === 'string' ? { noteId: d['noteId'] } : {}),
+    ...(['requested', 'working', 'done', 'failed'].includes(String(d['readerState']))
+      ? { readerState: d['readerState'] as ItemRecord['readerState'] }
+      : {}),
     ...(typeof d['readerContent'] === 'string' ? { readerContent: d['readerContent'] } : {}),
+    ...(typeof d['readerError'] === 'string' ? { readerError: d['readerError'] } : {}),
   };
 }
 
@@ -152,13 +176,17 @@ export class ItemsService {
   private readonly feeds = inject(ReaderService);
   private readonly now = inject(NOW);
   private readonly modules = inject(ModulesService);
+  private readonly notes = inject(NotesService);
+  private readonly reading = inject(ReadingService);
 
   private readonly unreadDocs = signal<ItemRecord[]>([]);
   private readonly readDocs = signal<ItemRecord[]>([]);
   private readonly savedDocs = signal<ItemRecord[]>([]);
   private readonly read = signal(false);
   /** Marks made here before the listeners echo them, by id. */
-  private readonly local = signal<Record<string, Partial<Pick<ItemRecord, 'read' | 'saved'>>>>({});
+  private readonly local = signal<
+    Record<string, Partial<Pick<ItemRecord, 'read' | 'saved' | 'attachmentId' | 'noteId'>>>
+  >({});
 
   /** Whether the unread shelf has been read once, so empty means caught up. */
   readonly loaded = computed(() => this.read());
@@ -272,14 +300,75 @@ export class ItemsService {
       .catch((err) => console.error('read mark not saved', err));
   }
 
-  /** Saves one for later, or unsaves it. */
+  /**
+   * Saves one for later, or unsaves it. Saving also puts its link in the
+   * reading queue (#163), once, so the server fetches the page's text
+   * and search_attachments finds it; unsaving leaves that record.
+   */
   setSaved(id: string, saved: boolean): void {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
-    this.local.update((l) => ({ ...l, [id]: { ...l[id], saved } }));
+    const item = this.find(id);
+    const attachmentId =
+      saved && item && !item.attachmentId && item.link ? this.reading.save(item.link) : undefined;
+    this.local.update((l) => ({
+      ...l,
+      [id]: { ...l[id], saved, ...(attachmentId ? { attachmentId } : {}) },
+    }));
     void this.api
-      .set(this.fb.db, paths.feedItem(uid, id), { saved, updatedAt: this.api.serverTime() })
+      .set(this.fb.db, paths.feedItem(uid, id), {
+        saved,
+        ...(attachmentId ? { attachmentId } : {}),
+        updatedAt: this.api.serverTime(),
+      })
       .catch((err) => console.error('save mark not saved', err));
+  }
+
+  /**
+   * Files an article in the garden (#163): a note of kind clipping, made
+   * at once and offline, tied to the item. Filed already: that note.
+   */
+  fileInGarden(id: string): string | undefined {
+    const uid = this.auth.user()?.uid;
+    const item = this.find(id);
+    if (!uid || !item) return undefined;
+    if (item.noteId) return item.noteId;
+    const feed = this.feeds.feeds().find((f) => f.id === item.feedId);
+    const body = clippingBody({
+      title: item.title,
+      link: item.link,
+      feedTitle: feed?.title ?? '',
+      ...(item.author ? { author: item.author } : {}),
+      published: item.published,
+      content: item.readerContent || item.content,
+    });
+    const noteId = this.notes.clip(body, item.title, {
+      ...(item.link ? { url: item.link } : {}),
+      feedItemId: id,
+    });
+    this.local.update((l) => ({ ...l, [id]: { ...l[id], noteId } }));
+    void this.api
+      .set(this.fb.db, paths.feedItem(uid, id), { noteId, updatedAt: this.api.serverTime() })
+      .catch((err) => console.error('clipping not tied', err));
+    return noteId;
+  }
+
+  /**
+   * Reader mode (#163): asks the server for the page's article, kept on
+   * the item; the listener shows it when it lands. Needs the network;
+   * the message says why not, otherwise undefined.
+   */
+  async readerMode(id: string): Promise<string | undefined> {
+    if (!this.auth.user()?.uid) return 'Sign in first.';
+    try {
+      await this.api.fetchArticle(id);
+      return undefined;
+    } catch (err) {
+      const message = (err as { message?: string }).message ?? '';
+      return /Could not fetch|used up|Already fetching/.test(message)
+        ? message
+        : 'Could not fetch the page. Are you online?';
+    }
   }
 
   /** Marks every unread article at hand on a shelf read; returns how many. */

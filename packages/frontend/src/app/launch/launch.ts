@@ -34,6 +34,7 @@ import { NoteBack } from '../back/note-back';
 import { GroceryService } from '../kitchen/grocery.service';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
+import { ClippingHeader } from '../reader/clipping-header';
 import { CaptureService } from '../capture/capture.service';
 import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
@@ -75,6 +76,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
     NoteEditorComponent,
     NoteBack,
     RecipeHeader,
+    ClippingHeader,
     MealPlanHeader,
     NoteList,
     RightNowPanel,

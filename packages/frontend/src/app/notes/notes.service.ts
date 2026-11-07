@@ -83,7 +83,7 @@ export interface NoteRecord {
   /** A template's Instructions for Claude, once moved out of its body (#111). */
   instructions?: string;
   /** A recipe's source and servings (#127). */
-  source?: { url?: string; attachmentId?: string; text?: string };
+  source?: { url?: string; attachmentId?: string; text?: string; feedItemId?: string };
   servings?: number;
   /** An import from `source.url` the app asked for (#128), and why it failed. */
   importState?: 'requested' | 'working' | 'done' | 'failed';
@@ -408,6 +408,36 @@ export class NotesService {
     };
     this.written.add(id);
     this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
+  }
+
+  /**
+   * An article filed from the Reader (#163): a note of kind clipping,
+   * titled as the article is (`titleSource: 'user'`, so no settle
+   * retitles it), its source the page and the item. Written at once,
+   * through the cache, so it works offline; returns its id.
+   */
+  clip(body: string, title: string, source: { url?: string; feedItemId: string }): string {
+    if (!this.uid) throw new Error('clip before sign-in');
+    const id = this.newId();
+    const now = this.api.serverTime();
+    const data = {
+      kind: 'clipping',
+      body,
+      title: title.trim() || 'Clipping',
+      titleSource: 'user',
+      // A clipping's words are a page's, escaped by the fetcher: no links.
+      links: [],
+      tags: [],
+      archived: false,
+      source,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.written.add(id);
+    this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
+    return id;
   }
 
   /**

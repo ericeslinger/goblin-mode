@@ -115,6 +115,8 @@
           <app-template-header [note]="note" />
         } @else if (note.kind === 'recipe' && modules.kitchen()) {
           <app-recipe-header [note]="note" />
+        } @else if (note.kind === 'clipping') {
+          <app-clipping-header [note]="note" />
         } @else if (note.kind === 'mealplan' && modules.kitchen()) {
           <app-meal-plan-header
             [note]="note"

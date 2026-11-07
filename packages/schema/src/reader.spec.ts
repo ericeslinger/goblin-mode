@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   UNCATEGORIZED,
+  clippingBody,
+  escapeMarkdown,
   feedId,
   feedItemId,
   fnv64,
@@ -102,5 +104,35 @@ describe('folderList', () => {
       'Design',
       UNCATEGORIZED,
     ]);
+  });
+});
+
+describe('clippings (#163)', () => {
+  it('escapes a page’s words so nothing reads as syntax', () => {
+    expect(escapeMarkdown('price_list *now* [sic] #tag C#5')).toBe(
+      'price\\_list \\*now\\* \\[sic\\] \\#tag C#5',
+    );
+    expect(escapeMarkdown('[[Secret note]] - [ ] buy @goblin')).toBe(
+      '\\[\\[Secret note\\]\\] - \\[ \\] buy @goblin',
+    );
+  });
+
+  it('writes the source line, then the article as stored', () => {
+    expect(
+      clippingBody({
+        title: 'Three chairs',
+        link: 'https://design.invalid/three-chairs',
+        feedTitle: 'Design *notes*',
+        author: 'Ann_B',
+        published: Date.parse('2026-11-06T09:00:00Z'),
+        content: 'A look at *three chairs*.\n',
+      }),
+    ).toBe(
+      '_From [Design \\*notes\\*](https://design.invalid/three-chairs), by Ann\\_B, 2026-11-06._\n\n' +
+        'A look at *three chairs*.',
+    );
+    expect(
+      clippingBody({ title: 't', link: '', feedTitle: 'Feed', published: 0, content: 'x' }),
+    ).toBe('_From Feed, 1970-01-01._\n\nx');
   });
 });

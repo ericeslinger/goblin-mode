@@ -55,6 +55,8 @@ export const NoteKind = z.enum([
   'recipe',
   'mealplan',
   'pantry',
+  /** An article filed from the Reader (#163, 2026-11-07): web text, labelled so for assistants. */
+  'clipping',
 ]);
 export type NoteKind = z.infer<typeof NoteKind>;
 
@@ -163,14 +165,17 @@ export const Note = z.object({
    */
   instructions: z.string().optional(),
   /**
-   * Only on recipes (#127, 2026-10-18): where it came from (a page, an
-   * attached photo or PDF, the original text) and how many it serves.
+   * Only on recipes (#127, 2026-10-18) and clippings (#163): where it
+   * came from (a page, an attached photo or PDF, the original text, the
+   * Reader article it was filed from) and, for a recipe, how many it
+   * serves.
    */
   source: z
     .object({
       url: z.string().optional(),
       attachmentId: z.string().optional(),
       text: z.string().optional(),
+      feedItemId: z.string().optional(),
     })
     .optional(),
   servings: z.number().optional(),
@@ -515,7 +520,9 @@ export type ReaderState = z.infer<typeof ReaderState>;
  * One article from a feed (#159), under `feedItems`, written by the
  * fetcher; its id is derived from the feed and the item's guid or link,
  * so a refresh never duplicates. The app may change only `read`,
- * `readAt`, `saved` and `updatedAt` (firestore.rules). Content is kept
+ * `readAt`, `saved`, `attachmentId`, `noteId` and `updatedAt`
+ * (firestore.rules), the last two when it saves or files one (#163).
+ * Content is kept
  * on the document, as the app's markdown, so an article once loaded
  * reads offline.
  */

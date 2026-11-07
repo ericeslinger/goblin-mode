@@ -77,6 +77,9 @@ export function shelfFromParam(value: string | null): Shelf2 {
                 @if (item.saved) {
                   <span class="saved" role="img" aria-label="saved">★</span>
                 }
+                @if (item.noteId) {
+                  <span class="filed" role="img" aria-label="in the garden">🌱</span>
+                }
               </span>
               @if (item.summary) {
                 <span class="summary">{{ item.summary }}</span>

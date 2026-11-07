@@ -4,10 +4,13 @@ import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
+import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
+import { ReadingService } from '../reading/reading.service';
 import {
   FakeItemsApi,
   FakeModules,
+  FakeNotes,
   FakeReaderApi,
   FakeSettingsApi,
   fakeFirebase,
@@ -45,11 +48,15 @@ function setup() {
   const feeds = new FakeReaderApi();
   const modules = new FakeModules();
   modules.set('reader', true);
+  const notes = new FakeNotes();
+  const reading = { save: vi.fn((_url: string) => 'att1') };
   const user = signal<User | null | undefined>({ uid: 'u1' } as User);
   TestBed.configureTestingModule({
     providers: [
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: ITEMS_API, useValue: api },
+      { provide: NotesService, useValue: notes },
+      { provide: ReadingService, useValue: reading },
       { provide: READER_API, useValue: feeds },
       { provide: SETTINGS_API, useValue: new FakeSettingsApi() },
       { provide: ModulesService, useValue: modules },
@@ -64,7 +71,7 @@ function setup() {
     { id: 'f2', data: { url: 'https://b.test/f', title: 'Dice', folders: ['Games', 'Design'] } },
     { id: 'f3', data: { url: 'https://c.test/f', title: 'Loose', folders: [] } },
   ]);
-  return { items, api, feeds, user, modules };
+  return { items, api, feeds, user, modules, notes, reading };
 }
 
 describe('ItemsService (#162)', () => {
@@ -127,10 +134,52 @@ describe('ItemsService (#162)', () => {
     });
     items.setSaved('b', true);
     expect(items.find('b')?.saved).toBe(true);
-    expect(api.set.mock.lastCall![2]).toEqual({ saved: true, updatedAt: 'SERVER_TIME' });
+    expect(api.set.mock.lastCall![2]).toEqual({
+      saved: true,
+      attachmentId: 'att1',
+      updatedAt: 'SERVER_TIME',
+    });
     // The listener's echo carries the mark; the local copy goes.
     api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2, { saved: true })]);
     expect(items.find('b')?.saved).toBe(true);
+  });
+
+  it('saving puts the link in the reading queue once; unsaving leaves it', () => {
+    const { items, api, reading } = setup();
+    api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2, { attachmentId: 'old' })]);
+    items.setSaved('a', true);
+    expect(reading.save).toHaveBeenCalledWith('https://x.test/a');
+    expect(items.find('a')?.attachmentId).toBe('att1');
+    items.setSaved('a', false);
+    expect(api.set.mock.lastCall![2]).toEqual({ saved: false, updatedAt: 'SERVER_TIME' });
+    items.setSaved('b', true);
+    expect(reading.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('files an article in the garden as a clipping, once, and asks for reader mode', async () => {
+    const { items, api, notes } = setup();
+    api.push('unread', [item('a', 'f1', 1, { author: 'Ann', content: 'Words *here*' })]);
+    const noteId = items.fileInGarden('a');
+    expect(noteId).toBe('clip1');
+    expect(notes.clip).toHaveBeenCalledWith(
+      '_From [Design blog](https://x.test/a), by Ann, 2026-11-07._\n\nWords *here*',
+      'Article a',
+      { url: 'https://x.test/a', feedItemId: 'a' },
+    );
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/feedItems/a',
+      { noteId: 'clip1', updatedAt: 'SERVER_TIME' },
+    ]);
+    expect(items.fileInGarden('a')).toBe('clip1');
+    expect(notes.clip).toHaveBeenCalledTimes(1);
+    expect(await items.readerMode('a')).toBeUndefined();
+    expect(api.fetchArticle).toHaveBeenCalledWith('a');
+    api.fetchArticle.mockRejectedValueOnce(
+      new Error('Could not fetch the page: the page is not HTML'),
+    );
+    expect(await items.readerMode('a')).toBe('Could not fetch the page: the page is not HTML');
+    api.fetchArticle.mockRejectedValueOnce(new Error('internal'));
+    expect(await items.readerMode('a')).toBe('Could not fetch the page. Are you online?');
   });
 
   it('marks all read on a shelf in one batch, what is at hand', () => {

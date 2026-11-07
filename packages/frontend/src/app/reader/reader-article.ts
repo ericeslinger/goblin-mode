@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, effect, inject } from '@angular/core';
+import { Component, HostListener, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -56,7 +56,32 @@ export function articleHtml(markdown: string, images: boolean): string {
               <button type="button" (click)="items.setSaved(it.id, !it.saved)">
                 {{ it.saved ? 'Unsave' : 'Save for later' }}
               </button>
+              @if (it.readerState === 'done') {
+                <span class="muted">Reader mode</span>
+              } @else {
+                <button
+                  type="button"
+                  [disabled]="it.readerState === 'working' || fetching()"
+                  (click)="readerMode(it.id)"
+                >
+                  {{
+                    it.readerState === 'working' || fetching()
+                      ? 'Fetching the page…'
+                      : 'Reader mode'
+                  }}
+                </button>
+              }
+              @if (it.noteId) {
+                <a [routerLink]="['/n', it.noteId]">In the garden</a>
+              } @else {
+                <button type="button" (click)="file(it.id)">File in the garden</button>
+              }
             </p>
+            @if (said()) {
+              <p class="status" role="status">{{ said() }}</p>
+            } @else if (it.readerState === 'failed' && it.readerError) {
+              <p class="status" role="status">Could not fetch the page: {{ it.readerError }}</p>
+            }
           </header>
           <div class="body" [innerHTML]="html()" (click)="openLink($event)"></div>
         </article>
@@ -77,7 +102,8 @@ export function articleHtml(markdown: string, images: boolean): string {
       overflow-wrap: anywhere;
     }
     .meta,
-    .muted {
+    .muted,
+    .status {
       color: var(--quiet);
       font-size: 14px;
     }
@@ -138,6 +164,8 @@ export class ReaderArticle {
   );
 
   protected readonly item = computed(() => this.items.find(this.id()));
+  protected readonly fetching = signal(false);
+  protected readonly said = signal('');
   protected readonly backLink = computed(() => {
     const shelf = this.shelf();
     return shelf.kind === 'feed' ? ['/reader/s', shelf.id] : ['/reader/f', shelf.name];
@@ -167,6 +195,24 @@ export class ReaderArticle {
       marked = it.id;
       this.items.setRead(it.id, true);
     });
+  }
+
+  /** Reader mode (#163): the page's article, fetched by the server, kept on the item. */
+  protected async readerMode(id: string): Promise<void> {
+    this.fetching.set(true);
+    this.said.set('');
+    try {
+      const why = await this.items.readerMode(id);
+      if (why) this.said.set(why);
+    } finally {
+      this.fetching.set(false);
+    }
+  }
+
+  /** File in the garden (#163): a clipping, made at once; its link shows in place. */
+  protected file(id: string): void {
+    const noteId = this.items.fileInGarden(id);
+    this.said.set(noteId ? 'Filed in the garden.' : 'Could not file it; try again online.');
   }
 
   protected neighbour(step: 1 | -1): ItemRecord | undefined {
@@ -204,9 +250,16 @@ export class ReaderArticle {
     // article (review on #167).
     const fragment = a.getAttribute('href') ?? '';
     if (fragment.startsWith('#')) {
-      const id = decodeURIComponent(fragment.slice(1));
+      let id = fragment.slice(1);
+      try {
+        id = decodeURIComponent(id);
+      } catch {
+        // A malformed escape: the name as written, then (review on #167).
+      }
+      const body = a.closest('.body');
       const target =
-        document.getElementById(id) ?? document.querySelector(`.body [name="${CSS.escape(id)}"]`);
+        body?.querySelector(`#${CSS.escape(id)}`) ??
+        body?.querySelector(`[name="${CSS.escape(id)}"]`);
       target?.scrollIntoView({ block: 'start' });
       return;
     }

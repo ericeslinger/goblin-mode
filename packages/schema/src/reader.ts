@@ -155,3 +155,41 @@ export function folderList<F extends FolderFeed>(
     feeds: [...byName.get(name)!].sort((a, b) => compare(a.title, b.title)),
   }));
 }
+
+/**
+ * Markdown's own characters in words from a page, so they stay words:
+ * a page's `[[name]]`, `- [ ] do this @goblin` or `#tag` must never
+ * read as a wiki link, an item for the assistant or a tag once filed
+ * in the garden (CLAUDE.md, page text). A `#` is escaped only where it
+ * would start a tag or heading. Used by the fetcher on content and by
+ * File in the garden on titles (#163).
+ */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/[\\*_`[\]]/g, (c) => `\\${c}`).replace(/(^|\s)#(?=[\p{L}\d#])/gu, '$1\\#');
+}
+
+/** What a clipping needs from the article and its feed (#163). */
+export interface ClippingSource {
+  title: string;
+  link: string;
+  feedTitle: string;
+  author?: string;
+  /** Milliseconds. */
+  published: number;
+  /** The article's markdown, as stored (already escaped by the fetcher). */
+  content: string;
+}
+
+/**
+ * The body of a clipping: one line saying where it is from, then the
+ * article as the fetcher stored it. The feed's name and the author are
+ * a page's words, so they are escaped; the content already is.
+ */
+export function clippingBody(from: ClippingSource): string {
+  const who = from.author ? `, by ${escapeMarkdown(from.author)}` : '';
+  const when = new Date(from.published).toISOString().slice(0, 10);
+  const source = from.link
+    ? `[${escapeMarkdown(from.feedTitle) || 'the web'}](${from.link})`
+    : escapeMarkdown(from.feedTitle);
+  return `_From ${source}${who}, ${when}._\n\n${from.content.trim()}`;
+}

@@ -99,6 +99,11 @@ export class FakeNotes {
   );
   setInstructions = vi.fn((_id: string, _text: string) => undefined);
   sendToAssistant = vi.fn((_id: string, _ask: string) => undefined);
+  clip = vi.fn((_body: string, _title: string, _source: { url?: string; feedItemId: string }) => {
+    const id = `clip${++this.n}`;
+    this.written.add(id);
+    return id;
+  });
   unsend = vi.fn((_id: string) => undefined);
   makeContext = vi.fn(async () => undefined);
   newId = () => `new${++this.n}`;
@@ -312,6 +317,7 @@ export class FakeItemsApi implements ItemsApi {
   );
   serverTime = () => 'SERVER_TIME';
   clear = () => 'CLEAR';
+  fetchArticle = vi.fn(async (_itemId: string) => ({ state: 'done' }));
 
   push(shelf: Shelf, docs: { id: string; data: Record<string, unknown> }[]): void {
     this.nexts.get(shelf)?.(docs);
@@ -339,6 +345,8 @@ export class FakeItems {
   setRead = vi.fn();
   setSaved = vi.fn();
   markAllRead = vi.fn(() => 0);
+  fileInGarden = vi.fn(() => 'clip1');
+  readerMode = vi.fn(async () => undefined);
   age = () => 'just now';
 }
 
