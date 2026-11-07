@@ -62,6 +62,10 @@ export const routes: Routes = [
     loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),
   },
   {
+    path: 'reader',
+    loadComponent: () => import('./reader/reader').then((m) => m.Reader),
+  },
+  {
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),
   },

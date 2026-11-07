@@ -71,6 +71,19 @@ const valid: Record<string, () => object> = {
     updatedAt: now(),
     createdBy: 'user',
   }),
+  'users/owner/feeds/f-1': () => ({
+    url: 'https://kottke.org/main/index.xml',
+    title: 'Kottke',
+    folders: ['Design'],
+    addedAt: now(),
+    updatedAt: now(),
+    nextFetchAt: now(),
+  }),
+  'users/owner/settings/reader': () => ({
+    folderOrder: ['Design'],
+    images: true,
+    updatedAt: now(),
+  }),
 };
 
 describe('client-written collections: notes, reminders, devices, settings, attachments', () => {
@@ -298,6 +311,58 @@ describe('client-written collections: notes, reminders, devices, settings, attac
         .doc('users/owner/notes/n1')
         .set({ ...note(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }),
     );
+  });
+});
+
+describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’s', () => {
+  const feed = valid['users/owner/feeds/f-1'];
+  const item = () => ({
+    feedId: 'f-1',
+    title: 'A post',
+    link: 'https://kottke.org/a-post',
+    published: now(),
+    summary: 'First lines',
+    content: 'First lines and the rest',
+    read: false,
+    saved: false,
+    createdAt: now(),
+    updatedAt: now(),
+  });
+
+  it('checks a feed’s shape, and lets the fetcher’s fields through', async () => {
+    const ref = owner().doc('users/owner/feeds/f-1');
+    await assertFails(ref.set({ ...feed(), folders: 'Design' }));
+    await assertFails(ref.set({ ...feed(), url: 7 }));
+    await assertSucceeds(
+      ref.set({ ...feed(), etag: 'W/"1"', fetchedAt: now(), interval: 60, errorCount: 0 }),
+    );
+    await assertSucceeds(ref.set({ folders: ['Games'], updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ ...feed(), guessed: true }));
+  });
+
+  it('lets the owner mark an article read or saved, and nothing else', async () => {
+    const path = 'users/owner/feedItems/f-1-abc';
+    const ref = owner().doc(path);
+    await assertFails(ref.set(item()));
+    await seed(path, item());
+    await assertSucceeds(ref.get());
+    await assertSucceeds(ref.set({ read: true, readAt: now(), updatedAt: now() }, { merge: true }));
+    await assertSucceeds(ref.set({ saved: true, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ read: 'yes', updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ read: true }, { merge: true }));
+    await assertFails(ref.set({ title: 'Mine now', updatedAt: now() }, { merge: true }));
+    await assertFails(
+      ref.set({ content: 'rewritten', read: true, updatedAt: now() }, { merge: true }),
+    );
+    await assertFails(ref.delete());
+    await assertFails(intruder().doc(path).get());
+    await assertFails(intruder().doc(path).set({ read: true, updatedAt: now() }, { merge: true }));
+  });
+
+  it('keeps the Reader’s settings to their shape', async () => {
+    const ref = owner().doc('users/owner/settings/reader');
+    await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));
+    await assertFails(ref.set(valid['users/owner/settings/app']()));
   });
 });
 

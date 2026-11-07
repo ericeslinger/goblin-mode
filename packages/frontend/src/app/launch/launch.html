@@ -60,6 +60,9 @@
             </p>
             <ul>
               <li class="browse-link"><a routerLink="/browse">Browse</a></li>
+              @if (modules.reader()) {
+                <li><a routerLink="/reader">Reader</a></li>
+              }
               <li>
                 <!-- The label names the mode a tap switches to. -->
                 <button type="button" (click)="modes.toggle(); backToNote()">

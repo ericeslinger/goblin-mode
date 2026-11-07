@@ -16,6 +16,12 @@ export const MODULES = [
     about: 'Recipes, a weekly meal plan, the grocery list and what is on hand (#125).',
     defaultOn: false,
   },
+  {
+    id: 'reader',
+    label: 'Reader',
+    about: 'Feeds you follow, in folders, read in the app and filed in the garden (#159).',
+    defaultOn: false,
+  },
 ] as const;
 export type ModuleId = (typeof MODULES)[number]['id'];
 
