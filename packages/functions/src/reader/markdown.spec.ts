@@ -74,6 +74,17 @@ describe('htmlToMarkdown (#161)', () => {
     );
   });
 
+  it('keeps an image inside a link as a linked image, with no marker left behind', () => {
+    const md = htmlToMarkdown(
+      '<p><a href="/photo"><img src="https://blog.example/i.png" alt="A pot"></a> and <a href="/x"><b>bold link</b></a></p>',
+      BASE,
+    );
+    expect(md).toBe(
+      '[![A pot](https://blog.example/i.png)](https://blog.example/photo) and [*bold link*](https://blog.example/x)',
+    );
+    expect(md).not.toMatch(/\u0000/);
+  });
+
   it('cuts long content on a line, and summarises as plain words', () => {
     const long = htmlToMarkdown(`<p>${'word '.repeat(6000)}</p><p>tail</p>`, BASE);
     expect(long.length).toBeLessThanOrEqual(CONTENT_MAX + 3);

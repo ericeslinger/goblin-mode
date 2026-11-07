@@ -221,4 +221,12 @@ describe('Settings', () => {
     await TestBed.inject(ApplicationRef).whenStable();
     expect(button(el, 'Add a feelings journal')).toBeUndefined();
   });
+
+  it('checks for updates: without a managed worker it says to reload (2026-11-07)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const el = await render(auth);
+    button(el, 'Check for updates')!.click();
+    await vi.waitFor(() => expect(el.textContent).toContain('Updates are not managed here'));
+  });
 });

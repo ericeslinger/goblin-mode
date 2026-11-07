@@ -27,6 +27,7 @@ const RSS = `<?xml version="1.0"?>
   </item>
   <item><description>nothing to name it</description></item>
   <item><title>Scripted</title><link>javascript:alert(1)</link><guid>js</guid></item>
+  <item><title>Maybe Americans don&amp;#8217;t like &lt;b&gt;cruelty&lt;/b&gt;</title><link>https://kottke.org/26/11/cruelty</link><guid>ent</guid><dc:creator><![CDATA[Christian &amp; Paz]]></dc:creator></item>
 </channel>
 </rss>`;
 
@@ -88,8 +89,13 @@ describe('parseFeed (#161)', () => {
     const feed = parseFeed(RSS, 'https://kottke.org/main/index.xml')!;
     expect(feed.title).toBe('Kottke & co');
     expect(feed.site).toBe('https://kottke.org/');
-    expect(feed.items).toHaveLength(3);
+    expect(feed.items).toHaveLength(4);
     expect(feed.items[2]).toMatchObject({ guid: 'js', title: 'Scripted', link: '' });
+    // Titles and names as plain words: entities read once more, tags out.
+    expect(feed.items[3]).toMatchObject({
+      title: 'Maybe Americans don’t like cruelty',
+      author: 'Christian & Paz',
+    });
     expect(feed.items[0]).toEqual({
       guid: 'tag:kottke,2026:a-post',
       title: 'A post',

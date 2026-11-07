@@ -187,18 +187,32 @@ export class ReaderArticle {
     // would strip the image attributes, so it is trusted as it is.
     return this.sanitizer.bypassSecurityTrustHtml(articleHtml(markdown, this.reader.images()));
   });
-  /** The articles around this one on its shelf: the unread ones, and this. */
+  /** The articles opened in this sitting: read now, but still on the way back. */
+  private readonly visited = signal<ReadonlySet<string>>(new Set());
+  /**
+   * The articles around this one on its shelf: the unread ones, this,
+   * and the ones read on the way here, so a swipe back finds the
+   * previous story (Eric, 2026-11-07).
+   */
   private readonly sequence = computed(() => {
     const id = this.id();
-    return this.items.inShelf(this.shelf(), true).filter((i) => !i.read || i.id === id);
+    const visited = this.visited();
+    return this.items
+      .inShelf(this.shelf(), true)
+      .filter((i) => !i.read || i.id === id || visited.has(i.id));
   });
 
   constructor() {
-    // Opening an article reads it, once it is here.
+    // Opening an article reads it, once it is here, and keeps it in the
+    // sequence for the way back.
     let marked = '';
     effect(() => {
       const it = this.item();
-      if (!it || it.read || marked === it.id) return;
+      if (!it) return;
+      if (!this.visited().has(it.id)) {
+        this.visited.update((v) => new Set([...v, it.id]));
+      }
+      if (it.read || marked === it.id) return;
       marked = it.id;
       this.items.setRead(it.id, true);
     });

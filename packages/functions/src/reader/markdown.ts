@@ -127,9 +127,15 @@ export function htmlToMarkdown(html: string, base: string, max = CONTENT_MAX): s
     .map((l) => l.replace(/[ \t\r\f\v]+/g, ' ').trim())
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()
-    .replace(/\u0000(\d+)\u0000/g, (_, i: string) => blocks[Number(i)] ?? '');
-  return text.length <= max ? text : cut(text, max);
+    .trim();
+  // Kept blocks can hold kept blocks (an image inside a link): restore
+  // until none remain, bounded, so no marker ever reaches a note.
+  let out = text;
+  for (let pass = 0; pass < 5 && /\u0000\d+\u0000/.test(out); pass++) {
+    out = out.replace(/\u0000(\d+)\u0000/g, (_, i: string) => blocks[Number(i)] ?? '');
+  }
+  out = out.replace(/\u0000\d*\u0000?/g, '');
+  return out.length <= max ? out : cut(out, max);
 }
 
 /** Cut on a line, then a word, so a link is never left half written. */

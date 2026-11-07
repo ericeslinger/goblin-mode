@@ -165,6 +165,21 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await page.keyboard.press('j');
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
+  // Swipe right goes back to the story just read, swipe left forward again.
+  const pageSwipe = async (dx: number) => {
+    const box = (await page.locator('main').boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + 60;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx / 2, y, { steps: 4 });
+    await page.mouse.move(x + dx, y, { steps: 4 });
+    await page.mouse.up();
+  };
+  await pageSwipe(140);
+  await expect(page.getByRole('heading', { name: 'Three chairs', level: 1 })).toBeVisible();
+  await pageSwipe(-140);
+  await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'Save for later' }).click();
   await expect(page.getByRole('button', { name: 'Unsave' })).toBeVisible();
   await page.getByRole('link', { name: 'Back' }).click();

@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { SwUpdate } from '@angular/service-worker';
 import {
   MEALS,
   MODULES,
@@ -26,6 +27,7 @@ import { type PushState, PushService } from '../push/push.service';
 import { RemindersService } from '../reminders/reminders.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
+import { reloadPage } from '../unknown-route';
 
 /** The weekly reminder to plan the meals (#129). */
 export const PLAN_REMINDER = 'Plan next week’s meals';
@@ -273,7 +275,15 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
         }
       }
       <h2>Version</h2>
-      <p>{{ build.sha }} &middot; {{ build.time }}</p>
+      <p class="version">
+        <span>{{ build.sha }} &middot; {{ build.time }}</span>
+        <button type="button" [disabled]="checking()" (click)="checkForUpdate()">
+          {{ checking() ? 'Checking…' : 'Check for updates' }}
+        </button>
+      </p>
+      @if (updateStatus()) {
+        <p role="status">{{ updateStatus() }}</p>
+      }
     </main>
   `,
   styles: `
@@ -306,6 +316,12 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
     .prompt {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+    }
+    .version {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
     }
     .kitchen {
       display: grid;
@@ -369,6 +385,38 @@ export class Settings {
     error: 'Could not change notifications.',
   };
   protected readonly build = buildInfo;
+  private readonly updates = inject(SwUpdate, { optional: true });
+  protected readonly checking = signal(false);
+  protected readonly updateStatus = signal('');
+
+  /**
+   * Check for updates (Eric, 2026-11-07): the installed app serves the
+   * version it cached until the worker has looked for a newer one, so
+   * this asks it to look now and reloads into what it finds, instead of
+   * refreshing and hoping.
+   */
+  protected async checkForUpdate(): Promise<void> {
+    if (!this.updates?.isEnabled) {
+      this.updateStatus.set('Updates are not managed here (a dev server): reload the page.');
+      return;
+    }
+    this.checking.set(true);
+    this.updateStatus.set('Looking for a newer version…');
+    try {
+      if (await this.updates.checkForUpdate()) {
+        this.updateStatus.set('A newer version is ready; reloading into it.');
+        await this.updates.activateUpdate();
+        reloadPage.run();
+        return;
+      }
+      this.updateStatus.set(`You have the latest version (${this.build.sha}).`);
+    } catch (err) {
+      console.error('update check', err);
+      this.updateStatus.set('Could not check for updates. Are you online?');
+    } finally {
+      this.checking.set(false);
+    }
+  }
 
   protected readonly templates = inject(TemplatesService);
   protected readonly modules = inject(ModulesService);
