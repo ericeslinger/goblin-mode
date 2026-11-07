@@ -143,6 +143,13 @@ describe('ItemsService (#162)', () => {
     ]);
     expect(items.unreadCounts()[ALL]).toBe(1);
     expect(items.markAllRead({ kind: 'folder', name: 'Design' })).toBe(0);
+    // Saved shows read ones too; they are not marked again (review on #167).
+    api.push('saved', [
+      item('s1', 'f1', 10, { saved: true, read: true }),
+      item('s2', 'f1', 11, { saved: true }),
+    ]);
+    expect(items.markAllRead({ kind: 'folder', name: SAVED })).toBe(1);
+    expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual(['users/u1/feedItems/s2']);
   });
 
   it('says how old an article is, in words', () => {

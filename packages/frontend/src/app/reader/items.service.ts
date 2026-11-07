@@ -286,7 +286,10 @@ export class ItemsService {
   markAllRead(shelf: Shelf2): number {
     const uid = this.auth.user()?.uid;
     if (!uid) return 0;
-    const ids = this.inShelf(shelf, false).map((i) => i.id);
+    // Only the unread: Saved shows read ones too (review on #167).
+    const ids = this.inShelf(shelf, false)
+      .filter((i) => !i.read)
+      .map((i) => i.id);
     if (!ids.length) return 0;
     this.local.update((l) => {
       const next = { ...l };

@@ -198,6 +198,8 @@ export class ReaderArticle {
   protected openLink(event: MouseEvent): void {
     const a = (event.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
+    // A footnote's link to a place in the article stays in it (review on #167).
+    if (a.getAttribute('href')?.startsWith('#')) return;
     event.preventDefault();
     window.open(a.href, '_blank', 'noopener');
   }
