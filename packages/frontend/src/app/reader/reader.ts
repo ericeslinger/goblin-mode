@@ -1,13 +1,14 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ModulesService } from '../modules/modules.service';
-import { ALL, ItemsService, PODCASTS, SAVED } from './items.service';
+import { ALL, type ItemRecord, ItemsService, PODCASTS, SAVED } from './items.service';
 import { ReaderService } from './reader.service';
 
 /**
  * The Reader's front (#162): the folders with what is unread in each,
  * All and Saved, Podcasts once a feed is one (#178), Refresh, and the
- * way to Manage feeds.
+ * way to Manage feeds; above the folders, Continue listening, the
+ * episodes left part-way on any device, newest first (#179).
  */
 @Component({
   selector: 'app-reader',
@@ -39,6 +40,21 @@ import { ReaderService } from './reader.service';
           No feeds yet. <a routerLink="/reader/feeds">Import a file from your reader</a>, or follow
           one there.
         </p>
+      }
+      @if (items.listening().length) {
+        <section aria-labelledby="listening">
+          <h2 id="listening">Continue listening</h2>
+          <ul class="listening" aria-label="Continue listening">
+            @for (ep of items.listening(); track ep.id) {
+              <li>
+                <a [routerLink]="['/reader/a', ep.id]" [queryParams]="{ in: shelf }">
+                  <span class="title">{{ ep.title }}</span>
+                  <span class="count">{{ left(ep) }}</span>
+                </a>
+              </li>
+            }
+          </ul>
+        </section>
       }
       <nav aria-label="Folders">
         <ul>
@@ -80,8 +96,24 @@ import { ReaderService } from './reader.service';
       margin: 0;
       padding: 0;
     }
-    nav li {
+    nav li,
+    .listening li {
       border-bottom: 1px solid var(--rule);
+    }
+    h2 {
+      margin: var(--space-3) 0 0;
+      font-size: 16px;
+    }
+    .listening a {
+      display: grid;
+      gap: 2px;
+      padding: 10px 4px;
+      color: var(--ink);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .listening .title {
+      overflow-wrap: anywhere;
     }
     nav a {
       display: flex;
@@ -118,12 +150,21 @@ export class Reader {
   protected readonly all = ALL;
   protected readonly saved = SAVED;
   protected readonly podcasts = PODCASTS;
+  /** Continue listening opens an episode among the podcasts (#179). */
+  protected readonly shelf = `f:${PODCASTS}`;
   /** Whether any feed followed is a podcast, for the Podcasts shelf (#178). */
   protected readonly hasPodcasts = computed(() =>
     this.reader.feeds().some((f) => f.kind === 'podcast'),
   );
   protected readonly refreshing = signal(false);
   protected readonly refreshed = signal('');
+
+  /** "12:34 of 42:10", for Continue listening (#179). */
+  protected left(ep: ItemRecord): string {
+    const at = this.items.clock(ep.position ?? 0);
+    const total = ep.enclosure?.seconds;
+    return total ? `${at} of ${this.items.clock(total)}` : at;
+  }
 
   /** "12 unread", or nothing when none. */
   protected unread(folder: string): string {

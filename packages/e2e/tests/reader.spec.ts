@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { Page } from '@playwright/test';
+import { type Page, devices } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, prepPage, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The Reader (#159): the module switched on, an OPML file imported into
@@ -417,4 +417,153 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(followStatus).toHaveText('Already following Dice; now in Tabletop too.');
   await expect(tabletop.getByRole('listitem')).toHaveCount(2);
   await expect(tabletop).toContainText('Dice');
+});
+
+/**
+ * The fixture episode's audio (#179): six seconds of silence, 8 kHz
+ * 8-bit mono PCM, so it plays in the browser and ends soon.
+ */
+function silentWav(seconds = 6, rate = 8000): Buffer {
+  const samples = seconds * rate;
+  const wav = Buffer.alloc(44 + samples, 0x80);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + samples, 4);
+  wav.write('WAVE', 8);
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate, 28);
+  wav.writeUInt16LE(1, 32);
+  wav.writeUInt16LE(8, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(samples, 40);
+  return wav;
+}
+
+/**
+ * The fixture feed's enclosures (pod.invalid) cannot be reached from
+ * the browser: the episodes' audio is the silent file, served here,
+ * a byte range when one is asked for; the artwork is refused. On the
+ * context, not the page: the service worker's fetches are the context's.
+ */
+async function serveEpisodes(page: Page): Promise<void> {
+  const wav = silentWav();
+  await page.context().route(/^https:\/\/pod\.invalid\//, (route) => {
+    if (!route.request().url().endsWith('.mp3')) return route.abort();
+    const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '');
+    if (!range) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'audio/wav',
+        headers: { 'accept-ranges': 'bytes' },
+        body: wav,
+      });
+    }
+    const start = Number(range[1]);
+    const end = range[2] ? Math.min(Number(range[2]), wav.length - 1) : wav.length - 1;
+    return route.fulfill({
+      status: 206,
+      contentType: 'audio/wav',
+      headers: {
+        'accept-ranges': 'bytes',
+        'content-range': `bytes ${start}-${end}/${wav.length}`,
+      },
+      body: wav.subarray(start, end + 1),
+    });
+  });
+}
+
+// The player (#179): the podcast followed and looked at, its first
+// episode played and paused, the place kept across a reload and shown
+// on another device under Continue listening, then heard to the end,
+// which marks it played and read.
+test('play an episode, keep the place across a reload and on another device', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await serveEpisodes(page);
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Reader' }).check();
+  await letItSave(page);
+  await page.goto('/reader/feeds');
+  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/pod.xml');
+  await page.getByRole('combobox', { name: 'Folder' }).fill('Listening');
+  await page.getByRole('button', { name: 'Follow' }).click();
+  await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
+  await letItSave(page);
+  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('status')).toContainText('2 new articles', { timeout: 30_000 });
+  const nav = page.getByRole('navigation', { name: 'Folders' });
+  const podcasts = nav.getByRole('link', { name: /^Podcasts/ });
+  await expect(podcasts).toContainText('2 unread');
+  await expect(page.getByRole('list', { name: 'Continue listening' })).toHaveCount(0);
+
+  // The episode's page: play, then pause past the first second.
+  await podcasts.click();
+  await page
+    .getByRole('list', { name: 'Articles' })
+    .getByRole('link', { name: /Reduction firing/ })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Reduction firing', level: 1 })).toBeVisible();
+  const player = page.getByRole('region', { name: 'Player' });
+  const slider = player.getByRole('slider', { name: 'Position' });
+  await expect(slider).toHaveAttribute('aria-valuetext', '0:00 of 42:10');
+  await expect(page.getByRole('complementary', { name: 'Now playing' })).toHaveCount(0);
+  await axe(page);
+  await player.getByRole('button', { name: 'Play' }).click();
+  // The audio's own length replaces the feed's once it loads.
+  await expect(slider).toHaveAttribute('aria-valuetext', /^0:0[1-4] of 0:06$/, {
+    timeout: 10_000,
+  });
+  await player.getByRole('button', { name: 'Pause' }).click();
+  await expect(player.getByRole('button', { name: 'Play' })).toBeVisible();
+  const kept = (await slider.getAttribute('aria-valuetext'))!.split(' of ')[0];
+  expect(kept).not.toBe('0:00');
+  // Opening an episode reads nothing; only the end does.
+  await expect(page.getByRole('button', { name: 'Mark read' })).toBeVisible();
+  await letItSave(page);
+
+  // A reload finds it where it was, paused.
+  await page.reload();
+  await expect(slider).toHaveAttribute('aria-valuetext', `${kept} of 42:10`);
+  await expect(player.getByRole('button', { name: 'Play' })).toBeVisible();
+  await page.goto('/reader');
+  const bar = page.getByRole('complementary', { name: 'Now playing' });
+  await expect(bar).toContainText('Reduction firing');
+  await expect(bar).toContainText(`${kept} / 42:10`);
+  const listening = page.getByRole('list', { name: 'Continue listening' });
+  await expect(listening.getByRole('listitem')).toHaveCount(1);
+  await expect(listening).toContainText('Reduction firing');
+  await expect(listening).toContainText(`${kept} of 42:10`);
+  await axe(page);
+
+  // Another device sees the place, and its episode page starts there.
+  const other = await browser.newContext({ ...devices['Pixel 7'] });
+  const second = await other.newPage();
+  await prepPage(second);
+  await serveEpisodes(second);
+  await signInAs(second, OWNER, { reset: false });
+  await second.goto('/reader');
+  const elsewhere = second.getByRole('list', { name: 'Continue listening' });
+  await expect(elsewhere).toContainText('Reduction firing');
+  await expect(elsewhere).toContainText(`${kept} of 42:10`);
+  await elsewhere.getByRole('link', { name: /Reduction firing/ }).click();
+  await expect(
+    second.getByRole('region', { name: 'Player' }).getByRole('slider', { name: 'Position' }),
+  ).toHaveAttribute('aria-valuetext', `${kept} of 42:10`);
+
+  // Heard to the end from the mini-player: played and read, here and there.
+  await bar.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(bar.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await expect(listening).toHaveCount(0, { timeout: 15_000 });
+  await expect(bar.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+  await expect(podcasts).toContainText('1 unread');
+  await expect(second.getByRole('button', { name: 'Keep unread' })).toBeVisible();
+  await expect(second.getByRole('region', { name: 'Player' })).toContainText('Played to the end.');
+  await other.close();
 });

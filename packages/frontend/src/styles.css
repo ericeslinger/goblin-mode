@@ -37,6 +37,10 @@ body {
   accent-color: var(--accent);
   font-family: var(--font-body);
 }
+/* Room for the mini-player while it shows (#179). */
+body {
+  padding-bottom: var(--mini-player-height, 0px);
+}
 h1,
 h2,
 h3 {

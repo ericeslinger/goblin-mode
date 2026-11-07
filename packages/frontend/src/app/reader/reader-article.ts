@@ -16,6 +16,7 @@ import { renderNoteHtml } from '@mossgoblin/editor';
 import { map } from 'rxjs';
 import { type ItemRecord, ItemsService } from './items.service';
 import { CaughtUp } from './caught-up';
+import { PlayerService } from './player.service';
 import { shelfFromParam, shelfLink, shelfParam, shelfTitle } from './reader-list';
 import { ReaderService } from './reader.service';
 import { Swipe } from './swipe';
@@ -40,6 +41,8 @@ export function articleHtml(markdown: string, images: boolean): string {
  * unread, Save, and next and previous by swipe (left for next) or j and
  * k. Opening marks it read; links inside open in a new tab. Next from
  * the shelf's last article is the caught-up page (Eric, 2026-11-07).
+ * An episode (#179) has the player's full controls above its notes,
+ * and opening it reads nothing: hearing it to the end does.
  */
 @Component({
   selector: 'app-reader-article',
@@ -128,6 +131,53 @@ export function articleHtml(markdown: string, images: boolean): string {
               <p class="status" role="status">Could not fetch the page: {{ it.readerError }}</p>
             }
           </header>
+          @if (it.enclosure) {
+            <section class="player" aria-label="Player" data-no-swipe>
+              <button
+                type="button"
+                class="main"
+                [attr.aria-label]="playing() ? 'Pause' : 'Play'"
+                (click)="toggle(it)"
+              >
+                {{ playing() ? '❚❚ Pause' : '▶ Play' }}
+              </button>
+              <input
+                type="range"
+                aria-label="Position"
+                min="0"
+                step="1"
+                [max]="duration()"
+                [value]="shownAt()"
+                [attr.aria-valuetext]="items.clock(shownAt()) + ' of ' + items.clock(duration())"
+                (input)="scrub.set(+$any($event.target).value)"
+                (change)="seekTo(it, $event)"
+              />
+              <span class="time">{{ items.clock(shownAt()) }} / {{ items.clock(duration()) }}</span>
+              <span class="skips">
+                <button type="button" aria-label="Back 15 seconds" (click)="skip(it, -15)">
+                  −15
+                </button>
+                <button type="button" aria-label="Forward 30 seconds" (click)="skip(it, 30)">
+                  +30
+                </button>
+                <button
+                  type="button"
+                  [attr.aria-label]="'Speed ' + rateText()"
+                  (click)="player.nextRate()"
+                >
+                  {{ rateText() }}
+                </button>
+              </span>
+              @if (isCurrent() && player.offer(); as at) {
+                <button type="button" (click)="player.takeOffer()">
+                  Continue from {{ items.clock(at) }}
+                </button>
+              }
+              @if (it.played) {
+                <p class="muted">Played to the end.</p>
+              }
+            </section>
+          }
           <div class="body" [innerHTML]="html()" (click)="openLink($event)"></div>
         </article>
         <nav class="prevnext" aria-label="Next and previous">
@@ -192,6 +242,45 @@ export function articleHtml(markdown: string, images: boolean): string {
       gap: var(--space-2);
       align-items: center;
     }
+    .player {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: var(--space-2) var(--space-3);
+      align-items: center;
+      margin: var(--space-3) 0;
+      padding: var(--space-3);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-control);
+    }
+    .player .main {
+      grid-row: span 2;
+      min-width: 88px;
+      min-height: 56px;
+      font-size: 18px;
+    }
+    .player input {
+      width: 100%;
+    }
+    .player .time {
+      color: var(--quiet);
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .player .skips {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: var(--space-2);
+    }
+    .player .skips button {
+      min-width: 48px;
+      min-height: 40px;
+    }
+    .player > :is(button:not(.main), p) {
+      grid-column: 1 / -1;
+      justify-self: start;
+      margin: 0;
+    }
     .body {
       line-height: 1.55;
       overflow-wrap: anywhere;
@@ -237,6 +326,7 @@ export function articleHtml(markdown: string, images: boolean): string {
 })
 export class ReaderArticle {
   protected readonly items = inject(ItemsService);
+  protected readonly player = inject(PlayerService);
   private readonly reader = inject(ReaderService);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
@@ -262,6 +352,42 @@ export class ReaderArticle {
   protected readonly backLink = computed(() => shelfLink(this.shelf()));
   protected readonly shelfTitle = computed(() => shelfTitle(this.shelf(), this.reader.feeds()));
   protected readonly source = computed(() => this.sourceOf(this.item()));
+
+  /** An episode's player (#179): the player's state once it is in hand, the kept place until then. */
+  protected readonly isCurrent = computed(() => {
+    const id = this.item()?.id;
+    return !!id && this.player.current() === id;
+  });
+  protected readonly playing = computed(() => this.isCurrent() && this.player.playing());
+  protected readonly position = computed(() => {
+    if (this.isCurrent()) return this.player.position();
+    const it = this.item();
+    return it?.played ? 0 : (it?.position ?? 0);
+  });
+  protected readonly duration = computed(() =>
+    this.isCurrent() ? this.player.duration() : (this.item()?.enclosure?.seconds ?? 0),
+  );
+  protected readonly rateText = computed(() => `${this.player.rate()}×`);
+  /** Where the slider is being dragged to, so play does not pull it back mid-drag. */
+  protected readonly scrub = signal<number | undefined>(undefined);
+  protected readonly shownAt = computed(() => this.scrub() ?? this.position());
+
+  protected toggle(it: ItemRecord): void {
+    if (this.isCurrent()) this.player.toggle();
+    else this.player.load(it, { autoplay: true });
+  }
+
+  protected seekTo(it: ItemRecord, event: Event): void {
+    const to = Number((event.target as HTMLInputElement).value);
+    this.scrub.set(undefined);
+    if (!this.isCurrent()) this.player.load(it, { autoplay: false });
+    this.player.seek(to);
+  }
+
+  protected skip(it: ItemRecord, by: -15 | 30): void {
+    if (!this.isCurrent()) this.player.load(it, { autoplay: false });
+    this.player.skip(by);
+  }
 
   protected sourceOf(it: ItemRecord | undefined): string {
     return this.reader.feeds().find((f) => f.id === it?.feedId)?.title ?? 'Unknown feed';
@@ -331,7 +457,8 @@ export class ReaderArticle {
       }
     });
     // Opening an article reads it, once it is here, and keeps it in the
-    // sequence for the way back.
+    // sequence for the way back. An episode is read once it is heard to
+    // the end (#179).
     let marked = '';
     effect(() => {
       const it = this.item();
@@ -339,7 +466,7 @@ export class ReaderArticle {
       if (!this.visited().has(it.id)) {
         this.visited.update((v) => new Set([...v, it.id]));
       }
-      if (it.read || marked === it.id) return;
+      if (it.read || it.enclosure || marked === it.id) return;
       marked = it.id;
       this.items.setRead(it.id, true);
     });

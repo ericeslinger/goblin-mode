@@ -231,7 +231,8 @@ export function feedItemView(id: string, d: Data, feeds: FeedIndex) {
 
 /**
  * A podcast episode's audio, artwork and number (#178), when the item
- * has them: the fetcher's fields, read back defensively.
+ * has them: the fetcher's fields, read back defensively; and where Eric
+ * left it, in seconds, and whether he heard it to the end (#179).
  */
 function episodeView(d: Data) {
   const e = d['enclosure'] as Data | undefined;
@@ -250,6 +251,8 @@ function episodeView(d: Data) {
     ...(enclosure ? { enclosure } : {}),
     ...(web(d['image']) ? { image: d['image'] } : {}),
     ...(num(d['episode']) ? { episode: d['episode'] } : {}),
+    ...(num(d['position']) && d['position'] >= 0 ? { position: d['position'] } : {}),
+    ...(d['played'] === true ? { played: true } : {}),
   };
 }
 

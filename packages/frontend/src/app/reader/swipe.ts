@@ -63,6 +63,10 @@ export class Swipe {
 
   protected down(event: PointerEvent): void {
     if (event.button !== 0 || this.settling()) return;
+    // A slider, the player's position (#179), drags itself, not the page.
+    if ((event.target as HTMLElement | null)?.closest?.('input[type=range], [data-no-swipe]')) {
+      return;
+    }
     this.start = { x: event.clientX, y: event.clientY, id: event.pointerId };
     this.swiped = false;
   }

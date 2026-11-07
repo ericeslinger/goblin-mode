@@ -1272,6 +1272,56 @@ the item, synced across devices (a rules change); step 3 is offline
 downloads through the Worker; the play glyph is decorative until step
 2 (#177).
 
+**Podcasts, step 2: the player, and the place synced (#179, epic
+#177, 2026-11-07).** `PlayerService` keeps one `<audio>` for the whole
+app, made the first time something plays, and plays straight from the
+enclosure's link (Eric, 2026-11-07: downloads go through the Worker in
+step 3). It plays and pauses, seeks, skips back 15 seconds and on 30,
+and cycles the speeds Eric chose, 1×, 1.25×, 1.5× and 2× (the speed is
+the device's, in local storage). The Media Session API gets the title,
+the feed's name as the artist and the episode's artwork (when images
+are on), and the lock screen's and headphones' play, pause, skip and
+seek. The episode in hand is remembered on the device, so a reload
+finds it paused where it was.
+
+The place is the owner's, on the item: `position` (seconds), `playedAt`
+and `played` join the marks the feedItems update rule lets the app
+write (type-checked in the rule, as the other marks are; a rules test
+covers them). It is written through the persistent cache, one merge
+(`ItemsService.setProgress`), every 15 seconds of play, on pause, seek
+and close, and as the page is hidden or left. Heard to the end, the
+episode is marked `played` and read in the same write, its position
+kept at the end (Eric, 2026-11-07, on #177); a played episode starts
+again from the top. Opening an episode's page reads nothing, unlike
+an article's, so that read means heard (#179).
+
+The newest `playedAt` wins, but the local player never jumps: when
+the listener brings this episode with a `playedAt` newer than this
+device has seen and a position more than two seconds from the one it
+wrote, the mini-player and the episode's page offer "Continue from
+12:34", which seeks there. The device tells its own echo by the
+position it wrote, and takes that echo's `playedAt`, the server's
+clock, as seen, so the comparison is between server times. Starting
+an episode on another device starts it at the newest place.
+
+The mini-player is a bar fixed at the foot of every screen while an
+episode is in hand, except that episode's own page: artwork, the
+title (a tap opens the episode), elapsed and total, back 15, play or
+pause, on 30 and close. The shell renders it deferred, behind
+`PlayerPresence` (the remembered id), so the Reader's code and
+listeners load only once there is something to play. While it shows
+it sets `--mini-player-height` on the root: the page's bottom padding
+and the launch screen's height leave room for it, and the Reader
+list's Undo bar (#172) sits on top of it, so both show. The episode's
+page holds the full controls above its notes: a big play or pause, the
+Position slider, the skips, the speed and elapsed of total. The
+Reader's front lists Continue listening above the folders: episodes
+part-way and not played, the latest played first, each "12:34 of
+42:10", hidden when there are none. `list_feed_items` and
+`get_feed_item` return `position` and `played`. Step 3 adds offline
+downloads through the Worker's proxy, which the player then prefers
+to the enclosure's link (#177).
+
 ## Themes (#23, 2026-10-06)
 
 Eric chose all five style directions from the UX Spec, switchable
@@ -1694,8 +1744,8 @@ it, one backticked tool name per row.
 | `capture` | Files chat words under a project, verbatim ("garden this") | Garden this (#42) |
 | `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
-| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178) | The Reader, step 4 (#163) |
-| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178) | The Reader, step 4 (#163) |
+| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179) | The Reader, step 4 (#163) |
+| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179) | The Reader, step 4 (#163) |
 | `search_feed_items` | Articles holding every word of a query, the last 30 days by default, with snippets (and an episode's `enclosure`, #178) | The Reader, step 4 (#163) |
 | `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |

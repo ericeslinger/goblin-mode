@@ -404,6 +404,46 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     await assertFails(intruder().doc(path).set({ read: true, updatedAt: now() }, { merge: true }));
   });
 
+  it('lets the owner keep where an episode was left, and nothing of its audio (#179)', async () => {
+    const path = 'users/owner/feedItems/f-1-pod';
+    const ref = owner().doc(path);
+    const enclosure = { url: 'https://cdn.invalid/one.mp3', type: 'audio/mpeg', seconds: 60 };
+    await seed(path, { ...item(), enclosure });
+    await assertSucceeds(
+      ref.set({ position: 754.5, playedAt: now(), updatedAt: now() }, { merge: true }),
+    );
+    // Heard to the end: played and read in one write.
+    await assertSucceeds(
+      ref.set(
+        {
+          position: 60,
+          played: true,
+          read: true,
+          readAt: now(),
+          playedAt: now(),
+          updatedAt: now(),
+        },
+        { merge: true },
+      ),
+    );
+    await assertFails(ref.set({ position: '12:34', updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ position: -1, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ playedAt: 'today', updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ played: 'yes', updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ position: 10, playedAt: now() }, { merge: true }));
+    await assertFails(
+      ref.set(
+        { position: 10, enclosure: { ...enclosure, seconds: 10 }, updatedAt: now() },
+        { merge: true },
+      ),
+    );
+    await assertFails(
+      intruder()
+        .doc(path)
+        .set({ position: 10, playedAt: now(), updatedAt: now() }, { merge: true }),
+    );
+  });
+
   it('keeps the Reader’s settings to their shape', async () => {
     const ref = owner().doc('users/owner/settings/reader');
     await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));
