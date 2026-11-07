@@ -1,4 +1,4 @@
-import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { paths } from '@mossgoblin/schema';
 import {
   CLAIM_MS,
@@ -88,12 +88,15 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
           fields[k] = Timestamp.fromMillis(v as number);
         } else fields[k] = v;
       }
-      // The feed may be gone meanwhile (removed while fetching): nothing to say then.
+      // The feed may be gone meanwhile (removed while fetching): then the
+      // items this look wrote are orphans the delete trigger ran before,
+      // and go the same way (review on #166).
       await db
         .doc(paths.feed(uid, id))
         .update(fields)
-        .catch((err: { code?: number }) => {
+        .catch(async (err: { code?: number }) => {
           if (err.code !== 5) throw err;
+          await removeFeedItems(db, uid, id);
         });
     },
     countFetch: async (uid, day) => {
@@ -104,24 +107,33 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
   };
 }
 
-/** Removes a feed's items that are neither saved nor filed, in batches. */
+/**
+ * Removes a feed's items that are neither saved nor filed, in pages by
+ * a cursor, so filed items ahead never hide deletable ones behind them
+ * (review on #166).
+ */
 export async function removeFeedItems(db: Firestore, uid: string, feedId: string): Promise<number> {
   let removed = 0;
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
   for (;;) {
-    const snap = await db
+    let query = db
       .collection(paths.feedItems(uid))
       .where('feedId', '==', feedId)
       .where('saved', '==', false)
-      .limit(400)
-      .get();
+      .orderBy(FieldPath.documentId())
+      .limit(400);
+    if (after) query = query.startAfter(after);
+    const snap = await query.get();
+    if (snap.empty) return removed;
     const docs = snap.docs.filter((d) => typeof d.data()['noteId'] !== 'string');
-    if (!docs.length) return removed;
-    const batch = db.batch();
-    for (const d of docs) batch.delete(d.ref);
-    await batch.commit();
-    removed += docs.length;
-    // Only filed ones left in this page: they stay, and so would we.
-    if (docs.length < snap.docs.length && snap.docs.length < 400) return removed;
+    if (docs.length) {
+      const batch = db.batch();
+      for (const d of docs) batch.delete(d.ref);
+      await batch.commit();
+      removed += docs.length;
+    }
+    if (snap.size < 400) return removed;
+    after = snap.docs[snap.docs.length - 1];
   }
 }
 

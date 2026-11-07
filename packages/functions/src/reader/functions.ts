@@ -62,10 +62,18 @@ export const refreshFeeds = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
     }
     tx.set(usageRef, { feedRefreshAt: FieldValue.serverTimestamp() }, { merge: true });
   });
-  const feeds = await markAllDue(db, uid, now);
-  const report = await refreshDue(deps(), { uid, limit: FEED_CAP });
-  logger.info('refreshFeeds', { feeds, ...report });
-  return report;
+  try {
+    const feeds = await markAllDue(db, uid, now);
+    const report = await refreshDue(deps(), { uid, limit: FEED_CAP });
+    logger.info('refreshFeeds', { feeds, ...report });
+    return report;
+  } catch (err) {
+    // A failed refresh is not one to wait five minutes on (review on #166).
+    await usageRef
+      .set({ feedRefreshAt: FieldValue.delete() }, { merge: true })
+      .catch(() => undefined);
+    throw err;
+  }
 });
 
 /** A feed removed: its unread, unsaved, unfiled articles go with it. */
