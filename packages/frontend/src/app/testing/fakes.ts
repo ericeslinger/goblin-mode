@@ -330,6 +330,7 @@ export class FakeItemsApi implements ItemsApi {
     Promise.resolve(),
   );
   serverTime = () => 'SERVER_TIME';
+  timestamp = (ms: number) => `TIME:${ms}`;
   clear = () => 'CLEAR';
   fetchArticle = vi.fn(async (_itemId: string) => ({ state: 'done' }));
 

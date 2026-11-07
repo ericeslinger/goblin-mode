@@ -41,7 +41,12 @@ export const AUDIO_FACTORY = new InjectionToken<() => AudioLike>('audio-factory'
 export const RATES = [1, 1.25, 1.5, 2] as const;
 /** Seconds of play between writes of the position. */
 export const SAVE_EVERY = 15;
-/** How far another device's position must be from this one's to be offered. */
+/**
+ * How far another device's position must be from this one's to be
+ * offered. It also covers small clock skew: playedAt is each device's
+ * own clock (Eric, 2026-11-07), and two devices can disagree by
+ * seconds, so a position that close is never worth offering.
+ */
 const NEAR = 2;
 const RATE_KEY = 'goblin.player.rate';
 
@@ -57,7 +62,11 @@ const RATE_KEY = 'goblin.player.rate';
  *
  * Another device's position, newer than anything this one wrote, is
  * offered (`offer`), never jumped to: the newest playedAt wins, but
- * the local player does not move under the listener.
+ * the local player does not move under the listener. playedAt is the
+ * writing device's clock at the write (Eric, 2026-11-07: client
+ * timestamps for conflicting update times), so a place kept offline
+ * and synced late is as old as it was, and the echo of this device's
+ * own write carries exactly the time it wrote.
  */
 @Injectable({ providedIn: 'root' })
 export class PlayerService {
@@ -86,7 +95,10 @@ export class PlayerService {
   private readonly loaded = signal<ItemRecord | undefined>(undefined);
   /** The position this device last wrote or started from. */
   private readonly written = signal(0);
-  /** The newest playedAt this device has seen as its own or started from. */
+  /**
+   * The newest playedAt this device wrote, started from or took an
+   * offer at; only ever moves forward. Its own echo is never newer.
+   */
   private readonly seenAt = signal(0);
 
   /** The episode in hand, by item id. */
@@ -119,18 +131,6 @@ export class PlayerService {
   });
 
   constructor() {
-    // The echo of this device's own write carries the position it
-    // wrote: its playedAt is then seen, first as the cache's estimate
-    // and then as the server's clock, which other devices' writes are
-    // stamped by too.
-    effect(() => {
-      const it = this.item();
-      if (!it || it.playedAt === undefined || it.position === undefined) return;
-      const { position, playedAt } = it;
-      untracked(() => {
-        if (Math.abs(position - this.written()) < NEAR) this.seenAt.set(playedAt);
-      });
-    });
     // After a reload, the episode this device had in hand, paused where it was.
     const remembered = this.presence.id();
     if (remembered) {
@@ -267,7 +267,10 @@ export class PlayerService {
   /** "Continue from 12:34" taken: the other device's place. */
   takeOffer(): void {
     const at = this.offer();
-    if (at !== undefined) this.seek(at);
+    if (at === undefined) return;
+    // Seen, even if this device's clock runs behind the other's.
+    this.seen(this.item()?.playedAt ?? 0);
+    this.seek(at);
   }
 
   /** Writes the position now if it moved, as the page goes. */
@@ -282,7 +285,12 @@ export class PlayerService {
     this.written.set(position);
     this.savedAt = position;
     this.dirty = false;
-    this.items.setProgress(id, { position, ...(played ? { played: true } : {}) });
+    const at = this.items.setProgress(id, { position, ...(played ? { played: true } : {}) });
+    if (at !== undefined) this.seen(at);
+  }
+
+  private seen(playedAt: number): void {
+    this.seenAt.update((s) => Math.max(s, playedAt));
   }
 
   /** Pauses, keeps the position, and empties the element. */

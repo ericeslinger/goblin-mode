@@ -25,6 +25,8 @@ import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
 const stamp = (ms: number) => ({ toMillis: () => ms });
+/** The device's clock, moved by a case; each setup puts it back. */
+let clock = NOW_MS;
 
 const episode = (id: string, more: Record<string, unknown> = {}) => ({
   id,
@@ -58,6 +60,7 @@ function memoryStorage(seed: Record<string, string> = {}): Storage {
 }
 
 function setup(storage = memoryStorage()) {
+  clock = NOW_MS;
   const api = new FakeItemsApi();
   const feeds = new FakeReaderApi();
   const modules = new FakeModules();
@@ -79,7 +82,7 @@ function setup(storage = memoryStorage()) {
       { provide: SETTINGS_API, useValue: new FakeSettingsApi() },
       { provide: ModulesService, useValue: modules },
       { provide: AuthService, useValue: { user } },
-      { provide: NOW, useValue: () => NOW_MS },
+      { provide: NOW, useValue: () => clock },
       { provide: STORAGE, useValue: storage },
       { provide: AUDIO_FACTORY, useValue: made },
       { provide: DOWNLOADS_API, useValue: downloadsApi },
@@ -142,7 +145,7 @@ describe('PlayerService (#179)', () => {
       {
         path: 'users/u1/feedItems/e1',
         position: 15.2,
-        playedAt: 'SERVER_TIME',
+        playedAt: `TIME:${NOW_MS}`,
         played: false,
         updatedAt: 'SERVER_TIME',
       },
@@ -205,6 +208,28 @@ describe('PlayerService (#179)', () => {
     api.push('unread', [episode('e1', { position: 754, playedAt: stamp(NOW_MS + 6000) })]);
     TestBed.tick();
     expect(player.offer()).toBeUndefined();
+  });
+
+  it('does not take a write made earlier elsewhere but synced later as the newer', () => {
+    const { items, player, api, audio, progress } = setup();
+    api.push('unread', [episode('e1', { position: 100, playedAt: stamp(NOW_MS - 60_000) })]);
+    player.load(items.find('e1')!, { autoplay: true });
+    audio.meta(2530);
+    // This device keeps 116 at t2, its own clock.
+    audio.tick(116);
+    expect(progress().at(-1)).toMatchObject({ position: 116, playedAt: `TIME:${NOW_MS}` });
+    // Another device's place, kept offline at t1 < t2, reaches the
+    // store a minute later: its playedAt is still t1, so it is older
+    // and not offered (stamped at the sync, it would have been).
+    clock = NOW_MS + 60_000;
+    api.push('unread', [episode('e1', { position: 600, playedAt: stamp(NOW_MS - 30_000) })]);
+    TestBed.tick();
+    expect(player.offer()).toBeUndefined();
+    // A place written there after t2 is the newer one, and offered.
+    api.push('unread', [episode('e1', { position: 754, playedAt: stamp(NOW_MS + 30_000) })]);
+    TestBed.tick();
+    expect(player.offer()).toBe(754);
+    expect(player.position()).toBe(116);
   });
 
   it('cycles the four speeds and keeps the choice on the device', () => {

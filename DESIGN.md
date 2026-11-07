@@ -1304,10 +1304,20 @@ The newest `playedAt` wins, but the local player never jumps: when
 the listener brings this episode with a `playedAt` newer than this
 device has seen and a position more than two seconds from the one it
 wrote, the mini-player and the episode's page offer "Continue from
-12:34", which seeks there. The device tells its own echo by the
-position it wrote, and takes that echo's `playedAt`, the server's
-clock, as seen, so the comparison is between server times. Starting
-an episode on another device starts it at the newest place.
+12:34", which seeks there. Starting an episode on another device
+starts it at the newest place.
+
+`playedAt` was first the server's clock at the sync, the device
+telling its own echo by the position it wrote and taking that echo's
+`playedAt` as seen, so the comparison was between server times. That
+let a place kept offline and synced late outrank one another device
+wrote in between. Since 2026-11-07 it is the writing device's clock
+at the moment of the write, still a Firestore timestamp (Eric,
+2026-11-07: client timestamps for conflicting update times): a late
+sync is as old as it was, the echo of the device's own write carries
+exactly the time it wrote, and what the device wrote, started from or
+took an offer at is what it has seen. Two devices' clocks can
+disagree by seconds; the two-second distance covers small skew.
 
 The mini-player is a bar fixed at the foot of every screen while an
 episode is in hand, except that episode's own page: artwork, the
