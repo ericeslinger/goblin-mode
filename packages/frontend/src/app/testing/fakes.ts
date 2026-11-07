@@ -251,6 +251,8 @@ export class FakeReaderApi implements ReaderApi {
   );
   remove = vi.fn((_db: unknown, _path: string) => Promise.resolve());
   serverTime = () => 'SERVER_TIME';
+  clear = () => 'CLEAR';
+  refresh = vi.fn(async () => ({ fetched: 2, added: 5, failed: 0, skipped: 0 }));
 
   push(docs: { id: string; data: Record<string, unknown> }[]): void {
     this.next(docs);

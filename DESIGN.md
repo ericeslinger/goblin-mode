@@ -1035,6 +1035,42 @@ the rest are refused), a feed's folders edited in place as a
 comma-separated field, Remove, and Follow a feed by its link into a
 folder. Nothing here touches the network: the server fetches.
 
+**Step 2, the fetcher (#161, built 2026-11-07).** `feedsRefresh`
+(`onSchedule`, every 15 minutes) takes the feeds due (`nextFetchAt`
+past, a collection-group query, fifty a tick, eight at once), claims
+each in a transaction (`claimedAt`, a claim older than ten minutes is
+a lost tick's and may be taken), and `refreshFeed` looks at it: a
+conditional request through `publicRequest` (the saved-link fetcher
+generalised: any headers, a 5 MB cap for feeds, every final status
+returned so 304 is unchanged), `parseFeed` (`fast-xml-parser`, a
+production dependency: RSS 2.0, Atom, RSS 1.0 and JSON Feed into one
+shape, CDATA, relative links, odd dates, repeated guids), then each
+item not yet stored (`feedItemId`, `getAll` in hundreds) is written
+with its content as the app's markdown (`htmlToMarkdown`: hidden
+elements out first, then headings, lists, quotes, code, links and
+https images; a page's `*`, `_`, `[`, `]` and tag-starting `#` are
+escaped, so a feed's `[[name]]`, `- [ ] do this @goblin` or `#tag`
+stays words once filed in the garden), capped at 20k characters, and
+its first 300 characters as `summary`. A feed named by its address
+takes the feed's own name. **The interval** is half the median gap
+between its last ten items and no less than a quarter of the quiet
+since the newest, 30 minutes to a day, so an hourly feed is read every
+half hour and a silent one daily; an error doubles it and counts, and
+35 errors in a row (about a month at the longest interval) mark the
+feed `dead`, which the tick skips and Try again in the app clears.
+Every fetch counts in the day's `usage` record (`feedFetches`).
+**Refresh** in the app is `refreshFeeds` (`onCall`): every live feed
+of the caller is made due and looked at before it returns with what
+came of it; once in five minutes per gardener (`feedRefreshAt` in the
+day's usage record). **A removed feed** (`feedRemoved`, a delete
+trigger) takes its articles that are neither saved nor filed, in
+batches, by the (`feedId`, `saved`) index. The emulator has no
+network, so its build swaps in `reader/stand-in.emulator.ts`: any
+feed under `https://feeds.invalid/` is served from fixtures with an
+ETag (a second look is a 304), any other host fails as an unreachable
+site would; the journey imports an OPML with both and reads the
+report.
+
 ## Themes (#23, 2026-10-06)
 
 Eric chose all five style directions from the UX Spec, switchable

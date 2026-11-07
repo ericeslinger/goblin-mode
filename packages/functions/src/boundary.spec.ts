@@ -23,6 +23,9 @@ const EXPORTS = [
   'startRun',
   'agentRun',
   'itemAssigned',
+  'feedsRefresh',
+  'refreshFeeds',
+  'feedRemoved',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));
