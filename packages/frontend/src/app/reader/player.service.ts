@@ -9,6 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { STORAGE } from '../platform/platform';
+import { DownloadsService } from './downloads.service';
 import { type ItemRecord, ItemsService } from './items.service';
 import { PlayerPresence } from './player-presence';
 import { ReaderService } from './reader.service';
@@ -46,8 +47,9 @@ const RATE_KEY = 'goblin.player.rate';
 
 /**
  * The podcast player (#179): one audio element for the whole app,
- * made lazily, playing straight from the enclosure's link (downloads
- * come with step 3). The position is kept on the item, through the
+ * made lazily, playing a downloaded episode from the cache through the
+ * proxy's link, which the service worker answers offline (#180), and
+ * any other straight from the enclosure's link. The position is kept on the item, through the
  * persistent cache, every 15 seconds of play and on pause, seek, stop
  * and leaving the page; the episode in hand is remembered on the
  * device, so a reload finds it where it was. Heard to the end, it is
@@ -64,6 +66,7 @@ export class PlayerService {
   private readonly makeAudio = inject(AUDIO_FACTORY);
   private readonly storage = inject(STORAGE);
   private readonly presence = inject(PlayerPresence);
+  private readonly downloads = inject(DownloadsService);
 
   private audio?: AudioLike;
   /** Whether the audio element holds the current episode's link yet. */
@@ -191,7 +194,7 @@ export class PlayerService {
     if (!this.attached) {
       this.attached = true;
       this.startAt = this.position();
-      audio.src = it.enclosure.url;
+      audio.src = this.downloads.source(it) ?? it.enclosure.url;
       audio.defaultPlaybackRate = this.rate();
       audio.playbackRate = this.rate();
       // Before the metadata this is the default start; again once it lands.

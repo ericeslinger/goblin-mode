@@ -1,6 +1,8 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ModulesService } from '../modules/modules.service';
+import { DownloadPrefs } from './download-prefs';
+import { DownloadsService, size } from './downloads.service';
 import { ALL, type ItemRecord, ItemsService, PODCASTS, SAVED } from './items.service';
 import { ReaderService } from './reader.service';
 
@@ -8,7 +10,9 @@ import { ReaderService } from './reader.service';
  * The Reader's front (#162): the folders with what is unread in each,
  * All and Saved, Podcasts once a feed is one (#178), Refresh, and the
  * way to Manage feeds; above the folders, Continue listening, the
- * episodes left part-way on any device, newest first (#179).
+ * episodes left part-way on any device, newest first (#179). Downloads
+ * is linked once anything is downloaded or a podcast keeps its newest
+ * downloaded (#180).
  */
 @Component({
   selector: 'app-reader',
@@ -84,6 +88,12 @@ import { ReaderService } from './reader.service';
           }
         </ul>
       </nav>
+      @if (showDownloads()) {
+        <p class="more">
+          <a routerLink="/reader/downloads">Downloads</a>
+          <span class="muted">{{ downloadsText() }}</span>
+        </p>
+      }
       <p class="more">
         <a routerLink="/reader/feeds">Manage feeds</a>
         <span class="muted">import, follow, move, remove</span>
@@ -147,6 +157,8 @@ export class Reader {
   protected readonly reader = inject(ReaderService);
   protected readonly items = inject(ItemsService);
   protected readonly modules = inject(ModulesService);
+  private readonly downloads = inject(DownloadsService);
+  private readonly prefs = inject(DownloadPrefs);
   protected readonly all = ALL;
   protected readonly saved = SAVED;
   protected readonly podcasts = PODCASTS;
@@ -156,6 +168,16 @@ export class Reader {
   protected readonly hasPodcasts = computed(() =>
     this.reader.feeds().some((f) => f.kind === 'podcast'),
   );
+  /** Whether to link Downloads (#180). */
+  protected readonly showDownloads = computed(
+    () => this.downloads.list().length > 0 || this.prefs.keepsAny(),
+  );
+  /** "2 episodes, 84 MB", for the link. */
+  protected readonly downloadsText = computed(() => {
+    const n = this.downloads.list().length;
+    if (!n) return 'none yet';
+    return `${n} ${n === 1 ? 'episode' : 'episodes'}, ${size(this.downloads.total())}`;
+  });
   protected readonly refreshing = signal(false);
   protected readonly refreshed = signal('');
 

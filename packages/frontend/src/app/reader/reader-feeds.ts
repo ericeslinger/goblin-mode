@@ -2,6 +2,7 @@ import { Component, type ElementRef, inject, signal, viewChild } from '@angular/
 import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
+import { DownloadPrefs, KEEP_CHOICES } from './download-prefs';
 import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.service';
 
 /**
@@ -10,7 +11,8 @@ import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.se
  * moved between folders and removed. Reading is on `/reader` (#162).
  * A site's address finds its feeds (#174): Find feeds, or Find feeds on
  * a followed link the server could not read as one, lists what the
- * server found to pick from.
+ * server found to pick from. A podcast's row chooses how many of its
+ * newest episodes this device keeps downloaded (#180).
  */
 @Component({
   selector: 'app-reader-feeds',
@@ -67,6 +69,21 @@ import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.se
                         (change)="move(feed, $any($event.target).value)"
                       />
                     </label>
+                    @if (feed.kind === 'podcast') {
+                      <label class="keep">
+                        <span aria-hidden="true">Keep downloaded</span>
+                        <select
+                          [attr.aria-label]="'Episodes of ' + feed.title + ' kept downloaded'"
+                          (change)="prefs.setKeep(feed.id, +$any($event.target).value)"
+                        >
+                          @for (n of keepChoices; track n) {
+                            <option [value]="n" [selected]="prefs.keepFor(feed.id) === n">
+                              {{ keepText(n) }}
+                            </option>
+                          }
+                        </select>
+                      </label>
+                    }
                     @if (feed.dead || feed.error) {
                       <button
                         type="button"
@@ -201,8 +218,17 @@ import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.se
     .meta {
       grid-column: 1;
     }
-    .move {
+    .move,
+    .keep {
       grid-column: 1;
+    }
+    .keep {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
+      color: var(--quiet);
+      font-size: 14px;
     }
     .remove,
     .retry {
@@ -245,6 +271,8 @@ import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.se
 export class ReaderFeeds {
   protected readonly reader = inject(ReaderService);
   protected readonly modules = inject(ModulesService);
+  protected readonly prefs = inject(DownloadPrefs);
+  protected readonly keepChoices = KEEP_CHOICES;
   protected readonly cap = FEED_CAP;
   protected readonly imported = signal('');
   protected readonly followed = signal('');
@@ -337,6 +365,11 @@ export class ReaderFeeds {
         ? `Already following ${known.title}${folder ? `; now in ${folder} too` : ''}.`
         : `Following ${found.title}. Its articles arrive once the server has looked.`,
     );
+  }
+
+  /** A choice of how many newest episodes to keep downloaded (#180). */
+  protected keepText(n: number): string {
+    return n === 0 ? 'by hand only' : n === 1 ? 'the newest' : `the newest ${n}`;
   }
 
   /** The server looked and found a page, not a feed (#161's message). */

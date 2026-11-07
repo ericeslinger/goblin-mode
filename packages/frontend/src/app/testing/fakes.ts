@@ -16,7 +16,14 @@ import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
-import { ITEMS_API, type ItemsApi, type Shelf } from '../reader/items.service';
+import { ITEMS_API, type ItemRecord, type ItemsApi, type Shelf } from '../reader/items.service';
+import type {
+  ConnectionInfo,
+  DownloadProgress,
+  DownloadRecord,
+  DownloadsApi,
+  EpisodeCache,
+} from '../reader/downloads.service';
 import type { AudioLike } from '../reader/player.service';
 import { READER_API, type ReaderApi } from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
@@ -380,6 +387,85 @@ export class FakeAudio implements AudioLike {
     this.emit('pause');
     this.emit('ended');
   }
+}
+
+/** A Cache Storage cache in memory (#180): bodies read in full on put, as the browser does. */
+export class FakeEpisodeCache implements EpisodeCache {
+  readonly stored = new Map<string, { body: Uint8Array; headers: Headers }>();
+  keys = vi.fn(async () => [...this.stored.keys()].map((url) => ({ url })));
+  match = vi.fn(async (url: string) => {
+    const hit = this.stored.get(url);
+    return hit ? new Response(hit.body.slice(), { headers: hit.headers }) : undefined;
+  });
+  put = vi.fn(async (url: string, res: Response) => {
+    const body = new Uint8Array(await res.arrayBuffer());
+    this.stored.set(url, { body, headers: new Headers(res.headers) });
+  });
+  delete = vi.fn(async (url: string) => this.stored.delete(url));
+}
+
+/**
+ * The downloads' browser seam (#180): the memory cache, a fetch that
+ * answers `bytes` of audio for any link (or `answer`'s response), and
+ * the connection the browser reports.
+ */
+export class FakeDownloadsApi implements DownloadsApi {
+  readonly cache = new FakeEpisodeCache();
+  conn: ConnectionInfo | undefined = undefined;
+  /** Bytes the fake fetch answers per link, by enclosure link; 1000 when unlisted. */
+  sizes: Record<string, number> = {};
+  /** Whether the answer states its length. */
+  stateLength = true;
+  open = vi.fn(async () => this.cache);
+  fetch = vi.fn(async (url: string, _init: RequestInit) => {
+    const link = decodeURIComponent(url.split('url=')[1] ?? '');
+    const n = this.sizes[link] ?? 1000;
+    return new Response(new Uint8Array(n), {
+      headers: {
+        'content-type': 'audio/mpeg',
+        ...(this.stateLength ? { 'content-length': String(n) } : {}),
+      },
+    });
+  });
+  connection = () => this.conn;
+}
+
+/**
+ * A stand-in for DownloadsService (#180): nothing downloaded until
+ * `download` is called, which keeps it at once; plays the enclosure's
+ * link otherwise, as the real one does.
+ */
+export class FakeDownloads {
+  readonly records = signal<DownloadRecord[]>([]);
+  readonly available = signal(true);
+  readonly loaded = signal(true);
+  readonly progress = signal<Record<string, DownloadProgress>>({});
+  readonly list = computed(() => this.records());
+  readonly total = computed(() => this.records().reduce((sum, r) => sum + r.bytes, 0));
+  has = (id: string) => this.records().some((r) => r.id === id);
+  record = (id: string) => this.records().find((r) => r.id === id);
+  source = (item: ItemRecord) =>
+    this.has(item.id)
+      ? `/api/episode?url=${encodeURIComponent(item.enclosure?.url ?? '')}`
+      : item.enclosure?.url;
+  mayDownload = () => true;
+  download = vi.fn(async (item: ItemRecord) => {
+    this.records.update((l) => [
+      ...l,
+      {
+        id: item.id,
+        feedId: item.feedId,
+        title: item.title,
+        published: item.published,
+        url: item.enclosure?.url ?? '',
+        bytes: 1000,
+        auto: false,
+      },
+    ]);
+    return undefined as string | undefined;
+  });
+  remove = vi.fn(async (id: string) => this.records.update((l) => l.filter((r) => r.id !== id)));
+  settled = async () => undefined;
 }
 
 /** A stand-in for ReaderService (#159): no feeds, images on. */

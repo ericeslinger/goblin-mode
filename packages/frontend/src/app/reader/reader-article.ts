@@ -14,6 +14,7 @@ import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { renderNoteHtml } from '@mossgoblin/editor';
 import { map } from 'rxjs';
+import { DownloadsService, size } from './downloads.service';
 import { type ItemRecord, ItemsService } from './items.service';
 import { CaughtUp } from './caught-up';
 import { PlayerService } from './player.service';
@@ -42,7 +43,9 @@ export function articleHtml(markdown: string, images: boolean): string {
  * k. Opening marks it read; links inside open in a new tab. Next from
  * the shelf's last article is the caught-up page (Eric, 2026-11-07).
  * An episode (#179) has the player's full controls above its notes,
- * and opening it reads nothing: hearing it to the end does.
+ * and opening it reads nothing: hearing it to the end does. Its
+ * Download keeps it on the device to play offline, with its progress,
+ * then Remove (#180).
  */
 @Component({
   selector: 'app-reader-article',
@@ -88,6 +91,9 @@ export function articleHtml(markdown: string, images: boolean): string {
           <header>
             <h1>{{ it.title }}</h1>
             <p class="meta">
+              @if (downloaded()) {
+                Downloaded ·
+              }
               {{ source() }}
               @if (it.author) {
                 , {{ it.author }}
@@ -175,6 +181,18 @@ export function articleHtml(markdown: string, images: boolean): string {
               }
               @if (it.played) {
                 <p class="muted">Played to the end.</p>
+              }
+              @if (downloads.available()) {
+                <p class="download">
+                  @if (downloaded(); as kept) {
+                    <span class="muted">Downloaded, {{ sizeOf(kept.bytes) }}</span>
+                    <button type="button" (click)="downloads.remove(it.id)">Remove download</button>
+                  } @else if (progress(); as p) {
+                    <span class="muted" role="status">Downloading… {{ progressText(p) }}</span>
+                  } @else {
+                    <button type="button" (click)="download(it)">Download</button>
+                  }
+                </p>
               }
             </section>
           }
@@ -281,6 +299,12 @@ export function articleHtml(markdown: string, images: boolean): string {
       justify-self: start;
       margin: 0;
     }
+    .player .download {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
+    }
     .body {
       line-height: 1.55;
       overflow-wrap: anywhere;
@@ -327,6 +351,7 @@ export function articleHtml(markdown: string, images: boolean): string {
 export class ReaderArticle {
   protected readonly items = inject(ItemsService);
   protected readonly player = inject(PlayerService);
+  protected readonly downloads = inject(DownloadsService);
   private readonly reader = inject(ReaderService);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
@@ -368,6 +393,28 @@ export class ReaderArticle {
     this.isCurrent() ? this.player.duration() : (this.item()?.enclosure?.seconds ?? 0),
   );
   protected readonly rateText = computed(() => `${this.player.rate()}×`);
+  /** The episode's download, once it is kept on the device (#180). */
+  protected readonly downloaded = computed(() => {
+    const id = this.item()?.id;
+    return id ? this.downloads.record(id) : undefined;
+  });
+  /** How its download is going, while it is under way. */
+  protected readonly progress = computed(() => {
+    const id = this.item()?.id;
+    return id ? this.downloads.progress()[id] : undefined;
+  });
+  protected readonly sizeOf = size;
+
+  protected progressText(p: { received: number; total?: number }): string {
+    return p.total ? `${Math.floor((p.received / p.total) * 100)}%` : size(p.received);
+  }
+
+  /** Download (#180): kept on the device, or the reason it was not, said. */
+  protected async download(it: ItemRecord): Promise<void> {
+    this.said.set('');
+    const why = await this.downloads.download(it);
+    if (why) this.said.set(why);
+  }
   /** Where the slider is being dragged to, so play does not pull it back mid-drag. */
   protected readonly scrub = signal<number | undefined>(undefined);
   protected readonly shownAt = computed(() => this.scrub() ?? this.position());

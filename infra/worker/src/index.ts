@@ -3,11 +3,13 @@
 // not found that is a navigation gets index.html (single-page-application
 // mode). This script only sees the server routes below and forwards them
 // to Cloud Functions, so the MCP endpoint and its OAuth live on the
-// app's own origin.
+// app's own origin. One route is the Worker's own: `/api/episode`, the
+// podcast episode proxy for offline downloads (#180, src/episode.ts).
 
+import { type EpisodeEnv, proxyEpisode } from './episode';
 import routes from './routes.json';
 
-export interface Env {
+export interface Env extends EpisodeEnv {
   ASSETS: Fetcher;
   /** e.g. https://us-central1-<project>.cloudfunctions.net */
   FUNCTIONS_ORIGIN: string;
@@ -66,6 +68,8 @@ export default {
     if (url.pathname === '/share') {
       return request.method === 'POST' ? shareFallback(request) : env.ASSETS.fetch(request);
     }
+    // The Worker's own route, before the functions' (#180).
+    if (url.pathname === '/api/episode') return proxyEpisode(request, env);
     const fn = functionFor(url.pathname);
     if (!fn) return env.ASSETS.fetch(request);
     if (!env.FUNCTIONS_ORIGIN)

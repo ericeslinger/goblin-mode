@@ -21,6 +21,7 @@ import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { KeysService } from '../keys/keys.service';
 import { GroceryService } from '../kitchen/grocery.service';
+import { CAP_CHOICES, DownloadPrefs } from '../reader/download-prefs';
 import { ReaderService } from '../reader/reader.service';
 import { NOW } from '../platform/platform';
 import { type PushState, PushService } from '../push/push.service';
@@ -188,8 +189,38 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             @if (retentionStatus()) {
               <p role="status">{{ retentionStatus() }}</p>
             }
+            <label>
+              Keep up to
+              <select
+                #cap
+                aria-label="Downloaded episodes kept on this device, at most"
+                (change)="downloadPrefs.setCap(+cap.value)"
+              >
+                @for (mb of capChoices; track mb) {
+                  <option [value]="mb" [selected]="downloadPrefs.capMb() === mb">
+                    {{ mb >= 1000 ? mb / 1000 + ' GB' : mb + ' MB' }}
+                  </option>
+                }
+              </select>
+              of episodes on this device
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                role="switch"
+                [checked]="downloadPrefs.wifiOnly()"
+                (change)="downloadPrefs.setWifiOnly($any($event.target).checked)"
+              />
+              Download new episodes on their own only on Wi-Fi
+            </label>
             <p class="muted">
-              <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a>
+              Where the browser says what the connection is; a tap on Download works on any
+              connection. These are this device's; a podcast's newest are kept downloaded from its
+              row in Manage feeds.
+            </p>
+            <p class="muted">
+              <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a> ·
+              <a routerLink="/reader/downloads">Downloads</a>
             </p>
           </div>
         }
@@ -453,6 +484,9 @@ export class Settings {
   protected readonly modules = inject(ModulesService);
   protected readonly readerSettings = inject(ReaderService);
   protected readonly keepChoices = [3, 6, 12];
+  /** Downloaded episodes (#180): the cap and Wi-Fi, this device's. */
+  protected readonly downloadPrefs = inject(DownloadPrefs);
+  protected readonly capChoices = CAP_CHOICES;
   protected readonly tidying = signal(false);
   protected readonly retentionStatus = signal('');
 

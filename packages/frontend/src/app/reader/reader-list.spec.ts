@@ -10,6 +10,7 @@ import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import {
+  FakeDownloadsApi,
   FakeItemsApi,
   FakeModules,
   FakeNotes,
@@ -18,6 +19,7 @@ import {
   fakeFirebase,
 } from '../testing/fakes';
 import { SETTINGS_API } from '../theme/theme-sync.service';
+import { DOWNLOADS_API } from './downloads.service';
 import { ITEMS_API, ItemsService } from './items.service';
 import { PASSED_MS, ReaderList, SETTLE_MS, UNDO_MS } from './reader-list';
 import { READER_API } from './reader.service';
@@ -76,6 +78,7 @@ function setup(readOnScroll: boolean, folder?: string) {
       { provide: READER_API, useValue: feeds },
       { provide: SETTINGS_API, useValue: settings },
       { provide: ModulesService, useValue: modules },
+      { provide: DOWNLOADS_API, useValue: new FakeDownloadsApi() },
       { provide: AuthService, useValue: { user: signal<User | null>({ uid: 'u1' } as User) } },
       { provide: NOW, useValue: () => NOW_MS },
       ...(folder

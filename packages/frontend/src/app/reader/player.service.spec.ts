@@ -9,6 +9,7 @@ import { NOW, STORAGE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import {
   FakeAudio,
+  FakeDownloadsApi,
   FakeItemsApi,
   FakeModules,
   FakeNotes,
@@ -17,6 +18,7 @@ import {
   fakeFirebase,
 } from '../testing/fakes';
 import { SETTINGS_API } from '../theme/theme-sync.service';
+import { DOWNLOADS_API, DownloadsService, episodePath } from './downloads.service';
 import { ITEMS_API, ItemsService } from './items.service';
 import { AUDIO_FACTORY, PlayerService } from './player.service';
 import { READER_API } from './reader.service';
@@ -62,7 +64,11 @@ function setup(storage = memoryStorage()) {
   modules.set('reader', true);
   const audio = new FakeAudio();
   const made = vi.fn(() => audio);
-  const user = signal<User | null | undefined>({ uid: 'u1' } as User);
+  const user = signal<User | null | undefined>({
+    uid: 'u1',
+    getIdToken: async () => 'id-token',
+  } as unknown as User);
+  const downloadsApi = new FakeDownloadsApi();
   TestBed.configureTestingModule({
     providers: [
       { provide: FIREBASE, useValue: fakeFirebase(true) },
@@ -76,6 +82,7 @@ function setup(storage = memoryStorage()) {
       { provide: NOW, useValue: () => NOW_MS },
       { provide: STORAGE, useValue: storage },
       { provide: AUDIO_FACTORY, useValue: made },
+      { provide: DOWNLOADS_API, useValue: downloadsApi },
     ],
   });
   const items = TestBed.inject(ItemsService);
@@ -92,7 +99,8 @@ function setup(storage = memoryStorage()) {
     api.set.mock.calls
       .filter((c) => 'position' in c[2])
       .map((c) => ({ path: c[1], ...c[2] }) as Record<string, unknown>);
-  return { items, player, api, audio, made, storage, progress };
+  const downloads = TestBed.inject(DownloadsService);
+  return { items, player, api, audio, made, storage, progress, downloads };
 }
 
 describe('PlayerService (#179)', () => {
@@ -238,5 +246,16 @@ describe('PlayerService (#179)', () => {
     expect(progress()[0]).toMatchObject({ path: 'users/u1/feedItems/e1', position: 8 });
     expect(audio.src).toBe('https://pod.test/e2.mp3');
     expect(audio.currentTime).toBe(9);
+  });
+
+  it('plays a downloaded episode from the proxy’s link, which the service worker answers (#180)', async () => {
+    const { items, player, api, audio, downloads } = setup();
+    api.push('unread', [episode('e1'), episode('e2')]);
+    await vi.waitFor(() => expect(downloads.loaded()).toBe(true));
+    expect(await downloads.download(items.find('e1')!)).toBeUndefined();
+    player.load(items.find('e1')!, { autoplay: true });
+    expect(audio.src).toBe(episodePath('https://pod.test/e1.mp3'));
+    player.load(items.find('e2')!, { autoplay: true });
+    expect(audio.src).toBe('https://pod.test/e2.mp3');
   });
 });

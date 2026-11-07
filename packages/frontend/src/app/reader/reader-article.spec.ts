@@ -4,6 +4,8 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { FakeDownloads } from '../testing/fakes';
+import { DownloadsService } from './downloads.service';
 import { type ItemRecord, ItemsService } from './items.service';
 import { ReaderArticle } from './reader-article';
 import { ReaderService } from './reader.service';
@@ -43,6 +45,8 @@ async function open(id: string) {
         { path: 'reader/done', component: DoneStub },
       ]),
       { provide: ItemsService, useValue: fake },
+      // The player and the Download button reach it (#180); no Firebase here.
+      { provide: DownloadsService, useValue: new FakeDownloads() },
       {
         provide: ReaderService,
         useValue: { feeds: signal([{ id: 'feed1', title: 'Design notes' }]), images: signal(true) },

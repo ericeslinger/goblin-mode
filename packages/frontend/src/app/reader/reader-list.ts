@@ -14,6 +14,7 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
+import { DownloadsService } from './downloads.service';
 import { ALL, type ItemRecord, ItemsService, PODCASTS, SAVED, type Shelf2 } from './items.service';
 import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
@@ -58,8 +59,8 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
 
 /**
  * The compact list (#162): a folder's or a feed's articles, newest
- * first, unread unless Show read; an episode's row says so and how
- * long it is (#178). Swipe a row left to mark it read,
+ * first, unread unless Show read; an episode's row says so, how
+ * long it is (#178) and whether it is downloaded (#180). Swipe a row left to mark it read,
  * right to save it (buttons do the same for keyboards and screen
  * readers); tap to open. On a keyboard j and k move, m marks read, s
  * saves, Enter opens.
@@ -131,6 +132,9 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
                     ><span role="img" aria-label="episode">▶</span>
                     @if (item.enclosure.seconds !== undefined) {
                       {{ items.duration(item.enclosure.seconds) }}
+                    }
+                    @if (downloads.has(item.id)) {
+                      · downloaded
                     }
                   </span>
                 }
@@ -271,6 +275,7 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
 })
 export class ReaderList {
   protected readonly items = inject(ItemsService);
+  protected readonly downloads = inject(DownloadsService);
   protected readonly reader = inject(ReaderService);
   private readonly router = inject(Router);
   private readonly shelf = toSignal(inject(ActivatedRoute).paramMap.pipe(map(shelfOf)), {

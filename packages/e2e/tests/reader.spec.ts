@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { type Page, devices } from '@playwright/test';
+import { type Page, type Route, devices } from '@playwright/test';
 import { connectClaude } from '../src/claude';
 import { expect, letItSave, prepPage, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
@@ -452,27 +452,52 @@ async function serveEpisodes(page: Page): Promise<void> {
   const wav = silentWav();
   await page.context().route(/^https:\/\/pod\.invalid\//, (route) => {
     if (!route.request().url().endsWith('.mp3')) return route.abort();
-    const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '');
-    if (!range) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'audio/wav',
-        headers: { 'accept-ranges': 'bytes' },
-        body: wav,
-      });
-    }
-    const start = Number(range[1]);
-    const end = range[2] ? Math.min(Number(range[2]), wav.length - 1) : wav.length - 1;
-    return route.fulfill({
-      status: 206,
-      contentType: 'audio/wav',
-      headers: {
-        'accept-ranges': 'bytes',
-        'content-range': `bytes ${start}-${end}/${wav.length}`,
-      },
-      body: wav.subarray(start, end + 1),
-    });
+    return answerWav(route, wav);
   });
+}
+
+/** The silent file, or the byte range of it the request asks for. */
+function answerWav(route: Route, wav: Buffer): Promise<void> {
+  const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '');
+  if (!range) {
+    return route.fulfill({
+      status: 200,
+      contentType: 'audio/wav',
+      headers: { 'accept-ranges': 'bytes' },
+      body: wav,
+    });
+  }
+  const start = Number(range[1]);
+  const end = range[2] ? Math.min(Number(range[2]), wav.length - 1) : wav.length - 1;
+  return route.fulfill({
+    status: 206,
+    contentType: 'audio/wav',
+    headers: {
+      'accept-ranges': 'bytes',
+      'content-range': `bytes ${start}-${end}/${wav.length}`,
+    },
+    body: wav.subarray(start, end + 1),
+  });
+}
+
+/**
+ * The Worker's episode proxy (#180) has no stand-in in the e2e suite:
+ * the app is served by scripts/serve-static.mjs, not by the Worker, and
+ * the Worker checks real Google-signed tokens. The journey answers
+ * `/api/episode?url=…` here instead, as the proxy would for the fixture
+ * episode, and records each request's Authorization header. On the
+ * context, so the service worker's fetches on a cache miss reach it.
+ */
+async function serveProxy(page: Page): Promise<string[]> {
+  const wav = silentWav();
+  const asked: string[] = [];
+  await page.context().route(/\/api\/episode\?/, async (route) => {
+    asked.push((await route.request().allHeaders())['authorization'] ?? '');
+    const link = new URL(route.request().url()).searchParams.get('url') ?? '';
+    if (!/^https:\/\/pod\.invalid\/.*\.mp3$/.test(link)) return route.fulfill({ status: 415 });
+    return answerWav(route, wav);
+  });
+  return asked;
 }
 
 // The player (#179): the podcast followed and looked at, its first
@@ -566,4 +591,97 @@ test('play an episode, keep the place across a reload and on another device', as
   await expect(second.getByRole('button', { name: 'Keep unread' })).toBeVisible();
   await expect(second.getByRole('region', { name: 'Player' })).toContainText('Played to the end.');
   await other.close();
+});
+
+// Downloads (#180): the fixture episode downloaded through the proxy's
+// stand-in into the episodes cache, listed with its size, then played
+// with the browser offline, the service worker answering the player's
+// ranges from the cache, then removed.
+test('download an episode, play it offline, remove it', async ({ page }) => {
+  test.setTimeout(120_000);
+  await serveEpisodes(page);
+  const asked = await serveProxy(page);
+  await signInAs(page, OWNER);
+  // The app registers its worker once settled (at most 30 s); a reload
+  // puts the page under it, as an installed app always is.
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+  await page.reload();
+  await expect
+    .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 20_000 })
+    .toBe(true);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Reader' }).check();
+  await letItSave(page);
+  await expect(
+    page.getByRole('combobox', { name: 'Downloaded episodes kept on this device, at most' }),
+  ).toHaveValue('500');
+  await expect(
+    page.getByRole('switch', { name: 'Download new episodes on their own only on Wi-Fi' }),
+  ).toBeChecked();
+  await page.goto('/reader/feeds');
+  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/pod.xml');
+  await page.getByRole('combobox', { name: 'Folder' }).fill('Listening');
+  await page.getByRole('button', { name: 'Follow' }).click();
+  await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
+  await letItSave(page);
+  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('status')).toContainText('2 new articles', { timeout: 30_000 });
+  // Nothing downloaded and no podcast keeping any: no Downloads link yet.
+  await expect(page.getByRole('link', { name: 'Downloads' })).toHaveCount(0);
+
+  // Download from the episode's page: through the proxy, with the ID token.
+  const nav = page.getByRole('navigation', { name: 'Folders' });
+  await nav.getByRole('link', { name: /^Podcasts/ }).click();
+  await page
+    .getByRole('list', { name: 'Articles' })
+    .getByRole('link', { name: /Reduction firing/ })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Reduction firing', level: 1 })).toBeVisible();
+  const player = page.getByRole('region', { name: 'Player' });
+  await player.getByRole('button', { name: 'Download' }).click();
+  await expect(player).toContainText('Downloaded, 47 KB', { timeout: 15_000 });
+  await expect(page.locator('article header .meta')).toContainText('Downloaded ·');
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toMatch(/^Bearer \S+$/);
+  await axe(page);
+
+  // The Downloads list: its size, the total against the cap.
+  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('link', { name: 'Back' }).click();
+  await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
+  await page.getByRole('link', { name: 'Downloads' }).click();
+  await expect(page.getByRole('heading', { name: 'Downloads', level: 1 })).toBeVisible();
+  const list = page.getByRole('list', { name: 'Downloads' });
+  await expect(list.getByRole('listitem')).toHaveCount(1);
+  await expect(list).toContainText('Reduction firing');
+  await expect(list).toContainText('Kiln hour (fixture) · 47 KB');
+  await expect(page.getByRole('status')).toHaveText('1 episode, 47 KB of 500 MB');
+  await axe(page);
+
+  // Offline: the page and the player go on, the file from the cache.
+  await page.context().setOffline(true);
+  await list.getByRole('link', { name: /Reduction firing/ }).click();
+  await expect(page.getByRole('heading', { name: 'Reduction firing', level: 1 })).toBeVisible();
+  const slider = player.getByRole('slider', { name: 'Position' });
+  await player.getByRole('button', { name: 'Play' }).click();
+  await expect(slider).toHaveAttribute('aria-valuetext', /^0:0[1-4] of 0:06$/, {
+    timeout: 10_000,
+  });
+  await player.getByRole('button', { name: 'Pause' }).click();
+  // Nothing reached the proxy's stand-in: the service worker answered
+  // the player's ranges from the cache.
+  expect(asked).toHaveLength(1);
+  await page.context().setOffline(false);
+
+  // Removed: gone from the list and the cache.
+  await page.goto('/reader/downloads');
+  await list.getByRole('button', { name: 'Remove download: Reduction firing' }).click();
+  await expect(list.getByRole('listitem')).toHaveCount(0);
+  await expect(page.getByText('Nothing downloaded yet.')).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('0 episodes, 0 MB of 500 MB');
+  const cached = await page.evaluate(async () =>
+    (await (await caches.open('mossgoblin-episodes')).keys()).map((r) => r.url),
+  );
+  expect(cached).toEqual([]);
 });
