@@ -74,6 +74,12 @@ export interface ItemRecord {
   enclosure?: EnclosureRecord;
   image?: string;
   episode?: number;
+  /** Where the episode was left, in seconds (#179). */
+  position?: number;
+  /** When that was, milliseconds, the server's clock once it has the write. */
+  playedAt?: number;
+  /** Heard to the end (#179). */
+  played?: boolean;
 }
 
 const isWeb = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v);
@@ -169,6 +175,7 @@ function itemsApi(functions: Functions): ItemsApi {
 function toItem(id: string, d: Record<string, unknown>): ItemRecord {
   const at = (d['published'] as { toMillis?: () => number } | undefined)?.toMillis?.();
   const enclosure = toEnclosure(d['enclosure']);
+  const playedAt = (d['playedAt'] as { toMillis?: () => number } | undefined)?.toMillis?.();
   return {
     id,
     feedId: String(d['feedId'] ?? ''),
@@ -190,6 +197,9 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
     ...(enclosure ? { enclosure } : {}),
     ...(isWeb(d['image']) ? { image: d['image'] } : {}),
     ...(isNum(d['episode']) ? { episode: d['episode'] } : {}),
+    ...(isNum(d['position']) && d['position'] >= 0 ? { position: d['position'] } : {}),
+    ...(isNum(playedAt) ? { playedAt } : {}),
+    ...(d['played'] === true ? { played: true } : {}),
   };
 }
 
@@ -234,6 +244,16 @@ export class ItemsService {
     }
     return [...byId.values()].sort((a, b) => b.published - a.published);
   });
+
+  /**
+   * Continue listening (#179): the episodes left part-way, on any
+   * device, the most recently played first.
+   */
+  readonly listening = computed(() =>
+    this.items()
+      .filter((i) => i.enclosure && !i.played && (i.position ?? 0) > 0)
+      .sort((a, b) => (b.playedAt ?? 0) - (a.playedAt ?? 0)),
+  );
 
   /** Unread articles per folder name, the special folders included. */
   readonly unreadCounts = computed(() => {
@@ -372,6 +392,37 @@ export class ItemsService {
         updatedAt: this.api.serverTime(),
       })
       .catch((err) => console.error('read mark not saved', err));
+  }
+
+  /**
+   * Keeps where an episode was left (#179), in one merge through the
+   * persistent cache, offline too: the position in seconds and when.
+   * Heard to the end, it is also marked played and read.
+   */
+  setProgress(id: string, progress: { position: number; played?: boolean }): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    const position = Math.max(0, Number.isFinite(progress.position) ? progress.position : 0);
+    if (progress.played) this.local.update((l) => ({ ...l, [id]: { ...l[id], read: true } }));
+    void this.api
+      .set(this.fb.db, paths.feedItem(uid, id), {
+        position,
+        playedAt: this.api.serverTime(),
+        ...(progress.played
+          ? { played: true, read: true, readAt: this.api.serverTime() }
+          : { played: false }),
+        updatedAt: this.api.serverTime(),
+      })
+      .catch((err) => console.error('listening position not saved', err));
+  }
+
+  /** "12:34", or "1:02:03" past the hour, for the player (#179). */
+  clock(seconds: number): string {
+    const s = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
   }
 
   /**

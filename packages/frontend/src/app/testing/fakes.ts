@@ -17,6 +17,7 @@ import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
 import { ITEMS_API, type ItemsApi, type Shelf } from '../reader/items.service';
+import type { AudioLike } from '../reader/player.service';
 import { READER_API, type ReaderApi } from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
@@ -327,6 +328,57 @@ export class FakeItemsApi implements ItemsApi {
 
   push(shelf: Shelf, docs: { id: string; data: Record<string, unknown> }[]): void {
     this.nexts.get(shelf)?.(docs);
+  }
+}
+
+/** A stand-in for the player's audio element (#179): set fields, then `emit` its events. */
+export class FakeAudio implements AudioLike {
+  src = '';
+  preload = '';
+  currentTime = 0;
+  duration = NaN;
+  paused = true;
+  ended = false;
+  playbackRate = 1;
+  defaultPlaybackRate = 1;
+  private readonly listeners = new Map<string, (() => void)[]>();
+  play = vi.fn(async () => {
+    this.paused = false;
+    this.ended = false;
+    this.emit('play');
+  });
+  pause = vi.fn(() => {
+    if (this.paused) return;
+    this.paused = true;
+    this.emit('pause');
+  });
+  load = vi.fn();
+  removeAttribute = vi.fn((name: string) => {
+    if (name === 'src') this.src = '';
+  });
+  addEventListener(type: string, listener: () => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+  emit(type: string): void {
+    for (const l of this.listeners.get(type) ?? []) l();
+  }
+  /** The metadata landing: its length known. */
+  meta(duration: number): void {
+    this.duration = duration;
+    this.emit('loadedmetadata');
+  }
+  /** Playing on to a time. */
+  tick(at: number): void {
+    this.currentTime = at;
+    this.emit('timeupdate');
+  }
+  /** Played out. */
+  end(): void {
+    this.currentTime = this.duration;
+    this.paused = true;
+    this.ended = true;
+    this.emit('pause');
+    this.emit('ended');
   }
 }
 

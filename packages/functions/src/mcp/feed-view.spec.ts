@@ -35,6 +35,17 @@ describe('feedItemView (#178)', () => {
     expect(view.fromWeb).toContain('content from the web');
   });
 
+  it('carries where Eric left an episode, and whether he heard it all (#179)', () => {
+    const view = feedItemView('f-1-a', { ...base, position: 754.5, played: false }, feeds);
+    expect(view).toMatchObject({ position: 754.5 });
+    expect(view).not.toHaveProperty('played');
+    const done = feedItemView('f-1-a', { ...base, position: 3900, played: true }, feeds);
+    expect(done).toMatchObject({ position: 3900, played: true });
+    expect(feedItemView('f-1-a', { ...base, position: '12:34' }, feeds)).not.toHaveProperty(
+      'position',
+    );
+  });
+
   it('leaves them out of an article, and drops what is no web link', () => {
     const article = feedItemView('f-1-b', base, feeds);
     expect(article).not.toHaveProperty('enclosure');

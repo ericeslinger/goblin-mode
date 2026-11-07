@@ -206,14 +206,15 @@ service cloud.firestore {
       }
 
       // Articles are the fetcher's. The gardener marks one read or
-      // saved, and ties it to the reading-queue record or the clipping
-      // the app made (#163), and nothing else: the text stays what the
-      // feed gave.
+      // saved, ties it to the reading-queue record or the clipping the
+      // app made (#163), and keeps where an episode was left (#179),
+      // and nothing else: the text stays what the feed gave.
       match /feedItems/{itemId} {
         allow read: if isOwner(uid);
         allow update: if isOwner(uid)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['read', 'readAt', 'saved', 'attachmentId', 'noteId', 'expireAt', 'updatedAt'])
+            .hasOnly(['read', 'readAt', 'saved', 'attachmentId', 'noteId', 'expireAt',
+              'position', 'playedAt', 'played', 'updatedAt'])
           // expireAt (#171) is the fetcher's; the owner may only clear it.
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['expireAt'])
             || !('expireAt' in request.resource.data))
@@ -223,6 +224,10 @@ service cloud.firestore {
           && (!('readAt' in request.resource.data) || request.resource.data.readAt is timestamp)
           && (!('attachmentId' in request.resource.data) || request.resource.data.attachmentId is string)
           && (!('noteId' in request.resource.data) || request.resource.data.noteId is string)
+          && (!('position' in request.resource.data)
+            || (request.resource.data.position is number && request.resource.data.position >= 0))
+          && (!('playedAt' in request.resource.data) || request.resource.data.playedAt is timestamp)
+          && (!('played' in request.resource.data) || request.resource.data.played is bool)
           && request.resource.data.updatedAt is timestamp;
         allow create, delete: if false;
       }

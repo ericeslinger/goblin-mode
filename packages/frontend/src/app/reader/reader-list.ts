@@ -225,11 +225,12 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
     /*
      * The status line is a bar fixed at the foot of the screen, so Undo
      * shows wherever the list is scrolled, and showing it moves no row
-     * (review on #182); the list leaves room for it at its end.
+     * (review on #182); the list leaves room for it at its end. It sits
+     * on the mini-player while that shows (#179).
      */
     .status {
       position: fixed;
-      inset: auto 0 0;
+      inset: auto 0 var(--mini-player-height, 0px);
       z-index: 1;
       box-sizing: border-box;
       max-width: 640px;

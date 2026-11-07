@@ -579,6 +579,14 @@ export const FeedItem = z.object({
   enclosure: Enclosure.optional(),
   image: WebUrl.optional(),
   episode: z.number().int().positive().optional(),
+  /**
+   * The owner's listening marks (#179): where the episode was left, in
+   * seconds, when, and whether it was heard to the end. Written by the
+   * player; the newest playedAt is the one other devices offer.
+   */
+  position: z.number().nonnegative().optional(),
+  playedAt: Timestamp.optional(),
+  played: z.boolean().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });

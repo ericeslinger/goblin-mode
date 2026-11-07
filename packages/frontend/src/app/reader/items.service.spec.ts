@@ -154,6 +154,52 @@ describe('ItemsService (#162)', () => {
     expect(items.find('a')).not.toHaveProperty('enclosure');
   });
 
+  it('keeps where an episode was left, lists the ones part-way, and marks one heard (#179)', () => {
+    const { items, api } = setup();
+    const audio = { url: 'https://pod.test/1.mp3', type: 'audio/mpeg', seconds: 2530 };
+    api.push('unread', [
+      item('a', 'f1', 1),
+      item('e1', 'f3', 2, { enclosure: audio, position: 754.5, playedAt: stamp(NOW_MS - H) }),
+      item('e2', 'f3', 3, { enclosure: audio, position: 60, playedAt: stamp(NOW_MS) }),
+      item('e3', 'f3', 4, { enclosure: audio, position: 0 }),
+      item('e4', 'f3', 5, { enclosure: audio, position: '12:34' }),
+    ]);
+    api.push('read', [
+      item('e5', 'f3', 6, {
+        enclosure: audio,
+        position: 2530,
+        played: true,
+        read: true,
+        playedAt: stamp(NOW_MS),
+      }),
+    ]);
+    expect(items.find('e1')).toMatchObject({ position: 754.5, playedAt: NOW_MS - H });
+    expect(items.find('e4')).not.toHaveProperty('position');
+    expect(items.find('e5')?.played).toBe(true);
+    // Part-way and not heard to the end, the latest played first.
+    expect(items.listening().map((i) => i.id)).toEqual(['e2', 'e1']);
+
+    items.setProgress('e1', { position: 800 });
+    expect(api.set.mock.lastCall).toEqual([
+      {},
+      'users/u1/feedItems/e1',
+      { position: 800, playedAt: 'SERVER_TIME', played: false, updatedAt: 'SERVER_TIME' },
+    ]);
+    items.setProgress('e2', { position: 2530, played: true });
+    expect(api.set.mock.lastCall![2]).toEqual({
+      position: 2530,
+      playedAt: 'SERVER_TIME',
+      played: true,
+      read: true,
+      readAt: 'SERVER_TIME',
+      updatedAt: 'SERVER_TIME',
+    });
+    expect(items.find('e2')?.read).toBe(true);
+    expect(items.clock(754.5)).toBe('12:34');
+    expect(items.clock(3725)).toBe('1:02:05');
+    expect(items.clock(NaN)).toBe('0:00');
+  });
+
   it('says how long an episode is (#178)', () => {
     const { items } = setup();
     expect(items.duration(2530)).toBe('42 min');

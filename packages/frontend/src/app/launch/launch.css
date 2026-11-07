@@ -2,7 +2,8 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   grid-template-areas: 'bar' 'capture' 'right-now';
-  height: 100dvh;
+  /* Less the mini-player while it shows (#179). */
+  height: calc(100dvh - var(--mini-player-height, 0px));
 }
 .bar {
   grid-area: bar;
