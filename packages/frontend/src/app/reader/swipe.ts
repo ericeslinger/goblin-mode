@@ -2,6 +2,8 @@ import { Directive, ElementRef, inject, output, signal } from '@angular/core';
 
 /** How far a swipe must travel to count (as the reminder rows). */
 export const SWIPE_PX = 80;
+/** How long the element takes to finish its slide once a swipe counts. */
+export const SETTLE_MS = 180;
 
 /**
  * A horizontal swipe on an element (#162): `left` or `right` fires past
@@ -12,6 +14,7 @@ export const SWIPE_PX = 80;
  */
 @Directive({
   selector: '[appSwipe]',
+  exportAs: 'appSwipe',
   host: {
     '(pointerdown)': 'down($event)',
     '(pointermove)': 'move($event)',
@@ -22,18 +25,27 @@ export const SWIPE_PX = 80;
     '(dragstart)': '$event.preventDefault()',
     '[style.transform]': 'dx() ? "translateX(" + dx() + "px)" : null',
     '[class.swiping]': 'dx() !== 0',
+    '[class.settling]': 'settling()',
   },
 })
 export class Swipe {
   readonly left = output<void>();
   readonly right = output<void>();
   readonly dx = signal(0);
+  /**
+   * A swipe that counted finishes its slide off the edge (SETTLE_MS,
+   * `.settling` for the transition) before `left` or `right` fires, so
+   * what was dragged in is in place when the change lands (Eric,
+   * 2026-11-07).
+   */
+  readonly settling = signal(false);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
   private start: { x: number; y: number; id: number } | null = null;
   private swiped = false;
 
   constructor() {
-    const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+    const host = this.host;
     host.addEventListener(
       'click',
       (e) => {
@@ -47,7 +59,7 @@ export class Swipe {
   }
 
   protected down(event: PointerEvent): void {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || this.settling()) return;
     this.start = { x: event.clientX, y: event.clientY, id: event.pointerId };
     this.swiped = false;
   }
@@ -70,8 +82,25 @@ export class Swipe {
     if (dx === 0) return;
     this.swiped = true;
     setTimeout(() => (this.swiped = false));
-    if (dx >= SWIPE_PX) this.right.emit();
-    else if (dx <= -SWIPE_PX) this.left.emit();
+    if (Math.abs(dx) < SWIPE_PX) return;
+    const sign = dx > 0 ? 1 : -1;
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const finish = () => {
+      // The change first, the reset two frames later, so what slid in is
+      // already in place when the slide is undone, with no transition.
+      if (sign > 0) this.right.emit();
+      else this.left.emit();
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          this.settling.set(false);
+          this.dx.set(0);
+        }),
+      );
+    };
+    if (reduced) return finish();
+    this.settling.set(true);
+    this.dx.set(sign * this.host.clientWidth);
+    setTimeout(finish, SETTLE_MS);
   }
 
   protected cancel(): void {

@@ -33,7 +33,24 @@ export function articleHtml(markdown: string, images: boolean): string {
   selector: 'app-reader-article',
   imports: [RouterLink, Swipe],
   template: `
-    <main class="page" appSwipe (left)="go(1)" (right)="go(-1)">
+    <main class="page" appSwipe #swipe="appSwipe" (left)="go(1)" (right)="go(-1)">
+      @if (swipe.dx() !== 0) {
+        <!-- The stories either side, drawn beside this one while it is dragged (Eric, 2026-11-07). -->
+        @if (neighbour(-1); as prev) {
+          <article class="pane prev" aria-hidden="true">
+            <h1>{{ prev.title }}</h1>
+            <p class="meta">{{ sourceOf(prev) }} · {{ when(prev) }}</p>
+            <div class="body" [innerHTML]="htmlOf(prev)"></div>
+          </article>
+        }
+        @if (neighbour(1); as next) {
+          <article class="pane next" aria-hidden="true">
+            <h1>{{ next.title }}</h1>
+            <p class="meta">{{ sourceOf(next) }} · {{ when(next) }}</p>
+            <div class="body" [innerHTML]="htmlOf(next)"></div>
+          </article>
+        }
+      }
       <a [routerLink]="backLink()" class="back">Back</a>
       @if (item(); as it) {
         <article>
@@ -95,8 +112,35 @@ export function articleHtml(markdown: string, images: boolean): string {
     </main>
   `,
   styles: `
+    :host {
+      display: block;
+      overflow-x: hidden;
+    }
     main {
+      position: relative;
       touch-action: pan-y;
+    }
+    main.settling {
+      transition: transform 180ms ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      main.settling {
+        transition: none;
+      }
+    }
+    .pane {
+      position: absolute;
+      top: 0;
+      width: 100%;
+      box-sizing: border-box;
+      padding: inherit;
+      pointer-events: none;
+    }
+    .pane.prev {
+      right: 100%;
+    }
+    .pane.next {
+      left: 100%;
     }
     h1 {
       overflow-wrap: anywhere;
@@ -177,9 +221,18 @@ export class ReaderArticle {
     const shelf = this.shelf();
     return shelf.kind === 'feed' ? ['/reader/s', shelf.id] : ['/reader/f', shelf.name];
   });
-  protected readonly source = computed(
-    () => this.reader.feeds().find((f) => f.id === this.item()?.feedId)?.title ?? 'Unknown feed',
-  );
+  protected readonly source = computed(() => this.sourceOf(this.item()));
+
+  protected sourceOf(it: ItemRecord | undefined): string {
+    return this.reader.feeds().find((f) => f.id === it?.feedId)?.title ?? 'Unknown feed';
+  }
+
+  /** A neighbour's HTML while it slides in; the same rendering as the current one. */
+  protected htmlOf(it: ItemRecord): SafeHtml {
+    return this.sanitizer.bypassSecurityTrustHtml(
+      articleHtml(it.readerContent || it.content || '', this.reader.images()),
+    );
+  }
   protected readonly html = computed<SafeHtml>(() => {
     const it = this.item();
     const markdown = it?.readerContent || it?.content || '';

@@ -130,6 +130,14 @@ export function shelfFromParam(value: string | null): Shelf2 {
     li.swiping {
       transition: none;
     }
+    li.settling {
+      transition: transform 180ms ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      li.settling {
+        transition: none;
+      }
+    }
     li.cursor {
       box-shadow: inset 3px 0 0 var(--accent);
     }
