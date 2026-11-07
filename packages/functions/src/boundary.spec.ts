@@ -32,6 +32,7 @@ const EXPORTS = [
   'discoverFeeds',
   'indexArticles',
   'searchArticles',
+  'importFeedlySaves',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

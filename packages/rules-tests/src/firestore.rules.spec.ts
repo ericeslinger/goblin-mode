@@ -390,8 +390,11 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
       ref.set({ image: 'https://cdn.invalid/art.jpg', updatedAt: now() }, { merge: true }),
     );
     await assertFails(ref.set({ episode: 3, updatedAt: now() }, { merge: true }));
-    await seed(path, { ...item(), enclosure });
+    // Tags (#176) are the server's, from a Feedly board: the owner neither adds nor changes them.
+    await assertFails(ref.set({ tags: ['Pottery'], updatedAt: now() }, { merge: true }));
+    await seed(path, { ...item(), enclosure, tags: ['Pottery'] });
     await assertSucceeds(ref.set({ read: true, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ tags: ['Pottery', 'Mine'], updatedAt: now() }, { merge: true }));
     await assertFails(
       ref.set({ enclosure: { ...enclosure, seconds: 1 }, updatedAt: now() }, { merge: true }),
     );

@@ -1,7 +1,16 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { applyRetention, indexItems, searchItems, sweepOld } from './firestore-store';
+import { SAVES_FEED_ID, feedItemId } from '@mossgoblin/schema';
+import { importSaves } from './feedly';
+import {
+  applyRetention,
+  firestoreSavesStore,
+  indexItems,
+  markAllDue,
+  searchItems,
+  sweepOld,
+} from './firestore-store';
 import { monthsAfter } from './refresh';
 import { termsOf } from './terms';
 
@@ -146,5 +155,45 @@ describe('the word index (#175)', () => {
     expect(await terms('stale')).toEqual(['kiln', 'full', 'essay', 'feed', 'text']);
     expect(await indexItems(db, 'u1')).toBe(0);
     expect((await searchItems(db, 'u1', 'essay')).items.map((f) => f.id)).toEqual(['stale']);
+  });
+});
+
+describe('Feedly saves (#176)', () => {
+  it('writes saved, read articles once, merges tags, and makes a feed Refresh never marks due', async () => {
+    const store = firestoreSavesStore(db);
+    const entries = [
+      { url: 'https://x.test/teapots', title: 'Teapots', tags: ['Pottery'] },
+      { url: 'https://x.test/kilns', title: 'Kilns', published: NOW - DAY, tags: [] },
+    ];
+    expect((await importSaves(store, 'u1', entries, NOW)).added).toBe(2);
+    const id = feedItemId(SAVES_FEED_ID, 'https://x.test/teapots');
+    const doc = (await db.doc(`users/u1/feedItems/${id}`).get()).data()!;
+    expect(doc).toMatchObject({
+      saved: true,
+      read: true,
+      tags: ['Pottery'],
+      feedId: SAVES_FEED_ID,
+    });
+    expect(doc['readAt']).toBeUndefined();
+    // In the word index (#175), so search finds an imported save.
+    expect(doc['terms']).toEqual(termsOf('Teapots', ''));
+    expect((await searchItems(db, 'u1', 'teapots')).items.map((f) => f.id)).toEqual([id]);
+    expect(doc['expireAt']).toBeUndefined();
+    const feed = (await db.doc(`users/u1/feeds/${SAVES_FEED_ID}`).get()).data()!;
+    expect(feed).toMatchObject({ url: '', title: 'Feedly saves', folders: [] });
+    expect(feed['nextFetchAt']).toBeUndefined();
+    // Again, with a board: known, and only the tag is new.
+    await db.doc(`users/u1/feedItems/${id}`).update({ read: false });
+    const again = await importSaves(
+      store,
+      'u1',
+      [{ ...entries[0], tags: ['Glaze'] }, entries[1]],
+      NOW,
+    );
+    expect(again).toMatchObject({ added: 0, known: 2 });
+    const after = (await db.doc(`users/u1/feedItems/${id}`).get()).data()!;
+    expect(after['tags']).toEqual(['Pottery', 'Glaze']);
+    expect(after['read']).toBe(false);
+    expect(await markAllDue(db, 'u1', NOW)).toBe(0);
   });
 });

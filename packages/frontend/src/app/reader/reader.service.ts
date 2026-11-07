@@ -2,6 +2,7 @@ import {
   DestroyRef,
   Injectable,
   InjectionToken,
+  Injector,
   computed,
   effect,
   inject,
@@ -31,7 +32,9 @@ import { AuthService } from '../auth.service';
 import { RESERVED_FOLDERS } from './shelves';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
+import { ReadingService } from '../reading/reading.service';
 import { SETTINGS_API } from '../theme/theme-sync.service';
+import { type FeedlyEntry, readFeedlyExport } from './feedly';
 
 /** A feed as the app shows it (#159). */
 export interface FeedRecord {
@@ -123,6 +126,8 @@ export interface ReaderApi {
   searchArticles(q: string, limit: number): Promise<SearchOutcome>;
   /** The indexArticles callable (#175): the word index written on the articles stored before it. */
   indexArticles(): Promise<{ indexed: number }>;
+  /** The importFeedlySaves callable (#176): a batch of Feedly's saves stored as saved articles. */
+  importFeedlySaves(entries: FeedlyEntry[]): Promise<SavesImported>;
 }
 
 /**
@@ -147,6 +152,35 @@ export interface SearchHit {
   saved: boolean;
   noteId?: string;
 }
+
+/** What one batch of Feedly's saves did (`importFeedlySaves`, #176). */
+export interface SavesImported {
+  added: number;
+  known: number;
+  skipped: number;
+  /** The articles added, for the reading queue. */
+  fresh: { id: string; link: string; published: number }[];
+}
+
+/** Feedly entries a call carries, and about the most HTML: the callable's body has a limit. */
+export const SAVES_BATCH = 100;
+const SAVES_BATCH_CHARS = 4_000_000;
+/**
+ * The most of an import's new saves put in the reading queue (#176):
+ * the queue is for reading, and each link there is fetched by the
+ * server; the rest are on the Saved shelf.
+ */
+export const SAVES_QUEUED = 50;
+
+/** An OPML import's outcome in words (#160). */
+export function opmlMessage(out: ImportOutcome): string {
+  const parts = [`${out.added} ${out.added === 1 ? 'feed' : 'feeds'} added`];
+  if (out.known) parts.push(`${out.known} already followed`);
+  if (out.refused) parts.push(`${out.refused} left out past the ${FEED_CAP} cap`);
+  return `${parts.join(', ')}.`;
+}
+
+const count = (n: number) => n.toLocaleString('en-US');
 
 /** A feed discovery found (#174). */
 export interface DiscoveredFeed {
@@ -194,6 +228,9 @@ function readerApi(functions: Functions): ReaderApi {
       ).data,
     sweep: async () =>
       (await httpsCallable<unknown, { removed: number }>(functions, 'sweepArticles')({})).data,
+    importFeedlySaves: async (entries) =>
+      (await httpsCallable<unknown, SavesImported>(functions, 'importFeedlySaves')({ entries }))
+        .data,
     discoverFeeds: async (url) =>
       (
         await httpsCallable<unknown, { feeds: DiscoveredFeed[] }>(
@@ -271,6 +308,9 @@ export class ReaderService {
   private readonly api = inject(READER_API);
   private readonly settingsApi = inject(SETTINGS_API);
   private readonly modules = inject(ModulesService);
+  // Taken when an import needs it, not here: most pages that know the
+  // feeds never queue a link.
+  private readonly injector = inject(Injector);
 
   private readonly list = signal<FeedRecord[]>([]);
   /** The Reader's own settings doc (`settings/reader`), once read. */
@@ -372,6 +412,129 @@ export class ReaderService {
       }
     }
     return outcome;
+  }
+
+  /**
+   * Imports Feedly's full export (#176), or one of its JSON files: the
+   * OPML's feeds as `importOpml` does, then the read-later saves and
+   * the boards' articles, a hundred a call, each stored by the server
+   * as a saved, read article with its boards as tags. `progress` hears
+   * how far it is; the result says what came of it. An entry keeps its
+   * feed only when that feed is followed (the OPML's are by now), so
+   * the rest are filed under the Feedly saves. The newest few added go
+   * in the reading queue too, as Save for later does.
+   */
+  async importFeedly(
+    file: Blob & { name?: string },
+    progress: (line: string) => void,
+  ): Promise<string> {
+    // Chosen before the account or the feeds are known (a page opened
+    // straight on Manage feeds): wait for them rather than refuse, since
+    // the entries' feeds are matched against the list.
+    const uid = await this.whenReady();
+    if (!uid) return 'Sign in first.';
+    let found;
+    try {
+      found = await readFeedlyExport(file);
+    } catch (err) {
+      console.error('Feedly export not read', err);
+      return 'That file could not be read.';
+    }
+    const feeds = found.opml ? this.importOpml(found.opml) : undefined;
+    const said = feeds ? `${opmlMessage(feeds)} ` : '';
+    const entries = found.entries.map((e) => this.forServer(e));
+    if (!entries.length) {
+      return feeds
+        ? `${said}New articles arrive once the server has looked.`
+        : 'No feeds or saved articles found in that file. It wants an OPML file or Feedly’s export.';
+    }
+    const total = entries.length;
+    let sent = 0;
+    let added = 0;
+    let known = 0;
+    const fresh: SavesImported['fresh'] = [];
+    let stopped = '';
+    for (const batch of batches(entries)) {
+      progress(`${said}Imported ${count(sent)} of ${count(total)} saved articles…`);
+      try {
+        const out = await this.api.importFeedlySaves(batch);
+        added += out.added;
+        known += out.known;
+        fresh.push(...out.fresh);
+      } catch (err) {
+        const message = callableMessage(err);
+        stopped = /^Today’s \d+ imported/.test(message)
+          ? ` ${message}`
+          : ' Then the server could not be reached; choose the file again to go on, as what came is kept.';
+        break;
+      }
+      sent += batch.length;
+    }
+    const queued = this.queue(uid, fresh);
+    const tagged = found.entries.some((e) => e.tags.length) ? '; boards became tags' : '';
+    const inQueue = queued ? ` The newest ${queued} went to the reading queue.` : '';
+    const left = total - sent;
+    const how = `Imported ${count(added)} saved ${added === 1 ? 'article' : 'articles'} (${count(known)} already here${left ? `, ${count(left)} not yet` : ''})${tagged}.`;
+    return `${said}${how}${inQueue}${stopped}`;
+  }
+
+  /**
+   * The gardener's uid once the feeds have been read (#176), or
+   * undefined when signed out, or when the feeds are still not read
+   * after half a minute (the module off, or no network to restore the
+   * account). The module's switch and the account load after a reload,
+   * so neither is taken as an answer until then.
+   */
+  private whenReady(): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (uid: string | undefined) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        ref.destroy();
+        resolve(uid);
+      };
+      const timer = setTimeout(() => finish(undefined), 30_000);
+      const ref = effect(
+        () => {
+          const user = this.auth.user();
+          if (user?.uid && this.read()) finish(user.uid);
+          else if (user === null) finish(undefined);
+        },
+        { injector: this.injector },
+      );
+    });
+  }
+
+  /** An entry as the server takes it: its feed only when that feed is followed. */
+  private forServer(e: FeedlyEntry): FeedlyEntry {
+    const { feedUrl, guid, ...rest } = e;
+    return feedUrl && this.followed(feedUrl)
+      ? { ...rest, feedUrl, ...(guid ? { guid } : {}) }
+      : rest;
+  }
+
+  /** The newest new saves into the reading queue, each tied to its article; how many. */
+  private queue(uid: string, fresh: SavesImported['fresh']): number {
+    const newest = [...fresh].sort((a, b) => b.published - a.published).slice(0, SAVES_QUEUED);
+    if (!newest.length) return 0;
+    const reading = this.injector.get(ReadingService);
+    let queued = 0;
+    for (const item of newest) {
+      const attachmentId = reading.save(item.link);
+      if (!attachmentId) continue;
+      queued++;
+      void this.api
+        .set(
+          this.fb.db,
+          paths.feedItem(uid, item.id),
+          { attachmentId, updatedAt: this.api.serverTime() },
+          true,
+        )
+        .catch((err) => console.error('queued save not tied', err));
+    }
+    return queued;
   }
 
   /**
@@ -616,4 +779,21 @@ export class ReaderService {
       )
       .catch((err) => console.error('feed not saved', err));
   }
+}
+
+/** Entries in calls of at most a hundred, and at most about 4 MB of HTML. */
+function* batches(entries: FeedlyEntry[]): Generator<FeedlyEntry[]> {
+  let batch: FeedlyEntry[] = [];
+  let chars = 0;
+  for (const e of entries) {
+    const size = (e.html?.length ?? 0) + e.title.length + e.url.length;
+    if (batch.length && (batch.length >= SAVES_BATCH || chars + size > SAVES_BATCH_CHARS)) {
+      yield batch;
+      batch = [];
+      chars = 0;
+    }
+    batch.push(e);
+    chars += size;
+  }
+  if (batch.length) yield batch;
 }

@@ -59,4 +59,11 @@ describe('feedItemView (#178)', () => {
     expect(odd).not.toHaveProperty('enclosure');
     expect(odd).not.toHaveProperty('image');
   });
+
+  it('carries the tags an import gave it (#176), and none when it has none', () => {
+    expect(feedItemView('f-1-t', { ...base, tags: ['Pottery', 7] }, feeds)).toMatchObject({
+      tags: ['Pottery'],
+    });
+    expect(feedItemView('f-1-t', base, feeds)).not.toHaveProperty('tags');
+  });
 });

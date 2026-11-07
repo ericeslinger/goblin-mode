@@ -226,9 +226,16 @@ export function feedItemView(id: string, d: Data, feeds: FeedIndex) {
     read: d['read'] === true,
     saved: d['saved'] === true,
     ...(typeof d['noteId'] === 'string' ? { noteId: d['noteId'] } : {}),
+    ...(tagsOf(d).length ? { tags: tagsOf(d) } : {}),
     hasReaderText: d['readerState'] === 'done',
     ...episodeView(d),
   };
+}
+
+/** An article's tags (#176): the Feedly boards it was on, as the import kept them. */
+function tagsOf(d: Data): string[] {
+  const tags = d['tags'];
+  return Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string') : [];
 }
 
 /**
@@ -2197,12 +2204,15 @@ export class NotesTools {
   /**
    * Articles from the feeds the gardener follows (#163): a folder's, a
    * feed's, or what is saved; unread unless includeRead; newest first.
+   * A tag (#176) narrows any of these, matched whatever its case, among
+   * the newest thousand the query loads: a filter here, not an index.
    */
   async listFeedItems(args: {
     folder?: string;
     feedId?: string;
     saved?: boolean;
     includeRead?: boolean;
+    tag?: string;
     limit?: number;
   }) {
     const feeds = await this.feedIndex();
@@ -2232,12 +2242,14 @@ export class NotesTools {
       : args.includeRead
         ? items
         : items.where('read', '==', false);
+    const tag = args.tag?.trim().toLowerCase();
     const snap = await q
       .orderBy('published', 'desc')
-      .limit(only ? 1000 : limit)
+      .limit(only || tag ? 1000 : limit)
       .get();
     return snap.docs
       .filter((d) => !only || only.has(String(d.get('feedId'))))
+      .filter((d) => !tag || tagsOf(d.data()).some((t) => t.toLowerCase() === tag))
       .slice(0, limit)
       .map((d) => feedItemView(d.id, d.data(), feeds));
   }

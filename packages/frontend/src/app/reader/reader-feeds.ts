@@ -1,9 +1,22 @@
-import { Component, type ElementRef, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  type ElementRef,
+  type WritableSignal,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
 import { DownloadPrefs, KEEP_CHOICES } from './download-prefs';
-import { type DiscoveredFeed, type FeedRecord, ReaderService, cleanFolder } from './reader.service';
+import {
+  type DiscoveredFeed,
+  type FeedRecord,
+  ReaderService,
+  cleanFolder,
+  opmlMessage,
+} from './reader.service';
 
 /**
  * What to say when a typed folder takes a special shelf's name (#185):
@@ -128,15 +141,16 @@ export function renamedFolder(names: readonly string[]): string {
 
       <h2 id="import">Import feeds</h2>
       <p class="muted">
-        An OPML file, as Feedly exports (Organize, Export OPML). Feeds already followed are kept and
-        gain the file's folders; at most {{ cap }} feeds.
+        An OPML file, as Feedly exports (Organize, Export OPML), or Feedly's full export, the zip:
+        its feeds, and its saved articles on the Saved shelf with their boards as tags. Feeds
+        already followed are kept and gain the file's folders; at most {{ cap }} feeds.
       </p>
       <label class="file">
-        Choose an OPML file
+        Choose an OPML file or Feedly's export
         <input
           type="file"
-          accept=".opml,.xml,text/xml,application/xml,text/x-opml"
-          [disabled]="!reader.loaded()"
+          accept=".opml,.xml,.zip,.json,text/xml,application/xml,text/x-opml,application/zip,application/json"
+          [disabled]="!reader.loaded() || importing()"
           (change)="importFile($any($event.target))"
         />
       </label>
@@ -291,6 +305,8 @@ export class ReaderFeeds {
   protected readonly keepChoices = KEEP_CHOICES;
   protected readonly cap = FEED_CAP;
   protected readonly imported = signal('');
+  /** A Feedly export on its way to the server (#176). */
+  protected readonly importing = signal(false);
   protected readonly followed = signal('');
   /** Said when a folder edit renamed a special name (#185). */
   protected readonly moved = signal('');
@@ -299,26 +315,47 @@ export class ReaderFeeds {
   protected readonly finding = signal(false);
   private readonly urlInput = viewChild.required<ElementRef<HTMLInputElement>>('url');
   private readonly folderInput = viewChild.required<ElementRef<HTMLInputElement>>('folder');
+  /**
+   * Sets one of the page's status lines; the folder editor's line goes
+   * then, so it never stays behind a later Follow or import (review on
+   * #194).
+   */
+  private say(line: WritableSignal<string>, text: string): void {
+    this.moved.set('');
+    line.set(text);
+  }
+
   protected async importFile(input: HTMLInputElement): Promise<void> {
     const file = input.files?.[0];
     if (!file) return;
     input.value = '';
+    // Feedly's full export, or one of its files (#176): feeds and saves.
+    if (/\.(zip|json)$/i.test(file.name) || /zip|json/.test(file.type)) {
+      this.importing.set(true);
+      this.say(this.imported, 'Reading the file…');
+      try {
+        this.say(
+          this.imported,
+          await this.reader.importFeedly(file, (line) => this.say(this.imported, line)),
+        );
+      } finally {
+        this.importing.set(false);
+      }
+      return;
+    }
     let out;
     try {
       out = this.reader.importOpml(await file.text());
     } catch (err) {
       console.error('OPML not read', err);
-      this.imported.set('That file could not be read.');
+      this.say(this.imported, 'That file could not be read.');
       return;
     }
     if (!out) {
-      this.imported.set('No feeds found in that file. It wants an OPML export.');
+      this.say(this.imported, 'No feeds found in that file. It wants an OPML export.');
       return;
     }
-    const parts = [`${out.added} ${out.added === 1 ? 'feed' : 'feeds'} added`];
-    if (out.known) parts.push(`${out.known} already followed`);
-    if (out.refused) parts.push(`${out.refused} left out past the ${FEED_CAP} cap`);
-    this.imported.set(`${parts.join(', ')}. New articles arrive once the server has looked.`);
+    this.say(this.imported, `${opmlMessage(out)} New articles arrive once the server has looked.`);
   }
 
   protected follow(event: Event, url: HTMLInputElement, folder: HTMLInputElement): void {
@@ -326,7 +363,8 @@ export class ReaderFeeds {
     if (!url.value.trim()) return;
     const id = this.reader.addFeed(url.value, folder.value);
     if (!id) {
-      this.followed.set(
+      this.say(
+        this.followed,
         this.reader.feeds().length >= FEED_CAP
           ? `That is ${FEED_CAP} feeds already; remove one first.`
           : 'That is not a link. Paste one starting with https://.',
@@ -335,7 +373,8 @@ export class ReaderFeeds {
     }
     url.value = '';
     this.candidates.set([]);
-    this.followed.set(
+    this.say(
+      this.followed,
       [
         'Following. Its name and articles arrive once the server has looked.',
         renamedFolder([folder.value]),
@@ -349,20 +388,21 @@ export class ReaderFeeds {
   protected async find(): Promise<void> {
     const text = this.urlInput().nativeElement.value.trim();
     if (!text) {
-      this.followed.set('Paste a site’s address first.');
+      this.say(this.followed, 'Paste a site’s address first.');
       return;
     }
     this.finding.set(true);
     this.candidates.set([]);
-    this.followed.set('Looking for feeds…');
+    this.say(this.followed, 'Looking for feeds…');
     const found = await this.reader.discover(text);
     this.finding.set(false);
     if (typeof found === 'string') {
-      this.followed.set(found);
+      this.say(this.followed, found);
       return;
     }
     this.candidates.set(found);
-    this.followed.set(
+    this.say(
+      this.followed,
       found.length === 1
         ? 'Found a feed; follow it below.'
         : `Found ${found.length} feeds; pick one below.`,
@@ -381,12 +421,13 @@ export class ReaderFeeds {
     const folder = cleanFolder(typed);
     const known = this.reader.followed(found.url);
     if (!this.reader.addFeed(found.url, folder, found.title)) {
-      this.followed.set(`That is ${FEED_CAP} feeds already; remove one first.`);
+      this.say(this.followed, `That is ${FEED_CAP} feeds already; remove one first.`);
       return;
     }
     this.urlInput().nativeElement.value = '';
     this.candidates.set([]);
-    this.followed.set(
+    this.say(
+      this.followed,
       [
         known
           ? `Already following ${known.title}${folder ? `; now in ${folder} too` : ''}.`
@@ -415,6 +456,8 @@ export class ReaderFeeds {
   }
 
   protected meta(feed: FeedRecord): string {
+    // The Feedly saves (#176): articles imported, no feed to look at.
+    if (!feed.url) return 'saved articles imported from Feedly; nothing to look at';
     let host = feed.url;
     try {
       host = new URL(feed.site ?? feed.url).hostname;

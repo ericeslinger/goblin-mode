@@ -10,11 +10,13 @@ import { FEED_CAP, paths } from '@mossgoblin/schema';
 import { publicFetch } from '../attachments/import';
 import { readerMarkdown } from './article';
 import { discoverFeeds as discover } from './discover';
+import { DAILY_IMPORTS, importSaves, readEntries } from './feedly';
 import { decodeBody, discoverFeedFetch, discoverPageFetch, feedFetch } from './fetch';
 import {
   applyRetention,
   firestoreRefreshStore,
   indexItems,
+  firestoreSavesStore,
   markAllDue,
   removeFeedItems,
   searchItems,
@@ -356,3 +358,46 @@ export const searchArticles = onCall(async (request) => {
     truncated: found.truncated,
   };
 });
+
+/**
+ * Feedly's saves and boards (#176), from Manage feeds: a batch of at
+ * most a hundred entries the app read out of Feedly's full export,
+ * each stored as a saved, read article, its boards its tags. onCall,
+ * as everything the app asks the server to do is; the HTML reaches no
+ * model and is kept as escaped markdown, as a feed's is. Counted in
+ * the day's usage record (`imports`) by what is added, so the same
+ * file again tomorrow spends nothing on what came today.
+ */
+export const importFeedlySaves = onCall(
+  { memory: '512MiB', timeoutSeconds: 120 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const uid = request.auth.uid;
+    let read;
+    try {
+      read = readEntries(request.data);
+    } catch (err) {
+      throw new HttpsError('invalid-argument', err instanceof Error ? err.message : String(err));
+    }
+    const db = getFirestore();
+    const now = Date.now();
+    const usageRef = db.doc(paths.usage(uid, new Date(now).toISOString().slice(0, 10)));
+    const used = Number((await usageRef.get()).data()?.['imports'] ?? 0);
+    if (used >= DAILY_IMPORTS) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Today’s ${DAILY_IMPORTS} imported articles are used up; import the same file tomorrow for the rest.`,
+      );
+    }
+    const outcome = await importSaves(firestoreSavesStore(db), uid, read.entries, now);
+    if (outcome.added) {
+      await usageRef.set({ imports: FieldValue.increment(outcome.added) }, { merge: true });
+    }
+    logger.info('importFeedlySaves', {
+      added: outcome.added,
+      known: outcome.known,
+      skipped: read.skipped,
+    });
+    return { ...outcome, skipped: read.skipped };
+  },
+);

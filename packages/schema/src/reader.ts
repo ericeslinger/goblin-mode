@@ -220,3 +220,34 @@ export function clippingBody(from: ClippingSource): string {
     : escapeMarkdown(from.feedTitle) || 'the web';
   return `_From ${source}${who}, ${when}._\n\n${from.content.trim()}`;
 }
+
+/**
+ * The feed the Feedly import files a saved article under when the
+ * export does not name a feed the gardener follows (#176). It has no
+ * link, so the fetcher never looks at it: no `nextFetchAt`, and
+ * Refresh skips a feed without a url.
+ */
+export const SAVES_FEED_ID = 'f-feedly-saves';
+export const SAVES_FEED_TITLE = 'Feedly saves';
+/** The most tags an article carries, and the longest one (#176). */
+export const ITEM_TAGS_MAX = 20;
+export const ITEM_TAG_LENGTH = 60;
+
+/**
+ * An article's tags as they are kept (#176): words trimmed and spaces
+ * collapsed, cut to 60 characters, the first spelling of each kept
+ * whatever its case, at most 20. The app and the server both clean.
+ */
+export function cleanTags(tags: readonly unknown[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of tags) {
+    if (typeof tag !== 'string') continue;
+    const t = tag.replace(/\s+/g, ' ').trim().slice(0, ITEM_TAG_LENGTH).trim();
+    if (!t || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    out.push(t);
+    if (out.length >= ITEM_TAGS_MAX) break;
+  }
+  return out;
+}

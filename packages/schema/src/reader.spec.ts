@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   UNCATEGORIZED,
+  cleanTags,
   clippingBody,
   escapeMarkdown,
   isWebLink,
@@ -167,5 +168,16 @@ describe('clippings (#163)', () => {
         content: 'x',
       }),
     ).toBe('_From F, 1970-01-01._\n\nx');
+  });
+});
+
+describe('cleanTags (#176)', () => {
+  it('trims, collapses, dedupes by case and caps', () => {
+    expect(cleanTags(['  Pottery ', 'pottery', 'Two  words', '', 7, 'x'.repeat(70)])).toEqual([
+      'Pottery',
+      'Two words',
+      'x'.repeat(60),
+    ]);
+    expect(cleanTags(Array.from({ length: 30 }, (_, i) => `t${i}`))).toHaveLength(20);
   });
 });

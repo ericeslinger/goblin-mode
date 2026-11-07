@@ -24,6 +24,7 @@ import type {
   DownloadsApi,
   EpisodeCache,
 } from '../reader/downloads.service';
+import type { FeedlyEntry } from '../reader/feedly';
 import type { AudioLike } from '../reader/player.service';
 import { READER_API, type ReaderApi, type SearchOutcome } from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
@@ -272,6 +273,14 @@ export class FakeReaderApi implements ReaderApi {
   refresh = vi.fn(async () => ({ fetched: 2, added: 5, failed: 0, skipped: 0 }));
   applyRetention = vi.fn(async (_keepMonths: number | null) => ({ touched: 7 }));
   sweep = vi.fn(async () => ({ removed: 3 }));
+  /** Every entry new unless its link is in `known` (#176). */
+  readonly knownLinks = new Set<string>();
+  importFeedlySaves = vi.fn(async (entries: FeedlyEntry[]) => {
+    const fresh = entries
+      .filter((e) => !this.knownLinks.has(e.url))
+      .map((e) => ({ id: `i-${e.url}`, link: e.url, published: e.published ?? 0 }));
+    return { added: fresh.length, known: entries.length - fresh.length, skipped: 0, fresh };
+  });
   discoverFeeds = vi.fn(async (_url: string) => [
     { url: 'https://site.test/posts.xml', title: 'Posts' },
     { url: 'https://site.test/games.atom', title: 'Dice' },

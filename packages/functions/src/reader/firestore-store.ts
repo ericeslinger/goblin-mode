@@ -1,5 +1,6 @@
 import { FieldPath, FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
-import { matchesSearch, paths } from '@mossgoblin/schema';
+import { SAVES_FEED_ID, SAVES_FEED_TITLE, matchesSearch, paths } from '@mossgoblin/schema';
+import type { SavesStore } from './feedly';
 import {
   CLAIM_MS,
   type DueFeed,
@@ -151,7 +152,8 @@ export async function removeFeedItems(db: Firestore, uid: string, feedId: string
 /** Marks every live feed of a gardener due now, for Refresh in the app. */
 export async function markAllDue(db: Firestore, uid: string, now: number): Promise<number> {
   const snap = await db.collection(paths.feeds(uid)).get();
-  const live = snap.docs.filter((d) => d.data()['dead'] !== true);
+  // A feed with no link (the Feedly saves, #176) has nothing to look at.
+  const live = snap.docs.filter((d) => d.data()['dead'] !== true && str(d.data()['url']));
   for (let at = 0; at < live.length; at += 400) {
     const batch = db.batch();
     for (const d of live.slice(at, at + 400)) {
@@ -450,4 +452,94 @@ export async function indexItems(db: Firestore, uid: string, pageSize = 400): Pr
     if (snap.size < pageSize) return done();
     after = snap.docs[snap.docs.length - 1];
   }
+}
+
+/**
+ * The Feedly import's writes (#176): saved, read articles under
+ * `feedItems`, and the feed with no link they are filed under when the
+ * export names none the gardener follows.
+ */
+export function firestoreSavesStore(db: Firestore): SavesStore {
+  return {
+    existing: async (uid, ids) => {
+      const out = new Map<string, string[]>();
+      for (let at = 0; at < ids.length; at += 100) {
+        const refs = ids.slice(at, at + 100).map((id) => db.doc(paths.feedItem(uid, id)));
+        for (const d of await db.getAll(...refs)) {
+          if (!d.exists) continue;
+          const tags = d.data()?.['tags'];
+          out.set(
+            d.id,
+            Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string') : [],
+          );
+        }
+      }
+      return out;
+    },
+    ensureSavesFeed: async (uid) => {
+      // No url and no nextFetchAt: the tick never finds it due, and
+      // Refresh skips it (markAllDue). Made once; a second create fails
+      // as already there, which is the point.
+      await db
+        .doc(paths.feed(uid, SAVES_FEED_ID))
+        .create({
+          url: '',
+          title: SAVES_FEED_TITLE,
+          folders: [],
+          addedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+        .catch((err: { code?: number }) => {
+          if (err.code !== 6) throw err;
+        });
+    },
+    write: async (uid, items) => {
+      const docOf = (item: (typeof items)[number]) => {
+        // No expireAt, ever: a saved article is kept (#171).
+        const { id: _id, published, tags, expireAt: _expireAt, ...rest } = item;
+        return {
+          ...rest,
+          published: Timestamp.fromMillis(published),
+          ...(tags.length ? { tags } : {}),
+          // Read, so no unread count moves, and no readAt, so the read
+          // shelf's newest two hundred stay what was read.
+          read: true,
+          saved: true,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+      };
+      for (let at = 0; at < items.length; at += 400) {
+        const chunk = items.slice(at, at + 400);
+        const batch = db.batch();
+        // create, not set: an article stored meanwhile (a fetch, the
+        // same import from another device) is left as it is.
+        for (const item of chunk) batch.create(db.doc(paths.feedItem(uid, item.id)), docOf(item));
+        await batch.commit().catch(async (err: { code?: number }) => {
+          if (err.code !== 6) throw err;
+          // One was there after all: the rest one by one.
+          for (const item of chunk) {
+            await db
+              .doc(paths.feedItem(uid, item.id))
+              .create(docOf(item))
+              .catch((e: { code?: number }) => {
+                if (e.code !== 6) throw e;
+              });
+          }
+        });
+      }
+    },
+    setTags: async (uid, updates) => {
+      for (let at = 0; at < updates.length; at += 400) {
+        const batch = db.batch();
+        for (const u of updates.slice(at, at + 400)) {
+          batch.update(db.doc(paths.feedItem(uid, u.id)), {
+            tags: u.tags,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      }
+    },
+  };
 }
