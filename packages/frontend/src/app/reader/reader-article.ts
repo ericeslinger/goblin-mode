@@ -117,26 +117,33 @@ export function articleHtml(markdown: string, images: boolean): string {
       line-height: 1.55;
       overflow-wrap: anywhere;
     }
-    .body :is(h2, h3, h4) {
+    /* The article's HTML is injected, so these pierce the component's scope. */
+    :host ::ng-deep .body :is(h2, h3, h4) {
       margin: 1.2em 0 0.4em;
     }
-    .body img {
+    :host ::ng-deep .body img,
+    :host ::ng-deep .body video,
+    :host ::ng-deep .body table {
       max-width: 100%;
       height: auto;
     }
-    .body pre {
+    :host ::ng-deep .body table {
+      display: block;
+      overflow-x: auto;
+    }
+    :host ::ng-deep .body pre {
       overflow-x: auto;
       padding: var(--space-2);
       background: var(--chip-bg);
       border-radius: var(--radius-control);
     }
-    .body blockquote {
+    :host ::ng-deep .body blockquote {
       margin: 0.8em 0;
       padding-left: var(--space-3);
       border-left: 3px solid var(--rule);
       color: var(--quiet);
     }
-    .body .no-image {
+    :host ::ng-deep .body .no-image {
       color: var(--quiet);
       font-style: italic;
     }
