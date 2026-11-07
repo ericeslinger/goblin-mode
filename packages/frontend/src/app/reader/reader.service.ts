@@ -56,6 +56,30 @@ export interface ImportOutcome {
   refused: number;
 }
 
+/** The Reader's settings as the app holds them; unknown fields ride along. */
+interface ReaderSettingsView {
+  folderOrder: string[];
+  images: boolean;
+  keepMonths?: number;
+  readOnScroll?: boolean;
+  seenAt?: Record<string, unknown>;
+}
+
+/** The Reader's settings doc as read. */
+function readSettings(data: Record<string, unknown>): ReaderSettingsView {
+  const months = data['keepMonths'];
+  const seen = data['seenAt'];
+  return {
+    folderOrder: Array.isArray(data['folderOrder'])
+      ? data['folderOrder'].filter((f): f is string => typeof f === 'string')
+      : [],
+    images: data['images'] !== false,
+    ...(typeof months === 'number' && months > 0 ? { keepMonths: months } : {}),
+    ...(typeof data['readOnScroll'] === 'boolean' ? { readOnScroll: data['readOnScroll'] } : {}),
+    ...(seen && typeof seen === 'object' ? { seenAt: seen as Record<string, unknown> } : {}),
+  };
+}
+
 /** The Firestore calls the service makes, as a seam for unit specs. */
 export interface ReaderApi {
   listen(
@@ -71,6 +95,10 @@ export interface ReaderApi {
   clear(): unknown;
   /** The refreshFeeds callable (#161): every feed looked at now. */
   refresh(): Promise<TickReport>;
+  /** The applyRetentionNow callable (#171): the keep-for months applied to what is stored. */
+  applyRetention(): Promise<{ touched: number }>;
+  /** The sweepArticles callable (#171): old unread, unsaved, unfiled articles removed. */
+  sweep(): Promise<{ removed: number }>;
 }
 
 /** What a refresh did (`refreshFeeds`, #161). */
@@ -94,6 +122,10 @@ function readerApi(functions: Functions): ReaderApi {
   return {
     refresh: async () =>
       (await httpsCallable<unknown, TickReport>(functions, 'refreshFeeds')({})).data,
+    applyRetention: async () =>
+      (await httpsCallable<unknown, { touched: number }>(functions, 'applyRetentionNow')({})).data,
+    sweep: async () =>
+      (await httpsCallable<unknown, { removed: number }>(functions, 'sweepArticles')({})).data,
     clear: () => deleteField(),
     listen: (db, path, next, error) =>
       onSnapshot(
@@ -140,11 +172,11 @@ export class ReaderService {
 
   private readonly list = signal<FeedRecord[]>([]);
   /** The Reader's own settings doc (`settings/reader`), once read. */
-  private readonly settings = signal<{ folderOrder: string[]; images: boolean } | undefined>(
-    undefined,
-  );
+  private readonly settings = signal<ReaderSettingsView | undefined>(undefined);
   /** Whether articles show their images (#162); on until switched off. */
   readonly images = computed(() => this.settings()?.images ?? true);
+  /** Months articles are kept unless saved or filed (#171); none keeps everything. */
+  readonly keepMonths = computed(() => this.settings()?.keepMonths);
   private readonly read = signal(false);
   readonly feeds = computed(() => this.list());
   /** Whether the feeds have been read, so an empty list means none. */
@@ -173,17 +205,7 @@ export class ReaderService {
       const stopSettings = this.settingsApi.listen(
         this.fb.db,
         paths.reader(uid),
-        (data) =>
-          this.settings.set(
-            data
-              ? {
-                  folderOrder: Array.isArray(data['folderOrder'])
-                    ? data['folderOrder'].filter((f): f is string => typeof f === 'string')
-                    : [],
-                  images: data['images'] !== false,
-                }
-              : undefined,
-          ),
+        (data) => this.settings.set(data ? readSettings(data) : undefined),
         (err) => console.error('reader settings listener', err),
       );
       const stopFeeds = this.api.listen(
@@ -299,9 +321,45 @@ export class ReaderService {
 
   /** Shows or hides images in articles, for every device. */
   setImages(images: boolean): void {
+    this.writeSettings({ images });
+  }
+
+  /**
+   * Keeps articles for `months` unless saved or filed, or everything
+   * when undefined (#171): the setting, then the server applies it to
+   * what is stored. The message says what it did, or why not.
+   */
+  async setKeepMonths(months: number | undefined): Promise<string> {
+    this.writeSettings({ keepMonths: months });
+    try {
+      const { touched } = await this.api.applyRetention();
+      return months
+        ? `Keeping articles for ${months} months; applied to ${touched} stored ${touched === 1 ? 'article' : 'articles'}.`
+        : `Keeping everything; ${touched} ${touched === 1 ? 'article' : 'articles'} will no longer expire.`;
+    } catch (err) {
+      console.error('retention not applied', err);
+      return 'The setting is kept; it applies to stored articles once you are online.';
+    }
+  }
+
+  /** Removes the unread, unsaved, unfiled articles older than three months (#171). */
+  async sweep(): Promise<string> {
+    try {
+      const { removed } = await this.api.sweep();
+      return `Removed ${removed} old unread ${removed === 1 ? 'article' : 'articles'}.`;
+    } catch (err) {
+      console.error('sweep failed', err);
+      return 'Could not tidy up. Are you online?';
+    }
+  }
+
+  /** The settings doc written whole, as the rules want it, with the change. */
+  private writeSettings(change: Partial<ReaderSettingsView>): void {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
-    const next = { folderOrder: this.settings()?.folderOrder ?? [], images };
+    const current = this.settings() ?? { folderOrder: [], images: true };
+    const next: ReaderSettingsView = { ...current, ...change };
+    if (next.keepMonths === undefined) delete next.keepMonths;
     this.settings.set(next);
     void this.settingsApi
       .set(this.fb.db, paths.reader(uid), { ...next, updatedAt: this.settingsApi.now() })

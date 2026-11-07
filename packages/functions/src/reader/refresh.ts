@@ -69,6 +69,8 @@ export interface NewItem {
   published: number;
   summary: string;
   content: string;
+  /** When a TTL policy removes it, from the gardener's keep-for months (#171). */
+  expireAt?: number;
 }
 
 /** What a look at a feed changes on it; times in milliseconds, null clears. */
@@ -97,6 +99,8 @@ export interface RefreshStore {
   updateFeed(uid: string, id: string, update: FeedUpdate): Promise<void>;
   /** Counts a fetch in the gardener's day, for the usage record. */
   countFetch(uid: string, day: string): Promise<void>;
+  /** The gardener's keep-for months (#171), or none to keep everything. */
+  keepMonths(uid: string): Promise<number | undefined>;
 }
 
 export interface RefreshDeps {
@@ -116,6 +120,13 @@ export interface TickReport {
 
 /** UTC day, YYYY-MM-DD. */
 const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/** `months` calendar months after `ms`, in UTC. */
+export function monthsAfter(ms: number, months: number): number {
+  const d = new Date(ms);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.getTime();
+}
 
 const clamp = (minutes: number) =>
   Math.min(INTERVAL_MAX, Math.max(INTERVAL_MIN, Math.round(minutes)));
@@ -205,6 +216,7 @@ export async function refreshFeed(
   const items = all.filter((i) => now - i.published <= ITEM_MAX_AGE_MS).slice(0, ITEMS_PER_FETCH);
   const ids = items.map((i) => feedItemId(feed.id, i.guid));
   const known = ids.length ? await store.known(feed.uid, ids) : new Set<string>();
+  const keep = items.length ? await store.keepMonths(feed.uid) : undefined;
   const fresh: NewItem[] = [];
   items.forEach((item, n) => {
     if (known.has(ids[n])) return;
@@ -218,6 +230,7 @@ export async function refreshFeed(
       published: item.published,
       summary: summaryOf(content),
       content,
+      ...(keep ? { expireAt: monthsAfter(item.published, keep) } : {}),
     });
   });
   if (fresh.length) await store.writeItems(feed.uid, fresh);

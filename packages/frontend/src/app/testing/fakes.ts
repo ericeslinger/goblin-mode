@@ -262,6 +262,8 @@ export class FakeReaderApi implements ReaderApi {
   serverTime = () => 'SERVER_TIME';
   clear = () => 'CLEAR';
   refresh = vi.fn(async () => ({ fetched: 2, added: 5, failed: 0, skipped: 0 }));
+  applyRetention = vi.fn(async () => ({ touched: 7 }));
+  sweep = vi.fn(async () => ({ removed: 3 }));
 
   push(docs: { id: string; data: Record<string, unknown> }[]): void {
     this.next(docs);
@@ -331,7 +333,13 @@ export class FakeReader {
   readonly folders = computed(() => [] as { name: string; feeds: never[] }[]);
   readonly folderNames = computed(() => [] as string[]);
   readonly images = signal(true);
+  readonly keepMonths = signal<number | undefined>(undefined);
   setImages = vi.fn((images: boolean) => this.images.set(images));
+  setKeepMonths = vi.fn(async (months: number | undefined) => {
+    this.keepMonths.set(months);
+    return 'Keeping everything; 0 articles will no longer expire.';
+  });
+  sweep = vi.fn(async () => 'Removed 0 old unread articles.');
   refresh = vi.fn(async () => 'Looked at 0 feeds: 0 new articles.');
 }
 

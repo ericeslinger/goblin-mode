@@ -319,6 +319,8 @@ export class ItemsService {
       .set(this.fb.db, paths.feedItem(uid, id), {
         saved,
         ...(attachmentId ? { attachmentId } : {}),
+        // A saved article is kept past the keep-for months (#171).
+        ...(saved ? { expireAt: this.api.clear() } : {}),
         updatedAt: this.api.serverTime(),
       })
       .catch((err) => console.error('save mark not saved', err));
@@ -350,7 +352,11 @@ export class ItemsService {
     });
     this.local.update((l) => ({ ...l, [id]: { ...l[id], noteId } }));
     void this.api
-      .set(this.fb.db, paths.feedItem(uid, id), { noteId, updatedAt: this.api.serverTime() })
+      .set(this.fb.db, paths.feedItem(uid, id), {
+        noteId,
+        expireAt: this.api.clear(),
+        updatedAt: this.api.serverTime(),
+      })
       .catch((err) => console.error('clipping not tied', err));
     return noteId;
   }

@@ -546,6 +546,12 @@ export const FeedItem = z.object({
   readerState: ReaderState.optional(),
   readerContent: z.string().optional(),
   readerError: z.string().optional(),
+  /**
+   * When a TTL policy removes it (#171): set by the fetcher from the
+   * gardener's keep-for months; the app may only clear it (saving or
+   * filing keeps an article).
+   */
+  expireAt: Timestamp.optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });
@@ -557,6 +563,16 @@ export const ReaderSettings = z.object({
   folderOrder: z.array(z.string()),
   /** Whether articles show their images. */
   images: z.boolean(),
+  /**
+   * Months to keep an article neither saved nor filed (#171); unset
+   * keeps everything. The fetcher writes `expireAt` from it and a TTL
+   * policy removes what expires.
+   */
+  keepMonths: z.number().optional(),
+  /** Mark articles read as they scroll past in the list (#172). */
+  readOnScroll: z.boolean().optional(),
+  /** When each folder's list was last opened, folder name to time (#173). */
+  seenAt: z.object({}).passthrough().optional(),
   updatedAt: Timestamp,
 });
 export type ReaderSettings = z.infer<typeof ReaderSettings>;

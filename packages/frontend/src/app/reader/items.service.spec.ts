@@ -137,6 +137,7 @@ describe('ItemsService (#162)', () => {
     expect(api.set.mock.lastCall![2]).toEqual({
       saved: true,
       attachmentId: 'att1',
+      expireAt: 'CLEAR',
       updatedAt: 'SERVER_TIME',
     });
     // The listener's echo carries the mark; the local copy goes.
@@ -168,7 +169,7 @@ describe('ItemsService (#162)', () => {
     );
     expect(api.set.mock.lastCall!.slice(1)).toEqual([
       'users/u1/feedItems/a',
-      { noteId: 'clip1', updatedAt: 'SERVER_TIME' },
+      { noteId: 'clip1', expireAt: 'CLEAR', updatedAt: 'SERVER_TIME' },
     ]);
     expect(items.fileInGarden('a')).toBe('clip1');
     expect(notes.clip).toHaveBeenCalledTimes(1);
