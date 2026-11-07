@@ -56,9 +56,33 @@ const GAMES = `<feed xmlns="http://www.w3.org/2005/Atom">
   </entry>
 </feed>`;
 
+/** A JSON Feed only the fixture site names (#174), so discovery follows a new one. */
+const NOTES = JSON.stringify({
+  version: 'https://jsonfeed.org/version/1.1',
+  title: 'Margin notes (fixture)',
+  home_page_url: 'https://site.invalid/',
+  items: [
+    {
+      id: 'notes-1',
+      url: 'https://site.invalid/notes/1',
+      title: 'On marginalia',
+      content_text: 'What readers write beside the text.',
+      date_published: '2026-11-03T10:00:00Z',
+    },
+    {
+      id: 'notes-2',
+      url: 'https://site.invalid/notes/2',
+      title: 'Pencil, not pen',
+      content_text: 'Notes that can be rubbed out.',
+      date_published: '2026-10-28T10:00:00Z',
+    },
+  ],
+});
+
 const FIXTURES: Record<string, { body: string; contentType: string }> = {
   'design.xml': { body: DESIGN, contentType: 'application/rss+xml; charset=utf-8' },
   'games.atom': { body: GAMES, contentType: 'application/atom+xml' },
+  'notes.json': { body: NOTES, contentType: 'application/feed+json' },
   'page.html': { body: '<html><body>not a feed</body></html>', contentType: 'text/html' },
 };
 
@@ -97,15 +121,35 @@ const THREE_CHAIRS = `<html><head><title>Three chairs</title></head><body>
 <footer>Subscribe to the newsletter. <a href="/privacy">Privacy</a></footer>
 </body></html>`;
 
+/**
+ * A site that names its feeds (#174): three alternate links in its head,
+ * two to feeds the journey's OPML follows and one to a feed only this
+ * site names, and a fourth in a hidden element that discovery must
+ * not see.
+ */
+const SITE = `<!doctype html><html><head><title>A fixture site</title>
+<link rel="alternate" type="application/rss+xml" title="Design notes" href="https://feeds.invalid/design.xml">
+<link rel="alternate" type="application/atom+xml" title="Dice" href="https://feeds.invalid/games.atom">
+<link rel="alternate" type="application/feed+json" title="Margin notes" href="https://feeds.invalid/notes.json">
+<template><link rel="alternate" type="application/rss+xml" href="https://feeds.invalid/hidden.xml"></template>
+</head><body><h1>A fixture site</h1><p>Three feeds, named in the head.</p></body></html>`;
+
 export function standInPageFetcher(env: NodeJS.ProcessEnv): PageFetcher | undefined {
   if (env['FUNCTIONS_EMULATOR'] !== 'true' || !env['FIRESTORE_EMULATOR_HOST']) return undefined;
   return async (url) => {
-    if (url === 'https://design.invalid/three-chairs') {
-      return {
-        contentType: 'text/html; charset=utf-8',
-        bytes: new TextEncoder().encode(THREE_CHAIRS),
-      };
+    const html = (body: string) => ({
+      contentType: 'text/html; charset=utf-8',
+      bytes: new TextEncoder().encode(body),
+    });
+    if (url === 'https://design.invalid/three-chairs') return html(THREE_CHAIRS);
+    if (url === 'https://site.invalid/') return html(SITE);
+    // A fixture feed pasted as it is, for discovery's first look (#174).
+    const parsed = new URL(url);
+    const fixture = parsed.hostname === 'feeds.invalid' && FIXTURES[parsed.pathname.slice(1)];
+    if (fixture) {
+      return { contentType: fixture.contentType, bytes: new TextEncoder().encode(fixture.body) };
     }
-    throw new Error(`${new URL(url).hostname} is not reachable from the emulator`);
+    if (parsed.hostname === 'feeds.invalid') throw new Error('the site answered 404');
+    throw new Error(`${parsed.hostname} is not reachable from the emulator`);
   };
 }

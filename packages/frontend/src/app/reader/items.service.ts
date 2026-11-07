@@ -29,7 +29,7 @@ import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
-import { ReaderService } from './reader.service';
+import { ReaderService, callableMessage } from './reader.service';
 
 /** The newest unread articles the app listens to; the rest come as these are read. */
 export const UNREAD_LIMIT = 1000;
@@ -372,7 +372,7 @@ export class ItemsService {
       await this.api.fetchArticle(id);
       return undefined;
     } catch (err) {
-      const message = (err as { message?: string }).message ?? '';
+      const message = callableMessage(err);
       return /Could not fetch|used up|Already fetching/.test(message)
         ? message
         : 'Could not fetch the page. Are you online?';

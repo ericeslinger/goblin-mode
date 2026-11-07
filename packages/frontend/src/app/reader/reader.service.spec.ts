@@ -134,8 +134,54 @@ describe('ReaderService (#159)', () => {
       new Error('Refreshed a moment ago; the next is in 4 minutes.'),
     );
     expect(await reader.refresh()).toBe('Refreshed a moment ago; the next is in 4 minutes.');
+    // The Firebase client puts the HTTP status after the server's words (#174).
+    api.refresh.mockRejectedValueOnce(
+      new Error('Refreshed a moment ago; the next is in 4 minutes. [429]'),
+    );
+    expect(await reader.refresh()).toBe('Refreshed a moment ago; the next is in 4 minutes.');
     api.refresh.mockRejectedValueOnce(new Error('internal'));
     expect(await reader.refresh()).toBe('Could not refresh. Are you online?');
+  });
+
+  it('discovers the feeds at a site through the server, or says why not (#174)', async () => {
+    const { reader, api } = setup();
+    expect(await reader.discover('not a link')).toMatch(/not a link/);
+    expect(api.discoverFeeds).not.toHaveBeenCalled();
+    expect(await reader.discover(' https://site.test/#top ')).toEqual([
+      { url: 'https://site.test/posts.xml', title: 'Posts' },
+      { url: 'https://site.test/games.atom', title: 'Dice' },
+    ]);
+    expect(api.discoverFeeds).toHaveBeenCalledWith('https://site.test/');
+    api.discoverFeeds.mockRejectedValueOnce(new Error('No feed found at that address. [404]'));
+    expect(await reader.discover('https://site.test/')).toBe('No feed found at that address.');
+    api.discoverFeeds.mockRejectedValueOnce(
+      new Error('Could not look at that address: the site answered 500'),
+    );
+    expect(await reader.discover('https://site.test/')).toMatch(/answered 500/);
+    api.discoverFeeds.mockRejectedValueOnce(new Error('internal'));
+    expect(await reader.discover('https://site.test/')).toBe('Could not look. Are you online?');
+  });
+
+  it('follows a discovered feed under its own name; a known one keeps its name (#174)', () => {
+    const { reader, api } = setup();
+    api.push([
+      {
+        id: feedId('https://site.test/games.atom'),
+        data: { url: 'https://site.test/games.atom', title: 'Games', folders: [] },
+      },
+    ]);
+    const id = reader.addFeed('https://site.test/posts.xml', 'Design', ' Posts  and notes ');
+    expect(id).toBe(feedId('https://site.test/posts.xml'));
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      url: 'https://site.test/posts.xml',
+      title: 'Posts and notes',
+      folders: ['Design'],
+    });
+    expect(reader.followed('https://site.test/games.atom')?.title).toBe('Games');
+    expect(reader.followed('https://site.test/nope.xml')).toBeUndefined();
+    reader.addFeed('https://site.test/games.atom', 'Tabletop', 'Dice');
+    expect(api.set.mock.lastCall![2]).toEqual({ folders: ['Tabletop'], updatedAt: 'SERVER_TIME' });
+    expect(reader.followed('https://site.test/games.atom')?.title).toBe('Games');
   });
 
   it('asks for a given-up feed again by clearing its errors and making it due', () => {

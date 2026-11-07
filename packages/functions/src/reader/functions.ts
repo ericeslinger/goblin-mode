@@ -9,7 +9,8 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { FEED_CAP, paths } from '@mossgoblin/schema';
 import { publicFetch } from '../attachments/import';
 import { readerMarkdown } from './article';
-import { decodeBody, feedFetch } from './fetch';
+import { discoverFeeds as discover } from './discover';
+import { decodeBody, discoverFeedFetch, discoverPageFetch, feedFetch } from './fetch';
 import {
   applyRetention,
   firestoreRefreshStore,
@@ -24,6 +25,8 @@ import { standInFeedFetcher, standInPageFetcher } from './stand-in';
 export const REFRESH_EVERY_MS = 5 * 60_000;
 /** Reader-mode fetches a day per gardener, counted in the usage record. */
 export const DAILY_ARTICLES = 50;
+/** Feed discoveries a day per gardener (#174), counted in the usage record. */
+export const DAILY_DISCOVERIES = 50;
 /** A reader-mode fetch claimed this long ago is a lost one's, and may be asked again. */
 const ARTICLE_STALE_MS = 2 * 60_000;
 
@@ -166,6 +169,56 @@ export const fetchArticle = onCall({ memory: '512MiB', timeoutSeconds: 120 }, as
       .catch(() => undefined);
     throw new HttpsError('unavailable', `Could not fetch the page: ${message}`);
   }
+});
+
+/**
+ * Feed discovery (#174), from Manage feeds: the feeds at a site's
+ * address, each confirmed by parsing it, with its own name. onCall, as
+ * everything the app asks the server to do is; the page reaches no
+ * model. Counted in the day's usage record, fifty a day per gardener.
+ */
+export const discoverFeeds = onCall({ memory: '512MiB', timeoutSeconds: 120 }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = request.auth.uid;
+  const raw = (request.data as { url?: unknown } | null)?.url;
+  let url: string;
+  try {
+    const parsed = new URL(typeof raw === 'string' ? raw.trim() : '');
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('not http');
+    parsed.hash = '';
+    url = parsed.toString();
+  } catch {
+    throw new HttpsError(
+      'invalid-argument',
+      'That is not a link. Paste one starting with https://.',
+    );
+  }
+  const db = getFirestore();
+  const usageRef = db.doc(paths.usage(uid, new Date().toISOString().slice(0, 10)));
+  await db.runTransaction(async (tx) => {
+    const used = Number((await tx.get(usageRef)).data()?.['discoveries'] ?? 0);
+    if (used >= DAILY_DISCOVERIES) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Today’s ${DAILY_DISCOVERIES} looks for feeds are used up; try again tomorrow.`,
+      );
+    }
+    tx.set(usageRef, { discoveries: used + 1 }, { merge: true });
+  });
+  let found;
+  try {
+    found = await discover(
+      url,
+      standInPageFetcher(process.env) ?? discoverPageFetch,
+      standInFeedFetcher(process.env) ?? discoverFeedFetch,
+    );
+  } catch (err) {
+    const message = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+    throw new HttpsError('unavailable', `Could not look at that address: ${message}`);
+  }
+  logger.info('discoverFeeds', { feeds: found.feeds.length });
+  if (!found.feeds.length) throw new HttpsError('not-found', 'No feed found at that address.');
+  return found;
 });
 
 /**

@@ -29,6 +29,7 @@ const EXPORTS = [
   'fetchArticle',
   'applyRetentionNow',
   'sweepArticles',
+  'discoverFeeds',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

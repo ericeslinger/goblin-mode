@@ -99,6 +99,24 @@ export interface ReaderApi {
   applyRetention(keepMonths: number | null): Promise<{ touched: number }>;
   /** The sweepArticles callable (#171): old unread, unsaved, unfiled articles removed. */
   sweep(): Promise<{ removed: number }>;
+  /** The discoverFeeds callable (#174): the feeds at a site's address, with their names. */
+  discoverFeeds(url: string): Promise<DiscoveredFeed[]>;
+}
+
+/** A feed discovery found (#174). */
+export interface DiscoveredFeed {
+  url: string;
+  title: string;
+}
+
+/**
+ * A callable's error as the server worded it: the Firebase client adds
+ * the HTTP status to every message (" [429]"), which is not for the
+ * gardener (#174).
+ */
+export function callableMessage(err: unknown): string {
+  const message = (err as { message?: unknown } | null)?.message;
+  return typeof message === 'string' ? message.replace(/ \[\d{3}\]$/, '') : '';
 }
 
 /** What a refresh did (`refreshFeeds`, #161). */
@@ -131,6 +149,13 @@ function readerApi(functions: Functions): ReaderApi {
       ).data,
     sweep: async () =>
       (await httpsCallable<unknown, { removed: number }>(functions, 'sweepArticles')({})).data,
+    discoverFeeds: async (url) =>
+      (
+        await httpsCallable<unknown, { feeds: DiscoveredFeed[] }>(
+          functions,
+          'discoverFeeds',
+        )({ url })
+      ).data.feeds,
     clear: () => deleteField(),
     listen: (db, path, next, error) =>
       onSnapshot(
@@ -268,11 +293,13 @@ export class ReaderService {
   }
 
   /**
-   * Follows one feed by its link, in `folder` if given; returns its id,
-   * or undefined when it is no link or the cap is reached. A feed
-   * already followed is moved into the folder instead.
+   * Follows one feed by its link, in `folder` if given, named `title`
+   * if given (a discovered feed's, #174) or its host until the server
+   * looks; returns its id, or undefined when it is no link or the cap
+   * is reached. A feed already followed is moved into the folder
+   * instead, its name left as it is.
    */
-  addFeed(text: string, folder?: string): string | undefined {
+  addFeed(text: string, folder?: string, title?: string): string | undefined {
     const uid = this.auth.user()?.uid;
     const url = normalizeFeedUrl(text);
     if (!uid || !this.read() || !url) return undefined;
@@ -286,8 +313,34 @@ export class ReaderService {
       return id;
     }
     if (this.list().length >= FEED_CAP) return undefined;
-    this.create(uid, id, { url, title: new URL(url).hostname, folders });
+    const name = title?.replace(/\s+/g, ' ').trim().slice(0, 200) || new URL(url).hostname;
+    this.create(uid, id, { url, title: name, folders });
     return id;
+  }
+
+  /** The feed already followed at this link, if any. */
+  followed(text: string): FeedRecord | undefined {
+    const url = normalizeFeedUrl(text);
+    return url ? this.list().find((f) => f.id === feedId(url)) : undefined;
+  }
+
+  /**
+   * The feeds at a site's address (#174): a call to the server, which
+   * fetches the page and the feeds it names; the candidates, or a
+   * message saying why there are none.
+   */
+  async discover(text: string): Promise<DiscoveredFeed[] | string> {
+    if (!this.auth.user()?.uid) return 'Sign in first.';
+    const url = normalizeFeedUrl(text);
+    if (!url) return 'That is not a link. Paste one starting with https://.';
+    try {
+      return await this.api.discoverFeeds(url);
+    } catch (err) {
+      const message = callableMessage(err);
+      return /^(No feed found|Could not look at|Today’s \d+ looks)/.test(message)
+        ? message
+        : 'Could not look. Are you online?';
+    }
   }
 
   /** Puts a feed in these folders (none means Uncategorized). */
@@ -319,7 +372,7 @@ export class ReaderService {
       const failed = r.failed ? `, ${r.failed} could not be read` : '';
       return `Looked at ${feeds}: ${articles}${failed}.`;
     } catch (err) {
-      const message = (err as { message?: string }).message ?? '';
+      const message = callableMessage(err);
       return /Refreshed a moment ago/.test(message)
         ? message
         : 'Could not refresh. Are you online?';
