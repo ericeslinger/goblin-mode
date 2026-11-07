@@ -16,7 +16,7 @@ import {
   fakeFirebase,
 } from '../testing/fakes';
 import { SETTINGS_API } from '../theme/theme-sync.service';
-import { ALL, ITEMS_API, ItemsService, SAVED } from './items.service';
+import { ALL, ITEMS_API, ItemsService, PODCASTS, SAVED } from './items.service';
 import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
@@ -89,6 +89,7 @@ describe('ItemsService (#162)', () => {
     expect(items.unreadCounts()).toEqual({
       [ALL]: 3,
       [SAVED]: 0,
+      [PODCASTS]: 0,
       Design: 2,
       Games: 1,
       Uncategorized: 1,
@@ -114,6 +115,51 @@ describe('ItemsService (#162)', () => {
     expect(ids(items.inShelf({ kind: 'folder', name: SAVED }, false))).toEqual(['s']);
     expect(ids(items.inShelf({ kind: 'feed', id: 'f2' }, true))).toEqual(['b', 'r']);
     expect(items.find('r')?.read).toBe(true);
+  });
+
+  it('keeps a podcast’s episodes on the Podcasts shelf, with their audio (#178)', () => {
+    const { items, api, feeds } = setup();
+    feeds.push([
+      { id: 'f1', data: { url: 'https://a.test/f', title: 'Design blog', folders: ['Design'] } },
+      {
+        id: 'p1',
+        data: { url: 'https://pod.test/f', title: 'Kiln hour', folders: [], kind: 'podcast' },
+      },
+      { id: 'p2', data: { url: 'https://odd.test/f', title: 'Odd', folders: [], kind: 'video' } },
+    ]);
+    const audio = { url: 'https://pod.test/1.mp3', type: 'audio/mpeg', bytes: 10, seconds: 2530 };
+    api.push('unread', [
+      item('a', 'f1', 1),
+      item('e2', 'p1', 2, { enclosure: audio, image: 'https://pod.test/1.jpg', episode: 2 }),
+      item('e1', 'p1', 50, { enclosure: { url: 'javascript:x', type: 'audio/mpeg' } }),
+      item('o', 'p2', 3),
+    ]);
+    api.push('read', [item('e0', 'p1', 90, { read: true })]);
+    const ids = (list: { id: string }[]) => list.map((i) => i.id);
+    expect(ids(items.inShelf({ kind: 'folder', name: PODCASTS }, false))).toEqual(['e2', 'e1']);
+    expect(ids(items.inShelf({ kind: 'folder', name: PODCASTS }, true))).toEqual([
+      'e2',
+      'e1',
+      'e0',
+    ]);
+    expect(items.unreadCounts()[PODCASTS]).toBe(2);
+    expect(items.find('e2')).toMatchObject({
+      enclosure: audio,
+      image: 'https://pod.test/1.jpg',
+      episode: 2,
+    });
+    // What is no web link is no audio; an article has none.
+    expect(items.find('e1')).not.toHaveProperty('enclosure');
+    expect(items.find('a')).not.toHaveProperty('enclosure');
+  });
+
+  it('says how long an episode is (#178)', () => {
+    const { items } = setup();
+    expect(items.duration(2530)).toBe('42 min');
+    expect(items.duration(3900)).toBe('1 h 05 min');
+    expect(items.duration(7200)).toBe('2 h');
+    expect(items.duration(10)).toBe('1 min');
+    expect(items.duration(0)).toBe('1 min');
   });
 
   it('marks read and saved at once, and the echo takes over from the local mark', () => {

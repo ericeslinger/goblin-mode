@@ -128,7 +128,7 @@ service cloud.firestore {
 
     function isValidFeed(data) {
       return data.keys().hasAll(['url', 'title', 'folders', 'addedAt', 'updatedAt'])
-        && data.keys().hasOnly(['url', 'title', 'site', 'folders', 'addedAt', 'updatedAt', 'nextFetchAt', 'etag', 'lastModified', 'fetchedAt', 'claimedAt', 'interval', 'errorCount', 'error', 'lastItemAt', 'dead'])
+        && data.keys().hasOnly(['url', 'title', 'site', 'folders', 'addedAt', 'updatedAt', 'nextFetchAt', 'etag', 'lastModified', 'fetchedAt', 'claimedAt', 'interval', 'errorCount', 'error', 'lastItemAt', 'dead', 'kind'])
         && data.url is string
         && data.title is string
         && (!('site' in data) || data.site is string)
@@ -144,7 +144,8 @@ service cloud.firestore {
         && (!('errorCount' in data) || data.errorCount is number)
         && (!('error' in data) || data.error is string)
         && (!('lastItemAt' in data) || data.lastItemAt is timestamp)
-        && (!('dead' in data) || data.dead is bool);
+        && (!('dead' in data) || data.dead is bool)
+        && (!('kind' in data) || (data.kind is string && data.kind in ['podcast']));
     }
 
     function isValidReaderSettings(data) {

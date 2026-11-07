@@ -8,8 +8,9 @@ import { OWNER } from '../src/personas';
 // folders (#160), the server's refresh against the emulator's fixture
 // feeds (#161), then reading: folders with counts, the compact list,
 // swipes, the article, next by keyboard, Saved, Mark all read (#162),
-// marking read on scroll with its Undo (#172), and last, feed
-// discovery from a site's address (#174).
+// marking read on scroll with its Undo (#172), a podcast's episodes on
+// their own shelf (#178), and last, feed discovery from a site's
+// address (#174).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -101,6 +102,11 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await page.getByRole('combobox', { name: 'Folder' }).fill('Games');
   await page.getByRole('button', { name: 'Follow' }).click();
   await expect(page.getByRole('status').last()).toContainText('Following');
+  // A podcast (#178), followed by its link: one more feed, two more articles below.
+  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/pod.xml');
+  await page.getByRole('combobox', { name: 'Folder' }).fill('Listening');
+  await page.getByRole('button', { name: 'Follow' }).click();
+  await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
   await letItSave(page);
 
   // Step 2: Refresh from the front; the fixtures answer, the rest cannot be reached.
@@ -108,11 +114,11 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText(
-    'Looked at 4 feeds: 5 new articles, 2 could not be read.',
+    'Looked at 5 feeds: 7 new articles, 2 could not be read.',
     { timeout: 30_000 },
   );
   const nav = page.getByRole('navigation', { name: 'Folders' });
-  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('5 unread');
+  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('7 unread');
   await expect(nav.getByRole('link', { name: /^Design/ })).toContainText('3 unread');
   await expect(nav.getByRole('link', { name: /^Games/ })).toContainText('2 unread');
   await expect(nav.getByRole('link', { name: /^Apple/ })).not.toContainText('unread');
@@ -129,7 +135,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await letItSave(page);
   await page.goto('/reader/f/all');
   const articles = page.getByRole('list', { name: 'Articles' });
-  await expect(articles.getByRole('listitem')).toHaveCount(5);
+  await expect(articles.getByRole('listitem')).toHaveCount(7);
   const tall = page.viewportSize()!;
   await page.setViewportSize({ width: tall.width, height: 320 });
   // A wheel, not a scrollTo: a page the browser moves marks nothing (review on #182).
@@ -139,10 +145,10 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(marked).toBeVisible();
   const passed = Number(/Marked (\d+) read/.exec(await marked.innerText())![1]);
   expect(passed).toBeGreaterThan(0);
-  expect(passed).toBeLessThan(5);
-  await expect(articles.getByRole('listitem')).toHaveCount(5);
+  expect(passed).toBeLessThan(7);
+  await expect(articles.getByRole('listitem')).toHaveCount(7);
   await letItSave(page);
-  expect(await call('list_feed_items', {})).toHaveLength(5 - passed);
+  expect(await call('list_feed_items', {})).toHaveLength(7 - passed);
   // Undo shows where the list was scrolled to, before any click scrolls to it.
   const undo = page.getByRole('button', { name: 'Undo' });
   const box = (await undo.boundingBox())!;
@@ -153,14 +159,35 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('status')).toContainText(`${passed} unread again.`);
   await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
   await letItSave(page);
-  expect(await call('list_feed_items', {})).toHaveLength(5);
+  expect(await call('list_feed_items', {})).toHaveLength(7);
   // Off again, so the lists below are only what the swipes and taps do.
   await page.setViewportSize(tall);
   await page.goto('/settings');
   await onScroll.uncheck();
   await letItSave(page);
   await page.goto('/reader');
-  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('5 unread');
+  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('7 unread');
+
+  // Podcasts (#178): the shelf after Saved, episodes with their length; the feed marked.
+  const podcasts = nav.getByRole('link', { name: /^Podcasts/ });
+  await expect(podcasts).toContainText('2 unread');
+  await podcasts.click();
+  await expect(page.getByRole('heading', { name: 'Podcasts', level: 1 })).toBeVisible();
+  const episodes = page.getByRole('list', { name: 'Articles' }).getByRole('listitem');
+  await expect(episodes).toHaveCount(2);
+  await expect(episodes.first()).toContainText('Reduction firing');
+  await expect(episodes.first()).toContainText('42 min');
+  await expect(episodes.nth(1)).toContainText('1 h 05 min');
+  await expect(episodes.first().getByRole('img', { name: 'episode' })).toBeVisible();
+  await axe(page);
+  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('link', { name: 'Manage feeds' }).click();
+  await folders.locator('summary', { hasText: 'Listening' }).click();
+  await expect(page.getByRole('list', { name: 'Feeds in Listening' })).toContainText(
+    'pod.invalid · podcast',
+  );
+  await page.getByRole('link', { name: 'Back' }).click();
+  await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
 
   // Step 3: the list, a swipe, the article, next by key, Show read.
   await nav.getByRole('link', { name: /^Design/ }).click();
@@ -248,7 +275,8 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(articles.getByRole('listitem')).toHaveCount(1);
   await expect(articles.getByRole('listitem').first()).toContainText('Celadon glazes');
   await page.goto('/browse');
-  await expect(page.getByRole('link', { name: /^Reader/ })).toContainText('2 unread');
+  // Games' two, and the podcast's two episodes (#178).
+  await expect(page.getByRole('link', { name: /^Reader/ })).toContainText('4 unread');
   await page.goto('/reader/f/Games');
   await expect(articles.getByRole('listitem')).toHaveCount(2);
   await expect(articles.getByRole('listitem').first()).toContainText('Dice ·');

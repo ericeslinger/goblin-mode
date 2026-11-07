@@ -1,12 +1,13 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ModulesService } from '../modules/modules.service';
-import { ALL, ItemsService, SAVED } from './items.service';
+import { ALL, ItemsService, PODCASTS, SAVED } from './items.service';
 import { ReaderService } from './reader.service';
 
 /**
  * The Reader's front (#162): the folders with what is unread in each,
- * All and Saved, Refresh, and the way to Manage feeds.
+ * All and Saved, Podcasts once a feed is one (#178), Refresh, and the
+ * way to Manage feeds.
  */
 @Component({
   selector: 'app-reader',
@@ -51,6 +52,13 @@ import { ReaderService } from './reader.service';
               >Saved <span class="count">{{ unread(saved) }}</span></a
             >
           </li>
+          @if (hasPodcasts()) {
+            <li>
+              <a [routerLink]="['/reader/f', podcasts]"
+                >Podcasts <span class="count">{{ unread(podcasts) }}</span></a
+              >
+            </li>
+          }
           @for (folder of reader.folders(); track folder.name) {
             <li>
               <a [routerLink]="['/reader/f', folder.name]"
@@ -109,6 +117,11 @@ export class Reader {
   protected readonly modules = inject(ModulesService);
   protected readonly all = ALL;
   protected readonly saved = SAVED;
+  protected readonly podcasts = PODCASTS;
+  /** Whether any feed followed is a podcast, for the Podcasts shelf (#178). */
+  protected readonly hasPodcasts = computed(() =>
+    this.reader.feeds().some((f) => f.kind === 'podcast'),
+  );
   protected readonly refreshing = signal(false);
   protected readonly refreshed = signal('');
 

@@ -352,6 +352,10 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     );
     await assertSucceeds(ref.set({ folders: ['Games'], updatedAt: now() }, { merge: true }));
     await assertFails(ref.set({ ...feed(), guessed: true }));
+    // A podcast (#178): the fetcher marks the feed; no other kind is one.
+    await assertSucceeds(ref.set({ ...feed(), kind: 'podcast' }));
+    await assertFails(ref.set({ ...feed(), kind: 'video' }));
+    await assertFails(ref.set({ ...feed(), kind: true }));
   });
 
   it('lets the owner mark an article read or saved, and nothing else', async () => {
@@ -379,6 +383,18 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
       ),
     );
     await assertFails(ref.set({ noteId: 9, updatedAt: now() }, { merge: true }));
+    // An episode's audio (#178) is the fetcher's: the owner neither adds nor changes it.
+    const enclosure = { url: 'https://cdn.invalid/one.mp3', type: 'audio/mpeg', seconds: 60 };
+    await assertFails(ref.set({ enclosure, updatedAt: now() }, { merge: true }));
+    await assertFails(
+      ref.set({ image: 'https://cdn.invalid/art.jpg', updatedAt: now() }, { merge: true }),
+    );
+    await assertFails(ref.set({ episode: 3, updatedAt: now() }, { merge: true }));
+    await seed(path, { ...item(), enclosure });
+    await assertSucceeds(ref.set({ read: true, updatedAt: now() }, { merge: true }));
+    await assertFails(
+      ref.set({ enclosure: { ...enclosure, seconds: 1 }, updatedAt: now() }, { merge: true }),
+    );
     await assertFails(ref.set({ title: 'Mine now', updatedAt: now() }, { merge: true }));
     await assertFails(
       ref.set({ content: 'rewritten', read: true, updatedAt: now() }, { merge: true }),
