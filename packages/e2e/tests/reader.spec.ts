@@ -290,6 +290,18 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await axe(page);
   await pageSwipe(140);
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
+  // A fresh article page, and the story read on the way is still behind it (#188).
+  await pageSwipe(140);
+  await expect(page.getByRole('heading', { name: 'Three chairs', level: 1 })).toBeVisible();
+  await pageSwipe(-140);
+  await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
+  // And after a reload: this tab kept them.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
+  await page.keyboard.press('k');
+  await expect(page.getByRole('heading', { name: 'Three chairs', level: 1 })).toBeVisible();
+  await page.keyboard.press('j');
+  await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
   await page.keyboard.press('j');
   await expect(caughtUp).toBeVisible();
   await page.getByRole('link', { name: 'Back' }).click();

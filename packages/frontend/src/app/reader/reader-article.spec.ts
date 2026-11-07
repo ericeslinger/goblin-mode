@@ -6,7 +6,7 @@ import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { FakeDownloads } from '../testing/fakes';
 import { DownloadsService } from './downloads.service';
-import { type ItemRecord, ItemsService } from './items.service';
+import { type ItemRecord, ItemsService, type Shelf2, shelfParam } from './items.service';
 import { ReaderArticle } from './reader-article';
 import { ReaderService } from './reader.service';
 import { Swipe } from './swipe';
@@ -36,6 +36,16 @@ async function open(id: string) {
       items.update((l) => l.map((i) => (i.id === which ? { ...i, read } : i))),
     ),
     setSaved: vi.fn(),
+    // As the service keeps them (#188): one shelf's at a time.
+    visited: { shelf: '', ids: new Set<string>() },
+    visit(shelf: Shelf2, which: string) {
+      const key = shelfParam(shelf);
+      if (this.visited.shelf !== key) this.visited = { shelf: key, ids: new Set() };
+      this.visited.ids.add(which);
+    },
+    visitedIn(shelf: Shelf2) {
+      return this.visited.shelf === shelfParam(shelf) ? this.visited.ids : new Set<string>();
+    },
   };
   vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
   TestBed.configureTestingModule({
@@ -61,6 +71,7 @@ async function open(id: string) {
     el: harness.routeNativeElement as HTMLElement,
     swipe: swipe.injector.get(Swipe),
     main: swipe.nativeElement as HTMLElement,
+    items,
   };
 }
 
@@ -108,5 +119,30 @@ describe('ReaderArticle', () => {
     await harness.fixture.whenStable();
     expect(TestBed.inject(Location).path()).toBe('/reader/done?in=f:Design');
     expect(harness.routeNativeElement?.textContent).toBe('done');
+  });
+
+  it('still goes back to an article read on the way on a fresh page (#188)', async () => {
+    const { harness, items } = await open('a');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+    await harness.fixture.whenStable();
+    expect(TestBed.inject(Location).path()).toBe('/reader/a/b?in=f:Design');
+    expect(items().find((i) => i.id === 'a')?.read).toBe(true);
+    // Past the end and back: the article page is a fresh one.
+    await harness.navigateByUrl('/reader/done?in=f:Design');
+    const page = await harness.navigateByUrl('/reader/a/b?in=f:Design', ReaderArticle);
+    const el = harness.routeNativeElement as HTMLElement;
+    const swipe = harness.fixture.debugElement.query(By.directive(Swipe)).injector.get(Swipe);
+    expect(page).toBeInstanceOf(ReaderArticle);
+    expect(el.querySelector('h1')?.textContent).toBe('Last');
+    expect(swipe.canRight()).toBe(true);
+    swipe.dx.set(30);
+    await harness.fixture.whenStable();
+    expect(el.querySelector('.pane.prev h1')?.textContent).toBe('First');
+    swipe.dx.set(0);
+    await harness.fixture.whenStable();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
+    await harness.fixture.whenStable();
+    expect(TestBed.inject(Location).path()).toBe('/reader/a/a?in=f:Design');
+    expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('First');
   });
 });

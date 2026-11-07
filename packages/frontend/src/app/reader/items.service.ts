@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { UNCATEGORIZED, clippingBody, isWebLink, paths } from '@mossgoblin/schema';
 import {
@@ -28,12 +29,12 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
-import { NOW } from '../platform/platform';
+import { NOW, SESSION_STORAGE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import { ReaderService, callableMessage } from './reader.service';
-import { ALL, PODCASTS, SAVED, type Shelf2 } from './shelves';
+import { ALL, PODCASTS, SAVED, type Shelf2, shelfParam } from './shelves';
 
-export { ALL, PODCASTS, RESERVED_FOLDERS, SAVED, type Shelf2 } from './shelves';
+export { ALL, PODCASTS, RESERVED_FOLDERS, SAVED, type Shelf2, shelfParam } from './shelves';
 
 /** The newest unread articles the app listens to; the rest come as these are read. */
 export const UNREAD_LIMIT = 1000;
@@ -204,6 +205,10 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
   };
 }
 
+const NONE: ReadonlySet<string> = new Set();
+/** Where the visited articles are kept for this tab, through a reload (#188). */
+export const VISITED_KEY = 'goblin.reader.visited';
+
 /**
  * The articles (#162): the newest thousand unread, the last two hundred
  * read and everything saved, each a listener through the persistent
@@ -229,6 +234,18 @@ export class ItemsService {
   private readonly local = signal<
     Record<string, Partial<Pick<ItemRecord, 'read' | 'saved' | 'attachmentId' | 'noteId'>>>
   >({});
+
+  /**
+   * The articles opened on one shelf in this sitting, by its
+   * `shelfParam` (#188): read now, but still in the article's sequence
+   * for the way back, whichever article page opens them next (back
+   * from the caught-up page, say). Another shelf starts afresh. Kept
+   * in this tab's sessionStorage too, so a reload still has them.
+   */
+  private readonly session = inject(SESSION_STORAGE);
+  private readonly visited = signal<{ shelf: string; ids: ReadonlySet<string> }>(
+    this.storedVisits(),
+  );
 
   /** Whether the unread shelf has been read once, so empty means caught up. */
   readonly loaded = computed(() => this.read());
@@ -319,11 +336,15 @@ export class ItemsService {
       if (uid === this.uid) return;
       for (const stop of this.stops) stop();
       this.stops = [];
+      const was = this.uid;
       this.uid = uid;
       this.unreadDocs.set([]);
       this.readDocs.set([]);
       this.savedDocs.set([]);
       this.local.set({});
+      // Signed out (or the Reader off): this tab forgets them. Not on
+      // the first sign-in, which would drop what a reload kept.
+      if (was !== undefined) this.forgetVisits();
       this.read.set(false);
       if (!uid) return;
       const path = paths.feedItems(uid);
@@ -372,6 +393,53 @@ export class ItemsService {
       }
       return showRead || !i.read;
     });
+  }
+
+  /** Notes an article opened on a shelf (#188); another shelf than the last starts a fresh set. */
+  visit(shelf: Shelf2, id: string): void {
+    const key = shelfParam(shelf);
+    // Untracked: the article page calls this from an effect.
+    const v = untracked(this.visited);
+    if (v.shelf === key && v.ids.has(id)) return;
+    const ids = v.shelf === key ? [...v.ids, id] : [id];
+    this.visited.set({ shelf: key, ids: new Set(ids) });
+    try {
+      this.session?.setItem(VISITED_KEY, JSON.stringify({ shelf: key, ids }));
+    } catch {
+      // Storage refused: they last until a reload.
+    }
+  }
+
+  /** What this tab kept, read once as the service is made; nothing when storage throws. */
+  private storedVisits(): { shelf: string; ids: ReadonlySet<string> } {
+    try {
+      const raw = this.session?.getItem(VISITED_KEY);
+      const v = raw ? (JSON.parse(raw) as unknown) : undefined;
+      if (v && typeof v === 'object') {
+        const { shelf, ids } = v as { shelf?: unknown; ids?: unknown };
+        if (typeof shelf === 'string' && Array.isArray(ids)) {
+          return { shelf, ids: new Set(ids.filter((i): i is string => typeof i === 'string')) };
+        }
+      }
+    } catch {
+      // Unreadable or refused: start afresh.
+    }
+    return { shelf: '', ids: NONE };
+  }
+
+  private forgetVisits(): void {
+    this.visited.set({ shelf: '', ids: NONE });
+    try {
+      this.session?.removeItem(VISITED_KEY);
+    } catch {
+      // Storage refused: nothing more to do.
+    }
+  }
+
+  /** The articles opened on a shelf in this sitting (#188). */
+  visitedIn(shelf: Shelf2): ReadonlySet<string> {
+    const v = this.visited();
+    return v.shelf === shelfParam(shelf) ? v.ids : NONE;
   }
 
   find(id: string): ItemRecord | undefined {

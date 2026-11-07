@@ -5,7 +5,7 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
-import { NOW } from '../platform/platform';
+import { NOW, SESSION_STORAGE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import {
   FakeItemsApi,
@@ -16,7 +16,7 @@ import {
   fakeFirebase,
 } from '../testing/fakes';
 import { SETTINGS_API } from '../theme/theme-sync.service';
-import { ALL, ITEMS_API, ItemsService, PODCASTS, SAVED } from './items.service';
+import { ALL, ITEMS_API, ItemsService, PODCASTS, SAVED, VISITED_KEY } from './items.service';
 import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
@@ -43,7 +43,21 @@ const item = (
   },
 });
 
-function setup() {
+function memoryStorage(): Storage {
+  const m = new Map<string, string>();
+  return {
+    get length() {
+      return m.size;
+    },
+    clear: () => m.clear(),
+    getItem: (k) => m.get(k) ?? null,
+    key: (i) => [...m.keys()][i] ?? null,
+    removeItem: (k) => void m.delete(k),
+    setItem: (k, v) => void m.set(k, String(v)),
+  };
+}
+
+function setup(session: Storage | null = memoryStorage()) {
   const api = new FakeItemsApi();
   const feeds = new FakeReaderApi();
   const modules = new FakeModules();
@@ -63,6 +77,7 @@ function setup() {
       { provide: ModulesService, useValue: modules },
       { provide: AuthService, useValue: { user } },
       { provide: NOW, useValue: () => NOW_MS },
+      { provide: SESSION_STORAGE, useValue: session },
     ],
   });
   const items = TestBed.inject(ItemsService);
@@ -379,6 +394,76 @@ describe('ItemsService (#162)', () => {
     expect(items.age(NOW_MS - 26 * H)).toBe('yesterday');
     expect(items.age(NOW_MS - 3 * 24 * H)).toBe('3 days ago');
     expect(items.age(NOW_MS - 30 * 24 * H)).toMatch(/Oct/);
+  });
+
+  it('keeps the articles opened on a shelf; another shelf, or signing out, starts afresh (#188)', () => {
+    const session = memoryStorage();
+    const { items, user } = setup(session);
+    const design = { kind: 'folder', name: 'Design' } as const;
+    const feed = { kind: 'feed', id: 'f1' } as const;
+    expect([...items.visitedIn(design)]).toEqual([]);
+    items.visit(design, 'a');
+    items.visit(design, 'b');
+    items.visit(design, 'a');
+    expect([...items.visitedIn(design)]).toEqual(['a', 'b']);
+    expect([...items.visitedIn({ kind: 'folder', name: 'Design' })]).toEqual(['a', 'b']);
+    // Asking after another shelf changes nothing; opening one on it does.
+    expect([...items.visitedIn(feed)]).toEqual([]);
+    expect([...items.visitedIn(design)]).toEqual(['a', 'b']);
+    items.visit(feed, 'c');
+    expect([...items.visitedIn(feed)]).toEqual(['c']);
+    expect([...items.visitedIn(design)]).toEqual([]);
+    items.visit(design, 'a');
+    expect([...items.visitedIn(design)]).toEqual(['a']);
+    user.set(null);
+    TestBed.tick();
+    expect([...items.visitedIn(design)]).toEqual([]);
+    expect(session.getItem(VISITED_KEY)).toBeNull();
+  });
+
+  it("keeps them in this tab's storage, so a fresh service after a reload has them (#188)", () => {
+    const session = memoryStorage();
+    const design = { kind: 'folder', name: 'Design' } as const;
+    const first = setup(session).items;
+    first.visit(design, 'a');
+    first.visit(design, 'b');
+    expect(JSON.parse(session.getItem(VISITED_KEY)!)).toEqual({
+      shelf: 'f:Design',
+      ids: ['a', 'b'],
+    });
+    TestBed.resetTestingModule();
+    const { items } = setup(session);
+    expect([...items.visitedIn(design)]).toEqual(['a', 'b']);
+    expect([...items.visitedIn({ kind: 'feed', id: 'f1' })]).toEqual([]);
+  });
+
+  it('carries on without storage, or with storage that throws or holds junk (#188)', () => {
+    const design = { kind: 'folder', name: 'Design' } as const;
+    const none = setup(null).items;
+    none.visit(design, 'a');
+    expect([...none.visitedIn(design)]).toEqual(['a']);
+    TestBed.resetTestingModule();
+    const throwing = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+      removeItem: () => {
+        throw new Error('denied');
+      },
+    } as unknown as Storage;
+    const { items, user } = setup(throwing);
+    items.visit(design, 'a');
+    expect([...items.visitedIn(design)]).toEqual(['a']);
+    user.set(null);
+    TestBed.tick();
+    expect([...items.visitedIn(design)]).toEqual([]);
+    TestBed.resetTestingModule();
+    const junk = memoryStorage();
+    junk.setItem(VISITED_KEY, '{not json');
+    expect([...setup(junk).items.visitedIn(design)]).toEqual([]);
   });
 
   it('listens to nothing while the module is off', () => {

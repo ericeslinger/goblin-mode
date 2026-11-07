@@ -14,3 +14,8 @@ export const RESERVED_FOLDERS: readonly string[] = [ALL, SAVED, PODCASTS];
 
 /** A list the reader shows: a folder, one feed, everything, or what is saved. */
 export type Shelf2 = { kind: 'folder'; name: string } | { kind: 'feed'; id: string };
+
+/** A shelf as the article's `in` query parameter carries it. */
+export function shelfParam(shelf: Shelf2): string {
+  return shelf.kind === 'feed' ? `s:${shelf.id}` : `f:${shelf.name}`;
+}
