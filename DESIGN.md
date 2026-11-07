@@ -1157,7 +1157,10 @@ list before the page is still marks nothing: no mark is made without
 its Undo on screen. Only a page the gardener has moved counts: nothing
 is passed until a scroll follows a wheel, a touch, a key or a press,
 so rows a reload or Back leaves above the top, or a scroll the browser
-restores, are not marked (review on #182).
+restores, are not marked (review on #182). A row counts only once the
+observer has seen it go above, never from its first look at a row, so
+rows the list re-renders above the top (a listener echo, Undo) are not
+marked, and Undo disarms until the next input (2026-11-07).
 
 **What is new, in Right Now (#173, 2026-11-07).** Opening a folder's
 list notes when it was seen, in `settings/reader.seenAt` by folder

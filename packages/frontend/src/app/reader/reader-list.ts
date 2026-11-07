@@ -308,11 +308,18 @@ export class ReaderList {
   private readonly rows = viewChildren('row', { read: ElementRef<HTMLElement> });
   private observer?: IntersectionObserver;
   private readonly observed = new Set<HTMLElement>();
+  /**
+   * Rows the observer has reported once. Its first look at a row only
+   * says where it is, so a row found above the top then (a reload, or a
+   * row the list put back while scrolled down) has not been passed
+   * (#172).
+   */
+  private readonly looked = new WeakSet<Element>();
   /** Rows above the top, waiting out the moment, by id. */
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
   /** Rows above the top long enough, marked once the page is still. */
   private readonly passed = new Set<string>();
-  /** Rows wholly above the top now, by id, whether or not their moment has started. */
+  /** Rows that went wholly above the top and are still there, by id, whether or not their moment has started. */
   private readonly above = new Set<string>();
   /**
    * Whether the gardener has moved the page since the list showed: a
@@ -416,6 +423,10 @@ export class ReaderList {
     const ids = this.undoIds();
     if (!ids) return;
     this.offerUndo(undefined);
+    // Nothing more counts until the gardener moves the page again, and
+    // the rows undone are passed only once they come back and go again.
+    this.armed = this.touched = false;
+    for (const id of ids) this.drop(id);
     const n = this.items.setReadMany(ids, false);
     this.held.update((h) => {
       const next = new Set(h);
@@ -443,25 +454,29 @@ export class ReaderList {
   }
 
   /**
-   * A row wholly above the top starts its moment, once the page has been
-   * moved; one back in view, or below, is dropped.
+   * A row that goes wholly above the top starts its moment, once the
+   * page has been moved; one back in view, or below, is dropped. The
+   * observer's first look at a row is no move past it (#172).
    */
   private seen(entries: IntersectionObserverEntry[]): void {
     for (const entry of entries) {
       const id = (entry.target as HTMLElement).dataset['id'];
       if (!id) continue;
+      const first = !this.looked.has(entry.target);
+      this.looked.add(entry.target);
       const above =
         !entry.isIntersecting && entry.boundingClientRect.bottom <= (entry.rootBounds?.top ?? 0);
       if (!above) {
         this.drop(id);
         continue;
       }
+      if (first) continue;
       this.above.add(id);
       if (this.armed) this.start(id);
     }
   }
 
-  /** The first move of the page: rows already above the top start their moment. */
+  /** The first move of the page: rows that went above the top before it start their moment. */
   private arm(): void {
     this.armed = true;
     for (const id of this.above) this.start(id);
