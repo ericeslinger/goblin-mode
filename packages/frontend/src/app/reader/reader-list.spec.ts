@@ -40,6 +40,8 @@ const item = (id: string, hoursAgo: number) => ({
 
 /** The observer the list makes, so a spec can say a row left above the top. */
 let seen: (entries: Partial<IntersectionObserverEntry>[]) => void;
+/** Rows observed and not yet reported: the observer's first look is still to come. */
+let fresh: Element[];
 
 function setup(readOnScroll: boolean, folder?: string) {
   vi.stubGlobal(
@@ -47,9 +49,14 @@ function setup(readOnScroll: boolean, folder?: string) {
     class {
       constructor(cb: typeof seen) {
         seen = cb;
+        fresh = [];
       }
-      observe() {}
-      unobserve() {}
+      observe(el: Element) {
+        fresh.push(el);
+      }
+      unobserve(el: Element) {
+        fresh = fresh.filter((f) => f !== el);
+      }
       disconnect() {}
     },
   );
@@ -85,24 +92,23 @@ function setup(readOnScroll: boolean, folder?: string) {
   fixture.detectChanges();
   const el = fixture.nativeElement as HTMLElement;
   const row = (id: string) => el.querySelector<HTMLElement>(`li[data-id="${id}"]`)!;
-  const leave = (id: string) =>
-    seen([
-      {
-        target: row(id),
-        isIntersecting: false,
-        boundingClientRect: { bottom: -4 } as DOMRectReadOnly,
-        rootBounds: { top: 0 } as DOMRectReadOnly,
-      },
-    ]);
-  const back = (id: string) =>
-    seen([
-      {
-        target: row(id),
-        isIntersecting: true,
-        boundingClientRect: { bottom: 40 } as DOMRectReadOnly,
-        rootBounds: { top: 0 } as DOMRectReadOnly,
-      },
-    ]);
+  const entry = (target: Element, above: boolean): Partial<IntersectionObserverEntry> => ({
+    target,
+    isIntersecting: !above,
+    boundingClientRect: { bottom: above ? -4 : 40 } as DOMRectReadOnly,
+    rootBounds: { top: 0 } as DOMRectReadOnly,
+  });
+  const leave = (id: string) => seen([entry(row(id), true)]);
+  const back = (id: string) => seen([entry(row(id), false)]);
+  /**
+   * The observer's first look at the rows it was just given: those with
+   * their ids in `above` are above the top, the rest on screen.
+   */
+  const look = (...above: string[]) => {
+    const els = fresh;
+    fresh = [];
+    seen(els.map((el) => entry(el, above.includes((el as HTMLElement).dataset['id']!))));
+  };
   const status = () =>
     el.querySelector('[role="status"]')?.textContent?.replace(/\s+/g, ' ').trim();
   /** The gardener moves the page, as a finger does: a touch, then a scroll. */
@@ -110,7 +116,7 @@ function setup(readOnScroll: boolean, folder?: string) {
     window.dispatchEvent(new Event('touchmove'));
     window.dispatchEvent(new Event('scroll'));
   };
-  return { fixture, el, items, api, settings, leave, back, move, status };
+  return { fixture, el, items, api, settings, leave, back, look, move, status };
 }
 
 describe('ReaderList, mark read on scroll (#172)', () => {
@@ -121,7 +127,8 @@ describe('ReaderList, mark read on scroll (#172)', () => {
   });
 
   it('marks rows that stayed above the top in one batch once still, holds them, and undoes', () => {
-    const { fixture, el, items, api, leave, back, move, status } = setup(true);
+    const { fixture, el, items, api, leave, back, look, move, status } = setup(true);
+    look();
     move();
     expect(el.querySelectorAll('li')).toHaveLength(3);
     leave('a');
@@ -150,7 +157,8 @@ describe('ReaderList, mark read on scroll (#172)', () => {
   });
 
   it('waits for the page to be still, and takes the Undo offer back after a while', () => {
-    const { fixture, api, leave, move, status } = setup(true);
+    const { fixture, api, leave, look, move, status } = setup(true);
+    look();
     move();
     leave('a');
     vi.advanceTimersByTime(PASSED_MS);
@@ -170,25 +178,80 @@ describe('ReaderList, mark read on scroll (#172)', () => {
   });
 
   it('marks nothing a reload or Back put above the top until the page is moved (review on #182)', () => {
-    const { api, leave, move } = setup(true);
-    // The observer's first look finds rows above the top, scrolled there by the browser.
-    leave('a');
+    const { api, leave, look, move } = setup(true);
+    // The observer's first look finds a above the top, where a reload left it.
+    look('a');
+    // The browser restores the scroll: b goes above too.
     leave('b');
     window.dispatchEvent(new Event('scroll'));
     vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
     expect(api.setMany).not.toHaveBeenCalled();
-    // The gardener moves the page: the rows still above now count.
+    // The gardener moves the page: b, which went above after the first
+    // look, now counts; a was never seen go (#172).
     move();
     vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
     expect(api.setMany).toHaveBeenCalledTimes(1);
+    expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual(['users/u1/feedItems/b']);
+  });
+
+  it('after Undo, marks no row the list put back above the top until it is scrolled past again (#172)', () => {
+    const { fixture, el, api, leave, back, look, move } = setup(true);
+    look();
+    move();
+    leave('a');
+    leave('b');
+    vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+    fixture.detectChanges();
+    expect(api.setMany).toHaveBeenCalledTimes(1);
+    el.querySelector<HTMLButtonElement>('[role="status"] button')!.click();
+    fixture.detectChanges();
+    expect(api.setMany).toHaveBeenCalledTimes(2);
+    // The listeners echo the Undo one shelf at a time: a and b leave the
+    // list and come back as new rows, and the observer's first look
+    // finds them above the top.
+    api.push('unread', [item('c', 3)]);
+    fixture.detectChanges();
+    api.push('unread', [item('a', 1), item('b', 2), item('c', 3)]);
+    fixture.detectChanges();
+    look('a', 'b');
+    window.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+    expect(api.setMany).toHaveBeenCalledTimes(2);
+    // The gardener scrolls back up past them, then down again: now they count.
+    window.dispatchEvent(new Event('wheel'));
+    window.dispatchEvent(new Event('scroll'));
+    back('a');
+    back('b');
+    leave('a');
+    leave('b');
+    vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+    expect(api.setMany).toHaveBeenCalledTimes(3);
     expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual([
       'users/u1/feedItems/a',
       'users/u1/feedItems/b',
     ]);
   });
 
+  it('marks no row a re-render puts above the top while the page is moving (#172)', () => {
+    const { fixture, el, api, look, move } = setup(true);
+    look();
+    move();
+    // A new list from the listener: a and b leave and come back as new
+    // rows above the top, with d new at the head.
+    api.push('unread', [item('c', 3)]);
+    fixture.detectChanges();
+    api.push('unread', [item('d', 0.5), item('a', 1), item('b', 2), item('c', 3)]);
+    fixture.detectChanges();
+    expect(el.querySelectorAll('li')).toHaveLength(4);
+    look('d', 'a', 'b');
+    window.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+    expect(api.setMany).not.toHaveBeenCalled();
+  });
+
   it('marks nothing with the switch off', () => {
-    const { api, leave, move } = setup(false);
+    const { api, leave, look, move } = setup(false);
+    look();
     move();
     leave('a');
     vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
