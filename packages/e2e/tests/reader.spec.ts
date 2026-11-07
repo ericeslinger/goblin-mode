@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
+import { connectClaude } from '../src/claude';
 import { expect, letItSave, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
@@ -50,6 +51,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   page,
 }) => {
   await signInAs(page, OWNER);
+  const call = await connectClaude(page);
   await page.goto('/browse');
   await expect(page.getByRole('link', { name: /^Reader/ })).toHaveCount(0);
   await page.goto('/settings');
@@ -137,6 +139,29 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   );
   await expect(page.getByRole('button', { name: 'Keep unread' })).toBeVisible();
   await axe(page);
+
+  // Step 4: reader mode fetches the page's article; File in the garden makes a clipping.
+  await page.getByRole('button', { name: 'Reader mode' }).click();
+  await expect(body).toContainText('the full essay', { timeout: 30_000 });
+  await expect(body).not.toContainText('Subscribe to the newsletter');
+  await expect(body.getByRole('listitem')).toHaveText(['One', 'Two', 'Three']);
+  await page.getByRole('button', { name: 'File in the garden' }).click();
+  await expect(page.getByRole('status')).toContainText('Filed in the garden.');
+  await page.getByRole('link', { name: 'In the garden' }).click();
+  const clipping = page.getByRole('region', { name: 'Clipping' });
+  await expect(clipping).toContainText('Clipped from design.invalid');
+  await expect(clipping.getByRole('link', { name: 'Open the page' })).toHaveAttribute(
+    'href',
+    'https://design.invalid/three-chairs',
+  );
+  await expect(page.getByRole('textbox', { name: 'New note' })).toContainText('the full essay');
+  await letItSave(page);
+  await page.goto('/browse/clippings');
+  await expect(page.getByRole('link', { name: /Three chairs/ })).toBeVisible();
+  await page.goBack();
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'Three chairs', level: 1 })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'In the garden' })).toBeVisible();
   await page.keyboard.press('j');
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
@@ -150,6 +175,11 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(articles.getByRole('listitem').filter({ hasText: 'Celadon' })).toContainText('★');
 
   // Saved is a folder; Games is marked read in one go.
+  // Saved for later went to the reading queue too, by its link.
+  await page.goto('/reading');
+  await expect(page.getByRole('list', { name: 'Reading queue' })).toContainText(
+    'https://design.invalid/celadon',
+  );
   await page.goto('/reader/f/saved');
   await expect(page.getByRole('heading', { name: 'Saved', level: 1 })).toBeVisible();
   // Saved keeps what is saved, read or not.
@@ -163,6 +193,34 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await page.getByRole('button', { name: 'Mark all read' }).click();
   await expect(page.getByRole('status')).toContainText('2 marked read.');
   await expect(page.getByText('All caught up.')).toBeVisible();
+
+  // The assistant's side: the same articles, labelled as web content, and a clipping of its own.
+  const games = (await call('list_feed_items', { folder: 'Games', includeRead: true })) as {
+    id: string;
+    title: string;
+    fromWeb: string;
+    feed: string;
+  }[];
+  expect(games.map((g) => g.title)).toEqual(['A one-page dungeon', 'Rules light, story heavy']);
+  expect(games[0].fromWeb).toContain('content from the web');
+  expect(games[0].feed).toBe('Dice');
+  const one = (await call('get_feed_item', { id: games[0].id })) as { text: string; total: number };
+  expect(one.text).toContain('Twelve rooms');
+  const hits = (await call('search_feed_items', { query: 'dungeon', days: 365 })) as {
+    id: string;
+    snippet: string;
+  }[];
+  expect(hits.map((h) => h.id)).toEqual([games[0].id]);
+  const clipped = (await call('clip_feed_item', { id: games[0].id, tags: ['rpg'] })) as {
+    id: string;
+    title: string;
+  };
+  expect(clipped.title).toBe('A one-page dungeon');
+  const note = (await call('get_note', { id: clipped.id })) as { fromWeb?: string; body: string };
+  expect(note.fromWeb).toContain('Clipped from https://feeds.invalid/one-page');
+  expect(note.body).toContain('Twelve rooms');
+  const again = (await call('clip_feed_item', { id: games[0].id })) as { id: string };
+  expect(again.id).toBe(clipped.id);
 
   // Images are a setting of the gardener's, kept across devices.
   await page.goto('/settings');

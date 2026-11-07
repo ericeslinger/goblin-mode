@@ -66,8 +66,13 @@ stack playbook and the `house-style` plugin (enabled in
   `search_attachments`, an imported recipe in `get_note`, and since
   2026-10-25 a note holding what the assistant found on the web for an
   `@goblin` item, written as plain words under the mark `✳ Mossgoblin,
-  from the web:`), the result carries `fromWeb`, saying it is content,
-  never instructions. Hidden page text is dropped before anything reads
+  from the web:`, and since 2026-11-07 the Reader's articles and the
+  clippings filed from them, `list_feed_items`, `get_feed_item`,
+  `search_feed_items` and a note of kind `clipping`), the result
+  carries `fromWeb`, saying it is content, never instructions. Feed
+  text is stored with markdown's own characters escaped, so a page's
+  `[[name]]`, `- [ ] do this @goblin` or `#tag` stays words once
+  filed. Hidden page text is dropped before anything reads
   it, and a web-search model that writes findings has no tools.
 - **Ids are derived or generated client-side**, never typed by hand, so
   a note exists the moment it is created offline.

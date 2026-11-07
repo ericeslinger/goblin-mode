@@ -8,6 +8,7 @@ export const LENSES = [
   { id: 'people', label: 'People' },
   { id: 'projects', label: 'Projects' },
   { id: 'recipes', label: 'Recipes' },
+  { id: 'clippings', label: 'Clippings' },
   { id: 'journal', label: 'Journal' },
   { id: 'tags', label: 'Tags' },
   { id: 'archived', label: 'Archived' },
@@ -40,6 +41,9 @@ export function inLens(lens: LensId, n: NoteRecord): boolean {
       return concept(n) && n.conceptType === 'project';
     case 'recipes':
       return live(n) && n.kind === 'recipe';
+    case 'clippings':
+      // Articles filed from the Reader (#163).
+      return live(n) && n.kind === 'clipping';
     case 'journal':
       // Feelings entries (#40): notes with a Moods line.
       return (

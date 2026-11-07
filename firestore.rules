@@ -18,7 +18,7 @@ service cloud.firestore {
     function isValidNote(data) {
       return data.keys().hasAll(['kind', 'body', 'title', 'titleSource', 'links', 'tags', 'archived', 'createdAt', 'updatedAt', 'updatedBy', 'deviceId'])
         && data.keys().hasOnly(['kind', 'body', 'title', 'titleSource', 'conceptType', 'parent', 'projectKind', 'projectStatus', 'stages', 'itemTags', 'stage', 'synonyms', 'links', 'tags', 'templateMode', 'instructions', 'source', 'servings', 'importState', 'importError', 'periodStart', 'sendState', 'sendAsk', 'sentAt', 'sendOutcome', 'sendRun', 'fromTemplate', 'archived', 'mergedInto', 'settledAt', 'createdAt', 'updatedAt', 'updatedBy', 'agent', 'deviceId', 'baseHash'])
-        && (data.kind is string && data.kind in ['text', 'sketch', 'concept', 'template', 'context', 'recipe', 'mealplan', 'pantry'])
+        && (data.kind is string && data.kind in ['text', 'sketch', 'concept', 'template', 'context', 'recipe', 'mealplan', 'pantry', 'clipping'])
         && data.body is string
         && data.title is string
         && (data.titleSource is string && data.titleSource in ['words', 'llm', 'user'])
@@ -202,16 +202,20 @@ service cloud.firestore {
       }
 
       // Articles are the fetcher's. The gardener marks one read or
-      // saved, and nothing else: the text stays what the feed gave.
+      // saved, and ties it to the reading-queue record or the clipping
+      // the app made (#163), and nothing else: the text stays what the
+      // feed gave.
       match /feedItems/{itemId} {
         allow read: if isOwner(uid);
         allow update: if isOwner(uid)
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['read', 'readAt', 'saved', 'updatedAt'])
+            .hasOnly(['read', 'readAt', 'saved', 'attachmentId', 'noteId', 'updatedAt'])
           && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
           && request.resource.data.read is bool
           && request.resource.data.saved is bool
           && (!('readAt' in request.resource.data) || request.resource.data.readAt is timestamp)
+          && (!('attachmentId' in request.resource.data) || request.resource.data.attachmentId is string)
+          && (!('noteId' in request.resource.data) || request.resource.data.noteId is string)
           && request.resource.data.updatedAt is timestamp;
         allow create, delete: if false;
       }

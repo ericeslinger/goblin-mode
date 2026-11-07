@@ -4,6 +4,7 @@
 // look is a 304; anything else fails as an unreachable site would.
 // Swapped in for stand-in.ts by the emulator build alone.
 import { logger } from 'firebase-functions/v2';
+import type { PageFetcher } from '../attachments/import';
 import type { FeedFetcher } from './refresh';
 
 const DESIGN = `<?xml version="1.0"?>
@@ -79,5 +80,32 @@ export function standInFeedFetcher(env: NodeJS.ProcessEnv): FeedFetcher | undefi
     if (seen.etag === etag)
       return { status: 304, contentType: fixture.contentType, text: '', etag };
     return { status: 200, contentType: fixture.contentType, text: fixture.body, etag };
+  };
+}
+
+/** The page behind the first fixture article, for reader mode (#163). */
+const THREE_CHAIRS = `<html><head><title>Three chairs</title></head><body>
+<nav><a href="/">Design notes</a> <a href="/archive">Archive</a></nav>
+<article>
+  <h1>Three chairs</h1>
+  <p>A look at <b>three chairs</b> worth sitting in, at length, the full essay.</p>
+  <p>The first is a kitchen chair, plain and honest, the kind nobody photographs and everybody
+  uses. The second is a reading chair, deep enough to lose an afternoon in. The third is the
+  one by the door, where coats land and nobody sits.</p>
+  <ul><li>One</li><li>Two</li><li>Three</li></ul>
+</article>
+<footer>Subscribe to the newsletter. <a href="/privacy">Privacy</a></footer>
+</body></html>`;
+
+export function standInPageFetcher(env: NodeJS.ProcessEnv): PageFetcher | undefined {
+  if (env['FUNCTIONS_EMULATOR'] !== 'true' || !env['FIRESTORE_EMULATOR_HOST']) return undefined;
+  return async (url) => {
+    if (url === 'https://design.invalid/three-chairs') {
+      return {
+        contentType: 'text/html; charset=utf-8',
+        bytes: new TextEncoder().encode(THREE_CHAIRS),
+      };
+    }
+    throw new Error(`${new URL(url).hostname} is not reachable from the emulator`);
   };
 }

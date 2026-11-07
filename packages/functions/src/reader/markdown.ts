@@ -3,6 +3,7 @@
 // Hidden elements go first (visibleHtml, CLAUDE.md: page text), then the
 // structure is kept as the notes grammar writes it: *bold*, _italic_.
 // Pure over text; the fetcher caps and stores the result on the item.
+import { escapeMarkdown } from '@mossgoblin/schema';
 import { decode, visibleHtml } from '../attachments/import';
 
 /** The most of an article's content kept, in characters. */
@@ -31,17 +32,6 @@ function webLink(href: string, base: string): string | undefined {
   }
 }
 
-/**
- * Markdown's own characters in words from a page, so they stay words:
- * a page's `[[name]]`, `- [ ] do this @goblin` or `#tag` must never
- * read as a wiki link, an item for the assistant or a tag once filed
- * in the garden (CLAUDE.md, page text). A `#` is escaped only where it
- * would start a tag or heading.
- */
-export function escapeMarkdown(text: string): string {
-  return text.replace(/[\\*_`[\]]/g, (c) => `\\${c}`).replace(/(^|\s)#(?=[\p{L}\d#])/gu, '$1\\#');
-}
-
 /** The text between tags escaped; tags and placeholders left as they are. */
 function escapeText(html: string): string {
   return html
@@ -55,7 +45,7 @@ function escapeText(html: string): string {
  * only when http(s). Not a browser: nesting beyond lists in lists and
  * tables come out as their words in order, which is the point.
  */
-export function htmlToMarkdown(html: string, base: string): string {
+export function htmlToMarkdown(html: string, base: string, max = CONTENT_MAX): string {
   const blocks: string[] = [];
   const keep = (text: string) => {
     blocks.push(text);
@@ -139,7 +129,7 @@ export function htmlToMarkdown(html: string, base: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
     .replace(/\u0000(\d+)\u0000/g, (_, i: string) => blocks[Number(i)] ?? '');
-  return text.length <= CONTENT_MAX ? text : cut(text, CONTENT_MAX);
+  return text.length <= max ? text : cut(text, max);
 }
 
 /** Cut on a line, then a word, so a link is never left half written. */

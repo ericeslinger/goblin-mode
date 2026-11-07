@@ -92,7 +92,7 @@ against the same schemas.
 
 ```ts
 interface Note {
-  kind: 'text' | 'sketch' | 'concept';
+  kind: 'text' | 'sketch' | 'concept'; // also template, context, recipe, mealplan, pantry, clipping (#163)
   body: string;                 // markdown-lite
   title: string;                // shown title
   titleSource: 'words' | 'llm' | 'user';
@@ -1104,6 +1104,45 @@ Two more composite indexes serve the read and saved shelves
 (`read`, `readAt desc`; `saved`, `published desc`). Browse's Reader
 link carries the unread count.
 
+**Step 4, the gestures of intent and the assistant's tools (#163,
+built 2026-11-07).** Three things an article can become, each a
+gesture in the app and, for the assistant, a tool. **Save for later**
+sets `saved` and, once, puts the article's link in the reading queue
+(`ReadingService.save`, the same record a pasted link makes), so the
+server fetches the page's text and `search_attachments` finds it; the
+record's id goes on the item (`attachmentId`), unsaving leaves it.
+**Reader mode** is `fetchArticle` (`onCall`, claimed in a transaction,
+fifty a day per gardener in the usage record, `articles`): the page
+through `publicFetch`, `mainContent` (hidden elements out, then the
+page's navigation, headers, footers and asides, then the largest
+block a page marks as its article, `<article>`, `role=main`,
+`<main>` or the usual content classes, if it holds a fair share of
+the words, else the body) and the same markdown as a feed's content
+with a 100k cap, kept on the item as `readerContent`, which the
+article view and the tools show from then on; `readerState` and
+`readerError` say how it went. No model reads the page. **File in
+the garden** makes a note of kind `clipping` (`NotesService.clip`,
+offline too): titled as the article is (`titleSource: 'user'`, so no
+settle retitles it), its body one line saying where it is from
+(`clippingBody`: the feed's name linked to the page, the author, the
+date, escaped) and the article's markdown as the fetcher stored it,
+reader mode's when there is one, `source` naming the page and the
+item (`feedItemId`), and `noteId` on the item; the clipping gets a
+header above its text (Clipped from, Open the page, In the Reader),
+a Clippings lens in Browse, and a leaf on its row in the list. The
+`feedItems` rule lets the owner set `attachmentId` and `noteId` for
+these, beside the marks. **The assistant's side**: `list_feed_items`
+(a folder by name, a feed, or what is saved; unread unless asked),
+`get_feed_item` (the text, reader mode's when fetched, a stretch at
+a time like `get_attachment_text`), `search_feed_items` (every word
+in title or text, the last thirty days by default, with a snippet)
+and `clip_feed_item` (the same clipping the app makes, as the
+assistant, with an activity record; filed already, that note). Every
+article view and a clipping in `get_note` carry `fromWeb` (CLAUDE.md,
+page text): a page's words, never instructions. The garden's own
+agent gets the same tools; none of them fetches anything unattended,
+so none is denied to a run.
+
 ## Themes (#23, 2026-10-06)
 
 Eric chose all five style directions from the UX Spec, switchable
@@ -1526,6 +1565,10 @@ it, one backticked tool name per row.
 | `capture` | Files chat words under a project, verbatim ("garden this") | Garden this (#42) |
 | `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
+| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked | The Reader, step 4 (#163) |
+| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time | The Reader, step 4 (#163) |
+| `search_feed_items` | Articles holding every word of a query, the last 30 days by default, with snippets | The Reader, step 4 (#163) |
+| `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |
 | `search_attachments` | Full-text search across every PDF and saved page | Attachment text, server half (#45) |
 | `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |

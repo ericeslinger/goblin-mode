@@ -214,6 +214,20 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...note(), sendRun: 7 }));
   });
 
+  it('takes a clipping from the Reader (#163): kind clipping with its source', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/clip1');
+    await assertSucceeds(
+      ref.set({
+        ...note(),
+        kind: 'clipping',
+        titleSource: 'user',
+        source: { url: 'https://design.invalid/three-chairs', feedItemId: 'f-1-abc' },
+      }),
+    );
+    await assertFails(ref.set({ ...note(), kind: 'article' }));
+  });
+
   it('lets the app settle a note with a merged server timestamp, and nothing else in it', async () => {
     const note = valid['users/owner/notes/n1'];
     const ref = owner().doc('users/owner/notes/n1');
@@ -350,6 +364,12 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     await assertSucceeds(ref.set({ saved: true, updatedAt: now() }, { merge: true }));
     await assertFails(ref.set({ read: 'yes', updatedAt: now() }, { merge: true }));
     await assertFails(ref.set({ read: true }, { merge: true }));
+    // Saved for later or filed in the garden (#163): the app ties the record on.
+    await assertSucceeds(
+      ref.set({ attachmentId: 'a1', saved: true, updatedAt: now() }, { merge: true }),
+    );
+    await assertSucceeds(ref.set({ noteId: 'n9', updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ noteId: 9, updatedAt: now() }, { merge: true }));
     await assertFails(ref.set({ title: 'Mine now', updatedAt: now() }, { merge: true }));
     await assertFails(
       ref.set({ content: 'rewritten', read: true, updatedAt: now() }, { merge: true }),

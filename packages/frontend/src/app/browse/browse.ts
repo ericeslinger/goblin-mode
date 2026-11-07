@@ -157,7 +157,8 @@ export class Browse {
     // A module that is off takes its lens with it (#126).
     const off = (id: string) =>
       (id === 'projects' && !this.modules.projects()) ||
-      (id === 'recipes' && !this.modules.kitchen());
+      (id === 'recipes' && !this.modules.kitchen()) ||
+      (id === 'clippings' && !this.modules.reader());
     return LENSES.filter((l) => !off(l.id)).map((l) => ({
       ...l,
       count: all.filter((n) => inLens(l.id, n)).length,

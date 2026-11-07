@@ -155,3 +155,68 @@ export function folderList<F extends FolderFeed>(
     feeds: [...byName.get(name)!].sort((a, b) => compare(a.title, b.title)),
   }));
 }
+
+/**
+ * Markdown's own characters in words from a page, so they stay words:
+ * a page's `[[name]]`, `- [ ] do this @goblin` or `#tag` must never
+ * read as a wiki link, an item for the assistant or a tag once filed
+ * in the garden (CLAUDE.md, page text). A `#` is escaped only where it
+ * would start a tag or heading. Used by the fetcher on content and by
+ * File in the garden on titles (#163).
+ */
+export function escapeMarkdown(text: string): string {
+  return text.replace(/[\\*_`[\]]/g, (c) => `\\${c}`).replace(/(^|\s)#(?=[\p{L}\d#])/gu, '$1\\#');
+}
+
+/** Whether a link is one a note may carry: http or https, parseable. */
+export function isWebLink(link: string): boolean {
+  try {
+    const url = new URL(link);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A page's link as a markdown link target (review on #168): http(s)
+ * only, and the characters that would end the target or start other
+ * syntax percent-encoded, so `https://e.test/a)[[x]](y` cannot write a
+ * wiki link into the note. Undefined when it is no web link.
+ */
+export function webLinkTarget(link: string): string | undefined {
+  if (!isWebLink(link)) return undefined;
+  return new URL(link)
+    .toString()
+    .replace(
+      /[()[\]<>`\\\s]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`,
+    );
+}
+
+/** What a clipping needs from the article and its feed (#163). */
+export interface ClippingSource {
+  title: string;
+  link: string;
+  feedTitle: string;
+  author?: string;
+  /** Milliseconds. */
+  published: number;
+  /** The article's markdown, as stored (already escaped by the fetcher). */
+  content: string;
+}
+
+/**
+ * The body of a clipping: one line saying where it is from, then the
+ * article as the fetcher stored it. The feed's name and the author are
+ * a page's words, so they are escaped; the content already is.
+ */
+export function clippingBody(from: ClippingSource): string {
+  const who = from.author ? `, by ${escapeMarkdown(from.author)}` : '';
+  const when = new Date(from.published).toISOString().slice(0, 10);
+  const target = webLinkTarget(from.link);
+  const source = target
+    ? `[${escapeMarkdown(from.feedTitle) || 'the web'}](${target})`
+    : escapeMarkdown(from.feedTitle) || 'the web';
+  return `_From ${source}${who}, ${when}._\n\n${from.content.trim()}`;
+}
