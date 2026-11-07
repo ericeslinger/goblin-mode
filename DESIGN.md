@@ -1374,7 +1374,12 @@ before Angular's worker: a hit is the cached file, or for a `Range`
 (416 past the end), read lazily from the Blob; a miss goes to the
 network. The player plays a downloaded episode from that link, so it
 plays and seeks offline, and any other from the enclosure's link as
-in step 2. The episode's page has Download, its progress, then
+in step 2. When the proxy's link fails (a page the service worker
+does not control sends it without a token, or the file was evicted),
+the player falls back to the enclosure's link at the same place, once,
+and a download whose cached file is gone is forgotten (review on #192,
+2026-11-07). The Worker answers 502 when the host cannot be reached or
+redirects to a link that does not parse. The episode's page has Download, its progress, then
 "Downloaded, 47 KB" and Remove download, and its meta line starts
 "Downloaded ·"; a downloaded episode's row says so. Downloads
 (`/reader/downloads`, linked from the Reader's front once anything is

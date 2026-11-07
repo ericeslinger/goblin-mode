@@ -301,6 +301,28 @@ describe('proxyEpisode (#180)', () => {
     expect(loop).toHaveBeenCalledTimes(6);
   });
 
+  it('answers 502 when the host cannot be reached or redirects to a link that does not parse', async () => {
+    const down = upstream(() => {
+      throw new TypeError('connection refused');
+    });
+    const refused = await proxyEpisode(await ask(), env, {
+      fetch: down as typeof fetch,
+      keys,
+      now: NOW,
+    });
+    expect(refused.status).toBe(502);
+    const broken = upstream(
+      () => new Response(null, { status: 302, headers: { location: 'http://[' } }),
+    );
+    const bad = await proxyEpisode(await ask(), env, {
+      fetch: broken as typeof fetch,
+      keys,
+      now: NOW,
+    });
+    expect(bad.status).toBe(502);
+    expect(broken).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses what is not audio, too big, or an error', async () => {
     const run = async (res: Response) =>
       (

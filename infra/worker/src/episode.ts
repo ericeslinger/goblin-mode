@@ -357,19 +357,30 @@ export async function proxyEpisode(
   let url = first;
   let res: Response | undefined;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    res = await deps.fetch(url.toString(), {
-      method: 'GET',
-      redirect: 'manual',
-      headers: {
-        'user-agent': 'Mossgoblin/1 (downloading a podcast episode)',
-        ...(range ? { range } : {}),
-      },
-    });
+    try {
+      res = await deps.fetch(url.toString(), {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          'user-agent': 'Mossgoblin/1 (downloading a podcast episode)',
+          ...(range ? { range } : {}),
+        },
+      });
+    } catch {
+      // Refused, reset or timed out: the host's fault, not ours (review on #192).
+      return plain(502, `could not reach ${url.hostname}`);
+    }
     if (res.status < 300 || res.status >= 400 || res.status === 304) break;
     await res.body?.cancel();
     const next = res.headers.get('location');
     if (!next) return plain(502, `a redirect with nowhere to go (${res.status})`);
-    const checked = allowedUpstream(new URL(next, url));
+    let target: URL;
+    try {
+      target = new URL(next, url);
+    } catch {
+      return plain(502, `a redirect to a link that does not parse (${res.status})`);
+    }
+    const checked = allowedUpstream(target);
     if (typeof checked === 'string') return plain(400, `redirected: ${checked}`);
     url = checked;
     res = undefined;

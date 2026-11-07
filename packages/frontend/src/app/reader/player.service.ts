@@ -71,6 +71,11 @@ export class PlayerService {
   private audio?: AudioLike;
   /** Whether the audio element holds the current episode's link yet. */
   private attached = false;
+  /**
+   * Whether the element holds the proxy's link for a downloaded episode
+   * and may still fall back to the enclosure's, once (review on #192).
+   */
+  private proxied = false;
   /** Where to start once the audio has its metadata. */
   private startAt?: number;
   /** The position at the last write, for the 15 s rhythm. */
@@ -194,7 +199,9 @@ export class PlayerService {
     if (!this.attached) {
       this.attached = true;
       this.startAt = this.position();
-      audio.src = this.downloads.source(it) ?? it.enclosure.url;
+      const src = this.downloads.source(it) ?? it.enclosure.url;
+      this.proxied = src !== it.enclosure.url;
+      audio.src = src;
       audio.defaultPlaybackRate = this.rate();
       audio.playbackRate = this.rate();
       // Before the metadata this is the default start; again once it lands.
@@ -287,8 +294,30 @@ export class PlayerService {
       this.audio.load();
     }
     this.attached = false;
+    this.proxied = false;
     this.startAt = undefined;
     this.playing.set(false);
+  }
+
+  /**
+   * The proxy's link failed (review on #192): a page the service worker
+   * does not control sends it without a token, or the cached file is
+   * gone. The enclosure's link takes over at the same place, playing,
+   * once; the download is forgotten if its file is gone.
+   */
+  private fallBack(): void {
+    const it = this.item();
+    if (!this.attached || !this.proxied || !it?.enclosure || !this.audio) return;
+    this.proxied = false;
+    void this.downloads.forgetIfGone(it.id);
+    const audio = this.audio;
+    this.startAt = this.position();
+    audio.src = it.enclosure.url;
+    audio.currentTime = this.position();
+    audio.play().catch((err) => {
+      console.error('could not play', err);
+      this.playing.set(false);
+    });
   }
 
   private element(): AudioLike {
@@ -325,6 +354,7 @@ export class PlayerService {
       // At the end, `ended` keeps it, as played.
       if (!audio.ended) this.flush();
     });
+    audio.addEventListener('error', () => this.fallBack());
     audio.addEventListener('ended', () => {
       this.playing.set(false);
       this.position.set(this.duration() || audio.currentTime);

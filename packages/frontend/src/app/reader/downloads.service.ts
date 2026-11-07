@@ -221,6 +221,22 @@ export class DownloadsService {
     }
   }
 
+  /**
+   * Forgets a download whose cached file is gone (the browser may evict
+   * it), so the player and the list stop offering it (review on #192).
+   */
+  async forgetIfGone(id: string): Promise<void> {
+    const kept = this.record(id);
+    if (!kept) return;
+    try {
+      const cache = await this.api.open();
+      if (await cache.match(episodePath(kept.url))) return;
+    } catch {
+      // No cache to read: nothing is kept in it either.
+    }
+    this.records.update((l) => l.filter((r) => r.id !== id));
+  }
+
   /** Resolves once any automatic downloads under way are done, for specs. */
   async settled(): Promise<void> {
     while (this.syncing) await this.syncing;

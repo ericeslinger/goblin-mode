@@ -465,6 +465,7 @@ export class FakeDownloads {
     return undefined as string | undefined;
   });
   remove = vi.fn(async (id: string) => this.records.update((l) => l.filter((r) => r.id !== id)));
+  forgetIfGone = vi.fn(async (_id: string) => undefined);
   settled = async () => undefined;
 }
 

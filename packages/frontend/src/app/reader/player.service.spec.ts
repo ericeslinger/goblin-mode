@@ -100,7 +100,7 @@ function setup(storage = memoryStorage()) {
       .filter((c) => 'position' in c[2])
       .map((c) => ({ path: c[1], ...c[2] }) as Record<string, unknown>);
   const downloads = TestBed.inject(DownloadsService);
-  return { items, player, api, audio, made, storage, progress, downloads };
+  return { items, player, api, audio, made, storage, progress, downloads, downloadsApi };
 }
 
 describe('PlayerService (#179)', () => {
@@ -257,5 +257,39 @@ describe('PlayerService (#179)', () => {
     expect(audio.src).toBe(episodePath('https://pod.test/e1.mp3'));
     player.load(items.find('e2')!, { autoplay: true });
     expect(audio.src).toBe('https://pod.test/e2.mp3');
+  });
+
+  it('falls back to the enclosure’s link, once, when the proxy’s fails (review on #192)', async () => {
+    const { items, player, api, audio, downloads } = setup();
+    api.push('unread', [episode('e1')]);
+    await vi.waitFor(() => expect(downloads.loaded()).toBe(true));
+    await downloads.download(items.find('e1')!);
+    player.load(items.find('e1')!, { autoplay: true });
+    expect(audio.src).toBe(episodePath('https://pod.test/e1.mp3'));
+    audio.meta(2530);
+    audio.tick(42);
+    audio.play.mockClear();
+    // A page not under the service worker: no token, a 401, an error.
+    audio.emit('error');
+    expect(audio.src).toBe('https://pod.test/e1.mp3');
+    expect(audio.currentTime).toBe(42);
+    expect(audio.play).toHaveBeenCalledTimes(1);
+    // The cached file is still there, so the download stays.
+    await vi.waitFor(() => expect(downloads.has('e1')).toBe(true));
+    // No loop: a second error leaves it.
+    audio.emit('error');
+    expect(audio.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgets a download whose cached file is gone when the proxy’s link fails', async () => {
+    const { items, player, api, audio, downloads, downloadsApi } = setup();
+    api.push('unread', [episode('e1')]);
+    await vi.waitFor(() => expect(downloads.loaded()).toBe(true));
+    await downloads.download(items.find('e1')!);
+    downloadsApi.cache.stored.clear();
+    player.load(items.find('e1')!, { autoplay: true });
+    audio.emit('error');
+    expect(audio.src).toBe('https://pod.test/e1.mp3');
+    await vi.waitFor(() => expect(downloads.has('e1')).toBe(false));
   });
 });
