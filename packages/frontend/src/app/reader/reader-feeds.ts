@@ -1,13 +1,16 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, type ElementRef, inject, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
-import { type FeedRecord, ReaderService } from './reader.service';
+import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.service';
 
 /**
  * Manage feeds (#159, step 1): the feeds followed, in folders, imported
  * from an OPML file (Feedly exports one) or followed one at a time,
  * moved between folders and removed. Reading is on `/reader` (#162).
+ * A site's address finds its feeds (#174): Find feeds, or Find feeds on
+ * a followed link the server could not read as one, lists what the
+ * server found to pick from.
  */
 @Component({
   selector: 'app-reader-feeds',
@@ -42,6 +45,17 @@ import { type FeedRecord, ReaderService } from './reader.service';
                   <li>
                     <span class="name">{{ feed.title }}</span>
                     <span class="meta">{{ meta(feed) }}</span>
+                    @if (notAFeed(feed)) {
+                      <button
+                        type="button"
+                        class="find"
+                        [attr.aria-label]="'Find feeds at the site of ' + feed.title"
+                        [disabled]="finding()"
+                        (click)="findFor(feed)"
+                      >
+                        Find feeds there
+                      </button>
+                    }
                     <label class="move">
                       <span class="visually-hidden"
                         >Folders for {{ feed.title }}, comma separated</span
@@ -118,9 +132,33 @@ import { type FeedRecord, ReaderService } from './reader.service';
           }
         </datalist>
         <button type="submit" [disabled]="!reader.loaded()">Follow</button>
+        <button type="button" [disabled]="!reader.loaded() || finding()" (click)="find()">
+          Find feeds
+        </button>
       </form>
+      <p class="muted">Not a feed's link? Paste the site's address and choose Find feeds.</p>
       @if (followed()) {
         <p class="status" role="status">{{ followed() }}</p>
+      }
+      @if (candidates().length) {
+        <ul class="candidates" aria-label="Feeds found">
+          @for (c of candidates(); track c.url) {
+            <li>
+              <span class="name">{{ c.title }}</span>
+              <span class="meta"
+                >{{ c.url }}{{ reader.followed(c.url) ? ' · already followed' : '' }}</span
+              >
+              <button
+                type="button"
+                class="pick"
+                [attr.aria-label]="'Follow: ' + c.title"
+                (click)="followFound(c)"
+              >
+                Follow
+              </button>
+            </li>
+          }
+        </ul>
       }
     </main>
   `,
@@ -181,6 +219,27 @@ import { type FeedRecord, ReaderService } from './reader.service';
     .retry + .remove {
       grid-row: 2 / span 2;
     }
+    .find {
+      grid-column: 1;
+      justify-self: start;
+      min-height: 32px;
+    }
+    .candidates li {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px var(--space-2);
+      padding: 8px 4px 10px;
+      border-top: 1px solid var(--rule);
+    }
+    .candidates .meta {
+      overflow-wrap: anywhere;
+    }
+    .pick {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      align-self: center;
+      min-height: 32px;
+    }
   `,
 })
 export class ReaderFeeds {
@@ -189,6 +248,11 @@ export class ReaderFeeds {
   protected readonly cap = FEED_CAP;
   protected readonly imported = signal('');
   protected readonly followed = signal('');
+  /** What Find feeds turned up (#174), to pick from. */
+  protected readonly candidates = signal<DiscoveredFeed[]>([]);
+  protected readonly finding = signal(false);
+  private readonly urlInput = viewChild.required<ElementRef<HTMLInputElement>>('url');
+  private readonly folderInput = viewChild.required<ElementRef<HTMLInputElement>>('folder');
   protected async importFile(input: HTMLInputElement): Promise<void> {
     const file = input.files?.[0];
     if (!file) return;
@@ -224,7 +288,60 @@ export class ReaderFeeds {
       return;
     }
     url.value = '';
+    this.candidates.set([]);
     this.followed.set('Following. Its name and articles arrive once the server has looked.');
+  }
+
+  /** Asks the server for the feeds at the pasted address (#174). */
+  protected async find(): Promise<void> {
+    const text = this.urlInput().nativeElement.value.trim();
+    if (!text) {
+      this.followed.set('Paste a site’s address first.');
+      return;
+    }
+    this.finding.set(true);
+    this.candidates.set([]);
+    this.followed.set('Looking for feeds…');
+    const found = await this.reader.discover(text);
+    this.finding.set(false);
+    if (typeof found === 'string') {
+      this.followed.set(found);
+      return;
+    }
+    this.candidates.set(found);
+    this.followed.set(
+      found.length === 1
+        ? 'Found a feed; follow it below.'
+        : `Found ${found.length} feeds; pick one below.`,
+    );
+  }
+
+  /** Find feeds for a followed link the server could not read as a feed (#174). */
+  protected findFor(feed: FeedRecord): void {
+    this.urlInput().nativeElement.value = feed.site ?? feed.url;
+    this.folderInput().nativeElement.value = feed.folders[0] ?? '';
+    void this.find();
+  }
+
+  protected followFound(found: DiscoveredFeed): void {
+    const folder = this.folderInput().nativeElement.value.trim();
+    const known = this.reader.followed(found.url);
+    if (!this.reader.addFeed(found.url, folder, found.title)) {
+      this.followed.set(`That is ${FEED_CAP} feeds already; remove one first.`);
+      return;
+    }
+    this.urlInput().nativeElement.value = '';
+    this.candidates.set([]);
+    this.followed.set(
+      known
+        ? `Already following ${known.title}${folder ? `; now in ${folder} too` : ''}.`
+        : `Following ${found.title}. Its articles arrive once the server has looked.`,
+    );
+  }
+
+  /** The server looked and found a page, not a feed (#161's message). */
+  protected notAFeed(feed: FeedRecord): boolean {
+    return !feed.dead && /^not a feed/.test(feed.error ?? '');
   }
 
   protected move(feed: FeedRecord, value: string): void {

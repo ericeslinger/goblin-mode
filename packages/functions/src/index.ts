@@ -17,6 +17,7 @@ export { noteHistory, noteTitle } from './notes/triggers';
 export { recipeImport } from './kitchen/triggers';
 export {
   applyRetentionNow,
+  discoverFeeds,
   feedRemoved,
   feedsRefresh,
   fetchArticle,

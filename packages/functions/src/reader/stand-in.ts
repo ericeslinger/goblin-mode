@@ -10,7 +10,7 @@ export function standInFeedFetcher(_env: NodeJS.ProcessEnv): FeedFetcher | undef
   return undefined;
 }
 
-/** Never a stand-in here either: reader mode fetches the real page (#163). */
+/** Never a stand-in here either: reader mode (#163) and discovery (#174) fetch the real page. */
 export function standInPageFetcher(_env: NodeJS.ProcessEnv): PageFetcher | undefined {
   return undefined;
 }

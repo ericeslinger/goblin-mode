@@ -1184,6 +1184,27 @@ page text): a page's words, never instructions. The garden's own
 agent gets the same tools; none of them fetches anything unattended,
 so none is denied to a run.
 
+**Feed discovery (#174, 2026-11-07).** Follow a feed takes a site's
+address too: Find feeds calls `discoverFeeds` (`onCall`, signed in,
+fifty a day per gardener in the usage record, `discoveries`), which
+fetches the address through `publicRequest` (2 MB). A feed is its own
+answer; an HTML page gives the `<link rel="alternate">` feeds in its
+head (RSS, Atom or JSON Feed types, read from the visible HTML,
+resolved, http(s), at most ten), and when it names none, the usual
+paths on the site (`/feed`, `/rss`, `/atom.xml`, `/feed.xml`,
+`/index.xml`). Five candidates at most are fetched (2 MB each) and
+kept only if `parseFeed` reads them, under their own names; none is
+`not-found`, "No feed found at that address." The page reaches no
+model, and the names are shown only to the gardener. Manage feeds
+lists what came back, each with its address and a Follow that adds
+it under that name into the form's folder (`addFeed` with a title; a
+feed already followed keeps its name and joins the folder). A
+followed link the fetcher read as no feed offers Find feeds there on
+its row. The emulator's page stand-in serves `https://site.invalid/`,
+whose head names three fixture feeds (two the journey's OPML follows
+and a JSON Feed, `notes.json`, only the site names), and the fixture
+feeds themselves.
+
 ## Themes (#23, 2026-10-06)
 
 Eric chose all five style directions from the UX Spec, switchable

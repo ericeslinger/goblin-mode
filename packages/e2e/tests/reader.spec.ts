@@ -8,7 +8,8 @@ import { OWNER } from '../src/personas';
 // folders (#160), the server's refresh against the emulator's fixture
 // feeds (#161), then reading: folders with counts, the compact list,
 // swipes, the article, next by keyboard, Saved, Mark all read (#162),
-// and marking read on scroll with its Undo (#172).
+// marking read on scroll with its Undo (#172), and last, feed
+// discovery from a site's address (#174).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -304,4 +305,53 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('status').last()).toContainText('Removed 0 old unread articles.', {
     timeout: 15_000,
   });
+
+  // Discovery (#174), last so the counts above stand: the link followed
+  // in step 1 is a page, and the server finds no feed there; a site's
+  // address lists the three feeds its head names. One the OPML did not
+  // have is followed into a new folder, and one already followed joins
+  // it there.
+  await page.goto('/reader/feeds');
+  await folders.locator('summary', { hasText: 'Games' }).click();
+  await expect(page.getByRole('list', { name: 'Feeds in Games' })).toContainText(
+    'last look failed: not a feed',
+  );
+  await page.getByRole('button', { name: 'Find feeds at the site of feeds.invalid' }).click();
+  const followStatus = page.locator('#follow ~ [role=status]');
+  await expect(followStatus).toHaveText('No feed found at that address.', { timeout: 15_000 });
+  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://site.invalid/');
+  await page.getByRole('combobox', { name: 'Folder' }).fill('Tabletop');
+  await page.getByRole('button', { name: 'Find feeds', exact: true }).click();
+  const found = page.getByRole('list', { name: 'Feeds found' });
+  await expect(found.getByRole('listitem')).toHaveCount(3, { timeout: 15_000 });
+  await expect(found.getByRole('listitem')).toContainText([
+    'Design notes (fixture)',
+    'Dice and paper (fixture)',
+    'Margin notes (fixture)',
+  ]);
+  await expect(found.getByRole('listitem').nth(1)).toContainText(
+    'https://feeds.invalid/games.atom · already followed',
+  );
+  await expect(found.getByRole('listitem').last()).not.toContainText('already followed');
+  await expect(followStatus).toHaveText('Found 3 feeds; pick one below.');
+  await axe(page);
+  await found.getByRole('button', { name: 'Follow: Margin notes (fixture)' }).click();
+  await expect(followStatus).toHaveText(
+    'Following Margin notes (fixture). Its articles arrive once the server has looked.',
+  );
+  await expect(found).toHaveCount(0);
+  await folders.locator('summary', { hasText: 'Tabletop' }).click();
+  const tabletop = page.getByRole('list', { name: 'Feeds in Tabletop' });
+  await expect(tabletop.getByRole('listitem')).toHaveCount(1);
+  await expect(tabletop).toContainText('Margin notes (fixture)');
+  await expect(tabletop).toContainText('feeds.invalid · not looked at yet');
+  // Again, for one already followed: it keeps its name and joins the folder.
+  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://site.invalid/');
+  await page.getByRole('button', { name: 'Find feeds', exact: true }).click();
+  await expect(found.getByRole('listitem')).toHaveCount(3, { timeout: 15_000 });
+  await expect(found.getByRole('listitem').last()).toContainText('already followed');
+  await found.getByRole('button', { name: 'Follow: Dice and paper (fixture)' }).click();
+  await expect(followStatus).toHaveText('Already following Dice; now in Tabletop too.');
+  await expect(tabletop.getByRole('listitem')).toHaveCount(2);
+  await expect(tabletop).toContainText('Dice');
 });
