@@ -7,7 +7,8 @@ import { OWNER } from '../src/personas';
 // The Reader (#159): the module switched on, an OPML file imported into
 // folders (#160), the server's refresh against the emulator's fixture
 // feeds (#161), then reading: folders with counts, the compact list,
-// swipes, the article, next by keyboard, Saved, Mark all read (#162).
+// swipes, the article, next by keyboard, Saved, Mark all read (#162),
+// and marking read on scroll with its Undo (#172).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -50,6 +51,9 @@ const axe = async (page: Page) => {
 test('import feeds, refresh, read through a folder with swipes and keys, save, mark all read', async ({
   page,
 }) => {
+  // The whole Reader in one journey runs past the default 30 s once
+  // read on scroll (#172) is in it; each step keeps its own timeout.
+  test.setTimeout(90_000);
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
   await page.goto('/browse');
@@ -114,10 +118,52 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText('Refreshed a moment ago');
 
+  // Mark read on scroll (#172): the switch on, All in a short window
+  // scrolled to its end, the rows passed marked in one batch and kept in
+  // the list, the count down by as many, then Undo puts them back.
+  await page.goto('/settings');
+  const onScroll = page.getByRole('switch', { name: 'Mark articles read as I scroll past them' });
+  await expect(onScroll).not.toBeChecked();
+  await onScroll.check();
+  await letItSave(page);
+  await page.goto('/reader/f/all');
+  const articles = page.getByRole('list', { name: 'Articles' });
+  await expect(articles.getByRole('listitem')).toHaveCount(5);
+  const tall = page.viewportSize()!;
+  await page.setViewportSize({ width: tall.width, height: 320 });
+  // A wheel, not a scrollTo: a page the browser moves marks nothing (review on #182).
+  await page.mouse.move(tall.width / 2, 160);
+  await page.mouse.wheel(0, 2000);
+  const marked = page.getByRole('status').filter({ hasText: /Marked \d+ read/ });
+  await expect(marked).toBeVisible();
+  const passed = Number(/Marked (\d+) read/.exec(await marked.innerText())![1]);
+  expect(passed).toBeGreaterThan(0);
+  expect(passed).toBeLessThan(5);
+  await expect(articles.getByRole('listitem')).toHaveCount(5);
+  await letItSave(page);
+  expect(await call('list_feed_items', {})).toHaveLength(5 - passed);
+  // Undo shows where the list was scrolled to, before any click scrolls to it.
+  const undo = page.getByRole('button', { name: 'Undo' });
+  const box = (await undo.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(320);
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await undo.click();
+  await expect(page.getByRole('status')).toContainText(`${passed} unread again.`);
+  await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+  await letItSave(page);
+  expect(await call('list_feed_items', {})).toHaveLength(5);
+  // Off again, so the lists below are only what the swipes and taps do.
+  await page.setViewportSize(tall);
+  await page.goto('/settings');
+  await onScroll.uncheck();
+  await letItSave(page);
+  await page.goto('/reader');
+  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('5 unread');
+
   // Step 3: the list, a swipe, the article, next by key, Show read.
   await nav.getByRole('link', { name: /^Design/ }).click();
   await expect(page.getByRole('heading', { name: 'Design', level: 1 })).toBeVisible();
-  const articles = page.getByRole('list', { name: 'Articles' });
   await expect(articles.getByRole('listitem')).toHaveCount(3);
   await expect(articles.getByRole('listitem').first()).toContainText('Three chairs');
   await expect(articles.getByRole('listitem').first()).toContainText('Design notes ·');

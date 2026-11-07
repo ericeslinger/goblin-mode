@@ -75,7 +75,7 @@ export interface ItemsApi {
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>): Promise<void>;
-  /** Several merges in one batch, for Mark all read. */
+  /** Several merges in one batch, for Mark all read and read on scroll. */
   setMany(db: Firestore, writes: { path: string; data: Record<string, unknown> }[]): Promise<void>;
   serverTime(): unknown;
   clear(): unknown;
@@ -381,16 +381,24 @@ export class ItemsService {
 
   /** Marks every unread article at hand on a shelf read; returns how many. */
   markAllRead(shelf: Shelf2): number {
-    const uid = this.auth.user()?.uid;
-    if (!uid) return 0;
     // Only the unread: Saved shows read ones too (review on #167).
     const ids = this.inShelf(shelf, false)
       .filter((i) => !i.read)
       .map((i) => i.id);
-    if (!ids.length) return 0;
+    return this.setReadMany(ids, true);
+  }
+
+  /**
+   * Marks several read (now) or unread again in one batch, shown at
+   * once; returns how many. Mark all read and mark read on scroll and
+   * its Undo (#172) go through here.
+   */
+  setReadMany(ids: string[], read: boolean): number {
+    const uid = this.auth.user()?.uid;
+    if (!uid || !ids.length) return 0;
     this.local.update((l) => {
       const next = { ...l };
-      for (const id of ids) next[id] = { ...next[id], read: true };
+      for (const id of ids) next[id] = { ...next[id], read };
       return next;
     });
     void this.api
@@ -398,10 +406,14 @@ export class ItemsService {
         this.fb.db,
         ids.map((id) => ({
           path: paths.feedItem(uid, id),
-          data: { read: true, readAt: this.api.serverTime(), updatedAt: this.api.serverTime() },
+          data: {
+            read,
+            readAt: read ? this.api.serverTime() : this.api.clear(),
+            updatedAt: this.api.serverTime(),
+          },
         })),
       )
-      .catch((err) => console.error('mark all read not saved', err));
+      .catch((err) => console.error('read marks not saved', err));
     return ids.length;
   }
 

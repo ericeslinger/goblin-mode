@@ -179,6 +179,27 @@ describe('ReaderService (#159)', () => {
     ]);
   });
 
+  it('marks read on scroll only when switched on (#172), written whole', () => {
+    const { reader, settings } = setup();
+    expect(reader.readOnScroll()).toBe(false);
+    settings.push({ folderOrder: ['Games'], images: false, updatedAt: 1 });
+    expect(reader.readOnScroll()).toBe(false);
+    reader.setReadOnScroll(true);
+    expect(reader.readOnScroll()).toBe(true);
+    expect(settings.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/settings/reader',
+      { folderOrder: ['Games'], images: false, readOnScroll: true, updatedAt: 'SERVER_TIME' },
+    ]);
+    reader.setReadOnScroll(false);
+    expect(reader.readOnScroll()).toBe(false);
+    expect(settings.set.mock.lastCall![2]).toEqual({
+      folderOrder: ['Games'],
+      images: false,
+      readOnScroll: false,
+      updatedAt: 'SERVER_TIME',
+    });
+  });
+
   it('keeps articles for a while (#171): the setting written whole, then applied by the server', async () => {
     const { reader, api, settings } = setup();
     settings.push({ folderOrder: ['Games'], images: false, readOnScroll: true, updatedAt: 1 });
