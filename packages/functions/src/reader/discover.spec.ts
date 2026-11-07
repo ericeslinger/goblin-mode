@@ -101,6 +101,15 @@ describe('feed discovery (#174)', () => {
     expect(fetchFeed).not.toHaveBeenCalled();
   });
 
+  it('finds a feed served as text/html as itself (review on #183)', async () => {
+    const page: PageFetcher = async () => html(RSS('Mislabelled'));
+    const fetchFeed = feeds({});
+    expect(await discoverFeeds('https://site.test/rss', page, fetchFeed)).toEqual({
+      feeds: [{ url: 'https://site.test/rss', title: 'Mislabelled' }],
+    });
+    expect(fetchFeed).not.toHaveBeenCalled();
+  });
+
   it('finds nothing in neither a page nor a feed, and survives a failing candidate', async () => {
     const pdf: PageFetcher = async () => ({
       contentType: 'application/pdf',

@@ -102,10 +102,11 @@ export async function discoverFeeds(
 ): Promise<{ feeds: DiscoveredFeed[] }> {
   const page = await fetchPage(url);
   const text = decodeBody(page.bytes, page.contentType);
-  if (!isHtml(page.contentType)) {
-    const itself = parseFeed(text, url);
-    return { feeds: itself ? [{ url, title: plain(itself.title) || hostOf(url) }] : [] };
-  }
+  // The address itself first, whatever its content type: some sites
+  // serve their feed as text/html (review on #183).
+  const itself = parseFeed(text, url);
+  if (itself) return { feeds: [{ url, title: plain(itself.title) || hostOf(url) }] };
+  if (!isHtml(page.contentType)) return { feeds: [] };
   const named = alternateLinks(text, url);
   const candidates: AlternateLink[] = named.length
     ? named
