@@ -74,16 +74,35 @@ test('import an OPML file into folders, move a feed, remove one, follow one', as
   await page.getByRole('button', { name: 'Remove: Loose' }).click();
   await expect(folders).not.toContainText('Uncategorized');
 
-  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://dice.example/feed');
+  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/games.atom');
   await page.getByRole('combobox', { name: 'Folder' }).fill('Games');
   await page.getByRole('button', { name: 'Follow' }).click();
   await expect(page.getByRole('status').last()).toContainText('Following');
   await folders.locator('summary', { hasText: 'Games' }).click();
-  await expect(page.getByRole('list', { name: 'Feeds in Games' })).toContainText('dice.example');
+  await expect(page.getByRole('list', { name: 'Feeds in Games' })).toContainText('feeds.invalid');
   await letItSave(page);
+
+  // Refresh (#161): the server looks at every feed; in the emulator the
+  // fixture feeds answer, the real sites cannot be reached.
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Looked at' })).toContainText(
+    'Looked at 3 feeds: 2 new articles, 2 could not be read.',
+    { timeout: 30_000 },
+  );
+  await expect(page.getByRole('list', { name: 'Feeds in Games' })).toContainText(
+    'Dice and paper (fixture)',
+  );
+  await expect(design).toContainText('last look failed: kottke.org is not reachable');
+  await expect(design.getByRole('button', { name: 'Try again: Kottke' })).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Refreshed a moment ago' }),
+  ).toBeVisible();
 
   // Kept: the feeds are the gardener's data, not this page's.
   await page.reload();
   await expect(groups).toHaveCount(3);
   await expect(groups).toContainText(['Apple', 'Design', 'Games']);
+  await folders.locator('summary', { hasText: 'Games' }).click();
+  await expect(page.getByRole('list', { name: 'Feeds in Games' })).toContainText('looked');
 });

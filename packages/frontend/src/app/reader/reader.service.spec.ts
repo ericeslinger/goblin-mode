@@ -118,6 +118,37 @@ describe('ReaderService (#159)', () => {
     expect(reader.feeds()).toEqual([]);
   });
 
+  it('refreshes through the server and says what came of it, or why not', async () => {
+    const { reader, api } = setup();
+    expect(await reader.refresh()).toBe('Looked at 2 feeds: 5 new articles.');
+    api.refresh.mockResolvedValueOnce({ fetched: 1, added: 0, failed: 1, skipped: 0 });
+    expect(await reader.refresh()).toBe('Looked at 1 feed: 0 new articles, 1 could not be read.');
+    api.refresh.mockRejectedValueOnce(
+      new Error('Refreshed a moment ago; the next is in 4 minutes.'),
+    );
+    expect(await reader.refresh()).toBe('Refreshed a moment ago; the next is in 4 minutes.');
+    api.refresh.mockRejectedValueOnce(new Error('internal'));
+    expect(await reader.refresh()).toBe('Could not refresh. Are you online?');
+  });
+
+  it('asks for a given-up feed again by clearing its errors and making it due', () => {
+    const { reader, api } = setup();
+    api.push([{ id: 'a', data: { url: 'https://a.test/f', title: 'A', folders: [], dead: true } }]);
+    reader.retry('a');
+    expect(reader.feeds()[0].dead).toBe(false);
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/feeds/a',
+      {
+        dead: 'CLEAR',
+        error: 'CLEAR',
+        errorCount: 0,
+        nextFetchAt: 'SERVER_TIME',
+        updatedAt: 'SERVER_TIME',
+      },
+      true,
+    ]);
+  });
+
   it('writes nothing before the feeds are read, so nothing known is written over', () => {
     const { reader, api } = setup();
     expect(reader.importOpml(OPML)).toBeUndefined();

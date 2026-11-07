@@ -20,11 +20,13 @@ import {
   type Firestore,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   onSnapshot,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
+import { type Functions, httpsCallable } from 'firebase/functions';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 
@@ -63,11 +65,34 @@ export interface ReaderApi {
   set(db: Firestore, path: string, data: Record<string, unknown>, merge: boolean): Promise<void>;
   remove(db: Firestore, path: string): Promise<void>;
   serverTime(): unknown;
+  /** The sentinel that clears a field in a merge. */
+  clear(): unknown;
+  /** The refreshFeeds callable (#161): every feed looked at now. */
+  refresh(): Promise<TickReport>;
+}
+
+/** What a refresh did (`refreshFeeds`, #161). */
+export interface TickReport {
+  fetched: number;
+  added: number;
+  failed: number;
+  skipped: number;
 }
 
 export const READER_API = new InjectionToken<ReaderApi>('reader-api', {
   providedIn: 'root',
-  factory: () => ({
+  factory: () => {
+    // Taken here, in the injection context, not when refresh is called.
+    const { functions } = inject(FIREBASE);
+    return readerApi(functions);
+  },
+});
+
+function readerApi(functions: Functions): ReaderApi {
+  return {
+    refresh: async () =>
+      (await httpsCallable<unknown, TickReport>(functions, 'refreshFeeds')({})).data,
+    clear: () => deleteField(),
     listen: (db, path, next, error) =>
       onSnapshot(
         collection(db, path),
@@ -80,8 +105,8 @@ export const READER_API = new InjectionToken<ReaderApi>('reader-api', {
     set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge }),
     remove: (db, path) => deleteDoc(doc(db, path)),
     serverTime: () => serverTimestamp(),
-  }),
-});
+  };
+}
 
 function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
   const at = (d['fetchedAt'] as { toMillis?: () => number } | undefined)?.toMillis?.();
@@ -217,6 +242,49 @@ export class ReaderService {
         true,
       )
       .catch((err) => console.error('feed not moved', err));
+  }
+
+  /**
+   * Every feed looked at now (#161): a call to the server, so it needs
+   * the network; the message says what came of it, or why not.
+   */
+  async refresh(): Promise<string> {
+    if (!this.auth.user()?.uid) return 'Sign in first.';
+    try {
+      const r = await this.api.refresh();
+      const feeds = `${r.fetched} ${r.fetched === 1 ? 'feed' : 'feeds'}`;
+      const articles = `${r.added} new ${r.added === 1 ? 'article' : 'articles'}`;
+      const failed = r.failed ? `, ${r.failed} could not be read` : '';
+      return `Looked at ${feeds}: ${articles}${failed}.`;
+    } catch (err) {
+      const message = (err as { message?: string }).message ?? '';
+      return /Refreshed a moment ago/.test(message)
+        ? message
+        : 'Could not refresh. Are you online?';
+    }
+  }
+
+  /** Asks the fetcher to try a given-up or failing feed again, now. */
+  retry(id: string): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    this.list.update((l) =>
+      l.map((f) => (f.id === id ? { ...f, dead: false, error: undefined } : f)),
+    );
+    void this.api
+      .set(
+        this.fb.db,
+        paths.feed(uid, id),
+        {
+          dead: this.api.clear(),
+          error: this.api.clear(),
+          errorCount: 0,
+          nextFetchAt: this.api.serverTime(),
+          updatedAt: this.api.serverTime(),
+        },
+        true,
+      )
+      .catch((err) => console.error('feed not retried', err));
   }
 
   /** Stops following a feed. Its unread articles go with it (#161); saved ones stay. */

@@ -23,6 +23,22 @@ import { type FeedRecord, ReaderService } from './reader.service';
         </p>
       }
 
+      <p class="refresh">
+        <button
+          type="button"
+          [disabled]="refreshing() || !reader.feeds().length"
+          (click)="refresh()"
+        >
+          {{ refreshing() ? 'Refreshing…' : 'Refresh' }}
+        </button>
+        <span class="muted"
+          >The server looks at every feed on its own, every quarter hour or so.</span
+        >
+      </p>
+      @if (refreshed()) {
+        <p class="status" role="status">{{ refreshed() }}</p>
+      }
+
       <h2 id="folders">Folders</h2>
       @if (reader.loaded() && reader.feeds().length === 0) {
         <p class="muted">No feeds yet. Import a file from your reader, or follow one below.</p>
@@ -54,6 +70,16 @@ import { type FeedRecord, ReaderService } from './reader.service';
                         (change)="move(feed, $any($event.target).value)"
                       />
                     </label>
+                    @if (feed.dead || feed.error) {
+                      <button
+                        type="button"
+                        class="retry"
+                        [attr.aria-label]="'Try again: ' + feed.title"
+                        (click)="reader.retry(feed.id)"
+                      >
+                        Try again
+                      </button>
+                    }
                     <button
                       type="button"
                       class="remove"
@@ -157,11 +183,26 @@ import { type FeedRecord, ReaderService } from './reader.service';
     .move {
       grid-column: 1;
     }
-    .remove {
+    .remove,
+    .retry {
       grid-column: 2;
-      grid-row: 1 / span 3;
       align-self: center;
       min-height: 32px;
+    }
+    .remove {
+      grid-row: 1 / span 3;
+    }
+    .retry {
+      grid-row: 1;
+    }
+    .retry + .remove {
+      grid-row: 2 / span 2;
+    }
+    .refresh {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
     }
     input {
       box-sizing: border-box;
@@ -197,6 +238,18 @@ export class Reader {
   protected readonly cap = FEED_CAP;
   protected readonly imported = signal('');
   protected readonly followed = signal('');
+  protected readonly refreshing = signal(false);
+  protected readonly refreshed = signal('');
+
+  protected async refresh(): Promise<void> {
+    this.refreshing.set(true);
+    this.refreshed.set('');
+    try {
+      this.refreshed.set(await this.reader.refresh());
+    } finally {
+      this.refreshing.set(false);
+    }
+  }
 
   protected async importFile(input: HTMLInputElement): Promise<void> {
     const file = input.files?.[0];
@@ -250,6 +303,7 @@ export class Reader {
     if (feed.dead) return `${host} · not answering for a month, given up`;
     if (feed.error) return `${host} · last look failed: ${feed.error}`;
     if (feed.fetchedAt === undefined) return `${host} · not looked at yet`;
-    return host;
+    const ago = Math.max(0, Math.round((Date.now() - feed.fetchedAt) / 60_000));
+    return `${host} · looked ${ago < 1 ? 'just now' : ago < 60 ? `${ago} min ago` : `${Math.round(ago / 60)} h ago`}`;
   }
 }

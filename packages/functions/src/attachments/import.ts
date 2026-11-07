@@ -56,7 +56,7 @@ const ENTITIES: Record<string, string> = {
   nbsp: ' ',
 };
 
-function decode(text: string): string {
+export function decode(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
     if (code[0] === '#') {
       const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : Number(code.slice(1));
@@ -280,12 +280,36 @@ export function isPublicAddress(address: string): boolean {
   return !PRIVATE.check(address, family === 4 ? 'ipv4' : 'ipv6');
 }
 
+/** What a public request may carry and take (review on #99; feeds, #161). */
+export interface RequestOptions {
+  /** Request headers beside the user agent, e.g. If-None-Match. */
+  headers?: Record<string, string>;
+  /** The most bytes read; the default is a page's. */
+  maxBytes?: number;
+  userAgent?: string;
+}
+
+export interface Response {
+  status: number;
+  contentType: string;
+  /** A response header, lowercased name. */
+  header(name: string): string | undefined;
+  bytes: Uint8Array;
+}
+
 /**
- * The real fetcher: http(s) only, every hop's host resolved and checked
- * public (no metadata server, no private network), at most five
- * redirects, 15 seconds and MAX_IMPORT_BYTES.
+ * Fetches a public http(s) URL: every hop's host must resolve to a
+ * public address (no metadata server, no private network), at most
+ * five redirects, 15 seconds a hop and `maxBytes`. Any final status
+ * comes back, 304 included, so a conditional request can be made;
+ * only a redirect with nowhere to go or too many redirects throws.
  */
-export const publicFetch: PageFetcher = async (start) => {
+export async function publicRequest(
+  start: string,
+  options: RequestOptions = {},
+): Promise<Response> {
+  const maxBytes = options.maxBytes ?? MAX_IMPORT_BYTES;
+  const over = `the page is over ${Math.round(maxBytes / (1024 * 1024))} MB`;
   let url = new URL(start);
   for (let hop = 0; hop <= 5; hop++) {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -299,27 +323,29 @@ export const publicFetch: PageFetcher = async (start) => {
     const res = await fetch(url, {
       redirect: 'manual',
       signal: AbortSignal.timeout(15_000),
-      headers: { 'user-agent': 'Mossgoblin/1 (saving a link to read later)' },
+      headers: {
+        ...options.headers,
+        'user-agent': options.userAgent ?? 'Mossgoblin/1 (saving a link to read later)',
+      },
     });
-    if (res.status >= 300 && res.status < 400) {
+    if (res.status >= 300 && res.status < 400 && res.status !== 304) {
       const next = res.headers.get('location');
       if (!next) throw new Error(`a redirect with nowhere to go (${res.status})`);
       url = new URL(next, url);
       continue;
     }
-    if (!res.ok) throw new Error(`the page answered ${res.status}`);
     const declared = Number(res.headers.get('content-length') ?? 0);
-    if (declared > MAX_IMPORT_BYTES) throw new Error('the page is over 25 MB');
-    const reader = res.body?.getReader();
+    if (declared > maxBytes) throw new Error(over);
+    const reader = res.ok ? res.body?.getReader() : undefined;
     const chunks: Uint8Array[] = [];
     let size = 0;
     while (reader) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > MAX_IMPORT_BYTES) {
+      if (size > maxBytes) {
         await reader.cancel();
-        throw new Error('the page is over 25 MB');
+        throw new Error(over);
       }
       chunks.push(value);
     }
@@ -329,7 +355,19 @@ export const publicFetch: PageFetcher = async (start) => {
       bytes.set(c, at);
       at += c.length;
     }
-    return { contentType: res.headers.get('content-type') ?? '', bytes };
+    return {
+      status: res.status,
+      contentType: res.headers.get('content-type') ?? '',
+      header: (name) => res.headers.get(name) ?? undefined,
+      bytes,
+    };
   }
   throw new Error('too many redirects');
+}
+
+/** A public page's bytes, or a reason to show; the saved-link importer's fetcher. */
+export const publicFetch: PageFetcher = async (start) => {
+  const res = await publicRequest(start);
+  if (res.status < 200 || res.status >= 300) throw new Error(`the page answered ${res.status}`);
+  return { contentType: res.contentType, bytes: res.bytes };
 };
