@@ -27,6 +27,34 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "feedItems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "read",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "readAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "feedItems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "saved",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "published",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

@@ -66,6 +66,22 @@ export const routes: Routes = [
     loadComponent: () => import('./reader/reader').then((m) => m.Reader),
   },
   {
+    path: 'reader/feeds',
+    loadComponent: () => import('./reader/reader-feeds').then((m) => m.ReaderFeeds),
+  },
+  {
+    path: 'reader/f/:folder',
+    loadComponent: () => import('./reader/reader-list').then((m) => m.ReaderList),
+  },
+  {
+    path: 'reader/s/:feedId',
+    loadComponent: () => import('./reader/reader-list').then((m) => m.ReaderList),
+  },
+  {
+    path: 'reader/a/:id',
+    loadComponent: () => import('./reader/reader-article').then((m) => m.ReaderArticle),
+  },
+  {
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),
   },

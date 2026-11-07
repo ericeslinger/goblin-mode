@@ -1071,6 +1071,39 @@ ETag (a second look is a 304), any other host fails as an unreachable
 site would; the journey imports an OPML with both and reads the
 report.
 
+**Step 3, reading (#162, built 2026-11-07).** `/reader` is the front:
+the folders with what is unread in each, All and Saved, Refresh, and
+Manage feeds (`/reader/feeds`, step 1's page). A folder or a feed
+opens its compact list (`/reader/f/<folder>`, `/reader/s/<feedId>`):
+title, source and age, the first lines, newest first, unread unless
+Show read. The articles come through three listeners on the
+persistent cache (`ItemsService`): the newest thousand unread, the two
+hundred most recently read, and everything saved, filtered by folder on
+the device, which is also where the counts come from; a mark made
+here shows at once and the listener's echo takes over. Swipe a row
+left to mark it read, right to save (`Swipe`, the reminder rows'
+pointer-event swipe as a directive; the row's buttons do the same
+where there is a fine pointer); tap to open. Mark all read marks what
+is at hand on that shelf in one batch, which for a backlog past the
+thousand means another tap once the next thousand have loaded (a
+server-side mark is #164's if that grates). The article
+(`/reader/a/<id>`) renders the stored markdown as a note is
+(`renderNoteHtml`, sanitized; its HTML is trusted into the page as it
+is, since Angular's own pass would strip the image attributes), with
+images lazy and sent with no referrer, or replaced by their words
+while the gardener has images off (Settings, Reader, one switch for
+all folders rather than one a folder as #159 first said: 2026-11-07,
+until a folder wants otherwise). Opening marks it read (Keep unread
+undoes that); Open the page is a browser tab, since sites refuse to be
+framed; links inside open in a new tab, never over the reader. Swipe
+left for the next article and right for the previous, among the
+unread ones of the shelf it was opened from (the `in` query
+parameter) plus itself; on a keyboard j and k move, m marks, s saves,
+v opens the page, Enter opens a row and Escape goes back, as Feedly.
+Two more composite indexes serve the read and saved shelves
+(`read`, `readAt desc`; `saved`, `published desc`). Browse's Reader
+link carries the unread count.
+
 ## Themes (#23, 2026-10-06)
 
 Eric chose all five style directions from the UX Spec, switchable

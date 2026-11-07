@@ -20,6 +20,7 @@ import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { KeysService } from '../keys/keys.service';
 import { GroceryService } from '../kitchen/grocery.service';
+import { ReaderService } from '../reader/reader.service';
 import { NOW } from '../platform/platform';
 import { type PushState, PushService } from '../push/push.service';
 import { RemindersService } from '../reminders/reminders.service';
@@ -140,6 +141,23 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
               <button type="button" (click)="makeGroceryList()">Make the grocery list</button>
             }
             <a routerLink="/kitchen">This week’s meals</a>
+          </div>
+        }
+        @if (modules.reader()) {
+          <h2 id="reader">Reader</h2>
+          <div class="kitchen">
+            <label>
+              <input
+                type="checkbox"
+                role="switch"
+                [checked]="readerSettings.images()"
+                (change)="readerSettings.setImages($any($event.target).checked)"
+              />
+              Show images in articles
+            </label>
+            <p class="muted">
+              <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a>
+            </p>
           </div>
         }
         <h2 id="templates">Templates</h2>
@@ -354,6 +372,7 @@ export class Settings {
 
   protected readonly templates = inject(TemplatesService);
   protected readonly modules = inject(ModulesService);
+  protected readonly readerSettings = inject(ReaderService);
   protected readonly moduleList = MODULES;
   private readonly router = inject(Router);
 

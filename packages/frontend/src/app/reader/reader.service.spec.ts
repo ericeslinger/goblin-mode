@@ -4,7 +4,9 @@ import { FEED_CAP, feedId } from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
-import { FakeReaderApi, fakeFirebase } from '../testing/fakes';
+import { ModulesService } from '../modules/modules.service';
+import { SETTINGS_API } from '../theme/theme-sync.service';
+import { FakeModules, FakeReaderApi, FakeSettingsApi, fakeFirebase } from '../testing/fakes';
 import { READER_API, ReaderService } from './reader.service';
 
 const OPML = `<opml><body>
@@ -19,17 +21,22 @@ const OPML = `<opml><body>
 
 function setup() {
   const api = new FakeReaderApi();
+  const settings = new FakeSettingsApi();
+  const modules = new FakeModules();
+  modules.set('reader', true);
   const user = signal<User | null | undefined>({ uid: 'u1' } as User);
   TestBed.configureTestingModule({
     providers: [
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: READER_API, useValue: api },
+      { provide: SETTINGS_API, useValue: settings },
+      { provide: ModulesService, useValue: modules },
       { provide: AuthService, useValue: { user } },
     ],
   });
   const reader = TestBed.inject(ReaderService);
   TestBed.tick();
-  return { reader, api, user };
+  return { reader, api, user, settings, modules };
 }
 
 describe('ReaderService (#159)', () => {
@@ -156,6 +163,28 @@ describe('ReaderService (#159)', () => {
     expect(api.set).not.toHaveBeenCalled();
     api.push([]);
     expect(reader.importOpml(OPML)?.added).toBe(2);
+  });
+
+  it('keeps the Reader’s settings: images on until switched off, written whole', () => {
+    const { reader, settings } = setup();
+    expect(settings.listen.mock.calls[0][1]).toBe('users/u1/settings/reader');
+    expect(reader.images()).toBe(true);
+    settings.push({ folderOrder: ['Games'], images: false, updatedAt: 1 });
+    expect(reader.images()).toBe(false);
+    reader.setImages(true);
+    expect(reader.images()).toBe(true);
+    expect(settings.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/settings/reader',
+      { folderOrder: ['Games'], images: true, updatedAt: 'SERVER_TIME' },
+    ]);
+  });
+
+  it('listens to nothing while the module is off', () => {
+    const { api, modules } = setup();
+    expect(api.listen).toHaveBeenCalledTimes(1);
+    modules.set('reader', false);
+    TestBed.tick();
+    expect(api.listen).toHaveBeenCalledTimes(1);
   });
 
   it('writes nothing while signed out', () => {

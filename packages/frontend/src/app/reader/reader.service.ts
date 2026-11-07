@@ -29,6 +29,8 @@ import {
 import { type Functions, httpsCallable } from 'firebase/functions';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { ModulesService } from '../modules/modules.service';
+import { SETTINGS_API } from '../theme/theme-sync.service';
 
 /** A feed as the app shows it (#159). */
 export interface FeedRecord {
@@ -133,14 +135,22 @@ export class ReaderService {
   private readonly auth = inject(AuthService);
   private readonly fb = inject(FIREBASE);
   private readonly api = inject(READER_API);
+  private readonly settingsApi = inject(SETTINGS_API);
+  private readonly modules = inject(ModulesService);
 
   private readonly list = signal<FeedRecord[]>([]);
+  /** The Reader's own settings doc (`settings/reader`), once read. */
+  private readonly settings = signal<{ folderOrder: string[]; images: boolean } | undefined>(
+    undefined,
+  );
+  /** Whether articles show their images (#162); on until switched off. */
+  readonly images = computed(() => this.settings()?.images ?? true);
   private readonly read = signal(false);
   readonly feeds = computed(() => this.list());
   /** Whether the feeds have been read, so an empty list means none. */
   readonly loaded = computed(() => this.read());
-  /** Folders with their feeds, sorted, Uncategorized last. */
-  readonly folders = computed(() => folderList(this.list()));
+  /** Folders with their feeds, the gardener's order first, then sorted, Uncategorized last. */
+  readonly folders = computed(() => folderList(this.list(), this.settings()?.folderOrder ?? []));
   /** Folder names, for choosing one. */
   readonly folderNames = computed(() => this.folders().map((f) => f.name));
 
@@ -149,15 +159,34 @@ export class ReaderService {
 
   constructor() {
     effect(() => {
-      const uid = this.auth.user()?.uid;
+      // Nothing is listened to while the module is off (Browse and
+      // Settings inject this without needing it then).
+      const uid = this.modules.reader() ? this.auth.user()?.uid : undefined;
       if (uid === this.uid) return;
       this.stop?.();
       this.stop = undefined;
       this.uid = uid;
       this.list.set([]);
       this.read.set(false);
+      this.settings.set(undefined);
       if (!uid) return;
-      this.stop = this.api.listen(
+      const stopSettings = this.settingsApi.listen(
+        this.fb.db,
+        paths.reader(uid),
+        (data) =>
+          this.settings.set(
+            data
+              ? {
+                  folderOrder: Array.isArray(data['folderOrder'])
+                    ? data['folderOrder'].filter((f): f is string => typeof f === 'string')
+                    : [],
+                  images: data['images'] !== false,
+                }
+              : undefined,
+          ),
+        (err) => console.error('reader settings listener', err),
+      );
+      const stopFeeds = this.api.listen(
         this.fb.db,
         paths.feeds(uid),
         (docs) => {
@@ -166,6 +195,10 @@ export class ReaderService {
         },
         (err) => console.error('feeds listener', err),
       );
+      this.stop = () => {
+        stopSettings();
+        stopFeeds();
+      };
     });
     inject(DestroyRef).onDestroy(() => this.stop?.());
   }
@@ -262,6 +295,17 @@ export class ReaderService {
         ? message
         : 'Could not refresh. Are you online?';
     }
+  }
+
+  /** Shows or hides images in articles, for every device. */
+  setImages(images: boolean): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    const next = { folderOrder: this.settings()?.folderOrder ?? [], images };
+    this.settings.set(next);
+    void this.settingsApi
+      .set(this.fb.db, paths.reader(uid), { ...next, updatedAt: this.settingsApi.now() })
+      .catch((err) => console.error('reader settings not saved', err));
   }
 
   /** Asks the fetcher to try a given-up or failing feed again, now. */
