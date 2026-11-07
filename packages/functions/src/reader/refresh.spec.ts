@@ -84,6 +84,30 @@ describe('refreshFeed (#161)', () => {
     });
   });
 
+  it('stores nothing older than three months, so a first look is not the archive (Eric, 2026-11-07)', async () => {
+    const s = store();
+    const old = item('old', 100 * 24);
+    const out = await refreshFeed(
+      { store: s, fetch: ok(RSS(item('new', 2) + old)), now: () => NOW },
+      feed,
+    );
+    expect(out).toEqual({ outcome: 'new', added: 1 });
+    expect(s.writeItems.mock.calls[0][1].map((i) => i.id)).toEqual([feedItemId('f-1', 'new')]);
+    expect(s.known).toHaveBeenCalledWith('u1', [feedItemId('f-1', 'new')]);
+    // A dormant feed: nothing stored, but its newest date and a daily interval kept (review on #170).
+    const dormant = store();
+    const out2 = await refreshFeed(
+      { store: dormant, fetch: ok(RSS(item('a', 200 * 24) + item('b', 230 * 24))), now: () => NOW },
+      feed,
+    );
+    expect(out2).toEqual({ outcome: 'unchanged', added: 0 });
+    expect(dormant.writeItems).not.toHaveBeenCalled();
+    expect(dormant.updateFeed.mock.calls[0][2]).toMatchObject({
+      lastItemAt: NOW - 200 * 24 * H,
+      interval: INTERVAL_MAX,
+    });
+  });
+
   it('keeps a gardener’s own name for a feed, and an item’s date never in the far future', async () => {
     const s = store();
     const named = { ...feed, title: 'My Kottke', site: 'https://mine.example/' };

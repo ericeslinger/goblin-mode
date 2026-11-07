@@ -20,6 +20,11 @@ export const TICK_FEEDS = 50;
 export const PARALLEL = 8;
 /** Items read from one response, newest first; the rest wait for the site to age them out. */
 export const ITEMS_PER_FETCH = 200;
+/**
+ * Nothing older than this is stored (Eric, 2026-11-07): a feed's first
+ * look must not bring in years of archive to be marked read by hand.
+ */
+export const ITEM_MAX_AGE_MS = 90 * 86_400_000;
 /** A feed body over this is cut off: 5 MB is a very large feed. */
 export const FEED_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -190,11 +195,14 @@ export async function refreshFeed(
   if (res.status < 200 || res.status >= 300) return failed(`the site answered ${res.status}`);
   const parsed = parseFeed(res.text, feed.url);
   if (!parsed) return failed('not a feed this can read (RSS, Atom or JSON Feed)');
-  // Newest first, so a huge first fetch keeps the recent ones.
-  const items = parsed.items
+  // Everything the feed lists, newest first, for its rhythm; only the
+  // recent ones (ITEM_MAX_AGE_MS) are stored, so a first look is not a
+  // feed's archive, and a dormant feed still gets its daily interval
+  // (review on #170).
+  const all = parsed.items
     .map((i) => ({ ...i, published: Math.min(i.published ?? now, now + 86_400_000) }))
-    .sort((a, b) => b.published - a.published)
-    .slice(0, ITEMS_PER_FETCH);
+    .sort((a, b) => b.published - a.published);
+  const items = all.filter((i) => now - i.published <= ITEM_MAX_AGE_MS).slice(0, ITEMS_PER_FETCH);
   const ids = items.map((i) => feedItemId(feed.id, i.guid));
   const known = ids.length ? await store.known(feed.uid, ids) : new Set<string>();
   const fresh: NewItem[] = [];
@@ -213,9 +221,9 @@ export async function refreshFeed(
     });
   });
   if (fresh.length) await store.writeItems(feed.uid, fresh);
-  const newest = items.reduce((m, i) => Math.max(m, i.published), feed.lastItemAt ?? 0);
+  const newest = all.reduce((m, i) => Math.max(m, i.published), feed.lastItemAt ?? 0);
   const interval = nextInterval(
-    items.map((i) => i.published),
+    all.map((i) => i.published),
     newest || undefined,
     now,
   );
