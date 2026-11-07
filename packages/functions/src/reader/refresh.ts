@@ -20,6 +20,11 @@ export const TICK_FEEDS = 50;
 export const PARALLEL = 8;
 /** Items read from one response, newest first; the rest wait for the site to age them out. */
 export const ITEMS_PER_FETCH = 200;
+/**
+ * Nothing older than this is stored (Eric, 2026-11-07): a feed's first
+ * look must not bring in years of archive to be marked read by hand.
+ */
+export const ITEM_MAX_AGE_MS = 90 * 86_400_000;
 /** A feed body over this is cut off: 5 MB is a very large feed. */
 export const FEED_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -190,9 +195,11 @@ export async function refreshFeed(
   if (res.status < 200 || res.status >= 300) return failed(`the site answered ${res.status}`);
   const parsed = parseFeed(res.text, feed.url);
   if (!parsed) return failed('not a feed this can read (RSS, Atom or JSON Feed)');
-  // Newest first, so a huge first fetch keeps the recent ones.
+  // Newest first, so a huge first fetch keeps the recent ones; nothing
+  // older than ITEM_MAX_AGE_MS, so a first look is not a feed's archive.
   const items = parsed.items
     .map((i) => ({ ...i, published: Math.min(i.published ?? now, now + 86_400_000) }))
+    .filter((i) => now - i.published <= ITEM_MAX_AGE_MS)
     .sort((a, b) => b.published - a.published)
     .slice(0, ITEMS_PER_FETCH);
   const ids = items.map((i) => feedItemId(feed.id, i.guid));
