@@ -87,6 +87,7 @@ import {
   FINDINGS_MARK,
   UNCATEGORIZED,
   clippingBody,
+  isWebLink,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -2275,7 +2276,8 @@ export class NotesTools {
       if (note.exists) return { id: note.id, title: note.get('title'), alreadyFiled: true };
     }
     const feeds = await this.feedIndex();
-    const link = typeof d['link'] === 'string' ? d['link'] : '';
+    // Only a web link is kept, in the body and in `source` (review on #168).
+    const link = typeof d['link'] === 'string' && isWebLink(d['link']) ? d['link'] : '';
     const now = Timestamp.fromMillis(this.now());
     const data = Note.parse({
       kind: 'clipping',

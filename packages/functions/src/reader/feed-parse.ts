@@ -74,7 +74,10 @@ function absolute(link: string, base: string): string {
   // An empty link is no link, not the feed's own address.
   if (!link.trim()) return '';
   try {
-    return new URL(link.trim(), base).toString();
+    const url = new URL(link.trim(), base);
+    // Only a web link is kept (review on #168): a javascript: or data:
+    // "link" in a feed is no page to open or clip.
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : '';
   } catch {
     return '';
   }

@@ -26,6 +26,7 @@ const RSS = `<?xml version="1.0"?>
     <guid>tag:kottke,2026:a-post</guid>
   </item>
   <item><description>nothing to name it</description></item>
+  <item><title>Scripted</title><link>javascript:alert(1)</link><guid>js</guid></item>
 </channel>
 </rss>`;
 
@@ -87,7 +88,8 @@ describe('parseFeed (#161)', () => {
     const feed = parseFeed(RSS, 'https://kottke.org/main/index.xml')!;
     expect(feed.title).toBe('Kottke & co');
     expect(feed.site).toBe('https://kottke.org/');
-    expect(feed.items).toHaveLength(2);
+    expect(feed.items).toHaveLength(3);
+    expect(feed.items[2]).toMatchObject({ guid: 'js', title: 'Scripted', link: '' });
     expect(feed.items[0]).toEqual({
       guid: 'tag:kottke,2026:a-post',
       title: 'A post',

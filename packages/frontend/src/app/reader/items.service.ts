@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { UNCATEGORIZED, clippingBody, paths } from '@mossgoblin/schema';
+import { UNCATEGORIZED, clippingBody, isWebLink, paths } from '@mossgoblin/schema';
 import {
   type Firestore,
   collection,
@@ -334,16 +334,18 @@ export class ItemsService {
     if (!uid || !item) return undefined;
     if (item.noteId) return item.noteId;
     const feed = this.feeds.feeds().find((f) => f.id === item.feedId);
+    // Only a web link is kept, in the body and in `source` (review on #168).
+    const link = isWebLink(item.link) ? item.link : '';
     const body = clippingBody({
       title: item.title,
-      link: item.link,
+      link,
       feedTitle: feed?.title ?? '',
       ...(item.author ? { author: item.author } : {}),
       published: item.published,
       content: item.readerContent || item.content,
     });
     const noteId = this.notes.clip(body, item.title, {
-      ...(item.link ? { url: item.link } : {}),
+      ...(link ? { url: link } : {}),
       feedItemId: id,
     });
     this.local.update((l) => ({ ...l, [id]: { ...l[id], noteId } }));

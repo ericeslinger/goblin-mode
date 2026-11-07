@@ -168,6 +168,32 @@ export function escapeMarkdown(text: string): string {
   return text.replace(/[\\*_`[\]]/g, (c) => `\\${c}`).replace(/(^|\s)#(?=[\p{L}\d#])/gu, '$1\\#');
 }
 
+/** Whether a link is one a note may carry: http or https, parseable. */
+export function isWebLink(link: string): boolean {
+  try {
+    const url = new URL(link);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A page's link as a markdown link target (review on #168): http(s)
+ * only, and the characters that would end the target or start other
+ * syntax percent-encoded, so `https://e.test/a)[[x]](y` cannot write a
+ * wiki link into the note. Undefined when it is no web link.
+ */
+export function webLinkTarget(link: string): string | undefined {
+  if (!isWebLink(link)) return undefined;
+  return new URL(link)
+    .toString()
+    .replace(
+      /[()[\]<>`\\\s]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`,
+    );
+}
+
 /** What a clipping needs from the article and its feed (#163). */
 export interface ClippingSource {
   title: string;
@@ -188,8 +214,9 @@ export interface ClippingSource {
 export function clippingBody(from: ClippingSource): string {
   const who = from.author ? `, by ${escapeMarkdown(from.author)}` : '';
   const when = new Date(from.published).toISOString().slice(0, 10);
-  const source = from.link
-    ? `[${escapeMarkdown(from.feedTitle) || 'the web'}](${from.link})`
-    : escapeMarkdown(from.feedTitle);
+  const target = webLinkTarget(from.link);
+  const source = target
+    ? `[${escapeMarkdown(from.feedTitle) || 'the web'}](${target})`
+    : escapeMarkdown(from.feedTitle) || 'the web';
   return `_From ${source}${who}, ${when}._\n\n${from.content.trim()}`;
 }

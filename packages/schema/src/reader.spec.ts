@@ -3,6 +3,8 @@ import {
   UNCATEGORIZED,
   clippingBody,
   escapeMarkdown,
+  isWebLink,
+  webLinkTarget,
   feedId,
   feedItemId,
   fnv64,
@@ -134,5 +136,36 @@ describe('clippings (#163)', () => {
     expect(
       clippingBody({ title: 't', link: '', feedTitle: 'Feed', published: 0, content: 'x' }),
     ).toBe('_From Feed, 1970-01-01._\n\nx');
+  });
+
+  it('never lets a page’s link write syntax or another scheme into the note (review on #168)', () => {
+    expect(webLinkTarget('https://e.test/a)[[Private note]](x')).toBe(
+      'https://e.test/a%29%5B%5BPrivate%20note%5D%5D%28x',
+    );
+    expect(webLinkTarget('https://e.test/path_with (parens)')).toBe(
+      'https://e.test/path_with%20%28parens%29',
+    );
+    expect(webLinkTarget('javascript:alert(1)')).toBeUndefined();
+    expect(webLinkTarget('data:text/html,hi')).toBeUndefined();
+    expect(isWebLink('http://a.test')).toBe(true);
+    expect(isWebLink('ftp://a.test')).toBe(false);
+    const hostile = clippingBody({
+      title: 't',
+      link: 'https://e.test/a)[[Private note]](x',
+      feedTitle: 'F',
+      published: 0,
+      content: 'x',
+    });
+    expect(hostile).toContain('[F](https://e.test/a%29%5B%5BPrivate%20note%5D%5D%28x)');
+    expect(hostile).not.toContain('[[');
+    expect(
+      clippingBody({
+        title: 't',
+        link: 'javascript:alert(1)',
+        feedTitle: 'F',
+        published: 0,
+        content: 'x',
+      }),
+    ).toBe('_From F, 1970-01-01._\n\nx');
   });
 });
