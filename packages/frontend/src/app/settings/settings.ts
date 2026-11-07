@@ -158,6 +158,15 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
               Show images in articles
             </label>
             <label>
+              <input
+                type="checkbox"
+                role="switch"
+                [checked]="readerSettings.readOnScroll()"
+                (change)="readerSettings.setReadOnScroll($any($event.target).checked)"
+              />
+              Mark articles read as I scroll past them
+            </label>
+            <label>
               Keep articles for
               <select #keep (change)="keepArticles(keep.value)" [disabled]="tidying()">
                 <option value="" [selected]="!readerSettings.keepMonths()">

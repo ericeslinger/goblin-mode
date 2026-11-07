@@ -182,6 +182,8 @@ export class ReaderService {
   readonly images = computed(() => this.settings()?.images ?? true);
   /** Months articles are kept unless saved or filed (#171); none keeps everything. */
   readonly keepMonths = computed(() => this.settings()?.keepMonths);
+  /** Whether the list marks articles read as they scroll past (#172); off until switched on. */
+  readonly readOnScroll = computed(() => this.settings()?.readOnScroll ?? false);
   private readonly read = signal(false);
   readonly feeds = computed(() => this.list());
   /** Whether the feeds have been read, so an empty list means none. */
@@ -327,6 +329,11 @@ export class ReaderService {
   /** Shows or hides images in articles, for every device. */
   setImages(images: boolean): void {
     this.writeSettings({ images });
+  }
+
+  /** Marks articles read as the list scrolls past them, or not (#172), for every device. */
+  setReadOnScroll(readOnScroll: boolean): void {
+    this.writeSettings({ readOnScroll });
   }
 
   /**

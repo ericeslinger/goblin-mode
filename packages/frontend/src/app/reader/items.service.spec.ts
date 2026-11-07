@@ -202,6 +202,34 @@ describe('ItemsService (#162)', () => {
     expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual(['users/u1/feedItems/s2']);
   });
 
+  it('marks several read or unread in one batch, at once (#172)', () => {
+    const { items, api } = setup();
+    api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2), item('c', 'f3', 3)]);
+    expect(items.setReadMany(['a', 'b'], true)).toBe(2);
+    expect(items.unreadCounts()[ALL]).toBe(1);
+    expect(items.find('a')?.read).toBe(true);
+    expect(api.setMany).toHaveBeenCalledTimes(1);
+    expect(api.setMany.mock.lastCall![1]).toEqual([
+      {
+        path: 'users/u1/feedItems/a',
+        data: { read: true, readAt: 'SERVER_TIME', updatedAt: 'SERVER_TIME' },
+      },
+      {
+        path: 'users/u1/feedItems/b',
+        data: { read: true, readAt: 'SERVER_TIME', updatedAt: 'SERVER_TIME' },
+      },
+    ]);
+    expect(items.setReadMany(['a', 'b'], false)).toBe(2);
+    expect(items.unreadCounts()[ALL]).toBe(3);
+    expect(api.setMany.mock.lastCall![1][0].data).toEqual({
+      read: false,
+      readAt: 'CLEAR',
+      updatedAt: 'SERVER_TIME',
+    });
+    expect(items.setReadMany([], true)).toBe(0);
+    expect(api.setMany).toHaveBeenCalledTimes(2);
+  });
+
   it('says how old an article is, in words', () => {
     const { items } = setup();
     expect(items.age(NOW_MS - 30_000)).toBe('just now');

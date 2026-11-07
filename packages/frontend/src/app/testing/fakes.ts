@@ -334,7 +334,9 @@ export class FakeReader {
   readonly folderNames = computed(() => [] as string[]);
   readonly images = signal(true);
   readonly keepMonths = signal<number | undefined>(undefined);
+  readonly readOnScroll = signal(false);
   setImages = vi.fn((images: boolean) => this.images.set(images));
+  setReadOnScroll = vi.fn((v: boolean) => this.readOnScroll.set(v));
   setKeepMonths = vi.fn(async (months: number | undefined) => {
     this.keepMonths.set(months);
     return 'Keeping everything; 0 articles will no longer expire.';
@@ -353,6 +355,7 @@ export class FakeItems {
   setRead = vi.fn();
   setSaved = vi.fn();
   markAllRead = vi.fn(() => 0);
+  setReadMany = vi.fn((ids: string[], _read: boolean) => ids.length);
   fileInGarden = vi.fn(() => 'clip1');
   readerMode = vi.fn(async () => undefined);
   age = () => 'just now';
