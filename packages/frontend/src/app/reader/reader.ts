@@ -80,6 +80,7 @@ import { type FeedRecord, ReaderService } from './reader.service';
         <input
           type="file"
           accept=".opml,.xml,text/xml,application/xml,text/x-opml"
+          [disabled]="!reader.loaded()"
           (change)="importFile($any($event.target))"
         />
       </label>
@@ -107,7 +108,7 @@ import { type FeedRecord, ReaderService } from './reader.service';
             <option [value]="name"></option>
           }
         </datalist>
-        <button type="submit">Follow</button>
+        <button type="submit" [disabled]="!reader.loaded()">Follow</button>
       </form>
       @if (followed()) {
         <p class="status" role="status">{{ followed() }}</p>
@@ -201,8 +202,14 @@ export class Reader {
     const file = input.files?.[0];
     if (!file) return;
     input.value = '';
-    const text = await file.text();
-    const out = this.reader.importOpml(text);
+    let out;
+    try {
+      out = this.reader.importOpml(await file.text());
+    } catch (err) {
+      console.error('OPML not read', err);
+      this.imported.set('That file could not be read.');
+      return;
+    }
     if (!out) {
       this.imported.set('No feeds found in that file. It wants an OPML export.');
       return;

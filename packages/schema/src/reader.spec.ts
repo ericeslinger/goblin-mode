@@ -74,6 +74,10 @@ describe('parseOpml', () => {
     expect(feeds).toEqual([{ url: 'https://x.example/f', title: 'X', folders: ['A', 'B & C'] }]);
     expect(parseOpml('<opml><body/></opml>')).toEqual([]);
     expect(parseOpml('not xml')).toEqual([]);
+    // An entity out of range stays as written rather than throwing (review on #165).
+    expect(
+      parseOpml('<outline text="&#99999999; &#x110000; &#0;" xmlUrl="https://x.example/f"/>'),
+    ).toEqual([{ url: 'https://x.example/f', title: '&#99999999; &#x110000; &#0;', folders: [] }]);
   });
 });
 

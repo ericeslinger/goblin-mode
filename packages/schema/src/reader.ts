@@ -71,7 +71,7 @@ function decode(text: string): string {
     if (name[0] === '#') {
       const code =
         name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : +name.slice(1);
-      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : whole;
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
     }
     return ENTITIES[name.toLowerCase()] ?? whole;
   });

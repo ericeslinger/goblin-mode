@@ -153,7 +153,10 @@ export class ReaderService {
   importOpml(text: string): ImportOutcome | undefined {
     const uid = this.auth.user()?.uid;
     const feeds = parseOpml(text);
-    if (!uid || feeds.length === 0) return undefined;
+    // Before the list is read every feed would look new, and a create
+    // replaces a feed's doc, folders and fetch state with it (review on
+    // #165): the page keeps Import and Follow off until `loaded`.
+    if (!uid || !this.read() || feeds.length === 0) return undefined;
     const outcome: ImportOutcome = { added: 0, known: 0, refused: 0 };
     let count = this.list().length;
     for (const feed of feeds) {
@@ -185,7 +188,7 @@ export class ReaderService {
   addFeed(text: string, folder?: string): string | undefined {
     const uid = this.auth.user()?.uid;
     const url = normalizeFeedUrl(text);
-    if (!uid || !url) return undefined;
+    if (!uid || !this.read() || !url) return undefined;
     const id = feedId(url);
     const known = this.list().find((f) => f.id === id);
     const folders = folder?.trim() ? [folder.trim()] : [];

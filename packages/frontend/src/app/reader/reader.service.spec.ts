@@ -118,6 +118,15 @@ describe('ReaderService (#159)', () => {
     expect(reader.feeds()).toEqual([]);
   });
 
+  it('writes nothing before the feeds are read, so nothing known is written over', () => {
+    const { reader, api } = setup();
+    expect(reader.importOpml(OPML)).toBeUndefined();
+    expect(reader.addFeed('https://dice.example/feed')).toBeUndefined();
+    expect(api.set).not.toHaveBeenCalled();
+    api.push([]);
+    expect(reader.importOpml(OPML)?.added).toBe(2);
+  });
+
   it('writes nothing while signed out', () => {
     const { reader, api, user } = setup();
     user.set(null);
