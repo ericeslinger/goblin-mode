@@ -1135,10 +1135,15 @@ dropped), and the passed ones are marked read in one batch
 still for 300 ms, so nothing is written while the page moves. The count
 drops at once, but the rows marked this way stay in the list, greyed
 as read, until the list is left or the shelf changes, so nothing moves
-under the finger. The status line says how many and offers Undo for
-that last batch for six seconds, or until a newer batch; Undo marks
-them unread in one batch. Leaving the list before the page is still
-marks nothing: no mark is made without its Undo on screen.
+under the finger. The status line, a bar fixed at the foot of the
+screen so it shows wherever the list is scrolled and moves no row,
+says how many and offers Undo for that last batch for six seconds, or
+until a newer batch; Undo marks them unread in one batch. Leaving the
+list before the page is still marks nothing: no mark is made without
+its Undo on screen. Only a page the gardener has moved counts: nothing
+is passed until a scroll follows a wheel, a touch, a key or a press,
+so rows a reload or Back leaves above the top, or a scroll the browser
+restores, are not marked (review on #182).
 
 **Step 4, the gestures of intent and the assistant's tools (#163,
 built 2026-11-07).** Three things an article can become, each a

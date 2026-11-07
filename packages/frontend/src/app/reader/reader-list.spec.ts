@@ -101,7 +101,12 @@ function setup(readOnScroll: boolean) {
     ]);
   const status = () =>
     el.querySelector('[role="status"]')?.textContent?.replace(/\s+/g, ' ').trim();
-  return { fixture, el, items, api, leave, back, status };
+  /** The gardener moves the page, as a finger does: a touch, then a scroll. */
+  const move = () => {
+    window.dispatchEvent(new Event('touchmove'));
+    window.dispatchEvent(new Event('scroll'));
+  };
+  return { fixture, el, items, api, leave, back, move, status };
 }
 
 describe('ReaderList, mark read on scroll (#172)', () => {
@@ -112,7 +117,8 @@ describe('ReaderList, mark read on scroll (#172)', () => {
   });
 
   it('marks rows that stayed above the top in one batch once still, holds them, and undoes', () => {
-    const { fixture, el, items, api, leave, back, status } = setup(true);
+    const { fixture, el, items, api, leave, back, move, status } = setup(true);
+    move();
     expect(el.querySelectorAll('li')).toHaveLength(3);
     leave('a');
     leave('b');
@@ -140,7 +146,8 @@ describe('ReaderList, mark read on scroll (#172)', () => {
   });
 
   it('waits for the page to be still, and takes the Undo offer back after a while', () => {
-    const { fixture, api, leave, status } = setup(true);
+    const { fixture, api, leave, move, status } = setup(true);
+    move();
     leave('a');
     vi.advanceTimersByTime(PASSED_MS);
     // Still scrolling: the batch waits.
@@ -158,8 +165,27 @@ describe('ReaderList, mark read on scroll (#172)', () => {
     expect(status()).toBe('Marked 1 read.');
   });
 
+  it('marks nothing a reload or Back put above the top until the page is moved (review on #182)', () => {
+    const { api, leave, move } = setup(true);
+    // The observer's first look finds rows above the top, scrolled there by the browser.
+    leave('a');
+    leave('b');
+    window.dispatchEvent(new Event('scroll'));
+    vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+    expect(api.setMany).not.toHaveBeenCalled();
+    // The gardener moves the page: the rows still above now count.
+    move();
+    vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+    expect(api.setMany).toHaveBeenCalledTimes(1);
+    expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual([
+      'users/u1/feedItems/a',
+      'users/u1/feedItems/b',
+    ]);
+  });
+
   it('marks nothing with the switch off', () => {
-    const { api, leave } = setup(false);
+    const { api, leave, move } = setup(false);
+    move();
     leave('a');
     vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
     expect(api.setMany).not.toHaveBeenCalled();

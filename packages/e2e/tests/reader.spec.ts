@@ -131,7 +131,9 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(articles.getByRole('listitem')).toHaveCount(5);
   const tall = page.viewportSize()!;
   await page.setViewportSize({ width: tall.width, height: 320 });
-  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  // A wheel, not a scrollTo: a page the browser moves marks nothing (review on #182).
+  await page.mouse.move(tall.width / 2, 160);
+  await page.mouse.wheel(0, 2000);
   const marked = page.getByRole('status').filter({ hasText: /Marked \d+ read/ });
   await expect(marked).toBeVisible();
   const passed = Number(/Marked (\d+) read/.exec(await marked.innerText())![1]);
@@ -140,7 +142,13 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(articles.getByRole('listitem')).toHaveCount(5);
   await letItSave(page);
   expect(await call('list_feed_items', {})).toHaveLength(5 - passed);
-  await page.getByRole('button', { name: 'Undo' }).click();
+  // Undo shows where the list was scrolled to, before any click scrolls to it.
+  const undo = page.getByRole('button', { name: 'Undo' });
+  const box = (await undo.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(320);
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await undo.click();
   await expect(page.getByRole('status')).toContainText(`${passed} unread again.`);
   await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0);
   await letItSave(page);

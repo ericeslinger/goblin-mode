@@ -35,6 +35,8 @@ export const PASSED_MS = 600;
 export const SETTLE_MS = 300;
 /** How long Undo is offered for the last batch. */
 export const UNDO_MS = 6000;
+/** What the gardener does to move the page, as against the browser restoring it. */
+const INPUTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const;
 
 export function shelfFromParam(value: string | null): Shelf2 {
   if (value?.startsWith('s:')) return { kind: 'feed', id: value.slice(2) };
@@ -54,7 +56,8 @@ export function shelfFromParam(value: string | null): Shelf2 {
  * as passed, and the passed ones are marked read in one batch once the
  * page is still. They stay in the list, greyed, until the list is left
  * or the shelf changes, so nothing moves under the finger; the status
- * line offers Undo for the last batch for a few seconds.
+ * bar at the foot of the screen offers Undo for the last batch for a
+ * few seconds. Only a page the gardener has moved counts.
  */
 @Component({
   selector: 'app-reader-list',
@@ -149,7 +152,7 @@ export function shelfFromParam(value: string | null): Shelf2 {
     ul {
       list-style: none;
       margin: 0;
-      padding: 0;
+      padding: 0 0 56px;
     }
     li {
       display: grid;
@@ -194,6 +197,29 @@ export function shelfFromParam(value: string | null): Shelf2 {
     .status {
       color: var(--quiet);
       font-size: 14px;
+    }
+    /*
+     * The status line is a bar fixed at the foot of the screen, so Undo
+     * shows wherever the list is scrolled, and showing it moves no row
+     * (review on #182); the list leaves room for it at its end.
+     */
+    .status {
+      position: fixed;
+      inset: auto 0 0;
+      z-index: 1;
+      box-sizing: border-box;
+      max-width: 640px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2) var(--space-3);
+      align-items: center;
+      padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom));
+      background: var(--surface);
+      border-top: 1px solid var(--rule);
+    }
+    .status button {
+      min-height: 32px;
     }
     .summary {
       font-size: 14px;
@@ -266,6 +292,16 @@ export class ReaderList {
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
   /** Rows above the top long enough, marked once the page is still. */
   private readonly passed = new Set<string>();
+  /** Rows wholly above the top now, by id, whether or not their moment has started. */
+  private readonly above = new Set<string>();
+  /**
+   * Whether the gardener has moved the page since the list showed: a
+   * scroll after a wheel, a touch, a key or a press (review on #182).
+   * Until then nothing counts as passed, so rows a reload or Back put
+   * above the top, or a scroll the browser restores, mark nothing.
+   */
+  private armed = false;
+  private touched = false;
   private settleTimer?: ReturnType<typeof setTimeout>;
   private undoTimer?: ReturnType<typeof setTimeout>;
 
@@ -279,9 +315,15 @@ export class ReaderList {
       this.observer = new IntersectionObserver((entries) => this.seen(entries));
       afterRenderEffect(() => this.observe(this.rows()));
     }
-    const onScroll = () => this.settle();
+    const onInput = () => (this.touched = true);
+    const onScroll = () => {
+      if (this.touched && !this.armed) this.arm();
+      this.settle();
+    };
+    for (const type of INPUTS) window.addEventListener(type, onInput, { passive: true });
     window.addEventListener('scroll', onScroll, { passive: true });
     inject(DestroyRef).onDestroy(() => {
+      for (const type of INPUTS) window.removeEventListener(type, onInput);
       window.removeEventListener('scroll', onScroll);
       this.observer?.disconnect();
       this.forget();
@@ -365,8 +407,8 @@ export class ReaderList {
   }
 
   /**
-   * A row wholly above the top starts its moment; one back in view, or
-   * below, is dropped. Only unread rows, and only with the switch on.
+   * A row wholly above the top starts its moment, once the page has been
+   * moved; one back in view, or below, is dropped.
    */
   private seen(entries: IntersectionObserverEntry[]): void {
     for (const entry of entries) {
@@ -378,20 +420,33 @@ export class ReaderList {
         this.drop(id);
         continue;
       }
-      if (this.pending.has(id) || this.passed.has(id)) continue;
-      if (!this.reader.readOnScroll() || this.items.find(id)?.read !== false) continue;
-      this.pending.set(
-        id,
-        setTimeout(() => {
-          this.pending.delete(id);
-          this.passed.add(id);
-          this.settle();
-        }, PASSED_MS),
-      );
+      this.above.add(id);
+      if (this.armed) this.start(id);
     }
   }
 
+  /** The first move of the page: rows already above the top start their moment. */
+  private arm(): void {
+    this.armed = true;
+    for (const id of this.above) this.start(id);
+  }
+
+  /** Starts a row's moment above the top. Only unread rows, and only with the switch on. */
+  private start(id: string): void {
+    if (this.pending.has(id) || this.passed.has(id)) return;
+    if (!this.reader.readOnScroll() || this.items.find(id)?.read !== false) return;
+    this.pending.set(
+      id,
+      setTimeout(() => {
+        this.pending.delete(id);
+        this.passed.add(id);
+        this.settle();
+      }, PASSED_MS),
+    );
+  }
+
   private drop(id: string): void {
+    this.above.delete(id);
     clearTimeout(this.pending.get(id));
     this.pending.delete(id);
     this.passed.delete(id);
@@ -427,6 +482,9 @@ export class ReaderList {
     for (const t of this.pending.values()) clearTimeout(t);
     this.pending.clear();
     this.passed.clear();
+    this.above.clear();
+    this.armed = false;
+    this.touched = false;
     clearTimeout(this.settleTimer);
     if (this.undoIds()) this.status.set('');
     this.offerUndo(undefined);
