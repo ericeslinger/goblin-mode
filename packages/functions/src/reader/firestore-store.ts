@@ -170,6 +170,7 @@ export async function applyRetention(
   db: Firestore,
   uid: string,
   months: number | undefined,
+  pageSize = 400,
 ): Promise<number> {
   let touched = 0;
   let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
@@ -178,7 +179,7 @@ export async function applyRetention(
       .collection(paths.feedItems(uid))
       .where('saved', '==', false)
       .orderBy(FieldPath.documentId())
-      .limit(400);
+      .limit(pageSize);
     if (after) query = query.startAfter(after);
     const snap = await query.get();
     if (snap.empty) return touched;
@@ -197,7 +198,7 @@ export async function applyRetention(
     }
     if (writes) await batch.commit();
     touched += writes;
-    if (snap.size < 400) return touched;
+    if (snap.size < pageSize) return touched;
     after = snap.docs[snap.docs.length - 1];
   }
 }
@@ -207,7 +208,12 @@ export async function applyRetention(
  * than `cutoff` (#171): the backlog a first import brought in. Returns
  * how many went.
  */
-export async function sweepOld(db: Firestore, uid: string, cutoff: number): Promise<number> {
+export async function sweepOld(
+  db: Firestore,
+  uid: string,
+  cutoff: number,
+  pageSize = 400,
+): Promise<number> {
   let removed = 0;
   let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
   for (;;) {
@@ -218,7 +224,7 @@ export async function sweepOld(db: Firestore, uid: string, cutoff: number): Prom
       .where('read', '==', false)
       .where('published', '<', Timestamp.fromMillis(cutoff))
       .orderBy('published', 'desc')
-      .limit(400);
+      .limit(pageSize);
     if (after) query = query.startAfter(after);
     const snap = await query.get();
     if (snap.empty) return removed;
@@ -231,7 +237,7 @@ export async function sweepOld(db: Firestore, uid: string, cutoff: number): Prom
       await batch.commit();
       removed += docs.length;
     }
-    if (snap.size < 400) return removed;
+    if (snap.size < pageSize) return removed;
     after = snap.docs[snap.docs.length - 1];
   }
 }

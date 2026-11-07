@@ -52,7 +52,7 @@ describe('retention (#171)', () => {
     await article('a', 10);
     await article('saved', 10, { saved: true });
     await article('filed', 10, { noteId: 'n1' });
-    expect(await applyRetention(db, 'u1', 3)).toBe(1);
+    expect(await applyRetention(db, 'u1', 3, 2)).toBe(1);
     expect(await expireOf('a')).toBe(monthsAfter(NOW - 10 * DAY, 3));
     expect(await expireOf('saved')).toBeUndefined();
     expect(await expireOf('filed')).toBeUndefined();
@@ -70,7 +70,8 @@ describe('retention (#171)', () => {
     await article('old-saved', 120, { saved: true });
     await article('old-filed', 120, { noteId: 'n1' });
     await article('recent', 5);
-    expect(await sweepOld(db, 'u1', NOW - 90 * DAY)).toBe(2);
+    // Two a page: the kept ones fill the first page, the cursor reaches past them.
+    expect(await sweepOld(db, 'u1', NOW - 90 * DAY, 2)).toBe(2);
     const left = (await db.collection('users/u1/feedItems').get()).docs.map((d) => d.id).sort();
     expect(left).toEqual(['old-filed', 'old-read', 'old-saved', 'recent']);
     expect(left).not.toContain('older');
