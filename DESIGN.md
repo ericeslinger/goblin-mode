@@ -1307,10 +1307,20 @@ write (type-checked in the rule, as the other marks are; a rules test
 covers them). It is written through the persistent cache, one merge
 (`ItemsService.setProgress`), every 15 seconds of play, on pause, seek
 and close, and as the page is hidden or left. Heard to the end, the
-episode is marked `played` and read in the same write, its position
-kept at the end (Eric, 2026-11-07, on #177); a played episode starts
-again from the top. Opening an episode's page reads nothing, unlike
-an article's, so that read means heard (#179).
+episode is marked `played` and read, its position kept at the end
+(Eric, 2026-11-07, on #177); a played episode starts again from the
+top. Opening an episode's page reads nothing, unlike
+an article's, so that read means heard (#179). Since 2026-11-07 the
+rule also keeps `playedAt` never more than a minute behind the stored
+one, nor more than a minute ahead of the server (#190; the minute
+covers two devices' clock skew), so a place kept offline and synced
+late never overwrites a newer one in the store, and a clock running
+far ahead cannot leave every other device's place looking older; the
+SDK drops a refused write, and with it that place, which the devices
+already rank below the newer one. A write without `playedAt`, or the
+first one on an item, is unaffected. Heard to the end, `played`, `read` and `readAt` go in a merge of their own,
+without `playedAt`, and the position in a second, so a refused place
+never loses the played mark.
 
 The newest `playedAt` wins, but the local player never jumps: when
 the listener brings this episode with a `playedAt` newer than this

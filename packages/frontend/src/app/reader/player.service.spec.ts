@@ -173,12 +173,17 @@ describe('PlayerService (#179)', () => {
     audio.end();
     const writes = progress();
     expect(writes).toHaveLength(1);
-    expect(writes[0]).toMatchObject({
+    expect(writes[0]).toEqual({
+      path: 'users/u1/feedItems/e1',
       position: 3,
-      played: true,
-      read: true,
-      readAt: 'SERVER_TIME',
+      playedAt: `TIME:${NOW_MS}`,
+      updatedAt: 'SERVER_TIME',
     });
+    // The marks in a merge of their own, without playedAt (#190).
+    const marks = api.set.mock.calls.filter((c) => !('position' in c[2]) && 'played' in c[2]);
+    expect(marks.map((c) => c[2])).toEqual([
+      { played: true, read: true, readAt: 'SERVER_TIME', updatedAt: 'SERVER_TIME' },
+    ]);
     expect(items.find('e1')?.read).toBe(true);
     expect(player.playing()).toBe(false);
   });

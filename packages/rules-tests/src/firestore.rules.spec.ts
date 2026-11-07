@@ -444,6 +444,48 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     );
   });
 
+  it('refuses a listening place more than a minute behind the stored one or ahead of the server (#190)', async () => {
+    const path = 'users/owner/feedItems/f-1-pod';
+    const ref = owner().doc(path);
+    const at = (ms: number) => firebase.firestore.Timestamp.fromMillis(ms);
+    const t = Date.parse('2026-11-07T12:00:00Z');
+    await seed(path, item());
+    // The first playedAt on an item without one.
+    await assertSucceeds(
+      ref.set({ position: 100, playedAt: at(t), updatedAt: now() }, { merge: true }),
+    );
+    // The same time again, and a newer one.
+    await assertSucceeds(
+      ref.set({ position: 101, playedAt: at(t), updatedAt: now() }, { merge: true }),
+    );
+    await assertSucceeds(
+      ref.set({ position: 200, playedAt: at(t + 180_000), updatedAt: now() }, { merge: true }),
+    );
+    // Thirty seconds behind passes, for clock skew between devices.
+    await assertSucceeds(
+      ref.set({ position: 190, playedAt: at(t + 150_000), updatedAt: now() }, { merge: true }),
+    );
+    // A place kept offline two minutes earlier and synced late is refused.
+    await assertFails(
+      ref.set({ position: 150, playedAt: at(t + 30_000), updatedAt: now() }, { merge: true }),
+    );
+    // Thirty seconds ahead of the server passes; ten minutes ahead, a
+    // device's clock running far ahead, is refused.
+    const ahead = (ms: number) => firebase.firestore.Timestamp.fromMillis(Date.now() + ms);
+    await assertSucceeds(
+      ref.set({ position: 210, playedAt: ahead(30_000), updatedAt: now() }, { merge: true }),
+    );
+    await assertFails(
+      ref.set({ position: 220, playedAt: ahead(600_000), updatedAt: now() }, { merge: true }),
+    );
+    // The end-of-episode marks go without playedAt, so they pass onto an
+    // item holding a newer place; so do other marks.
+    await assertSucceeds(
+      ref.set({ played: true, read: true, readAt: now(), updatedAt: now() }, { merge: true }),
+    );
+    await assertSucceeds(ref.set({ saved: true, updatedAt: now() }, { merge: true }));
+  });
+
   it('keeps the Reader’s settings to their shape', async () => {
     const ref = owner().doc('users/owner/settings/reader');
     await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));
