@@ -33,7 +33,32 @@ export function articleHtml(markdown: string, images: boolean): string {
   selector: 'app-reader-article',
   imports: [RouterLink, Swipe],
   template: `
-    <main class="page" appSwipe (left)="go(1)" (right)="go(-1)">
+    <main
+      class="page"
+      appSwipe
+      #swipe="appSwipe"
+      [canLeft]="!!next()"
+      [canRight]="!!prev()"
+      (left)="go(1)"
+      (right)="go(-1)"
+    >
+      @if (swipe.dx() !== 0) {
+        <!-- The stories either side, drawn beside this one while it is dragged (Eric, 2026-11-07). -->
+        @if (prev(); as p) {
+          <article class="pane prev" aria-hidden="true">
+            <h1>{{ p.title }}</h1>
+            <p class="meta">{{ sourceOf(p) }} · {{ when(p) }}</p>
+            <div class="body" [innerHTML]="prevHtml()"></div>
+          </article>
+        }
+        @if (next(); as n) {
+          <article class="pane next" aria-hidden="true">
+            <h1>{{ n.title }}</h1>
+            <p class="meta">{{ sourceOf(n) }} · {{ when(n) }}</p>
+            <div class="body" [innerHTML]="nextHtml()"></div>
+          </article>
+        }
+      }
       <a [routerLink]="backLink()" class="back">Back</a>
       @if (item(); as it) {
         <article>
@@ -86,8 +111,8 @@ export function articleHtml(markdown: string, images: boolean): string {
           <div class="body" [innerHTML]="html()" (click)="openLink($event)"></div>
         </article>
         <nav class="prevnext" aria-label="Next and previous">
-          <button type="button" [disabled]="!neighbour(-1)" (click)="go(-1)">Previous</button>
-          <button type="button" [disabled]="!neighbour(1)" (click)="go(1)">Next</button>
+          <button type="button" [disabled]="!prev()" (click)="go(-1)">Previous</button>
+          <button type="button" [disabled]="!next()" (click)="go(1)">Next</button>
         </nav>
       } @else if (items.loaded()) {
         <p class="muted">This article is not on this device. Open it online, or go back.</p>
@@ -95,8 +120,35 @@ export function articleHtml(markdown: string, images: boolean): string {
     </main>
   `,
   styles: `
+    :host {
+      display: block;
+      overflow-x: hidden;
+    }
     main {
+      position: relative;
       touch-action: pan-y;
+    }
+    main.settling {
+      transition: transform 180ms ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      main.settling {
+        transition: none;
+      }
+    }
+    .pane {
+      position: absolute;
+      top: 0;
+      width: 100%;
+      box-sizing: border-box;
+      padding: inherit;
+      pointer-events: none;
+    }
+    .pane.prev {
+      right: 100%;
+    }
+    .pane.next {
+      left: 100%;
     }
     h1 {
       overflow-wrap: anywhere;
@@ -117,26 +169,33 @@ export function articleHtml(markdown: string, images: boolean): string {
       line-height: 1.55;
       overflow-wrap: anywhere;
     }
-    .body :is(h2, h3, h4) {
+    /* The article's HTML is injected, so these pierce the component's scope. */
+    :host ::ng-deep .body :is(h2, h3, h4) {
       margin: 1.2em 0 0.4em;
     }
-    .body img {
+    :host ::ng-deep .body img,
+    :host ::ng-deep .body video,
+    :host ::ng-deep .body table {
       max-width: 100%;
       height: auto;
     }
-    .body pre {
+    :host ::ng-deep .body table {
+      display: block;
+      overflow-x: auto;
+    }
+    :host ::ng-deep .body pre {
       overflow-x: auto;
       padding: var(--space-2);
       background: var(--chip-bg);
       border-radius: var(--radius-control);
     }
-    .body blockquote {
+    :host ::ng-deep .body blockquote {
       margin: 0.8em 0;
       padding-left: var(--space-3);
       border-left: 3px solid var(--rule);
       color: var(--quiet);
     }
-    .body .no-image {
+    :host ::ng-deep .body .no-image {
       color: var(--quiet);
       font-style: italic;
     }
@@ -163,16 +222,38 @@ export class ReaderArticle {
     { initialValue: shelfFromParam(null) },
   );
 
-  protected readonly item = computed(() => this.items.find(this.id()));
+  /**
+   * The story shown: the route's, or the one a finished slide chose a
+   * moment before the route caught up, so the switch is in the same
+   * frame as the slide's end (review on #169).
+   */
+  private readonly pendingId = signal<string | undefined>(undefined);
+  private readonly currentId = computed(() => this.pendingId() ?? this.id());
+  protected readonly item = computed(() => this.items.find(this.currentId()));
   protected readonly fetching = signal(false);
   protected readonly said = signal('');
   protected readonly backLink = computed(() => {
     const shelf = this.shelf();
     return shelf.kind === 'feed' ? ['/reader/s', shelf.id] : ['/reader/f', shelf.name];
   });
-  protected readonly source = computed(
-    () => this.reader.feeds().find((f) => f.id === this.item()?.feedId)?.title ?? 'Unknown feed',
-  );
+  protected readonly source = computed(() => this.sourceOf(this.item()));
+
+  protected sourceOf(it: ItemRecord | undefined): string {
+    return this.reader.feeds().find((f) => f.id === it?.feedId)?.title ?? 'Unknown feed';
+  }
+
+  /** The stories either side, and their HTML rendered once each (review on #169). */
+  protected readonly prev = computed(() => this.neighbour(-1));
+  protected readonly next = computed(() => this.neighbour(1));
+  protected readonly prevHtml = computed(() => this.htmlOf(this.prev()));
+  protected readonly nextHtml = computed(() => this.htmlOf(this.next()));
+
+  private htmlOf(it: ItemRecord | undefined): SafeHtml | undefined {
+    if (!it) return undefined;
+    return this.sanitizer.bypassSecurityTrustHtml(
+      articleHtml(it.readerContent || it.content || '', this.reader.images()),
+    );
+  }
   protected readonly html = computed<SafeHtml>(() => {
     const it = this.item();
     const markdown = it?.readerContent || it?.content || '';
@@ -180,18 +261,38 @@ export class ReaderArticle {
     // would strip the image attributes, so it is trusted as it is.
     return this.sanitizer.bypassSecurityTrustHtml(articleHtml(markdown, this.reader.images()));
   });
-  /** The articles around this one on its shelf: the unread ones, and this. */
+  /** The articles opened in this sitting: read now, but still on the way back. */
+  private readonly visited = signal<ReadonlySet<string>>(new Set());
+  /**
+   * The articles around this one on its shelf: the unread ones, this,
+   * and the ones read on the way here, so a swipe back finds the
+   * previous story (Eric, 2026-11-07).
+   */
   private readonly sequence = computed(() => {
-    const id = this.id();
-    return this.items.inShelf(this.shelf(), true).filter((i) => !i.read || i.id === id);
+    const id = this.currentId();
+    const visited = this.visited();
+    return this.items
+      .inShelf(this.shelf(), true)
+      .filter((i) => !i.read || i.id === id || visited.has(i.id));
   });
 
   constructor() {
-    // Opening an article reads it, once it is here.
+    // The route caught up with a slide's choice.
+    effect(() => {
+      if (this.pendingId() !== undefined && this.id() === this.pendingId()) {
+        this.pendingId.set(undefined);
+      }
+    });
+    // Opening an article reads it, once it is here, and keeps it in the
+    // sequence for the way back.
     let marked = '';
     effect(() => {
       const it = this.item();
-      if (!it || it.read || marked === it.id) return;
+      if (!it) return;
+      if (!this.visited().has(it.id)) {
+        this.visited.update((v) => new Set([...v, it.id]));
+      }
+      if (it.read || marked === it.id) return;
       marked = it.id;
       this.items.setRead(it.id, true);
     });
@@ -217,13 +318,14 @@ export class ReaderArticle {
 
   protected neighbour(step: 1 | -1): ItemRecord | undefined {
     const seq = this.sequence();
-    const at = seq.findIndex((i) => i.id === this.id());
+    const at = seq.findIndex((i) => i.id === this.currentId());
     return at < 0 ? undefined : seq[at + step];
   }
 
   protected go(step: 1 | -1): void {
     const next = this.neighbour(step);
     if (!next) return;
+    this.pendingId.set(next.id);
     void this.router.navigate(['/reader/a', next.id], {
       queryParams: { in: shelfParam(this.shelf()) },
       replaceUrl: true,

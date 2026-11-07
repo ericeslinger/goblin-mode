@@ -4,6 +4,7 @@
 // repeated guids, content in one of three places; each is handled here
 // so the refresher never sees it.
 import { XMLParser } from 'fast-xml-parser';
+import { decode } from '../attachments/import';
 
 export interface ParsedItem {
   /** What names the item across refreshes: its guid or id, else its link, else its title. */
@@ -61,6 +62,16 @@ function text(node: Node): string {
     .trim();
 }
 
+/**
+ * A title or a name as plain words: tags out and entities read, once
+ * more after the XML parser, since feeds double-encode them or put
+ * them in CDATA (Eric's "don&#8217;t", 2026-11-07).
+ */
+const plain = (value: string) =>
+  decode(value.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+
 /** The first of several elements that has text. */
 function first(node: Record<string, unknown>, ...names: string[]): string {
   for (const n of names) {
@@ -106,14 +117,16 @@ function atomLink(entry: Record<string, unknown>, base: string): string {
 function fromRss(channel: Record<string, unknown>, base: string): ParsedFeed {
   const site = first(channel, 'link');
   return {
-    title: first(channel, 'title'),
+    title: plain(first(channel, 'title')),
     ...(site ? { site: absolute(site, base) } : {}),
     items: list(channel['item']).map((item) => {
       const link = absolute(first(item, 'link'), base);
-      const title = first(item, 'title');
-      const guid = first(item, 'guid') || link || title;
+      const rawTitle = first(item, 'title');
+      const title = plain(rawTitle);
+      // The guid falls back to the title as written, so cleaning it never renames an item (review on #169).
+      const guid = first(item, 'guid') || link || rawTitle;
       const date = first(item, 'pubDate', 'dc:date', 'date');
-      const author = first(item, 'dc:creator', 'author');
+      const author = plain(first(item, 'dc:creator', 'author'));
       return {
         guid,
         title,
@@ -130,16 +143,17 @@ function fromRdf(root: Record<string, unknown>, base: string): ParsedFeed {
   const channel = list(root['channel'])[0] ?? {};
   const site = first(channel, 'link');
   return {
-    title: first(channel, 'title'),
+    title: plain(first(channel, 'title')),
     ...(site ? { site: absolute(site, base) } : {}),
     // RSS 1.0 lists items beside the channel, not inside it.
     items: list(root['item']).map((item) => {
       const link = absolute(first(item, 'link') || String(item['@rdf:about'] ?? ''), base);
-      const title = first(item, 'title');
+      const rawTitle = first(item, 'title');
+      const title = plain(rawTitle);
       const date = first(item, 'dc:date');
-      const author = first(item, 'dc:creator');
+      const author = plain(first(item, 'dc:creator'));
       return {
-        guid: String(item['@rdf:about'] ?? '') || link || title,
+        guid: String(item['@rdf:about'] ?? '') || link || rawTitle,
         title,
         link,
         ...(author ? { author } : {}),
@@ -153,15 +167,16 @@ function fromRdf(root: Record<string, unknown>, base: string): ParsedFeed {
 function fromAtom(feed: Record<string, unknown>, base: string): ParsedFeed {
   const site = atomLink(feed, base);
   return {
-    title: first(feed, 'title'),
+    title: plain(first(feed, 'title')),
     ...(site ? { site } : {}),
     items: list(feed['entry']).map((entry) => {
       const link = atomLink(entry, base);
-      const title = first(entry, 'title');
+      const rawTitle = first(entry, 'title');
+      const title = plain(rawTitle);
       const date = first(entry, 'published', 'updated');
-      const author = text(list(entry['author'])[0]?.['name'] as Node);
+      const author = plain(text(list(entry['author'])[0]?.['name'] as Node));
       return {
-        guid: first(entry, 'id') || link || title,
+        guid: first(entry, 'id') || link || rawTitle,
         title,
         link,
         ...(author ? { author } : {}),
@@ -186,16 +201,17 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
   const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const site = str(feed['home_page_url']);
   return {
-    title: str(feed['title']),
+    title: plain(str(feed['title'])),
     ...(site ? { site: absolute(site, base) } : {}),
     items: list(feed['items']).map((item) => {
       const link = absolute(str(item['url']) || str(item['external_url']), base);
-      const title = str(item['title']);
+      const rawTitle = str(item['title']);
+      const title = plain(rawTitle);
       const date = str(item['date_published']) || str(item['date_modified']);
       const authors = list(item['authors']);
       const author = str(authors[0]?.['name']) || str(list(item['author'])[0]?.['name']);
       return {
-        guid: str(item['id']) || link || title,
+        guid: str(item['id']) || link || rawTitle,
         title,
         link,
         ...(author ? { author } : {}),
