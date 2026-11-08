@@ -8,14 +8,15 @@ import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { VFile } from 'vfile';
 import { remarkSingleStarStrong } from './emphasis';
+import { loneMarker } from './lone-marker';
 import { remarkWikiLinks } from './wikilink';
 
 const processor = unified()
   // No setext headings: a lone `-` under a line is a list item being
-  // typed, not an underline making the line a heading (#118). It stays
-  // text in that line's paragraph until something follows it. Headings
-  // are `#` lines, as the ribbon writes them.
-  .data('micromarkExtensions', [{ disable: { null: ['setextUnderline'] } }])
+  // typed, not an underline making the line a heading (#118), and it
+  // starts an empty item even under a line of text (lone-marker.ts).
+  // Headings are `#` lines, as the ribbon writes them.
+  .data('micromarkExtensions', [{ disable: { null: ['setextUnderline'] } }, loneMarker])
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkSingleStarStrong)

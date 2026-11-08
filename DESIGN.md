@@ -1631,9 +1631,12 @@ says `autocorrect="on"` and `writingsuggestions="true"`: CodeMirror
 turns both off by default, which left a phone keyboard without
 autocorrect (#110). Setext headings are off in the grammar: a lone
 `-` under a line is a list item being typed, not an underline that
-makes the line a heading (#118). Until text follows it, it stays in
-the line's paragraph as typed. Headings are `#` lines; `Title` over
-`---` is a paragraph and a rule, which no note uses.
+makes the line a heading (#118). Headings are `#` lines; `Title` over
+`---` is a paragraph and a rule, which no note uses. Changed
+2026-11-08: a lone `-`, `*` or `+` line, at any indent, is an empty list
+item even under a line of text, rather than text in that line's
+paragraph (`grammar/lone-marker.ts` lets an empty bullet interrupt a
+paragraph, parsing the text as typed so offsets stay true).
 
 **Decision.** Notes are edited with CodeMirror 6 in the style of
 Obsidian, with two modes over the same text: **live preview** (markdown

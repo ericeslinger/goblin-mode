@@ -93,6 +93,16 @@ describe('list markers', () => {
     expect(covered(text, specs(text, 'live', [2]), 'bullet')).toEqual(['-']);
   });
 
+  it('draws an item over an empty sublist as a list item, not a heading (#118)', () => {
+    const text = '- sunday\n- Monday\n  -\n- Tuesday';
+    const list = specs(text, 'live');
+    expect(list.some((s) => s.kind === 'line' && s.className.startsWith('mg-h'))).toBe(false);
+    expect(covered(text, list, 'bullet')).toEqual(['-', '-', '-', '-']);
+    expect(list.filter((s) => s.kind === 'bullet').map((s) => s.from)).toEqual([0, 9, 20, 22]);
+    // On the line being typed, the lone marker shows as typed.
+    expect(covered(text, specs(text, 'live', [3]), 'mark')).toContain('-');
+  });
+
   it('keeps ordered numbers as text, styled', () => {
     const text = '1. eight\n2. nine';
     const list = specs(text, 'live');
