@@ -1935,8 +1935,9 @@ Functions, so the MCP endpoint and OAuth live on mossgoblin.garden:
 | `/api/episode` | the Worker itself | Podcast episodes for offline downloads (#180) |
 
 Other functions: `noteHistory`, `noteTitle` and `reminderScheduled`
-(Firestore triggers), `reminderWake` (a Cloud Tasks queue) and
-`sendDuePush` (hourly).
+(Firestore triggers), `reminderWake` (a Cloud Tasks queue),
+`sendDuePush` (hourly) and the app's callables, among them `revertRun`
+(Put back, #154).
 
 ## MCP server
 
@@ -2264,6 +2265,42 @@ keeps the history.
   Settings, Claude) lists the latest 100 runs, newest first, each
   with its notes (current titles, archived ones marked), each note's
   History, and its reminders. Older runs stay stored.
+
+**Trust, step 1: Put back (#154, 2026-11-08).** Each run in What
+assistants changed that touched notes, and on a note's back each run
+that touched it, offers Put back, with a one-line confirm ("Put back 3
+notes?", Yes, No; no dialog). It calls `revertRun` (`onCall`, through
+the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
+`putback/firestore.ts`), so it needs the network and says so offline.
+
+- **What comes back.** A note the run wrote goes back to the text that
+  write replaced, verbatim: the write's `baseHash` names it, found among
+  the replaced texts (two days) and then the last 50 versions History
+  kept. A first-words title follows the text; any other title, the
+  tags and the filing stay, since History keeps only text and title.
+  A note the run archived comes back; one it made is archived, never
+  deleted; a merge's originals come back (without `mergedInto`) and
+  the merged note is archived. What the run did is read from its
+  record: the tool, the summary's "Archived a note" or "Restored a
+  note", a merge listing its merged note first, and a note made at the
+  run's time. Filing (`refile`) and `finish_queued` change fields
+  History does not keep, so they offer no Put back.
+- **Only what the run left.** A note written since the run (Eric's
+  edit, another run) is left alone and named in the put back's line;
+  History still has the run's version. A note the run only named (a
+  link's target) needs nothing. With nothing left to write it is
+  refused, and nothing is recorded.
+- **A run of its own.** The put back records itself, tool `put_back`,
+  agent Mossgoblin, under the derived id `putback-<run>`, and writes as
+  deviceId `agent:Mossgoblin~putback-<run>`, so History keeps the text
+  it replaced and the put back can be put back: that does the run again
+  (archives the originals with `mergedInto`, restores what it made, and
+  writes back the text the put back replaced). The derived id makes it
+  idempotent: a second Put back of a run answers that it is already put
+  back, and the list shows the run as put back without a stored flag.
+  No stored schema changed. 50 put backs a day (`usage`).
+- **No MCP tool.** An assistant undoes its own work by doing it again
+  with the tools it has; Put back is Eric's, in the app.
 
 **Nightly suggestions (#35, 2026-10-07; a Claude routine, Eric,
 2026-10-07).** A Claude routine on Eric's subscription, not a

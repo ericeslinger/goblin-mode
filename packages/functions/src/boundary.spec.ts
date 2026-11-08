@@ -10,6 +10,7 @@ const EXPORTS = [
   'noteTitle',
   'oauth',
   'proposalAccepted',
+  'revertRun',
   'sendDuePush',
   'reminderScheduled',
   'reminderWake',
