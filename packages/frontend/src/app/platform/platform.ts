@@ -27,6 +27,18 @@ export const STORAGE = new InjectionToken<Storage | null>('storage', {
   },
 });
 
+/** sessionStorage, this tab's, or null where it is unavailable. */
+export const SESSION_STORAGE = new InjectionToken<Storage | null>('session-storage', {
+  providedIn: 'root',
+  factory: () => {
+    try {
+      return sessionStorage;
+    } catch {
+      return null;
+    }
+  },
+});
+
 /** The device's IANA time zone, for "today" and for new repeats. */
 export const TIME_ZONE = new InjectionToken<string>('time-zone', {
   providedIn: 'root',

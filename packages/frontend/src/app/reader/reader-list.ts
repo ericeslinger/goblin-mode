@@ -16,7 +16,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { DownloadsService } from './downloads.service';
 import { type ItemRecord, ItemsService } from './items.service';
-import { ALL, PODCASTS, SAVED, type Shelf2 } from './shelves';
+import { ALL, PODCASTS, SAVED, type Shelf2, shelfParam } from './shelves';
 import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 
@@ -26,10 +26,9 @@ export function shelfOf(params: { get(name: string): string | null }): Shelf2 {
   return feed ? { kind: 'feed', id: feed } : { kind: 'folder', name: params.get('folder') ?? ALL };
 }
 
-/** A shelf as the article's `in` query parameter carries it. */
-export function shelfParam(shelf: Shelf2): string {
-  return shelf.kind === 'feed' ? `s:${shelf.id}` : `f:${shelf.name}`;
-}
+// A shelf as the article's `in` query parameter carries it; kept in
+// ./shelves, since the service keys the visited articles by it (#188).
+export { shelfParam };
 
 /** How long a row stays above the top before it counts as passed (#172). */
 export const PASSED_MS = 600;

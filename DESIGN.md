@@ -1129,7 +1129,13 @@ article a swipe left, j or Next goes on to the caught-up page
 (`/reader/done`, with the same `in`): a goblin opening an empty box
 that a fly leaves, which the last article's next pane shows too, so
 the slide lands on what it showed. A swipe right or k there goes back
-to that article, and Back is the shelf's list.
+to that article, and Back is the shelf's list. The articles read on
+the way through a shelf stay in its sequence for the way back, kept
+by `ItemsService` per shelf rather than by the article page, so a
+fresh page (back from the caught-up page) still has the one before
+it, and in the tab's sessionStorage (`goblin.reader.visited`), so a
+reload does too; another shelf or signing out starts afresh (#188,
+2026-11-07).
 
 **Retention (#171, Eric, 2026-11-07).** Everything is kept unless
 the gardener says otherwise: Settings, Reader, Keep articles for (3,

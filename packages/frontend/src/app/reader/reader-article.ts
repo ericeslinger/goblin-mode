@@ -481,16 +481,16 @@ export class ReaderArticle {
       ? untracked(() => Math.max(0, -(this.main()?.nativeElement.getBoundingClientRect().top ?? 0)))
       : 0,
   );
-  /** The articles opened in this sitting: read now, but still on the way back. */
-  private readonly visited = signal<ReadonlySet<string>>(new Set());
   /**
    * The articles around this one on its shelf: the unread ones, this,
    * and the ones read on the way here, so a swipe back finds the
-   * previous story (Eric, 2026-11-07).
+   * previous story (Eric, 2026-11-07). The ones read are kept by the
+   * service, per shelf, so a fresh page (back from the caught-up page)
+   * still has them (#188).
    */
   private readonly sequence = computed(() => {
     const id = this.currentId();
-    const visited = this.visited();
+    const visited = this.items.visitedIn(this.shelf());
     return this.items
       .inShelf(this.shelf(), true)
       .filter((i) => !i.read || i.id === id || visited.has(i.id));
@@ -510,9 +510,7 @@ export class ReaderArticle {
     effect(() => {
       const it = this.item();
       if (!it) return;
-      if (!this.visited().has(it.id)) {
-        this.visited.update((v) => new Set([...v, it.id]));
-      }
+      this.items.visit(this.shelf(), it.id);
       if (it.read || it.enclosure || marked === it.id) return;
       marked = it.id;
       this.items.setRead(it.id, true);
