@@ -603,12 +603,22 @@ describe('organizing tools', () => {
     );
     expect(note['links']).toEqual(['p']);
     await t.capture({ project: 'p', kind: 'decision', text: 'Ship the seeds first' });
-    await t.capture({
+    // A question is its own note, as an idea is, so Eric can reply (#119).
+    const question = await t.capture({
       project: 'Sprout',
       kind: 'question',
-      text: 'Which seeds?',
+      text: 'which seeds\ngo first?',
+      summary: 'Which seeds first',
+      source: 'https://claude.ai/chat/2',
       remind: { text: 'Pick the seeds' },
     });
+    expect(question['project']).toEqual({ id: 'p', title: 'Sprout' });
+    expect((question['note'] as { title: string }).title).toBe('Which seeds first');
+    const asked = await body((question['note'] as { id: string }).id);
+    expect(asked['body']).toBe(
+      '✳ Claude: Which seeds first\n\nwhich seeds\ngo first?\n\nFrom: https://claude.ai/chat/2\n\nPart of [[Sprout]].',
+    );
+    expect(asked['links']).toEqual(['p']);
     // A second idea with a taken name is told apart by its date.
     const again = await t.capture({
       project: 'p',
@@ -622,7 +632,7 @@ describe('organizing tools', () => {
     const page = String((await body('p'))['body']);
     expect(page).toContain('## Ideas\n- [[Talking seeds]]\n- [[Talking seeds (');
     expect(page).toContain(`## Decisions\n- ${day}: Ship the seeds first`);
-    expect(page).toContain('## Open questions\n- Which seeds?');
+    expect(page).toContain('## Open questions\n- [[Which seeds first]]');
     expect(page.startsWith('## Overview\nA game.\n')).toBe(true);
     const reminders = await db.collection('users/u1/reminders').get();
     expect(reminders.docs.map((d) => d.data())).toEqual([
@@ -654,7 +664,9 @@ describe('organizing tools', () => {
       remind: { text: 'Ask', dueAt: 'someday' },
     });
     expect(filed['reminderFailed']).toMatch(/^filed, but the reminder was not made/);
-    expect(String((await body('p'))['body'])).toContain('- When?');
+    // No summary: the note is named from its first words.
+    expect((filed['note'] as { title: string }).title).toBe('When?');
+    expect(String((await body('p'))['body'])).toContain('- [[When?]]');
   });
 
   it('saves links to read later, lists the queue, reads and searches text (#45, #49)', async () => {
