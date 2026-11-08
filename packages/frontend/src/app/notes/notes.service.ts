@@ -67,6 +67,14 @@ export const PENDING_MOODS_KEY = 'goblin.pendingMoods';
 /** Items waiting to be made, by id: the project they go in, and their stage. */
 export const PENDING_ITEMS_KEY = 'goblin.pendingItems';
 type PendingItems = Record<string, { parent: string; stage?: string }>;
+/**
+ * Instructions for Claude written but not yet acknowledged (#198), by
+ * template id: the words, and what the field held before (null for no
+ * field). A write the cache had not taken in when the page went away is
+ * lost; this copy, kept at once, brings it back on the next load.
+ */
+export const PENDING_INSTRUCTIONS_KEY = 'goblin.pendingInstructions';
+type PendingInstructions = Record<string, { instructions: string; base: string | null }>;
 
 /** A note as the app lists and opens it. */
 export interface NoteRecord {
@@ -295,6 +303,8 @@ export class NotesService {
         paths.notes(uid),
         (docs) => {
           this.notes.set(docs.map((d) => toRecord(d.id, d.data)));
+          // The first snapshot is the cache as this load found it.
+          if (!this.loaded()) this.replayInstructions();
           this.loaded.set(true);
           this.makePendingConcepts();
         },
@@ -445,14 +455,61 @@ export class NotesService {
    * the text a note made from it starts with.
    */
   setInstructions(id: string, instructions: string): void {
-    if (!this.uid || this.find(id)?.kind !== 'template') return;
+    const note = this.find(id);
+    if (!this.uid || note?.kind !== 'template') return;
+    // Kept on this device first, synchronously: the cache takes the write
+    // in a moment later, and a page closed or reloaded in that moment
+    // loses it (#198). The base is the oldest unacknowledged one.
+    const pending = this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {};
+    const base = id in pending ? pending[id].base : (note.instructions ?? null);
+    this.store.set(PENDING_INSTRUCTIONS_KEY, { ...pending, [id]: { instructions, base } });
+    this.writeInstructions(id, instructions);
+  }
+
+  private writeInstructions(id: string, instructions: string): void {
+    if (!this.uid) return;
     const update = {
       instructions,
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),
     };
-    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+    this.api
+      .set(this.fb.db, paths.note(this.uid, id), update, true)
+      .then(() => {
+        // On the server: forget it, unless newer words are waiting.
+        const pending = this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {};
+        if (pending[id]?.instructions === instructions) this.dropInstructions(id);
+      })
+      .catch(report);
+  }
+
+  private dropInstructions(id: string): void {
+    const { [id]: _done, ...rest } =
+      this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {};
+    if (Object.keys(rest).length) this.store.set(PENDING_INSTRUCTIONS_KEY, rest);
+    else this.store.remove(PENDING_INSTRUCTIONS_KEY);
+  }
+
+  /**
+   * On load, the instructions a closed page did not get into the cache
+   * (#198): written again only while the field still holds what it held
+   * before they were typed. Holding the words, they were kept; holding
+   * anything else, someone wrote the field since, and theirs is newer.
+   */
+  private replayInstructions(): void {
+    const pending = this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {};
+    for (const [id, { instructions, base }] of Object.entries(pending)) {
+      const note = this.find(id);
+      // Not in the cache at all: the note's own write may be on its way.
+      if (!note) continue;
+      const now = note.instructions ?? null;
+      if (note.kind === 'template' && now === base && now !== instructions) {
+        this.writeInstructions(id, instructions);
+      } else {
+        this.dropInstructions(id);
+      }
+    }
   }
 
   /**
