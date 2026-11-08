@@ -601,6 +601,34 @@ when you leave it; an untouched note never is, since its text may not
 have loaded yet. Bodies are stored with `\n` line endings (CodeMirror
 normalises `\r\n`; accepted 2026-10-06).
 
+**Kept until acknowledged (#198, #200, 2026-11-08).** The persistent
+cache takes a write in a moment later (an IndexedDB transaction), and a
+page closed or reloaded in that moment loses it. So typed words are
+kept in localStorage first, synchronously, beside the field's prior
+value (`base`, null for no field or no note), and forgotten when the
+server acknowledges the write. After a load, on the first snapshot
+from the server (never the persisted cache, which can be stale; until
+then, offline included, entries wait across loads), each kept entry is
+written again only while the field still holds `base`, or earlier words
+of this device's that the cache had not yet shown when the last were
+typed. Holding the words, the cache kept them; holding anything else,
+someone wrote the field since, and theirs is newer: nothing is written
+over it. A field written over and then back to `base` cannot be told
+from one never touched, and is accepted. A snapshot carries a write only after the cache holds it, so a new
+write takes what the cache shows as its `base`
+(`notes/pending-writes.ts`). It
+applies in three places: note text (`goblin.pendingSaves`, every
+`NotesService.save`: a new note, an edit, a restore or keep, the
+first-words title riding along; a new note the cache never took is
+made again, any other note the server lacks stays gone), a template's
+Instructions for Claude (`goblin.pendingInstructions`; a template the
+server lacks drops its entry), and, before the notes load,
+the pending draft (`goblin.pendingDraft`), which hands over to the
+first at the moment it is written. The Instructions field keeps every
+keystroke this way and writes after the save delay, on leaving the
+field, and on `pagehide`, since a page closed with the field focused
+never fires `change`.
+
 **Lists and search.** One live listener on the user's whole `notes`
 collection, newest first, feeds Recent, Previous note and search; one
 person's notes are small enough, and the cache answers it offline.

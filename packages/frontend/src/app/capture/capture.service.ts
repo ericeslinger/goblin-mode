@@ -42,7 +42,8 @@ const SENT_KEPT = 50;
  * - Typing is saved 300 ms after it pauses, and at once when the app is
  *   hidden. Until the user is known and their notes have loaded, it is
  *   kept as a pending draft on the device and written after, so nothing
- *   is lost and an unseen note is never overwritten.
+ *   is lost and an unseen note is never overwritten. After, each save
+ *   is kept on the device until the server acknowledges it (#200).
  * - A note left empty is deleted when you leave it.
  */
 @Injectable({ providedIn: 'root' })
