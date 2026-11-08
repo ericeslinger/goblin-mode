@@ -100,6 +100,8 @@ export class FakeNotes {
     },
   );
   setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
+  setArchived = vi.fn((_id: string, _archived: boolean) => undefined);
+  setWeek = vi.fn((_id: string, _start: string) => undefined);
   createRecipe = vi.fn((name: string) =>
     this.names().has(name.trim().toLowerCase()) ? undefined : `new${++this.n}`,
   );

@@ -493,6 +493,9 @@ heading, skip what is listed, keep his words, and ★ marks a staple.
 Since #130 (2026-10-18) it is Kitchen's grocery list, made from
 Settings, Kitchen (Grocery list, below); new lists have no Meal plan
 section, and the instructions say planned dinners add themselves.
+Since #207 (2026-11-08) each week has its own list, the last one
+archived, and the back of every note has Archive, or Restore on
+an archived note (Plain lines, a list a week, below).
 
 - **List view.** A note made from a template that has checklist items
   gets List beside Source: each section's open items as large
@@ -930,7 +933,9 @@ drop the Meal plan section, the plan being its own note now.
 
 Planning a recipe, in the app's week or with `plan_meal`, adds its
 ingredients to the list, each line naming its dinner: `- [ ] 2 onions,
-sliced (Shakshuka, Mon)` (`Mon lunch` for a meal other than dinner). A
+sliced (Shakshuka, Mon)` (`Mon lunch` for a meal other than dinner;
+since #207, 2026-11-08, the line is only the item and the list's back
+names the dinner, below). A
 ratio on the slot scales a single amount ("half recipe": `0.5 cup
 lentils`); a range or no amount is kept as written with the ratio
 after it (`salt ×0.5`). A line goes under the section its item is
@@ -951,6 +956,62 @@ changing neighbouring slots within the same second, before either has
 seen the other, can leave both versions of those lines in the plan,
 as the sync merge (#37) keeps both sides of a stretch it cannot tell
 apart; nothing is lost, and the extra lines can be deleted.
+
+**Plain lines, a list a week (#207, Eric, 2026-11-08).** Decision
+(Eric, 2026-11-08): grocery lines show only the item; the source lives
+on the back of the note. A planned dinner's line is `- [ ] 2 onions,
+sliced`, scaled as before, without the `(Shakshuka, Mon)` above;
+`itemKey` still reads that suffix, so lists written before match.
+
+With no dinner on the line, the line alone cannot say whose it is, so
+Kitchen's configuration records it: `wrote`, by slot
+(`2026-10-19/Mon/dinner`, `slotKey`), holds the exact lines that slot's
+dinner put on the list, the ones `addDinner` inserted, never the ones
+it skipped as already listed. Unplanning or changing the slot takes off
+only those, still only while unticked and exactly as written, and the
+slot leaves the record; a line Eric wrote himself, `- [ ] limes` for a
+recipe's `limes` included, is never removed. When an item comes off
+that another dinner still needs, the line put back is recorded under
+that dinner's slot. A slot with nothing recorded (planned before
+#207) takes nothing off. Slots of weeks older than the list's are
+dropped whenever the record is written (`pruneWrote`), so it stays
+small. The app and `plan_meal` both read and write it, beside
+`sections`.
+
+Each week has its own list. The first recipe planned into a week newer
+than the list's (in the app's week, or with `plan_meal`) gives that
+week a new list, and the dinner's lines go there; the old list is
+archived, never deleted: it keeps its History and shows under Browse,
+Archived. Opening a week (Next week), reading one (`get_meal_plan`),
+clearing a slot, or planning the list's own week or an older one
+leaves the list be, and so does having no list. A list from before
+#207, with no `periodStart`, is not archived: on the first recipe
+planned it is taken as that week's list, its `periodStart` stamped.
+The new list is made from the Shopping list template as before
+(`fromTemplate`, so List view and Done shopping work), its text the
+template's without the instructions or a Meal plan section, with the
+old list's staples (★) carried over unticked under their sections,
+since staples stay from week to week; nothing else comes along. It
+carries the week in `periodStart`, is named "Shopping list, week of
+Oct 19" (`titleSource: user`), and its id is derived from the week,
+`shopping-2026-10-19`, so the phone offline and Claude start the same
+note; Kitchen's `groceryList` names it. A list made by hand (Make the
+grocery list) is the week's of the plan it was made from, or this
+week's from Settings. The rules are in `packages/schema/src/grocery.ts`
+(`replanGrocery`, `shoppingListBody`, `listIsOlder`).
+
+The back of a grocery list (Kitchen on; a note made from the Shopping
+list template, or the one Kitchen names) says "For the week of Oct
+19" and, for each open item, which of that week's dinners not yet made
+need it: "2 onions, sliced: Shakshuka (Mon), Chili (Thu)". It is
+worked out each time from the week's plan and the recipes' ingredients,
+matched by `itemKey` (`listSources`), and never stored; an item no
+dinner needs is left out. A list from before #207 reads as this
+week's. The back of every note also has Archive, or Restore on an
+archived note (`NotesService.setArchived`, Eric's own edit through the
+cache, recorded in no assistant's activity); the page stays, saying
+Archived. Archiving the current list leaves Kitchen falling back to
+the template's newest live note, or Make the grocery list.
 
 **On hand (#131, 2026-10-18; epic #125), presence only.** One note of
 kind `pantry` at id `pantry`, named On hand, made the first time it is
@@ -2012,7 +2073,7 @@ it, one backticked tool name per row.
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
 | `import_recipe` | Asks the server to import a link's recipe, as the app does (Claude never reads the page); returns the new recipe's id; Kitchen only | Importing a recipe (#128) |
 | `get_meal_plan` | A week's slots (day, date, meal, what is planned, made, ratio, notes under it) for a date; Kitchen only | Meal plan (#129) |
-| `plan_meal` | Sets one slot to a recipe link, delivery, out or empty, making the week's plan if missing, and feeds the grocery list; Kitchen only | Meal plan (#129), Grocery list (#130) |
+| `plan_meal` | Sets one slot to a recipe link, delivery, out or empty, making the week's plan if missing, and feeds the grocery list (a recipe planned into a newer week starts its own list, #207); Kitchen only | Meal plan (#129), Grocery list (#130) |
 | `log_meal` | Eric's words on how a meal went, under its slot and in the recipe's Notes; Kitchen only | Meal plan (#129) |
 | `get_pantry` | What is on hand: each item, its amount as written, always, its section; Kitchen only | On hand (#131) |
 | `update_pantry` | Adds, removes or marks items always on hand, changing only those lines; Kitchen only | On hand (#131) |

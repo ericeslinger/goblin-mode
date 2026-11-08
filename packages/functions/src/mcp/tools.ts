@@ -43,6 +43,12 @@ import {
   setSlot,
   shortDate,
   SHOPPING_LIST_NAME,
+  listIsOlder,
+  shoppingListBody,
+  shoppingListId,
+  shoppingListTitle,
+  pruneWrote,
+  slotKey,
   type PlannedDinner,
   type Slot,
   listSections,
@@ -1049,7 +1055,7 @@ export class NotesTools {
     );
     const after = planSlots(`- [ ] ${day} ${meal}: ${text}`, start)[0];
     const grocery = result.changed
-      ? await this.replanGrocery(config, before, after, mealLabel(day, meal), others)
+      ? await this.replanGrocery(start, config, before, after, mealLabel(day, meal), others)
       : { list: null, added: 0, removed: 0 };
     return { id, periodStart: start, day, meal, slot: text, changed: result.changed, grocery };
   }
@@ -1063,10 +1069,7 @@ export class NotesTools {
       const named = await this.notes().doc(config.groceryList).get();
       if (named.exists && named.get('archived') !== true) return named.id;
     }
-    const templates = await this.notes().where('kind', '==', 'template').get();
-    const shopping = templates.docs.find(
-      (d) => d.get('title') === SHOPPING_LIST_NAME && d.get('archived') !== true,
-    );
+    const shopping = await this.shoppingTemplate();
     if (!shopping) return undefined;
     const living = await this.notes().where('fromTemplate', '==', shopping.id).get();
     const newest = living.docs
@@ -1075,10 +1078,103 @@ export class NotesTools {
     return newest?.id;
   }
 
+  /** The Shopping list template, if there is one. */
+  private async shoppingTemplate() {
+    const templates = await this.notes().where('kind', '==', 'template').get();
+    return templates.docs.find(
+      (d) => d.get('title') === SHOPPING_LIST_NAME && d.get('archived') !== true,
+    );
+  }
+
+  /**
+   * The list a dinner planned into the week starting `start` goes on
+   * (#207). A list for an older week is archived, never deleted, and
+   * the week gets its own, as the app makes it: the Shopping list
+   * template's text without its instructions or Meal plan section, the
+   * old list's staples, `periodStart` and the week's name (or the one
+   * the phone started already). A list from before #207, with no week,
+   * is taken as this week's: its `periodStart` is stamped. A list for
+   * this week or a newer one, or one with no template to follow, stays.
+   * Returns the list's id and week.
+   */
+  private async weekList(
+    current: string,
+    start: string,
+  ): Promise<{ id: string; start: string | undefined }> {
+    const [names, shopping] = await Promise.all([this.names(), this.shoppingTemplate()]);
+    return this.db.runTransaction(async (tx) => {
+      const oldRef = this.notes().doc(current);
+      const old = await tx.get(oldRef);
+      const raw = old.get('periodStart');
+      const was = typeof raw === 'string' ? raw : undefined;
+      const stay = { id: current, start: was };
+      if (!old.exists || old.get('archived') === true) return stay;
+      const title = String(old.get('title') ?? '') || 'the grocery list';
+      if (was === undefined) {
+        const update = { ...this.stamp(), periodStart: start };
+        Note.parse({ ...old.data(), ...update });
+        tx.update(oldRef, update);
+        tx.set(
+          ...this.activity(
+            'plan_meal',
+            `Made ${title} the list for the week of ${shortDate(start)}`,
+            [touched(current, old.data()!)],
+          ),
+        );
+        return { id: current, start };
+      }
+      if (!listIsOlder(was, start)) return stay;
+      const own = old.get('fromTemplate');
+      const templateRef = typeof own === 'string' ? this.notes().doc(own) : shopping?.ref;
+      const template = templateRef ? await tx.get(templateRef) : undefined;
+      if (!template?.exists || template.get('kind') !== 'template') return stay;
+      // The phone may have started the week's list already, offline.
+      let ref = this.notes().doc(shoppingListId(start));
+      const derived = await tx.get(ref);
+      const name = shoppingListTitle(start);
+      if (!derived.exists || derived.get('archived') === true) {
+        if (derived.exists) ref = this.notes().doc(newId());
+        const body = shoppingListBody(
+          String(template.get('body') ?? ''),
+          template.get('instructions') as string | undefined,
+          String(old.get('body') ?? ''),
+        );
+        const now = Timestamp.fromMillis(this.now());
+        const data = Note.parse({
+          kind: 'text',
+          body,
+          title: name,
+          titleSource: 'user',
+          links: resolveLinks(targetsOf(body), names),
+          tags: [],
+          fromTemplate: template.id,
+          periodStart: start,
+          archived: false,
+          createdAt: now,
+          updatedAt: now,
+          ...this.by(),
+        });
+        tx.set(ref, data);
+      }
+      const archived = { ...this.stamp(), archived: true };
+      Note.parse({ ...old.data(), ...archived });
+      tx.update(oldRef, archived);
+      tx.set(
+        ...this.activity('plan_meal', `Started ${name} and archived ${title}`, [
+          touched(ref.id, { title: name }),
+          touched(current, old.data()!),
+        ]),
+      );
+      return { id: ref.id, start };
+    });
+  }
+
   /** A slot's dinner, as the grocery list needs it: its recipe's text and ratio. */
   private async dinnerOf(
     slot: Slot | undefined,
     label: string,
+    /** Its plan's first day, for its key in Kitchen's `wrote` (#207). */
+    start?: string,
   ): Promise<PlannedDinner | undefined> {
     if (!slot?.recipe) return undefined;
     const id = (await this.names()).get(normalizeName(slot.recipe));
@@ -1089,38 +1185,49 @@ export class NotesTools {
       recipeBody: String(recipe['body'] ?? ''),
       day: label,
       ratio: slot.ratio,
+      ...(start ? { slot: slotKey(start, slot.day, slot.meal) } : {}),
     };
   }
 
   /**
-   * A slot changed (#130): the old dinner's untouched lines off the
-   * grocery list, the new dinner's on, and where the list files things
-   * remembered in Kitchen's settings for next time.
+   * A slot of the plan starting `start` changed (#130): the lines Kitchen
+   * recorded the old dinner writing come off while untouched, the new
+   * dinner's go on and are recorded (`wrote`, #207), and where the list
+   * files things is remembered in Kitchen's settings for next time. A
+   * dinner planned into a week newer than the list's starts that week's
+   * list first (`weekList`, #207).
    */
   private async replanGrocery(
+    start: string,
     config: KitchenConfig,
     before: Slot | undefined,
     after: Slot | undefined,
     label: string,
     others: readonly Slot[] = [],
   ): Promise<{ list: string | null; added: number; removed: number }> {
-    const [list, from, to, ...rest] = await Promise.all([
+    const [current, from, to, ...rest] = await Promise.all([
       this.groceryList(config),
-      this.dinnerOf(before, label),
-      this.dinnerOf(after, label),
-      ...others.map((s) => this.dinnerOf(s, mealLabel(s.day, s.meal))),
+      this.dinnerOf(before, label, start),
+      this.dinnerOf(after, label, start),
+      ...others.map((s) => this.dinnerOf(s, mealLabel(s.day, s.meal), start)),
     ]);
-    if (!list || (!from && !to)) return { list: list ?? null, added: 0, removed: 0 };
+    if (!current || (!from && !to)) return { list: current ?? null, added: 0, removed: 0 };
+    const { id: list, start: listStart } = to
+      ? await this.weekList(current, start)
+      : { id: current, start: undefined };
     let counts = { added: 0, removed: 0 };
     let sections: Record<string, string> = {};
+    let wrote: Record<string, string[]> = config.wrote;
+    let week = listStart;
     // What is on hand is not shopped for (#131).
     const pantry = await this.pantryBody();
     await this.editBody(list, 'plan_meal', (body, title) => {
       sections = listSections(body);
       const remembered = { ...config.sections, ...sections };
       const planned = rest.filter((d): d is PlannedDinner => !!d);
-      const next = replanGrocery(body, from, to, remembered, onHand(pantry), planned);
+      const next = replanGrocery(body, from, to, remembered, onHand(pantry), planned, config.wrote);
       counts = { added: next.added, removed: next.removed };
+      wrote = next.wrote;
       if (next.body === body) return undefined;
       const parts = [
         next.added && `added ${plural(next.added, 'line')}`,
@@ -1128,16 +1235,18 @@ export class NotesTools {
       ].filter(Boolean);
       return { body: next.body, summary: `${title}: ${parts.join(' and ')} for ${label}` };
     });
-    const learned = { ...config.sections, ...sections };
-    if (JSON.stringify(learned) !== JSON.stringify(config.sections)) {
-      await this.db.doc(paths.modules(this.uid)).set(
-        {
-          kitchen: { config: { sections: learned } },
-          updatedAt: Timestamp.fromMillis(this.now()),
-        },
-        { merge: true },
-      );
+    if (week === undefined) {
+      const was = (await this.notes().doc(list).get()).get('periodStart');
+      week = typeof was === 'string' ? was : undefined;
     }
+    const learned = { ...config.sections, ...sections };
+    // An update, not a merge, so a slot's lines taken off leave the record.
+    await this.db.doc(paths.modules(this.uid)).update({
+      'kitchen.config.sections': learned,
+      'kitchen.config.wrote': pruneWrote(wrote, week),
+      ...(list !== current ? { 'kitchen.config.groceryList': list } : {}),
+      updatedAt: Timestamp.fromMillis(this.now()),
+    });
     return { list, ...counts };
   }
 

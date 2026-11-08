@@ -76,11 +76,18 @@ describe('ModulesService (#126)', () => {
       meals: ['lunch', 'dinner'],
       fishDay: 'none',
       sections: {},
+      wrote: {},
     });
     expect(api.set).toHaveBeenLastCalledWith({}, 'users/u1/settings/modules', {
       kitchen: {
         enabled: true,
-        config: { weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'none', sections: {} },
+        config: {
+          weekStart: 'Sun',
+          meals: ['lunch', 'dinner'],
+          fishDay: 'none',
+          sections: {},
+          wrote: {},
+        },
       },
       updatedAt: 'NOW',
     });

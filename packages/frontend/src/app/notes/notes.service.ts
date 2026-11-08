@@ -493,6 +493,10 @@ export class NotesService {
       templateMode?: string;
       fromTemplate?: string;
       instructions?: string;
+      /** A week's grocery list (#207): its week, and its own name. */
+      periodStart?: string;
+      title?: string;
+      titleSource?: 'user';
     } = {},
   ): void {
     if (!this.uid) throw new Error('create before sign-in');
@@ -848,6 +852,37 @@ export class NotesService {
       deviceId: this.deviceId(),
     };
     this.api.set(this.fb.db, paths.note(this.uid, id), { ...update, ...stamp }, true).catch(report);
+  }
+
+  /**
+   * Archives a note, or restores it (#207): Eric's own edit, through the
+   * cache like any write, so it works offline. Nothing is deleted; an
+   * archived note keeps its History and shows under Browse, Archived.
+   */
+  setArchived(id: string, archived: boolean): void {
+    if (!this.uid || !this.exists(id)) return;
+    const update = {
+      archived,
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+  }
+
+  /**
+   * A grocery list from before #207, taken as the week's list: its week
+   * stamped in `periodStart`, through the cache like `setArchived`.
+   */
+  setWeek(id: string, periodStart: string): void {
+    if (!this.uid || !this.exists(id)) return;
+    const update = {
+      periodStart,
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
 
   /** Living or entry, for a template. */

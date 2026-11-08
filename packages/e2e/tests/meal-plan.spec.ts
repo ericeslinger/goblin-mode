@@ -122,9 +122,12 @@ test('Kitchen settings shape new weeks, and a question waits for later', async (
 });
 
 // The grocery list (#130), shopped from a planned week end to end: a
-// planned dinner adds its ingredients, naming it; what is listed is
-// skipped; a changed dinner takes its lines off; after shopping, an item
-// goes back under the section it was filed in.
+// planned dinner adds its ingredients, each line only the item, and the
+// list's back names the dinner (#207); what is listed is skipped; a
+// changed dinner takes off the lines it wrote, never Eric's; after
+// shopping, an item goes back under the section it was filed in, on the
+// next week's own list, started by its first dinner, the old one
+// archived (#207).
 test('a planned week fills the grocery list, and shopping it clears it', async ({ page }) => {
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
@@ -132,9 +135,12 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();
-  await page.getByRole('button', { name: 'Make the grocery list' }).click();
-  await expect(page).toHaveURL(/\/n\/\w+$/);
-  const list = new URL(page.url()).pathname.split('/').pop()!;
+  // Made from the week's plan, the list is that week's (#207).
+  await page.goto('/kitchen/2026-10-19');
+  const plan = page.getByRole('region', { name: 'Meal plan' });
+  await plan.getByRole('button', { name: 'Make the grocery list' }).click();
+  await expect(page).toHaveURL(/\/n\/shopping-2026-10-19$/);
+  const list = 'shopping-2026-10-19';
   await letItSave(page);
   await expect
     .poll(
@@ -144,6 +150,7 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
       },
     )
     .toBe(true);
+  // Eric's own limes: the very words a recipe's limes would be.
   await call('add_lines', { id: list, heading: 'Produce', lines: ['- [ ] limes'] });
   await call('create_recipe', {
     name: 'Shakshuka',
@@ -154,7 +161,6 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
 
   // Planned in the app: its lines go on, the listed limes skipped.
   await page.goto('/kitchen/2026-10-19');
-  const plan = page.getByRole('region', { name: 'Meal plan' });
   await plan.getByRole('button', { name: 'Change Mon dinner, Oct 19: nothing planned' }).click();
   await plan.getByRole('combobox', { name: 'Recipe for Mon dinner, Oct 19' }).fill('Shakshuka');
   await plan.getByRole('button', { name: 'Plan it' }).click();
@@ -164,31 +170,46 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await letItSave(page);
   // Planned by Claude, half a recipe.
   await call('plan_meal', { date: '2026-10-20', slot: '[[Dal]] (half recipe)' });
-  const listBody = async () => ((await call('get_note', { id: list })) as { body: string }).body;
-  await expect.poll(listBody, { timeout: 15_000 }).toContain('0.5 cup lentils (Dal, Tue)');
+  const listBody = async (id = list) => ((await call('get_note', { id })) as { body: string }).body;
+  await expect.poll(() => listBody(), { timeout: 15_000 }).toContain('- [ ] 0.5 cup lentils');
   const body = await listBody();
   expect(body).toContain('## From recipes');
-  expect(body).toContain('- [ ] 2 onions, sliced (Shakshuka, Mon)');
-  expect(body).not.toContain('limes (Shakshuka, Mon)');
+  // Only the item: no dinner in brackets (#207).
+  expect(body).toContain('- [ ] 2 onions, sliced\n');
+  expect(body).not.toMatch(/\((Shakshuka|Dal), (Mon|Tue)\)/);
+  expect(body.match(/- \[ \] limes/g)).toHaveLength(1);
 
-  // Monday becomes delivery: Shakshuka's lines come off. The phone has
-  // Claude's Tuesday first.
+  // The list's back says which dinner wants each item (#207).
   await expect(plan).toContainText('[[Dal]] (half recipe)', { timeout: 15_000 });
+  await plan.getByRole('link', { name: 'Grocery list' }).click();
+  await expect(page).toHaveURL(new RegExp(`/n/${list}$`));
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  await expect(back.getByRole('heading', { name: 'For the week of Oct 19' })).toBeVisible();
+  await expect(back).toContainText('2 onions, sliced: Shakshuka (Mon)');
+  await expect(back).toContainText('0.5 cup lentils: Dal (Tue)');
+  await expect(back).toContainText('limes: Shakshuka (Mon), Dal (Tue)');
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
+
+  // Monday becomes delivery: the lines Shakshuka wrote come off, and
+  // Eric's limes, which it needed too, stay (#207).
+  await page.goto('/kitchen/2026-10-19');
   await plan.getByRole('button', { name: /^Change Mon dinner, Oct 19/ }).click();
   await plan.getByRole('button', { name: 'Delivery' }).click();
   await expect(plan.getByRole('status')).toHaveText('Took 2 lines off the grocery list.');
-  await expect.poll(listBody, { timeout: 15_000 }).not.toContain('(Shakshuka, Mon)');
+  await expect.poll(() => listBody(), { timeout: 15_000 }).not.toContain('2 onions, sliced');
+  expect(await listBody()).toContain('- [ ] limes');
 
   // Shopping: limes and lentils ticked, then Done shopping.
   await plan.getByRole('link', { name: 'Grocery list' }).click();
   await expect(page).toHaveURL(new RegExp(`/n/${list}$`));
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const view = page.getByRole('region', { name: 'List' });
-  await view.getByRole('checkbox', { name: 'limes' }).check();
-  await view.getByRole('checkbox', { name: '0.5 cup lentils (Dal, Tue)' }).check();
+  await view.getByRole('checkbox', { name: 'limes', exact: true }).check();
+  await view.getByRole('checkbox', { name: '0.5 cup lentils' }).check();
   const got = view.getByRole('list', { name: 'Got it' });
   await expect(got).toContainText('limes');
-  await expect(got).toContainText('0.5 cup lentils (Dal, Tue)');
+  await expect(got).toContainText('0.5 cup lentils');
   await view.getByRole('button', { name: 'Done shopping' }).click();
   await expect(view.getByRole('list', { name: 'Got it' })).toHaveCount(0);
   await letItSave(page);
@@ -203,15 +224,31 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await letItSave(page);
   await expect.poll(pantry, { timeout: 15_000 }).toEqual([]);
 
-  // Next week, limes go back under Produce, where they were filed; and
-  // tomatoes, on hand now, are not shopped for.
+  // Opening next week does not touch the list (#207).
+  await plan.getByRole('link', { name: 'Next week' }).click();
+  await expect(page).toHaveURL(/\/n\/meals-2026-10-26$/);
+  await letItSave(page);
+  expect(await call('get_note', { id: list })).toMatchObject({ archived: false });
+
+  // Its first dinner gives it its own list (#207), the old one archived;
+  // limes go under Produce, where they were filed; and tomatoes, on hand
+  // now, are not shopped for.
   await call('update_pantry', { add: [{ item: 'tomatoes', section: 'Produce' }] });
-  await call('plan_meal', { date: '2026-10-26', slot: '[[Shakshuka]]' });
+  const next = (await call('plan_meal', { date: '2026-10-26', slot: '[[Shakshuka]]' })) as {
+    grocery: { list: string };
+  };
+  expect(next.grocery.list).toBe('shopping-2026-10-26');
   await expect
-    .poll(listBody, { timeout: 15_000 })
-    .toMatch(/## Produce\n(?:.*\n)*?- \[ \] limes \(Shakshuka, Mon\)/);
-  expect(await listBody()).toContain('2 onions, sliced (Shakshuka, Mon)');
-  expect(await listBody()).not.toContain('tomatoes (Shakshuka, Mon)');
+    .poll(() => listBody(next.grocery.list), { timeout: 15_000 })
+    .toMatch(/## Produce\n(?:.*\n)*?- \[ \] limes\n/);
+  expect(await listBody(next.grocery.list)).toContain('- [ ] 2 onions, sliced');
+  expect(await listBody(next.grocery.list)).not.toContain('tomatoes');
+  expect(await call('get_note', { id: list })).toMatchObject({ archived: true });
+  await page.goto('/browse/archived');
+  await expect(page.getByRole('list', { name: 'Notes' })).toContainText(
+    'Shopping list, week of Oct 19',
+    { timeout: 15_000 },
+  );
 
   // Picking a dinner offers recipes to cook (#132); a tap plans one.
   await page.goto('/kitchen/2026-10-28');
@@ -222,4 +259,41 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await expect(
     plan.getByRole('button', { name: 'Change Wed dinner, Oct 28: [[Dal]]' }),
   ).toBeVisible();
+});
+
+// Any note can be archived from its back, and restored (#207): nothing
+// is deleted, and it shows under Browse, Archived.
+test('a note is archived from its back, and restored', async ({ page }) => {
+  await signInAs(page, OWNER);
+  const call = await connectClaude(page);
+  const { id } = (await call('create_note', { body: 'Glaze notes\nCeladon over the bisque' })) as {
+    id: string;
+  };
+  await page.goto(`/n/${id}`);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  await back.getByRole('button', { name: 'Archive' }).click();
+  await expect(back.getByRole('status').filter({ hasText: /^\s*Archived\s*$/ })).toBeVisible();
+  await expect(back.getByRole('button', { name: 'Restore' })).toBeVisible();
+  await letItSave(page);
+  await expect
+    .poll(async () => ((await call('get_note', { id })) as { archived: boolean }).archived, {
+      timeout: 15_000,
+    })
+    .toBe(true);
+  await page.goto('/browse/archived');
+  await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Glaze notes');
+
+  await page.goto(`/n/${id}`);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await back.getByRole('button', { name: 'Restore' }).click();
+  await expect(back.getByRole('status').filter({ hasText: /^\s*Restored\s*$/ })).toBeVisible();
+  await letItSave(page);
+  await expect
+    .poll(async () => ((await call('get_note', { id })) as { archived: boolean }).archived, {
+      timeout: 15_000,
+    })
+    .toBe(false);
+  await page.goto('/browse/archived');
+  await expect(page.getByRole('main')).not.toContainText('Glaze notes');
 });

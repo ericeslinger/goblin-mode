@@ -12,13 +12,21 @@ import {
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { RUN_STALE_MS, madeLine, normalizeName, paths, templateParts } from '@mossgoblin/schema';
+import {
+  RUN_STALE_MS,
+  madeLine,
+  normalizeName,
+  paths,
+  shortDate,
+  templateParts,
+} from '@mossgoblin/schema';
 import { RunsService, type RunView } from '../agent/runs.service';
 import { AuthService } from '../auth.service';
 import { KeysService } from '../keys/keys.service';
 import { ACTIVITY_API, putBackState, toRun, type RunRecord } from '../claude/activity';
 import { PutBack } from '../claude/put-back';
 import { FIREBASE } from '../firebase';
+import { GroceryService } from '../kitchen/grocery.service';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
 import { ModulesService } from '../modules/modules.service';
@@ -42,7 +50,8 @@ function stamp(ms: number | undefined): string {
  * rather than in it. When it was made and last edited, and by whom; what
  * Claude changed on it; the notes linking here; a concept's or a
  * template's settings, a template's Instructions for Claude (#111)
- * among them; its tags, History and Map. The front keeps the text.
+ * among them; for a grocery list, which dinners want each item (#207);
+ * its tags, History and Map, and Archive. The front keeps the text.
  */
 @Component({
   selector: 'app-note-back',
@@ -127,6 +136,19 @@ function stamp(ms: number | undefined): string {
             front's text, without these.
           </p>
         </div>
+      }
+
+      @if (listSources(); as list) {
+        <h3 id="list-for">For the week of {{ week(list.start) }}</h3>
+        @if (list.items.length) {
+          <ul aria-labelledby="list-for" class="sources">
+            @for (s of list.items; track $index) {
+              <li>{{ s.item }}: {{ s.dinners.join(', ') }}</li>
+            }
+          </ul>
+        } @else {
+          <p class="muted">No planned dinner needs what is on the list.</p>
+        }
       }
 
       <h3 id="send-to">Send to an assistant</h3>
@@ -234,7 +256,13 @@ function stamp(ms: number | undefined): string {
       <p class="more-links">
         <a routerLink="/history" [queryParams]="{ note: note().id }">History</a>
         <a [routerLink]="['/map/n', note().id]">Map</a>
+        <button type="button" class="link" (click)="archive(!note().archived)">
+          {{ note().archived ? 'Restore' : 'Archive' }}
+        </button>
       </p>
+      @if (archiveStatus()) {
+        <p class="muted" role="status">{{ archiveStatus() }}</p>
+      }
     </section>
   `,
   styles: `
@@ -269,7 +297,8 @@ function stamp(ms: number | undefined): string {
       margin: 0;
       padding: 0;
     }
-    .changes li {
+    .changes li,
+    .sources li {
       padding: var(--space-1) 0;
       border-bottom: 1px solid var(--rule);
     }
@@ -390,6 +419,16 @@ export class NoteBack {
     madeLine(this.notes.made().get(normalizeName(this.note().title))),
   );
   protected readonly edited = computed(() => stamp(this.note().updatedAt));
+  private readonly grocery = inject(GroceryService);
+  /** A grocery list's week and which dinners want each item (#207), never stored. */
+  protected readonly listSources = computed(() =>
+    this.modules.kitchen() && this.grocery.isList(this.note())
+      ? this.grocery.sources(this.note())
+      : undefined,
+  );
+  protected readonly week = shortDate;
+  /** What Archive or Restore just did, said once. */
+  protected readonly archiveStatus = signal('');
   protected readonly sentAt = computed(() => stamp(this.note().sentAt));
 
   /** Do it now (#144 step 3): the garden's own agent, on Eric's Anthropic key. */
@@ -449,6 +488,12 @@ export class NoteBack {
   private shown?: string;
 
   constructor() {
+    // Another note opened here starts with nothing said about archiving.
+    const id = computed(() => this.note().id);
+    effect(() => {
+      id();
+      untracked(() => this.archiveStatus.set(''));
+    });
     // Watch the note's run while it has one (#144 step 3).
     effect((onCleanup) => {
       const runId = this.note().sendRun;
@@ -535,6 +580,12 @@ export class NoteBack {
     this.notes.updateRecipe(this.note().id, {
       servings: value.trim() && Number.isFinite(n) && n > 0 ? Math.round(n) : null,
     });
+  }
+
+  /** Archives the note, or restores it (#207); the page stays. */
+  protected archive(archived: boolean): void {
+    this.notes.setArchived(this.note().id, archived);
+    this.archiveStatus.set(archived ? 'Archived' : 'Restored');
   }
 
   protected setMode(mode: string): void {
