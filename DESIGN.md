@@ -1321,6 +1321,72 @@ or, under what it found, "Older articles were not all searched.", and
 `search_feed_items` answers `{ items, truncated: true }` instead of
 its list.
 
+**Feedly's full export (#176, 2026-11-07).** Import feeds in Manage
+feeds takes Feedly's full export, the zip, or one of its JSON files, as
+well as an OPML file. `reader/feedly.ts` reads it on the device: the zip
+by its central directory, stored and deflated entries only (no library:
+the browser's `DecompressionStream('deflate-raw')`; no ZIP64 or
+encryption, which an export of tens of megabytes does not need), and
+bounded (review on #199): at most 5,000 files, or nothing is read; a
+file over 64 MB unpacked, past 256 MB in all, or unpacking past the
+size it declares, is skipped and counted in the import's last line
+("2 files too large were skipped"). Export
+versions name their files differently, so it goes by what a file holds:
+an `.opml` (or an `.xml` holding `<opml>`) is the feeds, imported as
+step 1 imports them; a JSON file is read when it is a list of entries,
+or an object holding one under `items` or `entries` (a stream, as
+Feedly's API writes one), an entry being an object with an `id` or
+`originId` and a web link (`alternate[0].href`, `canonicalUrl`,
+`canonical[0].href`, `originId` or `url`). A file in a `boards` folder,
+named `board-…`, or whose stream id is a tag (`user/…/tag/Pottery`) is a
+board: its entries carry its label (or the name at the end of the id,
+or the file's) as a tag. A file named for the saves (`saved`, `read
+later`) is kept whole; any other file of entries only for the entries
+Feedly marked saved (`global.saved`) or put on a board, so a file of
+everything read is not taken for what was saved. On any entry, `tags`
+are kept by label (Eric, 2026-11-07: boards become tags), Feedly's own
+(`global.*`) dropped; `categories` are left out, since they are the
+feed's collections, which the OPML's folders already say. An article in
+the saves and on a board is one, with both. An entry's feed
+(`origin.streamId`, `feed/<url>`) and its guid (`originId`) are sent
+only when that feed is followed (the OPML's are by then), so its id is
+the one the fetcher would give it and a later look finds it known. The
+server checks that each such feed has a doc (once a batch) and files an
+entry whose feed has none as one with no feed, by its link (review on
+#199), so the app waits for the OPML's feed writes to land before the
+first batch. The rest are filed under **the Feedly saves**, `feeds/f-feedly-saves`, a
+feed the server makes once with no link and no `nextFetchAt`: the tick
+never finds it due, Refresh skips a feed with no link (`markAllDue`),
+so "Looked at N feeds" never counts it, and Manage feeds says "saved
+articles imported from Feedly; nothing to look at". Removing it keeps
+its articles, as removing any feed keeps saved ones.
+
+The app sends the entries a hundred a call (and about 4 MB of HTML at
+most) to `importFeedlySaves` (`onCall`), saying "Imported 300 of 1,240
+saved articles…" as it goes and, at the end, "Imported N saved articles
+(M already here); boards became tags." Each new one is stored as the
+fetcher stores an article (the title as plain words, the HTML through
+`htmlToMarkdown`, hidden text out and markdown escaped, capped, its
+summary), `saved` and `read` so no unread count moves, with no `readAt`
+so the read shelf's newest two hundred stay what was read, no
+`expireAt` (saved ones are kept), `published` from the entry or now,
+and `tags`. One already stored is left as it is but for the tags it
+lacks, so the same file twice is once. `FeedItem.tags` (up to 20, 60
+characters each) is the server's: the owner's update rule leaves it out
+(a rules test says so). Counted in the day's usage record by what is
+added (`imports`, 5,000 a day; a call past it is refused with the words
+"import the same file tomorrow for the rest", and the app stops there,
+keeping what came), so a second day spends nothing on the first day's.
+The newest 50 added go in the reading queue too, as Save for later puts
+one there (`ReadingService.save`, tied by `attachmentId`); the queue is
+for reading, and each link there is fetched by the server, so the rest
+are on the Saved shelf only. The Saved shelf shows an article's tags as
+small chips in its row, and holds the newest thousand saved, as before.
+`list_feed_items` returns `tags` and takes `tag`, matched whatever its
+case, a filter over the newest thousand the query loads rather than an
+index; saved imports are read, so the assistant passes `saved` or
+`includeRead` with it.
+
 **Podcasts, step 1: episodes in the data (#178, epic #177,
 2026-11-07).** An episode is a feed item with an audio enclosure, not
 a new kind of document. `parseFeed` reads RSS `<enclosure>`, Atom
@@ -1935,7 +2001,7 @@ it, one backticked tool name per row.
 | `capture` | Files chat words under a project, verbatim ("garden this") | Garden this (#42) |
 | `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
-| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179) | The Reader, step 4 (#163) |
+| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a `tag` (a Feedly board, #176) narrows any of these, and an article carries its `tags`; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179) | The Reader, step 4 (#163), Feedly's export (#176) |
 | `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179) | The Reader, step 4 (#163) |
 | `search_feed_items` | Articles holding every word of a query, with snippets (and an episode's `enclosure`, #178): across every article by the word index, the last `days` only when asked (#175; a query of only stop words, or one the index finds nothing for, scans the last 30 days; `{ items, truncated: true }` when older ones were not all searched, review on #197) | The Reader, step 4 (#163); the index (#175) |
 | `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |

@@ -144,6 +144,11 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
                 @if (item.noteId) {
                   <span class="filed" role="img" aria-label="in the garden">🌱</span>
                 }
+                @if (isSaved()) {
+                  @for (tag of item.tags ?? []; track tag) {
+                    <span class="tag">{{ tag }}</span>
+                  }
+                }
               </span>
               @if (item.summary) {
                 <span class="summary">{{ item.summary }}</span>
@@ -225,6 +230,16 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
     .status {
       color: var(--quiet);
       font-size: 14px;
+    }
+    /* A Feedly board the article was on (#176), on the Saved shelf. */
+    .tag {
+      display: inline-block;
+      margin-left: 4px;
+      padding: 0 6px;
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      font-size: 12px;
+      line-height: 18px;
     }
     /*
      * The status line is a bar fixed at the foot of the screen, so Undo

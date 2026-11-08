@@ -22,6 +22,7 @@ export {
   feedsRefresh,
   fetchArticle,
   indexArticles,
+  importFeedlySaves,
   refreshFeeds,
   searchArticles,
   sweepArticles,

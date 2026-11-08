@@ -7,8 +7,10 @@ import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { FakeModules, FakeReaderApi, FakeSettingsApi, fakeFirebase } from '../testing/fakes';
+import { ReadingService } from '../reading/reading.service';
+import { zipOf } from '../testing/zip';
 import { renamedFolder } from './reader-feeds';
-import { READER_API, ReaderService, cleanFolder } from './reader.service';
+import { READER_API, ReaderService, SAVES_QUEUED, cleanFolder } from './reader.service';
 
 const OPML = `<opml><body>
   <outline text="Design">
@@ -20,7 +22,7 @@ const OPML = `<opml><body>
   </outline>
 </body></opml>`;
 
-function setup() {
+function setup(reading?: { save: (url: string) => string | undefined }) {
   const api = new FakeReaderApi();
   const settings = new FakeSettingsApi();
   const modules = new FakeModules();
@@ -33,6 +35,7 @@ function setup() {
       { provide: SETTINGS_API, useValue: settings },
       { provide: ModulesService, useValue: modules },
       { provide: AuthService, useValue: { user } },
+      ...(reading ? [{ provide: ReadingService, useValue: reading }] : []),
     ],
   });
   const reader = TestBed.inject(ReaderService);
@@ -394,5 +397,107 @@ describe('ReaderService (#159)', () => {
     expect(reader.addFeed('https://dice.example/feed')).toBeUndefined();
     expect(reader.importOpml(OPML)).toBeUndefined();
     expect(api.set).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReaderService.importFeedly (#176)', () => {
+  const entry = (n: number, feed = 'https://kottke.org/main/index.xml') => ({
+    id: `e${n}`,
+    originId: `g${n}`,
+    title: `Article ${n}`,
+    alternate: [{ href: `https://a.test/${n}` }],
+    origin: { streamId: `feed/${feed}` },
+    published: 1_762_000_000_000 + n,
+    tags: n === 1 ? [{ id: 'user/u1/tag/Pottery', label: 'Pottery' }] : [],
+  });
+  const file = (entries: unknown[]) =>
+    Object.assign(new Blob([JSON.stringify(entries)]), { name: 'saved.json' });
+
+  it('sends the saves in batches of a hundred, saying how far it is, then what came of it', async () => {
+    const save = vi.fn((url: string) => `att-${url}`);
+    const { reader, api } = setup({ save });
+    api.push([]);
+    reader.importOpml(OPML);
+    api.set.mockClear();
+    api.knownLinks.add('https://a.test/2');
+    const lines: string[] = [];
+    const entries = Array.from({ length: 230 }, (_, i) =>
+      entry(i + 1, i % 2 ? 'https://unfollowed.test/feed' : undefined),
+    );
+    const said = await reader.importFeedly(file(entries), (l) => lines.push(l));
+    expect(api.importFeedlySaves.mock.calls.map(([b]) => b.length)).toEqual([100, 100, 30]);
+    expect(lines).toEqual([
+      'Imported 0 of 230 saved articles…',
+      'Imported 100 of 230 saved articles…',
+      'Imported 200 of 230 saved articles…',
+    ]);
+    expect(said).toBe(
+      `Imported 229 saved articles (1 already here); boards became tags. The newest ${SAVES_QUEUED} went to the reading queue.`,
+    );
+    // A followed feed's entry keeps its feed and guid; an unfollowed one's goes to the saves.
+    const [first] = api.importFeedlySaves.mock.calls[0];
+    expect(first[0]).toMatchObject({
+      url: 'https://a.test/1',
+      feedUrl: 'https://kottke.org/main/index.xml',
+      guid: 'g1',
+      tags: ['Pottery'],
+    });
+    expect(first[1]).not.toHaveProperty('feedUrl');
+    expect(first[1]).not.toHaveProperty('guid');
+    // The newest fifty added, into the reading queue and tied to their articles.
+    expect(save).toHaveBeenCalledTimes(SAVES_QUEUED);
+    expect(save.mock.calls[0][0]).toBe('https://a.test/230');
+    expect(api.set).toHaveBeenCalledTimes(SAVES_QUEUED);
+    expect(api.set.mock.calls[0].slice(1)).toEqual([
+      'users/u1/feedItems/i-https://a.test/230',
+      { attachmentId: 'att-https://a.test/230', updatedAt: 'SERVER_TIME' },
+      true,
+    ]);
+  });
+
+  it('stops at the day’s cap with the server’s words, keeping what came', async () => {
+    const { reader, api } = setup({ save: () => 'a' });
+    api.push([]);
+    api.importFeedlySaves.mockRejectedValueOnce(
+      new Error(
+        'Today’s 5000 imported articles are used up; import the same file tomorrow for the rest. [429]',
+      ),
+    );
+    const entries = Array.from({ length: 3 }, (_, i) => entry(i + 1));
+    expect(await reader.importFeedly(file(entries), () => undefined)).toBe(
+      'Imported 0 saved articles (0 already here, 3 not yet); boards became tags. Today’s 5000 imported articles are used up; import the same file tomorrow for the rest.',
+    );
+  });
+
+  it('waits for the feeds to be read when the file comes first, rather than refuse', async () => {
+    const { reader, api } = setup({ save: () => 'a' });
+    const said = reader.importFeedly(file([entry(1)]), () => undefined);
+    TestBed.tick();
+    api.push([]);
+    TestBed.tick();
+    expect(await said).toMatch(/^Imported 1 saved article \(0 already here\)/);
+  });
+
+  it('says how many files were too large, after what came of the rest (review on #199)', async () => {
+    const { reader, api } = setup({ save: () => 'a' });
+    api.push([]);
+    const json = JSON.stringify([entry(1)]);
+    const zip = await zipOf({ 'saved.json': json, 'a.json': json, 'b.json': json }, false, {
+      'a.json': 65 * 1024 * 1024,
+      'b.json': 65 * 1024 * 1024,
+    });
+    expect(await reader.importFeedly(zip, () => undefined)).toMatch(
+      /^Imported 1 saved article .* 2 files too large were skipped\.$/,
+    );
+  });
+
+  it('says so when a file holds nothing it can use', async () => {
+    const { reader, api } = setup();
+    api.push([]);
+    const empty = Object.assign(new Blob(['{"id":"u1"}']), { name: 'profile.json' });
+    expect(await reader.importFeedly(empty, () => undefined)).toMatch(
+      /^No feeds or saved articles/,
+    );
+    expect(api.importFeedlySaves).not.toHaveBeenCalled();
   });
 });

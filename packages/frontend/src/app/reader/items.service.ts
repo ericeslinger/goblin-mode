@@ -75,6 +75,8 @@ export interface ItemRecord {
   enclosure?: EnclosureRecord;
   image?: string;
   episode?: number;
+  /** The Feedly boards it was on (#176), as the import kept them. */
+  tags?: string[];
   /** Where the episode was left, in seconds (#179). */
   position?: number;
   /** When that was, milliseconds, the server's clock once it has the write. */
@@ -204,6 +206,9 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
     content: String(d['content'] ?? ''),
     read: d['read'] === true,
     saved: d['saved'] === true,
+    ...(Array.isArray(d['tags']) && d['tags'].length
+      ? { tags: d['tags'].filter((t): t is string => typeof t === 'string') }
+      : {}),
     ...(typeof d['attachmentId'] === 'string' ? { attachmentId: d['attachmentId'] } : {}),
     ...(typeof d['noteId'] === 'string' ? { noteId: d['noteId'] } : {}),
     ...(['requested', 'working', 'done', 'failed'].includes(String(d['readerState']))

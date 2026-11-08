@@ -598,6 +598,12 @@ export const FeedItem = z.object({
    * again when reader mode keeps the page's text; never the app's.
    */
   terms: z.array(z.string().max(40)).max(200).optional(),
+  /**
+   * Labels the server gives an article (#176): a Feedly board it was
+   * on becomes a tag (Eric, 2026-11-07). Written by the import, never
+   * by the app; the owner's update rule leaves it out.
+   */
+  tags: z.array(z.string().min(1).max(60)).max(20).optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });

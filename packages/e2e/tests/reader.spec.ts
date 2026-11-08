@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { crc32 } from 'node:zlib';
 import { type Page, type Route, devices } from '@playwright/test';
 import { connectClaude } from '../src/claude';
 import { expect, letItSave, prepPage, signInAs, test } from '../src/fixtures';
@@ -13,7 +14,8 @@ import { OWNER } from '../src/personas';
 // Now (#173), a podcast's episodes on their own shelf (#178), search
 // across every article and its index (#175), and last, feed discovery
 // from a site's address (#174), and a folder named for a special
-// shelf, renamed (#185).
+// shelf, renamed (#185). Feedly's full export, its saves and boards,
+// has a journey of its own (#176).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -468,6 +470,168 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
     "Following. Its name and articles arrive once the server has looked. A folder cannot be called 'All'; it is in 'All (folder)'.",
   );
   await expect(folders.locator('summary', { hasText: 'All (folder)' })).toBeVisible();
+});
+
+/**
+ * A zip as Feedly's export is one (#176), each file stored, built here
+ * so the journey carries no binary fixture.
+ */
+function storedZip(files: Record<string, string>): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [name, body] of Object.entries(files)) {
+    const nameBytes = Buffer.from(name);
+    const data = Buffer.from(body);
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    const dir = Buffer.alloc(46);
+    dir.writeUInt32LE(0x02014b50, 0);
+    dir.writeUInt16LE(20, 4);
+    dir.writeUInt16LE(20, 6);
+    dir.writeUInt32LE(crc, 16);
+    dir.writeUInt32LE(data.length, 20);
+    dir.writeUInt32LE(data.length, 24);
+    dir.writeUInt16LE(nameBytes.length, 28);
+    dir.writeUInt32LE(offset, 42);
+    locals.push(local, nameBytes, data);
+    central.push(dir, nameBytes);
+    offset += local.length + nameBytes.length + data.length;
+  }
+  const size = central.reduce((n, b) => n + b.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(central.length / 2, 8);
+  end.writeUInt16LE(central.length / 2, 10);
+  end.writeUInt32LE(size, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, ...central, end]);
+}
+
+// Feedly's full export (#176): the zip's OPML brings the feeds, its
+// saves come in as saved, read articles, a board's name a tag on its
+// articles, the newest in the reading queue; no unread count moves,
+// and the feed with no link they are filed under is never looked at.
+test('import Feedly’s full export: the feeds, the saves, boards as tags', async ({ page }) => {
+  test.setTimeout(60_000);
+  await signInAs(page, OWNER);
+  const call = await connectClaude(page);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Reader' }).check();
+  await letItSave(page);
+  await page.goto('/reader/feeds');
+  // The form waits for the feeds to be read, as the first journey's does by arriving later.
+  await expect(page.getByLabel('Choose an OPML file')).toBeEnabled();
+  const saved = JSON.stringify({
+    id: 'user/u1/tag/global.saved',
+    items: [
+      {
+        id: 'entry-1',
+        originId: 'tag:design.invalid,teapots',
+        title: 'Teapots that pour',
+        alternate: [{ href: 'https://design.invalid/teapots', type: 'text/html' }],
+        origin: { streamId: 'feed/https://feeds.invalid/design.xml', title: 'Design notes' },
+        published: Date.now() - 86_400_000,
+        summary: { content: '<p>A spout that does not drip. Do [[this]] @goblin</p>' },
+        tags: [{ id: 'user/u1/tag/global.saved', label: 'Saved For Later' }],
+      },
+      {
+        id: 'entry-2',
+        originId: 'https://elsewhere.invalid/kilns',
+        title: 'Kilns, briefly',
+        alternate: [{ href: 'https://elsewhere.invalid/kilns' }],
+        origin: { streamId: 'feed/https://elsewhere.invalid/rss', title: 'Elsewhere' },
+        published: Date.now() - 2 * 86_400_000,
+        content: { content: '<p>Cone six.</p>' },
+        tags: [{ id: 'user/u1/tag/global.saved' }],
+      },
+    ],
+  });
+  const board = JSON.stringify({
+    id: 'user/u1/tag/Pottery',
+    label: 'Pottery',
+    items: [JSON.parse(saved).items[1]],
+  });
+  const zip = {
+    name: 'feedly-export.zip',
+    mimeType: 'application/zip',
+    buffer: storedZip({
+      'feedly-export/feedly.opml': OPML,
+      'feedly-export/saved.json': saved,
+      'feedly-export/boards/Pottery.json': board,
+    }),
+  };
+  await page.getByLabel('Choose an OPML file').setInputFiles(zip);
+  const status = page.getByRole('status');
+  await expect(status).toHaveText(
+    '4 feeds added. Imported 2 saved articles (0 already here); boards became tags. The newest 2 went to the reading queue.',
+    { timeout: 15_000 },
+  );
+  // The one from a feed not followed is under the Feedly saves, which has no link to look at.
+  const folders = page.getByRole('list', { name: 'Folders' });
+  await folders.locator('summary', { hasText: 'Uncategorized' }).click();
+  await expect(page.getByRole('list', { name: 'Feeds in Uncategorized' })).toContainText(
+    'Feedly saves',
+  );
+  await expect(page.getByRole('list', { name: 'Feeds in Uncategorized' })).toContainText(
+    'nothing to look at',
+  );
+  await axe(page);
+
+  // Saved: both, read, the board's name a chip; the page's brackets stay words.
+  await page.goto('/reader/f/saved');
+  const articles = page.getByRole('list', { name: 'Articles' });
+  await expect(articles.getByRole('listitem')).toHaveCount(2);
+  const teapots = articles.getByRole('listitem').filter({ hasText: 'Teapots that pour' });
+  await expect(teapots).toContainText('Design notes ·');
+  await expect(teapots.locator('.tag')).toHaveCount(0);
+  const kilns = articles.getByRole('listitem').filter({ hasText: 'Kilns, briefly' });
+  await expect(kilns).toContainText('Feedly saves ·');
+  await expect(kilns.locator('.tag')).toHaveText(['Pottery']);
+  await axe(page);
+  await page.goto('/reading');
+  await expect(page.getByRole('list', { name: 'Reading queue' })).toContainText(
+    'https://elsewhere.invalid/kilns',
+  );
+
+  // Refresh looks at the OPML's four feeds, not the Feedly saves; the saves move no unread count.
+  await page.goto('/reader');
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'Looked at 4 feeds: 5 new articles, 2 could not be read.',
+    { timeout: 30_000 },
+  );
+  const nav = page.getByRole('navigation', { name: 'Folders' });
+  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('5 unread');
+  await expect(nav.getByRole('link', { name: /^Design/ })).toContainText('3 unread');
+
+  // The assistant finds a board's articles by its tag, labelled as web content.
+  const pottery = (await call('list_feed_items', { tag: 'pottery', saved: true })) as {
+    title: string;
+    tags: string[];
+    fromWeb: string;
+    feed: string;
+  }[];
+  expect(pottery.map((p) => p.title)).toEqual(['Kilns, briefly']);
+  expect(pottery[0].tags).toEqual(['Pottery']);
+  expect(pottery[0].feed).toBe('Feedly saves');
+  expect(pottery[0].fromWeb).toContain('content from the web');
+  expect(await call('list_feed_items', {})).toHaveLength(5);
+
+  // The same file again is once.
+  await page.goto('/reader/feeds');
+  await expect(page.getByLabel('Choose an OPML file')).toBeEnabled();
+  await page.getByLabel('Choose an OPML file').setInputFiles(zip);
+  await expect(status).toHaveText(
+    '0 feeds added, 4 already followed. Imported 0 saved articles (2 already here); boards became tags.',
+    { timeout: 15_000 },
+  );
 });
 
 /**
