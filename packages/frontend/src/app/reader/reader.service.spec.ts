@@ -8,6 +8,7 @@ import { ModulesService } from '../modules/modules.service';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { FakeModules, FakeReaderApi, FakeSettingsApi, fakeFirebase } from '../testing/fakes';
 import { ReadingService } from '../reading/reading.service';
+import { zipOf } from '../testing/zip';
 import { renamedFolder } from './reader-feeds';
 import { READER_API, ReaderService, SAVES_QUEUED, cleanFolder } from './reader.service';
 
@@ -475,6 +476,19 @@ describe('ReaderService.importFeedly (#176)', () => {
     api.push([]);
     TestBed.tick();
     expect(await said).toMatch(/^Imported 1 saved article \(0 already here\)/);
+  });
+
+  it('says how many files were too large, after what came of the rest (review on #199)', async () => {
+    const { reader, api } = setup({ save: () => 'a' });
+    api.push([]);
+    const json = JSON.stringify([entry(1)]);
+    const zip = await zipOf({ 'saved.json': json, 'a.json': json, 'b.json': json }, false, {
+      'a.json': 65 * 1024 * 1024,
+      'b.json': 65 * 1024 * 1024,
+    });
+    expect(await reader.importFeedly(zip, () => undefined)).toMatch(
+      /^Imported 1 saved article .* 2 files too large were skipped\.$/,
+    );
   });
 
   it('says so when a file holds nothing it can use', async () => {

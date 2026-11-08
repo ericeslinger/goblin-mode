@@ -34,7 +34,7 @@ import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { ReadingService } from '../reading/reading.service';
 import { SETTINGS_API } from '../theme/theme-sync.service';
-import { type FeedlyEntry, readFeedlyExport } from './feedly';
+import { type FeedlyEntry, ZipTooLarge, readFeedlyExport } from './feedly';
 
 /** A feed as the app shows it (#159). */
 export interface FeedRecord {
@@ -313,6 +313,8 @@ export class ReaderService {
   private readonly injector = inject(Injector);
 
   private readonly list = signal<FeedRecord[]>([]);
+  /** Feed writes not yet acknowledged by the server (#176). */
+  private readonly writing = new Set<Promise<void>>();
   /** The Reader's own settings doc (`settings/reader`), once read. */
   private readonly settings = signal<ReaderSettingsView | undefined>(undefined);
   /** Whether articles show their images (#162); on until switched off. */
@@ -438,15 +440,24 @@ export class ReaderService {
       found = await readFeedlyExport(file);
     } catch (err) {
       console.error('Feedly export not read', err);
-      return 'That file could not be read.';
+      return err instanceof ZipTooLarge ? err.message : 'That file could not be read.';
     }
     const feeds = found.opml ? this.importOpml(found.opml) : undefined;
     const said = feeds ? `${opmlMessage(feeds)} ` : '';
+    if (feeds?.added) {
+      progress(`${said}Saving the feeds before the articles…`);
+      await this.feedsWritten();
+    }
     const entries = found.entries.map((e) => this.forServer(e));
+    // Files the reader left for their size (review on #199), said last.
+    const big = found.tooLarge ?? 0;
+    const skipped = big
+      ? ` ${big} ${big === 1 ? 'file' : 'files'} too large ${big === 1 ? 'was' : 'were'} skipped.`
+      : '';
     if (!entries.length) {
       return feeds
-        ? `${said}New articles arrive once the server has looked.`
-        : 'No feeds or saved articles found in that file. It wants an OPML file or Feedly’s export.';
+        ? `${said}New articles arrive once the server has looked.${skipped}`
+        : `No feeds or saved articles found in that file. It wants an OPML file or Feedly’s export.${skipped}`;
     }
     const total = entries.length;
     let sent = 0;
@@ -475,7 +486,7 @@ export class ReaderService {
     const inQueue = queued ? ` The newest ${queued} went to the reading queue.` : '';
     const left = total - sent;
     const how = `Imported ${count(added)} saved ${added === 1 ? 'article' : 'articles'} (${count(known)} already here${left ? `, ${count(left)} not yet` : ''})${tagged}.`;
-    return `${said}${how}${inQueue}${stopped}`;
+    return `${said}${how}${inQueue}${stopped}${skipped}`;
   }
 
   /**
@@ -761,7 +772,7 @@ export class ReaderService {
     // Shown at once, before the listener echoes it, so a second import
     // in the same breath sees it as known.
     this.list.update((l) => [...l, { id, ...feed, dead: false }]);
-    void this.api
+    const write = this.api
       .set(
         this.fb.db,
         paths.feed(uid, id),
@@ -778,6 +789,21 @@ export class ReaderService {
         false,
       )
       .catch((err) => console.error('feed not saved', err));
+    this.writing.add(write);
+    void write.finally(() => this.writing.delete(write));
+  }
+
+  /**
+   * The feed writes still on their way, at most `ms` (#176): the server
+   * files a Feedly save under its feed only once the feed's doc is
+   * there, so the OPML's feeds go first.
+   */
+  private async feedsWritten(ms = 15_000): Promise<void> {
+    if (!this.writing.size) return;
+    await Promise.race([
+      Promise.allSettled([...this.writing]),
+      new Promise((resolve) => setTimeout(resolve, ms)),
+    ]);
   }
 }
 

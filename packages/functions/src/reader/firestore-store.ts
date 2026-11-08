@@ -461,6 +461,10 @@ export async function indexItems(db: Firestore, uid: string, pageSize = 400): Pr
  */
 export function firestoreSavesStore(db: Firestore): SavesStore {
   return {
+    followed: async (uid, feedIds) => {
+      const docs = await db.getAll(...feedIds.map((id) => db.doc(paths.feed(uid, id))));
+      return new Set(docs.filter((d) => d.exists).map((d) => d.id));
+    },
     existing: async (uid, ids) => {
       const out = new Map<string, string[]>();
       for (let at = 0; at < ids.length; at += 100) {

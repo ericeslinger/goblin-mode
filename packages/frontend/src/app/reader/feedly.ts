@@ -29,20 +29,40 @@ export interface FeedlyExport {
   /** The OPML's text, when the file holds one. */
   opml?: string;
   entries: FeedlyEntry[];
+  /** Files in the zip left unread for their size (review on #199). */
+  tooLarge?: number;
 }
+
+/**
+ * The zip's bounds (review on #199): a Feedly export of tens of
+ * megabytes is a few dozen files, so anything far past these is no
+ * export, or one built to fill the device's memory.
+ */
+export const ZIP_FILES_MAX = 5000;
+export const ZIP_FILE_BYTES_MAX = 64 * 1024 * 1024;
+export const ZIP_TOTAL_BYTES_MAX = 256 * 1024 * 1024;
+/** What a deflated file may come to past the size it declares. */
+const INFLATE_SLACK = 64 * 1024;
+
+/** A zip, or a file in one, past the bounds; its message is for the gardener. */
+export class ZipTooLarge extends Error {}
 
 /** An entry's HTML past this is cut on the device: the server keeps less. */
 export const ENTRY_HTML_MAX = 100_000;
 
 interface ZipFile {
   name: string;
+  /** The size it says it unpacks to, in bytes. */
+  size: number;
+  /** Its bytes; throws ZipTooLarge past its declared size or the bound for one file. */
   read(): Promise<Uint8Array>;
 }
 
 const u16 = (v: DataView, at: number) => v.getUint16(at, true);
 const u32 = (v: DataView, at: number) => v.getUint32(at, true);
 
-async function inflate(bytes: Uint8Array): Promise<Uint8Array> {
+/** The bytes inflated, stopping with ZipTooLarge once past `limit`. */
+async function inflate(bytes: Uint8Array, limit: number, name: string): Promise<Uint8Array> {
   const stream = new DecompressionStream('deflate-raw');
   const writer = stream.writable.getWriter();
   // A damaged stream fails the read below; the write's own failure is the same one.
@@ -58,6 +78,10 @@ async function inflate(bytes: Uint8Array): Promise<Uint8Array> {
     if (done) break;
     chunks.push(value);
     length += value.length;
+    if (length > limit) {
+      void reader.cancel().catch(() => undefined);
+      throw new ZipTooLarge(`${name} unpacks to more than it says`);
+    }
   }
   const out = new Uint8Array(length);
   let at = 0;
@@ -86,6 +110,11 @@ export function unzip(buffer: ArrayBuffer): ZipFile[] {
   }
   if (end < 0) throw new Error('not a zip file');
   const count = u16(view, end + 10);
+  if (count > ZIP_FILES_MAX) {
+    throw new ZipTooLarge(
+      `That zip holds ${count.toLocaleString('en-US')} files, more than the ${ZIP_FILES_MAX.toLocaleString('en-US')} a Feedly export could; it was not read.`,
+    );
+  }
   let at = u32(view, end + 16);
   const names = new TextDecoder();
   const files: ZipFile[] = [];
@@ -93,6 +122,7 @@ export function unzip(buffer: ArrayBuffer): ZipFile[] {
     if (u32(view, at) !== 0x02014b50) throw new Error('the zip directory is damaged');
     const method = u16(view, at + 10);
     const size = u32(view, at + 20);
+    const unpacked = u32(view, at + 24);
     const nameLength = u16(view, at + 28);
     const extra = u16(view, at + 30);
     const comment = u16(view, at + 32);
@@ -102,12 +132,20 @@ export function unzip(buffer: ArrayBuffer): ZipFile[] {
     if (name.endsWith('/')) continue;
     files.push({
       name,
+      size: unpacked,
       read: async () => {
+        if (unpacked > ZIP_FILE_BYTES_MAX) throw new ZipTooLarge(`${name} is too large`);
         if (u32(view, local) !== 0x04034b50) throw new Error(`${name}: damaged`);
         const start = local + 30 + u16(view, local + 26) + u16(view, local + 28);
         const data = bytes.subarray(start, start + size);
-        if (method === 0) return data;
-        if (method === 8) return inflate(data);
+        if (method === 0) {
+          if (data.length > unpacked + INFLATE_SLACK) {
+            throw new ZipTooLarge(`${name} is larger than it says`);
+          }
+          return data;
+        }
+        if (method === 8)
+          return inflate(data, Math.min(unpacked + INFLATE_SLACK, ZIP_FILE_BYTES_MAX), name);
         throw new Error(`${name}: compressed in a way this cannot read`);
       },
     });
@@ -294,20 +332,44 @@ export async function readFeedlyExport(file: Blob & { name?: string }): Promise<
   }
   let opml: string | undefined;
   const entries: FeedlyEntry[] = [];
+  let total = 0;
+  let tooLarge = 0;
+  // A file past a bound is skipped and counted, not the whole import.
+  const read = async (f: ZipFile): Promise<string | undefined> => {
+    if (f.size > ZIP_FILE_BYTES_MAX || total + f.size > ZIP_TOTAL_BYTES_MAX) {
+      tooLarge++;
+      return undefined;
+    }
+    try {
+      const out = await f.read();
+      total += out.length;
+      return decoder.decode(out);
+    } catch (err) {
+      if (!(err instanceof ZipTooLarge)) throw err;
+      tooLarge++;
+      return undefined;
+    }
+  };
   for (const f of unzip(buffer)) {
     if (/(^|\/)(__MACOSX|\.)/.test(f.name)) continue;
     if (/\.opml$/i.test(f.name) || (/\.xml$/i.test(f.name) && !opml)) {
-      const body = decoder.decode(await f.read());
-      if (/<opml\b/i.test(body)) opml = body;
+      const body = await read(f);
+      if (body && /<opml\b/i.test(body)) opml = body;
     } else if (/\.json$/i.test(f.name)) {
+      const body = await read(f);
+      if (body === undefined) continue;
       let data: unknown;
       try {
-        data = JSON.parse(decoder.decode(await f.read()));
+        data = JSON.parse(body);
       } catch {
         continue;
       }
       entries.push(...fromJson(f.name, data));
     }
   }
-  return { ...(opml ? { opml } : {}), entries: merge(entries) };
+  return {
+    ...(opml ? { opml } : {}),
+    entries: merge(entries),
+    ...(tooLarge ? { tooLarge } : {}),
+  };
 }

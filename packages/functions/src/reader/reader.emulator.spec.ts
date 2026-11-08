@@ -1,7 +1,7 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SAVES_FEED_ID, feedItemId } from '@mossgoblin/schema';
+import { SAVES_FEED_ID, feedId, feedItemId } from '@mossgoblin/schema';
 import { importSaves } from './feedly';
 import {
   applyRetention,
@@ -195,5 +195,31 @@ describe('Feedly saves (#176)', () => {
     expect(after['tags']).toEqual(['Pottery', 'Glaze']);
     expect(after['read']).toBe(false);
     expect(await markAllDue(db, 'u1', NOW)).toBe(0);
+  });
+
+  it('files an entry under its feed only when that feed has a doc (review on #199)', async () => {
+    const store = firestoreSavesStore(db);
+    const followedUrl = 'https://x.test/feed.xml';
+    const followedId = feedId(followedUrl);
+    await db.doc(`users/u1/feeds/${followedId}`).set({ url: followedUrl, title: 'X', folders: [] });
+    const out = await importSaves(
+      store,
+      'u1',
+      [
+        { url: 'https://x.test/a', title: 'A', feedUrl: followedUrl, guid: 'g-a', tags: [] },
+        {
+          url: 'https://y.test/b',
+          title: 'B',
+          feedUrl: 'https://y.test/rss',
+          guid: 'g-b',
+          tags: [],
+        },
+      ],
+      NOW,
+    );
+    expect(out.fresh.map((f) => f.id)).toEqual([
+      feedItemId(followedId, 'g-a'),
+      feedItemId(SAVES_FEED_ID, 'https://y.test/b'),
+    ]);
   });
 });

@@ -45,6 +45,8 @@ export interface SavedItem extends NewItem {
 }
 
 export interface SavesStore {
+  /** Which of these feed ids have a feed doc: the feeds the gardener follows. */
+  followed(uid: string, feedIds: string[]): Promise<Set<string>>;
   /** The stored ones among these ids, with their tags. */
   existing(uid: string, ids: string[]): Promise<Map<string, string[]>>;
   /** Makes the Feedly saves feed if it is not there yet. */
@@ -135,10 +137,21 @@ export async function importSaves(
   entries: SavedEntry[],
   now: number,
 ): Promise<Omit<SavesOutcome, 'skipped'>> {
+  // The app sends a feed only when it follows it, but a feed the server
+  // has no doc for would leave its articles in no folder and no feed
+  // (review on #199): those are filed under the Feedly saves instead,
+  // by their link, as an entry with no feed is.
+  const named = [...new Set(entries.flatMap((e) => (e.feedUrl ? [feedId(e.feedUrl)] : [])))];
+  const followed = named.length ? await store.followed(uid, named) : new Set<string>();
+  const filed = entries.map((e) => {
+    if (!e.feedUrl || followed.has(feedId(e.feedUrl))) return e;
+    const { feedUrl: _feedUrl, guid: _guid, ...rest } = e;
+    return rest;
+  });
   // One entry an id: the export can list an article in the saves and in
   // a board, and the app merges those, but two links can still meet.
   const byId = new Map<string, { entry: SavedEntry; feedId: string }>();
-  for (const entry of entries) {
+  for (const entry of filed) {
     const { feedId: feed, id } = savedIds(entry);
     const had = byId.get(id);
     if (had) had.entry = { ...had.entry, tags: cleanTags([...had.entry.tags, ...entry.tags]) };

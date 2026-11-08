@@ -1,69 +1,13 @@
-import { type FeedlyEntry, entryTags, readFeedlyExport, toEntry, unzip } from './feedly';
-
-/** The bytes of a stream through a CompressionStream, for the deflated entries. */
-async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
-  const stream = new CompressionStream('deflate-raw');
-  const writer = stream.writable.getWriter();
-  void writer.write(bytes as Uint8Array<ArrayBuffer>).then(() => writer.close());
-  const reader = stream.readable.getReader();
-  const parts: number[] = [];
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parts.push(...value);
-  }
-  return new Uint8Array(parts);
-}
-
-/**
- * A small zip, as Feedly's export is one: each file stored, or deflated
- * when asked. The reader goes by the central directory and never checks
- * the CRC, so it is left 0 here.
- */
-async function zipOf(files: Record<string, string>, deflated = false): Promise<Blob> {
-  const enc = new TextEncoder();
-  const locals: Uint8Array[] = [];
-  const central: Uint8Array[] = [];
-  let offset = 0;
-  for (const [name, body] of Object.entries(files)) {
-    const nameBytes = enc.encode(name);
-    const raw = enc.encode(body);
-    const data = deflated ? await deflate(raw) : raw;
-    const local = new Uint8Array(30 + nameBytes.length + data.length);
-    const lv = new DataView(local.buffer);
-    lv.setUint32(0, 0x04034b50, true);
-    lv.setUint16(4, 20, true);
-    lv.setUint16(8, deflated ? 8 : 0, true);
-    lv.setUint32(18, data.length, true);
-    lv.setUint32(22, raw.length, true);
-    lv.setUint16(26, nameBytes.length, true);
-    local.set(nameBytes, 30);
-    local.set(data, 30 + nameBytes.length);
-    const dir = new Uint8Array(46 + nameBytes.length);
-    const dv = new DataView(dir.buffer);
-    dv.setUint32(0, 0x02014b50, true);
-    dv.setUint16(4, 20, true);
-    dv.setUint16(6, 20, true);
-    dv.setUint16(10, deflated ? 8 : 0, true);
-    dv.setUint32(20, data.length, true);
-    dv.setUint32(24, raw.length, true);
-    dv.setUint16(28, nameBytes.length, true);
-    dv.setUint32(42, offset, true);
-    dir.set(nameBytes, 46);
-    locals.push(local);
-    central.push(dir);
-    offset += local.length;
-  }
-  const size = central.reduce((n, c) => n + c.length, 0);
-  const end = new Uint8Array(22);
-  const ev = new DataView(end.buffer);
-  ev.setUint32(0, 0x06054b50, true);
-  ev.setUint16(8, central.length, true);
-  ev.setUint16(10, central.length, true);
-  ev.setUint32(12, size, true);
-  ev.setUint32(16, offset, true);
-  return new Blob([...locals, ...central, end] as BlobPart[]);
-}
+import {
+  type FeedlyEntry,
+  ZIP_FILES_MAX,
+  ZipTooLarge,
+  entryTags,
+  readFeedlyExport,
+  toEntry,
+  unzip,
+} from './feedly';
+import { zipOf } from '../testing/zip';
 
 const OPML = `<?xml version="1.0"?><opml version="1.0"><body>
   <outline text="Design"><outline text="Design notes" xmlUrl="https://design.test/feed.xml"/></outline>
@@ -92,6 +36,34 @@ describe('Feedly’s export (#176)', () => {
       expect(text).toBe('wörld'.repeat(50));
     }
     expect(() => unzip(new ArrayBuffer(40))).toThrow('not a zip file');
+  });
+
+  it('skips a file past the bound for one, or past the size it declares, and counts it (review on #199)', async () => {
+    const saves = JSON.stringify([entry(1)]);
+    // Over 64 KB of slack, so a file that says it is empty is caught lying.
+    const big = JSON.stringify([entry(2, { summary: { content: 'x'.repeat(100_000) } })]);
+    for (const deflated of [false, true]) {
+      const zip = await zipOf(
+        { 'x/saved.json': saves, 'x/huge-saved.json': saves, 'x/liar-saved.json': big },
+        deflated,
+        { 'x/huge-saved.json': 65 * 1024 * 1024, 'x/liar-saved.json': 0 },
+      );
+      const out = await readFeedlyExport(Object.assign(zip, { name: 'feedly.zip' }));
+      expect(out.tooLarge).toBe(2);
+      expect(out.entries.map((e) => e.url)).toEqual(['https://design.test/a1']);
+    }
+  });
+
+  it('refuses an archive of more files than an export could hold (review on #199)', async () => {
+    const end = new Uint8Array(26);
+    end.set([0x50, 0x4b, 0x03, 0x04]);
+    const view = new DataView(end.buffer);
+    view.setUint32(4, 0x06054b50, true);
+    view.setUint16(14, ZIP_FILES_MAX + 1, true);
+    expect(() => unzip(end.buffer)).toThrow(ZipTooLarge);
+    await expect(readFeedlyExport(new Blob([end]))).rejects.toThrow(
+      'That zip holds 5,001 files, more than the 5,000 a Feedly export could; it was not read.',
+    );
   });
 
   it('maps an entry: its link, feed, guid, date, author and HTML', () => {

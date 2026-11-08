@@ -13,8 +13,11 @@ import { termsOf } from './terms';
 const NOW = Date.parse('2026-11-07T12:00:00Z');
 const DESIGN = 'https://design.test/feed.xml';
 
-function store(stored: Record<string, string[]> = {}) {
+function store(stored: Record<string, string[]> = {}, follows = [feedId(DESIGN)]) {
   const s = {
+    followed: vi.fn(
+      async (_uid: string, ids: string[]) => new Set(ids.filter((i) => follows.includes(i))),
+    ),
     existing: vi.fn(
       async (_uid: string, ids: string[]) =>
         new Map(ids.filter((i) => i in stored).map((i) => [i, stored[i]])),
@@ -127,6 +130,26 @@ describe('importSaves (#176)', () => {
       tags: [],
     });
     expect(out.fresh.map((f) => f.link)).toEqual(['https://d.test/a', 'https://loose.test/b']);
+  });
+
+  it('files an entry whose feed has no doc under the Feedly saves, by its link (review on #199)', async () => {
+    const s = store({}, []);
+    const out = await importSaves(
+      s,
+      'u1',
+      [
+        { url: 'https://d.test/a', title: 'A', feedUrl: DESIGN, guid: 'g1', tags: [] },
+        { url: 'https://d.test/b', title: 'B', feedUrl: DESIGN, guid: 'g2', tags: [] },
+      ],
+      NOW,
+    );
+    expect(s.followed).toHaveBeenCalledWith('u1', [feedId(DESIGN)]);
+    expect(out.fresh.map((f) => f.id)).toEqual([
+      feedItemId(SAVES_FEED_ID, 'https://d.test/a'),
+      feedItemId(SAVES_FEED_ID, 'https://d.test/b'),
+    ]);
+    expect(s.write.mock.calls[0][1].map((i) => i.feedId)).toEqual([SAVES_FEED_ID, SAVES_FEED_ID]);
+    expect(s.ensureSavesFeed).toHaveBeenCalledTimes(1);
   });
 
   it('leaves stored ones be but for the tags they lack, and twice is once', async () => {

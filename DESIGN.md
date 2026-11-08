@@ -1326,7 +1326,11 @@ feeds takes Feedly's full export, the zip, or one of its JSON files, as
 well as an OPML file. `reader/feedly.ts` reads it on the device: the zip
 by its central directory, stored and deflated entries only (no library:
 the browser's `DecompressionStream('deflate-raw')`; no ZIP64 or
-encryption, which an export of tens of megabytes does not need). Export
+encryption, which an export of tens of megabytes does not need), and
+bounded (review on #199): at most 5,000 files, or nothing is read; a
+file over 64 MB unpacked, past 256 MB in all, or unpacking past the
+size it declares, is skipped and counted in the import's last line
+("2 files too large were skipped"). Export
 versions name their files differently, so it goes by what a file holds:
 an `.opml` (or an `.xml` holding `<opml>`) is the feeds, imported as
 step 1 imports them; a JSON file is read when it is a list of entries,
@@ -1346,8 +1350,11 @@ feed's collections, which the OPML's folders already say. An article in
 the saves and on a board is one, with both. An entry's feed
 (`origin.streamId`, `feed/<url>`) and its guid (`originId`) are sent
 only when that feed is followed (the OPML's are by then), so its id is
-the one the fetcher would give it and a later look finds it known; the
-rest are filed under **the Feedly saves**, `feeds/f-feedly-saves`, a
+the one the fetcher would give it and a later look finds it known. The
+server checks that each such feed has a doc (once a batch) and files an
+entry whose feed has none as one with no feed, by its link (review on
+#199), so the app waits for the OPML's feed writes to land before the
+first batch. The rest are filed under **the Feedly saves**, `feeds/f-feedly-saves`, a
 feed the server makes once with no link and no `nextFetchAt`: the tick
 never finds it due, Refresh skips a feed with no link (`markAllDue`),
 so "Looked at N feeds" never counts it, and Manage feeds says "saved
