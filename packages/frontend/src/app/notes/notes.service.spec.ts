@@ -11,16 +11,24 @@ import {
   type NotesApi,
   NotesService,
   PENDING_CONCEPTS_KEY,
+  PENDING_INSTRUCTIONS_KEY,
   PENDING_MOODS_KEY,
 } from './notes.service';
 
-function setup() {
-  localStorage.clear();
+/** `reload` keeps this device's storage, as a page loaded again does. */
+function setup({ reload = false }: { reload?: boolean } = {}) {
+  if (reload) TestBed.resetTestingModule();
+  else localStorage.clear();
   const user = signal<User | null | undefined>(undefined);
   let push: Parameters<NotesApi['listen']>[2] = () => undefined;
+  let serve: Parameters<NotesApi['fromServer']>[2] | undefined;
   const api = {
     listen: vi.fn((_db, _path, next) => {
       push = next;
+      return vi.fn();
+    }),
+    fromServer: vi.fn((_db, _path, next) => {
+      serve = next;
       return vi.fn();
     }),
     set: vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
@@ -52,12 +60,161 @@ function setup() {
     api,
     signIn,
     push: (docs: Parameters<typeof push>[0]) => push(docs),
+    /** The first snapshot from the server, if one was asked for. */
+    serve: (docs: Parameters<typeof push>[0]) => serve?.(docs),
     user,
     online,
   };
 }
 
 describe('NotesService', () => {
+  describe('Instructions for Claude, when the page goes before the cache has them (#198)', () => {
+    const template = (instructions?: string) => ({
+      id: 't1',
+      data: {
+        body: 'Journal entry\n',
+        title: 'Journal entry',
+        kind: 'template',
+        ...(instructions === undefined ? {} : { instructions }),
+      },
+    });
+    const DEFAULT = 'How to fill in or tidy notes made from this template.';
+    const instructionWrites = (api: ReturnType<typeof setup>['api']) =>
+      api.set.mock.calls.filter(([, , data]) => 'instructions' in data).map(([, , d]) => d);
+
+    /** Typed, then the page reloads before the write is acknowledged. */
+    function typedThenReloaded() {
+      const first = setup();
+      first.signIn('u1');
+      first.push([template(DEFAULT)]);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      first.notes.setInstructions('t1', 'Ask how the day went.');
+      expect(instructionWrites(first.api)).toEqual([
+        expect.objectContaining({ instructions: 'Ask how the day went.', updatedBy: 'user' }),
+      ]);
+      const next = setup({ reload: true });
+      next.signIn('u1');
+      return next;
+    }
+
+    it('writes them again when the server still holds the base', () => {
+      const { api, push, serve } = typedThenReloaded();
+      push([template(DEFAULT)]);
+      // The cache alone may be stale: nothing yet.
+      expect(api.set).not.toHaveBeenCalled();
+      serve([template(DEFAULT)]);
+      expect(instructionWrites(api)).toEqual([
+        expect.objectContaining({ instructions: 'Ask how the day went.', updatedBy: 'user' }),
+      ]);
+      expect(api.set.mock.calls[0][1]).toBe('users/u1/notes/t1');
+      expect(api.set.mock.calls[0][3]).toBe(true);
+    });
+
+    it('never writes over newer words a stale cache hides', () => {
+      const { api, push, serve } = typedThenReloaded();
+      push([template(DEFAULT)]);
+      serve([template('Claude’s newer words.')]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)).toBeNull();
+    });
+
+    it('waits, across loads, while no server snapshot comes (offline)', () => {
+      const { api, push } = typedThenReloaded();
+      push([template(DEFAULT)]);
+      expect(api.set).not.toHaveBeenCalled();
+      const again = setup({ reload: true });
+      again.signIn('u1');
+      again.push([template(DEFAULT)]);
+      expect(again.api.fromServer).toHaveBeenCalledTimes(1);
+      again.serve([template(DEFAULT)]);
+      expect(instructionWrites(again.api)).toHaveLength(1);
+    });
+
+    it('asks the server nothing when nothing is waiting', () => {
+      const { api, signIn } = setup();
+      signIn('u1');
+      expect(api.fromServer).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing again when the server has them', () => {
+      const { api, serve } = typedThenReloaded();
+      serve([template('Ask how the day went.')]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)).toBeNull();
+    });
+
+    it('drops them when the server has no such note', () => {
+      const { api, serve } = typedThenReloaded();
+      serve([]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)).toBeNull();
+    });
+
+    it('writes them again only once, not on later snapshots', () => {
+      const { api, push, serve } = typedThenReloaded();
+      serve([template(DEFAULT)]);
+      push([template(DEFAULT)]);
+      push([template(DEFAULT)]);
+      expect(instructionWrites(api)).toHaveLength(1);
+    });
+
+    it('leaves words typed again since the load to their own write', () => {
+      const { api, push, serve, notes } = typedThenReloaded();
+      push([template(DEFAULT)]);
+      api.set.mockReturnValue(new Promise<void>(() => undefined));
+      notes.setInstructions('t1', 'Ask about the weather.');
+      serve([template(DEFAULT)]);
+      expect(instructionWrites(api)).toEqual([
+        expect.objectContaining({ instructions: 'Ask about the weather.' }),
+      ]);
+      expect(JSON.parse(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)!)).toEqual({
+        t1: { instructions: 'Ask about the weather.', base: DEFAULT },
+      });
+    });
+
+    it('keeps the oldest base across edits, so the last words come back', () => {
+      const first = setup();
+      first.signIn('u1');
+      first.push([template(DEFAULT)]);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      first.notes.setInstructions('t1', 'Ask how the day went.');
+      // The cache shows the first edit while it waits.
+      first.push([template('Ask how the day went.')]);
+      first.notes.setInstructions('t1', 'Ask how the day went, and why.');
+      const { api, serve, signIn } = setup({ reload: true });
+      signIn('u1');
+      serve([template(DEFAULT)]);
+      expect(instructionWrites(api)).toEqual([
+        expect.objectContaining({ instructions: 'Ask how the day went, and why.' }),
+      ]);
+    });
+
+    it('forgets them once the server has them', async () => {
+      const { notes, signIn, push } = setup();
+      signIn('u1');
+      push([template(DEFAULT)]);
+      notes.setInstructions('t1', 'Ask how the day went.');
+      expect(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)).not.toBeNull();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)).toBeNull();
+    });
+
+    it('writes them again into a field that was absent, as before #111', () => {
+      const first = setup();
+      first.signIn('u1');
+      first.push([template()]);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      first.notes.setInstructions('t1', 'Ask how the day went.');
+      const { api, serve, signIn } = setup({ reload: true });
+      signIn('u1');
+      serve([template()]);
+      expect(instructionWrites(api)).toEqual([
+        expect.objectContaining({ instructions: 'Ask how the day went.' }),
+      ]);
+    });
+  });
+
   it('listens to the signed-in user’s notes and maps them', () => {
     const { notes, api, signIn, push } = setup();
     expect(notes.ready).toBe(false);
