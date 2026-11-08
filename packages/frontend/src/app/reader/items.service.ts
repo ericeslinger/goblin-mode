@@ -10,6 +10,7 @@ import {
 import { UNCATEGORIZED, clippingBody, isWebLink, paths } from '@mossgoblin/schema';
 import {
   type Firestore,
+  Timestamp,
   collection,
   deleteField,
   doc,
@@ -114,6 +115,8 @@ export interface ItemsApi {
   /** Several merges in one batch, for Mark all read and read on scroll. */
   setMany(db: Firestore, writes: { path: string; data: Record<string, unknown> }[]): Promise<void>;
   serverTime(): unknown;
+  /** A timestamp made on the device from epoch millis (#179: playedAt). */
+  timestamp(ms: number): unknown;
   clear(): unknown;
   /** The fetchArticle callable (#163): the page's article kept on the item. */
   fetchArticle(itemId: string): Promise<{ state: string }>;
@@ -168,6 +171,7 @@ function itemsApi(functions: Functions): ItemsApi {
       }
     },
     serverTime: () => serverTimestamp(),
+    timestamp: (ms) => Timestamp.fromMillis(ms),
     clear: () => deleteField(),
   };
 }
@@ -398,22 +402,30 @@ export class ItemsService {
    * Keeps where an episode was left (#179), in one merge through the
    * persistent cache, offline too: the position in seconds and when.
    * Heard to the end, it is also marked played and read.
+   *
+   * When is the device's clock at the write, not the server's at the
+   * sync (Eric, 2026-11-07: client timestamps for conflicting update
+   * times), so a place kept offline and synced late stays as old as it
+   * is. Returns that time in millis, for the player's `seenAt`; nothing
+   * when signed out and nothing is written.
    */
-  setProgress(id: string, progress: { position: number; played?: boolean }): void {
+  setProgress(id: string, progress: { position: number; played?: boolean }): number | undefined {
     const uid = this.auth.user()?.uid;
-    if (!uid) return;
+    if (!uid) return undefined;
     const position = Math.max(0, Number.isFinite(progress.position) ? progress.position : 0);
+    const at = this.now();
     if (progress.played) this.local.update((l) => ({ ...l, [id]: { ...l[id], read: true } }));
     void this.api
       .set(this.fb.db, paths.feedItem(uid, id), {
         position,
-        playedAt: this.api.serverTime(),
+        playedAt: this.api.timestamp(at),
         ...(progress.played
           ? { played: true, read: true, readAt: this.api.serverTime() }
           : { played: false }),
         updatedAt: this.api.serverTime(),
       })
       .catch((err) => console.error('listening position not saved', err));
+    return at;
   }
 
   /** "12:34", or "1:02:03" past the hour, for the player (#179). */

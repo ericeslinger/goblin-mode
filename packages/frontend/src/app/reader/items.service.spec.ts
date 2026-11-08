@@ -179,16 +179,17 @@ describe('ItemsService (#162)', () => {
     // Part-way and not heard to the end, the latest played first.
     expect(items.listening().map((i) => i.id)).toEqual(['e2', 'e1']);
 
-    items.setProgress('e1', { position: 800 });
+    // When is the device's clock at the write, and returned (Eric, 2026-11-07).
+    expect(items.setProgress('e1', { position: 800 })).toBe(NOW_MS);
     expect(api.set.mock.lastCall).toEqual([
       {},
       'users/u1/feedItems/e1',
-      { position: 800, playedAt: 'SERVER_TIME', played: false, updatedAt: 'SERVER_TIME' },
+      { position: 800, playedAt: `TIME:${NOW_MS}`, played: false, updatedAt: 'SERVER_TIME' },
     ]);
     items.setProgress('e2', { position: 2530, played: true });
     expect(api.set.mock.lastCall![2]).toEqual({
       position: 2530,
-      playedAt: 'SERVER_TIME',
+      playedAt: `TIME:${NOW_MS}`,
       played: true,
       read: true,
       readAt: 'SERVER_TIME',
