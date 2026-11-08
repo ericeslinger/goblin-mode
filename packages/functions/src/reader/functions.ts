@@ -333,5 +333,9 @@ export const searchArticles = onCall(async (request) => {
       ? Math.min(Math.max(1, data.limit), 50)
       : 20;
   const found = await searchItems(getFirestore(), request.auth.uid, q, { limit });
-  return { items: found.map((f) => searchHit(f.id, f.data)) };
+  return {
+    items: found.items.map((f) => searchHit(f.id, f.data)),
+    // Five pages of the index read with more behind them (review on #197).
+    truncated: found.truncated,
+  };
 });

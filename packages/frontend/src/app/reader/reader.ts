@@ -69,6 +69,9 @@ import { ReaderService, type SearchHit } from './reader.service';
               </li>
             }
           </ul>
+          @if (truncated()) {
+            <p class="muted">Older articles were not all searched.</p>
+          }
         }
       }
       @if (reader.loaded() && reader.feeds().length === 0) {
@@ -228,6 +231,8 @@ export class Reader {
   protected readonly searching = signal(false);
   protected readonly hits = signal<SearchHit[] | undefined>(undefined);
   protected readonly searchSaid = signal('');
+  /** The server stopped before the oldest articles (review on #197). */
+  protected readonly truncated = signal(false);
 
   /**
    * Search articles (#175): the server's word index over every article
@@ -243,10 +248,18 @@ export class Reader {
       const found = await this.reader.search(text);
       if (typeof found === 'string') {
         this.hits.set(undefined);
+        this.truncated.set(false);
         this.searchSaid.set(found);
       } else {
-        this.hits.set(found);
-        if (!found.length) this.searchSaid.set('Nothing found.');
+        this.hits.set(found.items);
+        this.truncated.set(found.truncated === true);
+        if (!found.items.length) {
+          this.searchSaid.set(
+            found.truncated
+              ? 'Nothing found in the newest articles; older ones were not searched.'
+              : 'Nothing found.',
+          );
+        }
       }
     } finally {
       this.searching.set(false);

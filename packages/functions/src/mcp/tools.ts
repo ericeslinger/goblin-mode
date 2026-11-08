@@ -2263,9 +2263,12 @@ export class NotesTools {
   /**
    * Articles whose title or text hold every word of a query (#163),
    * newest first. Across every article stored, by the word index
-   * (#175, `searchItems`): only the last `days` when asked. A query of
-   * only stop words has no terms to ask the index for, and is matched
-   * word by word over the last `days` (30) instead, as before.
+   * (#175, `searchItems`): only the last `days` when asked. Where the
+   * index cannot answer (only stop words, the index not built yet, or
+   * nothing indexed matches) the last `days` (30) are matched word by
+   * word too, as before. When the index stopped with older articles
+   * unread, the result is `{ items, truncated: true }` rather than the
+   * list (review on #197).
    */
   async searchFeedItems(args: { query: string; days?: number; limit?: number }) {
     const words = args.query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -2284,30 +2287,17 @@ export class NotesTools {
         .trim();
       return { ...feedItemView(id, data, feeds), snippet };
     };
-    if (terms.length) {
-      const since =
-        args.days === undefined
-          ? undefined
-          : this.now() - Math.min(Math.max(1, args.days), 365) * 86_400_000;
-      const found = await searchItems(this.db, this.uid, args.query, { limit, since });
-      return found.map((f) => hit(f.id, f.data));
-    }
-    const days = Math.min(Math.max(1, args.days ?? 30), 365);
-    const since = Timestamp.fromMillis(this.now() - days * 86_400_000);
-    const snap = await this.feedItems()
-      .where('published', '>=', since)
-      .orderBy('published', 'desc')
-      .limit(2000)
-      .get();
-    const found: Data[] = [];
-    for (const d of snap.docs) {
-      if (found.length >= limit) break;
-      const data = d.data();
-      const text = String(data['readerContent'] || data['content'] || '');
-      if (!matchesSearch({ title: String(data['title'] ?? ''), body: text }, args.query)) continue;
-      found.push(hit(d.id, data));
-    }
-    return found;
+    const since =
+      args.days === undefined
+        ? undefined
+        : this.now() - Math.min(Math.max(1, args.days), 365) * 86_400_000;
+    const found = await searchItems(this.db, this.uid, args.query, {
+      limit,
+      since,
+      now: this.now(),
+    });
+    const items = found.items.map((f) => hit(f.id, f.data));
+    return found.truncated ? { items, truncated: true } : items;
   }
 
   /**

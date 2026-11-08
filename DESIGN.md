@@ -1302,7 +1302,18 @@ search calls `indexArticles` (`onCall`, once a day per gardener,
 `indexRuns` in the usage record, given back when the run fails),
 which writes `terms` where they are missing or not what the item's
 text gives now, in pages by document id as retention does, and says
-"Indexed 12 articles."
+"Indexed 12 articles." After deploy, press Index articles for search
+once so the older articles join the index. Until then, and while the
+composite index is still building (the query fails with
+FAILED_PRECONDITION), search falls back to the thirty-day scan word by
+word, and a search the index finds nothing for runs that scan too and
+merges it, by id, so recent articles are found from the first day
+(review on #197). A search that read its five pages with more behind
+them says so: `truncated` on `searchArticles`, where the front says
+"Nothing found in the newest articles; older ones were not searched."
+or, under what it found, "Older articles were not all searched.", and
+`search_feed_items` answers `{ items, truncated: true }` instead of
+its list.
 
 **Podcasts, step 1: episodes in the data (#178, epic #177,
 2026-11-07).** An episode is a feed item with an audio enclosure, not
@@ -1920,7 +1931,7 @@ it, one backticked tool name per row.
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
 | `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179) | The Reader, step 4 (#163) |
 | `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179) | The Reader, step 4 (#163) |
-| `search_feed_items` | Articles holding every word of a query, with snippets (and an episode's `enclosure`, #178): across every article by the word index, the last `days` only when asked (#175; a query of only stop words scans the last 30 days) | The Reader, step 4 (#163); the index (#175) |
+| `search_feed_items` | Articles holding every word of a query, with snippets (and an episode's `enclosure`, #178): across every article by the word index, the last `days` only when asked (#175; a query of only stop words, or one the index finds nothing for, scans the last 30 days; `{ items, truncated: true }` when older ones were not all searched, review on #197) | The Reader, step 4 (#163); the index (#175) |
 | `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |
 | `search_attachments` | Full-text search across every PDF and saved page | Attachment text, server half (#45) |

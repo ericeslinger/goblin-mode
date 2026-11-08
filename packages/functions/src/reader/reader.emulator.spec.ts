@@ -90,27 +90,30 @@ describe('the word index (#175)', () => {
     await indexed('chairs', 2, 'Three chairs', 'A look at three chairs worth sitting in.');
     await indexed('chair-glaze', 1, 'A glazed chair', 'Celadon on a chair.');
     await indexed('glazes', 3, 'Celadon glazes', 'Iron in a reduction firing.');
-    expect((await searchItems(db, 'u1', 'chairs')).map((f) => f.id)).toEqual([
+    expect((await searchItems(db, 'u1', 'chairs')).items.map((f) => f.id)).toEqual([
       'chair-glaze',
       'chairs',
       'chairs-old',
     ]);
-    expect((await searchItems(db, 'u1', 'celadon GLAZING')).map((f) => f.id)).toEqual([
+    expect((await searchItems(db, 'u1', 'celadon GLAZING')).items.map((f) => f.id)).toEqual([
       'chair-glaze',
       'glazes',
     ]);
-    expect((await searchItems(db, 'u1', 'chair celadon')).map((f) => f.id)).toEqual([
+    expect((await searchItems(db, 'u1', 'chair celadon')).items.map((f) => f.id)).toEqual([
       'chair-glaze',
     ]);
-    expect(await searchItems(db, 'u1', 'the of')).toEqual([]);
-    expect((await searchItems(db, 'u1', 'chairs', { limit: 1 })).map((f) => f.id)).toEqual([
+    expect(await searchItems(db, 'u1', 'the of', { now: NOW })).toEqual({
+      items: [],
+      truncated: false,
+    });
+    expect((await searchItems(db, 'u1', 'chairs', { limit: 1 })).items.map((f) => f.id)).toEqual([
       'chair-glaze',
     ]);
     expect(
-      (await searchItems(db, 'u1', 'chairs', { since: NOW - 10 * DAY })).map((f) => f.id),
+      (await searchItems(db, 'u1', 'chairs', { since: NOW - 10 * DAY })).items.map((f) => f.id),
     ).toEqual(['chair-glaze', 'chairs']);
     expect(
-      (await searchItems(db, 'u1', 'chairs', { before: NOW - 2 * DAY })).map((f) => f.id),
+      (await searchItems(db, 'u1', 'chairs', { before: NOW - 2 * DAY })).items.map((f) => f.id),
     ).toEqual(['chairs-old']);
   });
 
@@ -118,7 +121,9 @@ describe('the word index (#175)', () => {
     // Sixty newer articles hold the asked-for (longest) term but not the other.
     for (let i = 0; i < 60; i++) await indexed(`kiln-${i}`, 1, `Kilnworks ${i}`, 'Bricks.');
     await indexed('match', 5, 'Kilnworks', 'Celadon in the kiln.');
-    expect((await searchItems(db, 'u1', 'kilnworks celadon')).map((f) => f.id)).toEqual(['match']);
+    expect((await searchItems(db, 'u1', 'kilnworks celadon')).items.map((f) => f.id)).toEqual([
+      'match',
+    ]);
   });
 
   it('indexes the articles stored before it, and those out of date, once', async () => {
@@ -136,6 +141,6 @@ describe('the word index (#175)', () => {
     expect(await terms('bare')).toEqual(['celadon', 'glaz', 'iron', 'ash']);
     expect(await terms('stale')).toEqual(['kiln', 'full', 'essay', 'feed', 'text']);
     expect(await indexItems(db, 'u1')).toBe(0);
-    expect((await searchItems(db, 'u1', 'essay')).map((f) => f.id)).toEqual(['stale']);
+    expect((await searchItems(db, 'u1', 'essay')).items.map((f) => f.id)).toEqual(['stale']);
   });
 });

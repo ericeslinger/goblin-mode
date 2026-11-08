@@ -65,28 +65,30 @@ function setup() {
 describe('Reader front, search articles (#175)', () => {
   it('lists what the server found across every article, linking to each', async () => {
     const { feeds, el, search } = setup();
-    feeds.searchArticles.mockResolvedValueOnce([
-      {
-        id: 'i1',
-        feedId: 'f1',
-        title: 'Three chairs',
-        link: 'https://design.test/chairs',
-        published: NOW_MS - 2 * 86_400_000,
-        summary: 'A look',
-        read: true,
-        saved: false,
-      },
-      {
-        id: 'i2',
-        feedId: 'gone',
-        title: 'A chair, again',
-        link: '',
-        published: NOW_MS - 3 * 3_600_000,
-        summary: '',
-        read: false,
-        saved: false,
-      },
-    ]);
+    feeds.searchArticles.mockResolvedValueOnce({
+      items: [
+        {
+          id: 'i1',
+          feedId: 'f1',
+          title: 'Three chairs',
+          link: 'https://design.test/chairs',
+          published: NOW_MS - 2 * 86_400_000,
+          summary: 'A look',
+          read: true,
+          saved: false,
+        },
+        {
+          id: 'i2',
+          feedId: 'gone',
+          title: 'A chair, again',
+          link: '',
+          published: NOW_MS - 3 * 3_600_000,
+          summary: '',
+          read: false,
+          saved: false,
+        },
+      ],
+    });
     await search(' chairs ');
     expect(feeds.searchArticles).toHaveBeenCalledWith('chairs', 20);
     const rows = [...el.querySelectorAll('ul[aria-label="Articles found"] li')];
@@ -97,6 +99,36 @@ describe('Reader front, search articles (#175)', () => {
       ['A chair, again', 'Unknown feed · 3 h ago'],
     ]);
     expect(rows[0].querySelector('a')!.getAttribute('href')).toBe('/reader/a/i1');
+    expect(el.textContent).not.toContain('not all searched');
+  });
+
+  it('says when the server stopped before the oldest articles (review on #197)', async () => {
+    const { feeds, el, search } = setup();
+    feeds.searchArticles.mockResolvedValueOnce({ items: [], truncated: true });
+    await search('kiln');
+    expect(el.textContent).toContain(
+      'Nothing found in the newest articles; older ones were not searched.',
+    );
+    expect(el.textContent).not.toContain('Nothing found.');
+    feeds.searchArticles.mockResolvedValueOnce({
+      items: [
+        {
+          id: 'i1',
+          feedId: 'f1',
+          title: 'Kilns',
+          link: '',
+          published: NOW_MS,
+          summary: '',
+          read: false,
+          saved: false,
+        },
+      ],
+      truncated: true,
+    });
+    await search('kiln');
+    expect(el.querySelectorAll('ul[aria-label="Articles found"] li')).toHaveLength(1);
+    expect(el.textContent).toContain('Older articles were not all searched.');
+    expect(el.textContent).not.toContain('Nothing found');
   });
 
   it('says when nothing is found, or why it could not look', async () => {

@@ -120,9 +120,18 @@ export interface ReaderApi {
   /** The discoverFeeds callable (#174): the feeds at a site's address, with their names. */
   discoverFeeds(url: string): Promise<DiscoveredFeed[]>;
   /** The searchArticles callable (#175): every stored article holding the words, newest first. */
-  searchArticles(q: string, limit: number): Promise<SearchHit[]>;
+  searchArticles(q: string, limit: number): Promise<SearchOutcome>;
   /** The indexArticles callable (#175): the word index written on the articles stored before it. */
   indexArticles(): Promise<{ indexed: number }>;
+}
+
+/**
+ * What a search found (#175), and whether the server stopped before it
+ * had looked at the oldest articles (review on #197).
+ */
+export interface SearchOutcome {
+  items: SearchHit[];
+  truncated?: boolean;
 }
 
 /** An article search found (#175), a row's worth: no text. */
@@ -194,11 +203,11 @@ function readerApi(functions: Functions): ReaderApi {
       ).data.feeds,
     searchArticles: async (q, limit) =>
       (
-        await httpsCallable<unknown, { items: SearchHit[] }>(
+        await httpsCallable<unknown, { items: SearchHit[]; truncated?: boolean }>(
           functions,
           'searchArticles',
         )({ q, limit })
-      ).data.items,
+      ).data,
     indexArticles: async () =>
       (await httpsCallable<unknown, { indexed: number }>(functions, 'indexArticles')({})).data,
     clear: () => deleteField(),
@@ -458,12 +467,13 @@ export class ReaderService {
    * holding every word, newest first, or a message saying why not.
    * The shelves on the device are not searched apart: one path.
    */
-  async search(text: string, limit = 20): Promise<SearchHit[] | string> {
+  async search(text: string, limit = 20): Promise<SearchOutcome | string> {
     if (!this.auth.user()?.uid) return 'Sign in first.';
     const q = text.replace(/\s+/g, ' ').trim();
-    if (!q) return [];
+    if (!q) return { items: [], truncated: false };
     try {
-      return await this.api.searchArticles(q, limit);
+      const { items, truncated } = await this.api.searchArticles(q, limit);
+      return { items, truncated: truncated === true };
     } catch (err) {
       console.error('search failed', err);
       return 'Could not search. Are you online?';

@@ -208,7 +208,7 @@ describe('ReaderService (#159)', () => {
 
   it('searches every article through the server, or says why not (#175)', async () => {
     const { reader, api } = setup();
-    expect(await reader.search('   ')).toEqual([]);
+    expect(await reader.search('   ')).toEqual({ items: [], truncated: false });
     expect(api.searchArticles).not.toHaveBeenCalled();
     const hit = {
       id: 'i1',
@@ -220,9 +220,12 @@ describe('ReaderService (#159)', () => {
       read: true,
       saved: false,
     };
-    api.searchArticles.mockResolvedValueOnce([hit]);
-    expect(await reader.search('  three\n chairs ')).toEqual([hit]);
+    api.searchArticles.mockResolvedValueOnce({ items: [hit] });
+    expect(await reader.search('  three\n chairs ')).toEqual({ items: [hit], truncated: false });
     expect(api.searchArticles).toHaveBeenCalledWith('three chairs', 20);
+    // The server stopped before the oldest (review on #197): said so.
+    api.searchArticles.mockResolvedValueOnce({ items: [], truncated: true });
+    expect(await reader.search('chairs')).toEqual({ items: [], truncated: true });
     api.searchArticles.mockRejectedValueOnce(new Error('internal'));
     expect(await reader.search('chairs')).toBe('Could not search. Are you online?');
   });

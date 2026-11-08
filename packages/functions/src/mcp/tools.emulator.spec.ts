@@ -1312,7 +1312,18 @@ describe('search_feed_items (#175)', () => {
     expect(hits[0].fromWeb).toContain('content from the web');
     expect(hits[0].feed).toBe('Design notes');
     expect(hits[0].snippet).toContain('celadon green');
-    expect(await tools().searchFeedItems({ query: 'celadon', days: 30 })).toEqual([]);
+    // Nothing indexed in the window: the last days, word by word, find
+    // what is not indexed yet (review on #197).
+    expect(
+      ((await tools().searchFeedItems({ query: 'celadon', days: 30 })) as { id: string }[]).map(
+        (h) => h.id,
+      ),
+    ).toEqual(['unindexed']);
+    expect(
+      ((await tools().searchFeedItems({ query: 'indexed yet' })) as { id: string }[]).map(
+        (h) => h.id,
+      ),
+    ).toEqual(['unindexed']);
     expect(
       ((await tools().searchFeedItems({ query: 'chair' })) as { id: string }[]).map((h) => h.id),
     ).toEqual(['new']);

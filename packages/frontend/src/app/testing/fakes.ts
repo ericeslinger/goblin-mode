@@ -25,7 +25,7 @@ import type {
   EpisodeCache,
 } from '../reader/downloads.service';
 import type { AudioLike } from '../reader/player.service';
-import { READER_API, type ReaderApi, type SearchHit } from '../reader/reader.service';
+import { READER_API, type ReaderApi, type SearchOutcome } from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
@@ -276,7 +276,10 @@ export class FakeReaderApi implements ReaderApi {
     { url: 'https://site.test/posts.xml', title: 'Posts' },
     { url: 'https://site.test/games.atom', title: 'Dice' },
   ]);
-  searchArticles = vi.fn(async (_q: string, _limit: number): Promise<SearchHit[]> => []);
+  searchArticles = vi.fn(async (_q: string, _limit: number): Promise<SearchOutcome> => ({
+    items: [],
+    truncated: false,
+  }));
   indexArticles = vi.fn(async () => ({ indexed: 4 }));
 
   push(docs: { id: string; data: Record<string, unknown> }[]): void {
@@ -508,7 +511,9 @@ export class FakeReader {
   sweep = vi.fn(async () => 'Removed 0 old unread articles.');
   refresh = vi.fn(async () => 'Looked at 0 feeds: 0 new articles.');
   indexArticles = vi.fn(async () => 'Indexed 0 articles.');
-  search = vi.fn(async (_text: string) => [] as SearchHit[] | string);
+  search = vi.fn(
+    async (_text: string) => ({ items: [], truncated: false }) as SearchOutcome | string,
+  );
 }
 
 /** A stand-in for ItemsService (#162): nothing unread. */
