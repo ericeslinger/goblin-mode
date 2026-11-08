@@ -279,8 +279,9 @@ and `remind` adds a reminder linked to the project. Since 2026-11-08
 (#119) a question is its own note too, made as an idea is and listed
 by name under Open questions, so Eric can reply to it there (Eric,
 2026-10-10: decisions are dated lines on the project, open questions
-and ideas are separate notes under it). The repo skill `.claude/skills/garden-this`
-tells Claude Code to offer this at the end of a session. Text shared
+and ideas are separate notes under it). The repo skill
+`.claude/skills/garden-this` tells Claude Code to offer this at the
+end of a session. Text shared
 from another app (the manifest's `share_target`, GET to `/` with
 title, text and url) opens as a new note holding it. An idea's note
 and its line under Ideas are one transaction, so a retry never files
