@@ -3,7 +3,20 @@ import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
 import { DownloadPrefs, KEEP_CHOICES } from './download-prefs';
-import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.service';
+import { type DiscoveredFeed, type FeedRecord, ReaderService, cleanFolder } from './reader.service';
+
+/**
+ * What to say when a typed folder takes a special shelf's name (#185):
+ * the first such name and what it became, or nothing.
+ */
+export function renamedFolder(names: readonly string[]): string {
+  for (const name of names) {
+    const kept = cleanFolder(name);
+    if (kept !== name.trim())
+      return `A folder cannot be called '${name.trim()}'; it is in '${kept}'.`;
+  }
+  return '';
+}
 
 /**
  * Manage feeds (#159, step 1): the feeds followed, in folders, imported
@@ -109,6 +122,9 @@ import { type DiscoveredFeed, type FeedRecord, ReaderService } from './reader.se
           </li>
         }
       </ul>
+      @if (moved()) {
+        <p class="status" role="status">{{ moved() }}</p>
+      }
 
       <h2 id="import">Import feeds</h2>
       <p class="muted">
@@ -276,6 +292,8 @@ export class ReaderFeeds {
   protected readonly cap = FEED_CAP;
   protected readonly imported = signal('');
   protected readonly followed = signal('');
+  /** Said when a folder edit renamed a special name (#185). */
+  protected readonly moved = signal('');
   /** What Find feeds turned up (#174), to pick from. */
   protected readonly candidates = signal<DiscoveredFeed[]>([]);
   protected readonly finding = signal(false);
@@ -317,7 +335,14 @@ export class ReaderFeeds {
     }
     url.value = '';
     this.candidates.set([]);
-    this.followed.set('Following. Its name and articles arrive once the server has looked.');
+    this.followed.set(
+      [
+        'Following. Its name and articles arrive once the server has looked.',
+        renamedFolder([folder.value]),
+      ]
+        .filter(Boolean)
+        .join(' '),
+    );
   }
 
   /** Asks the server for the feeds at the pasted address (#174). */
@@ -352,7 +377,8 @@ export class ReaderFeeds {
   }
 
   protected followFound(found: DiscoveredFeed): void {
-    const folder = this.folderInput().nativeElement.value.trim();
+    const typed = this.folderInput().nativeElement.value;
+    const folder = cleanFolder(typed);
     const known = this.reader.followed(found.url);
     if (!this.reader.addFeed(found.url, folder, found.title)) {
       this.followed.set(`That is ${FEED_CAP} feeds already; remove one first.`);
@@ -361,9 +387,14 @@ export class ReaderFeeds {
     this.urlInput().nativeElement.value = '';
     this.candidates.set([]);
     this.followed.set(
-      known
-        ? `Already following ${known.title}${folder ? `; now in ${folder} too` : ''}.`
-        : `Following ${found.title}. Its articles arrive once the server has looked.`,
+      [
+        known
+          ? `Already following ${known.title}${folder ? `; now in ${folder} too` : ''}.`
+          : `Following ${found.title}. Its articles arrive once the server has looked.`,
+        renamedFolder([typed]),
+      ]
+        .filter(Boolean)
+        .join(' '),
     );
   }
 
@@ -378,7 +409,9 @@ export class ReaderFeeds {
   }
 
   protected move(feed: FeedRecord, value: string): void {
-    this.reader.setFolders(feed.id, value.split(','));
+    const names = value.split(',');
+    this.reader.setFolders(feed.id, names);
+    this.moved.set(renamedFolder(names));
   }
 
   protected meta(feed: FeedRecord): string {

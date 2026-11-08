@@ -1038,7 +1038,13 @@ repeats a feed that is in two collections, which is one feed in both;
 feeds already followed gain the file's folders; past `FEED_CAP`, 500,
 the rest are refused), a feed's folders edited in place as a
 comma-separated field, Remove, and Follow a feed by its link into a
-folder. Nothing here touches the network: the server fetches.
+folder. Nothing here touches the network: the server fetches. A folder
+named for a special shelf, All, Saved or Podcasts in any letter case
+(`RESERVED_FOLDERS`), is kept as "<name> (folder)" by `cleanFolder`
+wherever a name comes in (the file, Follow, the folders field), and
+the page says so; renamed rather than refused, so an import loses no
+feed (#185, 2026-11-07). Uncategorized stays a plain name: a folder
+called that holds the feeds in none too.
 
 **Step 2, the fetcher (#161, built 2026-11-07).** `feedsRefresh`
 (`onSchedule`, every 15 minutes) takes the feeds due (`nextFetchAt`

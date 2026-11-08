@@ -7,7 +7,8 @@ import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { FakeModules, FakeReaderApi, FakeSettingsApi, fakeFirebase } from '../testing/fakes';
-import { READER_API, ReaderService } from './reader.service';
+import { renamedFolder } from './reader-feeds';
+import { READER_API, ReaderService, cleanFolder } from './reader.service';
 
 const OPML = `<opml><body>
   <outline text="Design">
@@ -123,6 +124,49 @@ describe('ReaderService (#159)', () => {
     reader.removeFeed(id!);
     expect(api.remove).toHaveBeenCalledWith({}, `users/u1/feeds/${id}`);
     expect(reader.feeds()).toEqual([]);
+  });
+
+  it('renames a folder that takes a special shelf’s name, in any letter case (#185)', () => {
+    expect(cleanFolder(' saved ')).toBe('saved (folder)');
+    expect(cleanFolder('ALL')).toBe('ALL (folder)');
+    expect(cleanFolder('Podcasts')).toBe('Podcasts (folder)');
+    // Only the whole name; Uncategorized already means no folder.
+    expect(cleanFolder(' Saved games ')).toBe('Saved games');
+    expect(cleanFolder('Uncategorized')).toBe('Uncategorized');
+    expect(cleanFolder('saved (folder)')).toBe('saved (folder)');
+    expect(renamedFolder(['Games', ' saved'])).toBe(
+      "A folder cannot be called 'saved'; it is in 'saved (folder)'.",
+    );
+    expect(renamedFolder(['Games', ''])).toBe('');
+  });
+
+  it('keeps a special name from a folder when following, moving or importing (#185)', () => {
+    const { reader, api } = setup();
+    api.push([]);
+    const id = reader.addFeed('https://dice.example/feed', ' All ');
+    expect(api.set.mock.lastCall![2]).toMatchObject({ folders: ['All (folder)'] });
+    // Known already: the renamed folder is the one it is in.
+    reader.addFeed('https://dice.example/feed', 'all');
+    expect(api.set.mock.lastCall![2]).toMatchObject({ folders: ['All (folder)', 'all (folder)'] });
+    // Renamed, then once: the name already kept is not a second folder.
+    reader.setFolders(id!, [' Podcasts', 'Games', 'Podcasts (folder)']);
+    expect(api.set.mock.lastCall![2]).toEqual({
+      folders: ['Podcasts (folder)', 'Games'],
+      updatedAt: 'SERVER_TIME',
+    });
+    expect(reader.folderNames()).toEqual(['Games', 'Podcasts (folder)']);
+    // An outline named Saved: the feed is kept, in Saved (folder).
+    const opml = OPML.replace('"Design"', '"Saved"');
+    expect(reader.importOpml(opml)).toEqual({ added: 1, known: 1, refused: 0 });
+    const kottke = feedId('https://kottke.org/main/index.xml');
+    expect(api.set.mock.calls.find((c) => c[1] === `users/u1/feeds/${kottke}`)![2]).toMatchObject({
+      folders: ['Saved (folder)', 'Games'],
+    });
+    // Again: known, and no folder to add, so nothing is written.
+    const writes = api.set.mock.calls.length;
+    expect(reader.importOpml(opml)).toEqual({ added: 0, known: 2, refused: 0 });
+    expect(api.set).toHaveBeenCalledTimes(writes);
+    expect(reader.folderNames()).toEqual(['Games', 'Podcasts (folder)', 'Saved (folder)']);
   });
 
   it('refreshes through the server and says what came of it, or why not', async () => {
