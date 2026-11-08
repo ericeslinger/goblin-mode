@@ -1931,11 +1931,11 @@ export class NotesTools {
 
   /**
    * Files something said in a chat under a project (#42), keeping the
-   * words verbatim. An idea becomes its own note, a summary line marked
-   * as Claude's above the words and the source below, listed under the
-   * project's Ideas; a decision is a dated line under Decisions; a
-   * question a line under Open questions. `remind` adds a reminder
-   * linked to the project.
+   * words verbatim. An idea or a question becomes its own note, a
+   * summary line marked as Claude's above the words and the source
+   * below, listed under the project's Ideas or Open questions (#119),
+   * so Eric can reply to it; a decision is a dated line under
+   * Decisions. `remind` adds a reminder linked to the project.
    */
   async capture(args: {
     project: string;
@@ -1957,8 +1957,8 @@ export class NotesTools {
       throw new ToolError(`no project ${args.project}; list_concepts with type project names them`);
     const projectTitle = String(project['title'] ?? '');
     const done: Data = { project: { id: projectId, title: projectTitle } };
-    const lines = text.split('\n');
-    if (args.kind === 'idea') {
+    if (args.kind === 'idea' || args.kind === 'question') {
+      const heading = args.kind === 'idea' ? 'Ideas' : 'Open questions';
       // Brackets, bars and line breaks would break the [[link]] to it.
       const summary = args.summary
         ?.replace(/\[\[|\]\]|[[\]|]/g, '')
@@ -1969,7 +1969,7 @@ export class NotesTools {
         firstWordsTitle(text)
           .replace(/[[\]|]/g, '')
           .trim() ||
-        'Idea';
+        (args.kind === 'idea' ? 'Idea' : 'Question');
       let title = base;
       for (let n = 1; index.has(normalizeName(title)); n++) {
         title = `${base} (${this.today(args.timeZone)}${n > 1 ? ` ${n}` : ''})`;
@@ -1995,15 +1995,15 @@ export class NotesTools {
         updatedAt: now,
         ...this.by(),
       });
-      // The note and its line under Ideas land together, or neither does,
-      // so a retry never makes a second copy (review on #97).
+      // The note and its line under the heading land together, or neither
+      // does, so a retry never makes a second copy (review on #97).
       const names = new Map(index).set(normalizeName(title), id);
       await this.editBody(
         projectId,
         'capture',
         (current) => ({
-          body: addLines(current, [`- [[${title}]]`], 'Ideas'),
-          summary: `Gardened an idea under ${projectTitle}: ${title}`,
+          body: addLines(current, [`- [[${title}]]`], heading),
+          summary: `Gardened ${args.kind === 'idea' ? 'an idea' : 'a question'} under ${projectTitle}: ${title}`,
         }),
         {
           names,
@@ -2014,14 +2014,10 @@ export class NotesTools {
         },
       );
       done['note'] = { id, title };
-    } else if (args.kind === 'decision') {
-      const [first, ...rest] = lines;
+    } else {
+      const [first, ...rest] = text.split('\n');
       const dated = [`- ${this.today(args.timeZone)}: ${first}`, ...rest.map((l) => `  ${l}`)];
       await this.addLines({ id: projectId, lines: dated, heading: 'Decisions' });
-    } else {
-      const [first, ...rest] = lines;
-      const listed = [`- ${first}`, ...rest.map((l) => `  ${l}`)];
-      await this.addLines({ id: projectId, lines: listed, heading: 'Open questions' });
     }
     if (args.remind) {
       // Filed already: a reminder that fails is said, not thrown, so a

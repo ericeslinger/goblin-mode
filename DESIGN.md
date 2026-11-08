@@ -275,8 +275,11 @@ words under a project, verbatim. An idea becomes its own note: Claude's
 one-line summary marked `✳ Claude:`, the words, the source link, and
 `Part of [[Project]]`, listed under the project's Ideas by name (a
 taken name gets the date). A decision is a dated line under Decisions,
-a question a line under Open questions, and `remind` adds a reminder
-linked to the project. The repo skill `.claude/skills/garden-this`
+and `remind` adds a reminder linked to the project. Since 2026-11-08
+(#119) a question is its own note too, made as an idea is and listed
+by name under Open questions, so Eric can reply to it there (Eric,
+2026-10-10: decisions are dated lines on the project, open questions
+and ideas are separate notes under it). The repo skill `.claude/skills/garden-this`
 tells Claude Code to offer this at the end of a session. Text shared
 from another app (the manifest's `share_target`, GET to `/` with
 title, text and url) opens as a new note holding it. An idea's note
@@ -2001,7 +2004,7 @@ it, one backticked tool name per row.
 | `add_lines` | Adds lines under a heading, without rewriting the body | Safe co-editing (#37) |
 | `check_item` | Ticks a checklist item, by its text | Safe co-editing (#37) |
 | `uncheck_item` | Unticks a checklist item, by its text | Safe co-editing (#37) |
-| `capture` | Files chat words under a project, verbatim ("garden this") | Garden this (#42) |
+| `capture` | Files chat words under a project, verbatim ("garden this"): an idea or question as its own note, a decision as a dated line | Garden this (#42, #119) |
 | `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
 | `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a `tag` (a Feedly board, #176) narrows any of these, and an article carries its `tags`; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179) | The Reader, step 4 (#163), Feedly's export (#176) |

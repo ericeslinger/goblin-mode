@@ -63,8 +63,9 @@ export const INSTRUCTIONS = [
     'words), llm (a title the server gave it) or user (Eric set it; you cannot change it).',
   'When Eric says "garden this": find the project with list_concepts, then list the candidate ' +
     'decisions, ideas and questions and file nothing without his yes. Call capture once per ' +
-    'item, his words verbatim, ideas with your one-line summary, with timeZone and source (the ' +
-    'chat link). Then say what was filed, one line each.',
+    'item, his words verbatim, ideas and questions with your one-line summary (each becomes ' +
+    'its own note under the project; a decision is a dated line on it), with timeZone and ' +
+    'source (the chat link). Then say what was filed, one line each.',
   'Eric can send a note to you from the app (Send to an assistant), with an ask or none. ' +
     'list_queue shows what waits, oldest first. For each: read it with get_note, do what he ' +
     'asked, or with no ask file it (link, tag or refile it, keeping his words), then call ' +
@@ -672,9 +673,9 @@ export function buildServer(
       title: 'Garden this',
       description:
         'When Eric says "garden this" (or asks to file something from the chat): file his words ' +
-        'under a project, word for word. kind idea: a new note with your one-line summary above ' +
-        "his words, listed under the project's Ideas. kind decision: a dated line under " +
-        "Decisions. kind question: a line under Open questions. Pass the chat's link as source " +
+        'under a project, word for word. kind idea or question: a new note with your one-line ' +
+        "summary above his words, listed under the project's Ideas or Open questions, so he can " +
+        "reply to it. kind decision: a dated line under Decisions. Pass the chat's link as source " +
         'when there is one, his time zone for the date, and remind for "remind me". Never ' +
         'reword text: summarize only in summary. The project is an id or a name.',
       inputSchema: {

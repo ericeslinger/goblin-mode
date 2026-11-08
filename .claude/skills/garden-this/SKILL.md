@@ -15,7 +15,11 @@ Follow them; they are not repeated here.
 
 - For this repository the project is `mossgoblin` (`c-mossgoblin`).
 - At the end of a working session, offer once, in one line, to garden
-  the decisions and ideas from it. File nothing without a yes.
+  the decisions, ideas and open questions from it. File nothing without
+  a yes.
+- An idea or an open question becomes its own note under the project,
+  with your one-line `summary`, so Eric can reply to it there; a
+  decision is a dated line on the project page (#119).
 - Set `source` to the PR or session link when there is one.
 - Never file secrets, tokens or anything from `.env` files.
 - A project's stages and item tags, and where each item stands, are
