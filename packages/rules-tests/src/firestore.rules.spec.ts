@@ -486,6 +486,22 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     await assertSucceeds(ref.set({ saved: true, updatedAt: now() }, { merge: true }));
   });
 
+  it('still takes other marks on an item already stamped ahead of the server (#190)', async () => {
+    const path = 'users/owner/feedItems/f-1-pod';
+    const ref = owner().doc(path);
+    const ahead = (ms: number) => firebase.firestore.Timestamp.fromMillis(Date.now() + ms);
+    // Written by a fast clock before the ahead check was deployed.
+    await seed(path, { ...item(), position: 300, playedAt: ahead(600_000) });
+    await assertSucceeds(ref.set({ saved: true, updatedAt: now() }, { merge: true }));
+    await assertSucceeds(
+      ref.set({ played: true, read: true, readAt: now(), updatedAt: now() }, { merge: true }),
+    );
+    // A write that sets playedAt ten minutes ahead is still refused.
+    await assertFails(
+      ref.set({ position: 310, playedAt: ahead(660_000), updatedAt: now() }, { merge: true }),
+    );
+  });
+
   it('keeps the Reader’s settings to their shape', async () => {
     const ref = owner().doc('users/owner/settings/reader');
     await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));
