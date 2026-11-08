@@ -1,5 +1,5 @@
 import { FieldPath, FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
-import { paths } from '@mossgoblin/schema';
+import { matchesSearch, paths } from '@mossgoblin/schema';
 import {
   CLAIM_MS,
   type DueFeed,
@@ -8,6 +8,7 @@ import {
   type RefreshStore,
   monthsAfter,
 } from './refresh';
+import { queryTerms, rarestTerm, termsOfItem } from './terms';
 
 const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
@@ -238,6 +239,215 @@ export async function sweepOld(
       removed += docs.length;
     }
     if (snap.size < pageSize) return removed;
+    after = snap.docs[snap.docs.length - 1];
+  }
+}
+
+/** Documents a search page reads from the index (#175). */
+export const SEARCH_PAGE = 50;
+/** Pages a search reads at most before it settles for what it found. */
+export const SEARCH_PAGES = 5;
+/** The window the scan reads when there is no index to ask (#175), as search did before it. */
+export const SCAN_DAYS = 30;
+/** Articles the scan reads at most, newest first (review on #197: a miss stays cheap). */
+export const SCAN_MAX = 500;
+
+/**
+ * The server's own note on the word index (review on #197), beside the
+ * day's usage records: `indexedAt` once a run of `indexItems` went
+ * through every article, so every one stored has its terms. No rule
+ * allows the owner this path (nor any under `usage`).
+ */
+export const indexStatePath = (uid: string) => paths.usage(uid, 'reader');
+
+/** Whether a run of `indexItems` has gone through every article (`indexedAt` set). */
+async function fullyIndexed(db: Firestore, uid: string): Promise<boolean> {
+  const doc = await db.doc(indexStatePath(uid)).get();
+  return doc.data()?.['indexedAt'] instanceof Timestamp;
+}
+
+/** An article search found: its id and stored fields. */
+export interface FoundItem {
+  id: string;
+  data: FirebaseFirestore.DocumentData;
+}
+
+/**
+ * What a search found (#175), and whether it stopped before it had
+ * looked at everything that might match: five pages of the index read,
+ * or the scan's two thousand, with more behind them.
+ */
+export interface SearchResult {
+  items: FoundItem[];
+  truncated: boolean;
+}
+
+/** A query the index cannot answer yet: its composite index is still building, or not deployed. */
+const noIndex = (err: unknown) =>
+  (err as { code?: unknown } | null)?.code === 9 ||
+  /FAILED_PRECONDITION/.test(String((err as { message?: unknown } | null)?.message ?? err));
+
+/**
+ * Articles holding every term of `query` (#175), newest first, across
+ * every one stored, by the word index: the longest term (`rarestTerm`,
+ * the guess at the rarest, as there is no table of frequencies) is
+ * asked for with `array-contains`, ordered by `published` desc, fifty
+ * a page, and each document's own `terms` are checked for the rest,
+ * until `limit` are found or five pages are read (`truncated` when
+ * more were left); so a search over years costs a handful of reads.
+ * `before` and `since` (millis) bound `published`.
+ *
+ * The scan stands in where the index cannot answer (review on #197):
+ * a query of only stop words has no terms; before the composite index
+ * exists the query fails with FAILED_PRECONDITION; and articles stored
+ * before the index have no `terms` until `indexItems` runs, so when
+ * the index finds nothing the last thirty days (or from `since`) are
+ * also matched word by word (`matchesSearch`), as search did before,
+ * and merged, so a freshly deployed app still finds recent articles.
+ * That last scan runs only until a run of `indexItems` has gone
+ * through every article (`indexedAt`, one read to know); after it a
+ * miss is the index's few reads. The scan reads at most 500.
+ */
+export async function searchItems(
+  db: Firestore,
+  uid: string,
+  query: string,
+  options: { limit?: number; before?: number; since?: number; now?: number } = {},
+): Promise<SearchResult> {
+  const terms = queryTerms(query);
+  const key = rarestTerm(terms);
+  const limit = Math.max(1, options.limit ?? 20);
+  if (!key) return scanItems(db, uid, query, limit, options);
+  let indexed: SearchResult;
+  try {
+    indexed = await indexSearch(db, uid, key, terms, limit, options);
+  } catch (err) {
+    if (!noIndex(err)) throw err;
+    return scanItems(db, uid, query, limit, options);
+  }
+  if (indexed.items.length || (await fullyIndexed(db, uid))) return indexed;
+  const scanned = await scanItems(db, uid, query, limit, options);
+  const seen = new Set<string>();
+  const items = [...indexed.items, ...scanned.items]
+    .filter((f) => !seen.has(f.id) && seen.add(f.id))
+    .sort((a, b) => publishedOf(b.data) - publishedOf(a.data))
+    .slice(0, limit);
+  return { items, truncated: indexed.truncated || scanned.truncated };
+}
+
+const publishedOf = (d: FirebaseFirestore.DocumentData) =>
+  d['published'] instanceof Timestamp ? d['published'].toMillis() : 0;
+
+async function indexSearch(
+  db: Firestore,
+  uid: string,
+  key: string,
+  terms: string[],
+  limit: number,
+  options: { before?: number; since?: number },
+): Promise<SearchResult> {
+  const rest = terms.filter((t) => t !== key);
+  let base = db
+    .collection(paths.feedItems(uid))
+    .where('terms', 'array-contains', key)
+    .orderBy('published', 'desc');
+  if (options.before !== undefined) {
+    base = base.where('published', '<', Timestamp.fromMillis(options.before));
+  }
+  if (options.since !== undefined) {
+    base = base.where('published', '>=', Timestamp.fromMillis(options.since));
+  }
+  const items: FoundItem[] = [];
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  for (let page = 0; page < SEARCH_PAGES; page++) {
+    const snap = await (after ? base.startAfter(after) : base).limit(SEARCH_PAGE).get();
+    for (const d of snap.docs) {
+      const have = d.get('terms');
+      if (!Array.isArray(have) || !rest.every((t) => have.includes(t))) continue;
+      items.push({ id: d.id, data: d.data() });
+      if (items.length >= limit) return { items, truncated: false };
+    }
+    if (snap.size < SEARCH_PAGE) return { items, truncated: false };
+    after = snap.docs[snap.docs.length - 1];
+  }
+  // Five full pages read and more behind them: older ones were not all looked at.
+  return { items, truncated: true };
+}
+
+/** The last thirty days (or from `since`), newest first, matched word by word as search did before #175. */
+async function scanItems(
+  db: Firestore,
+  uid: string,
+  query: string,
+  limit: number,
+  options: { before?: number; since?: number; now?: number },
+): Promise<SearchResult> {
+  const since = options.since ?? (options.now ?? Date.now()) - SCAN_DAYS * 86_400_000;
+  let q = db
+    .collection(paths.feedItems(uid))
+    .where('published', '>=', Timestamp.fromMillis(since))
+    .orderBy('published', 'desc');
+  if (options.before !== undefined) {
+    q = q.where('published', '<', Timestamp.fromMillis(options.before));
+  }
+  const snap = await q.limit(SCAN_MAX).get();
+  const items: FoundItem[] = [];
+  for (const d of snap.docs) {
+    const data = d.data();
+    const body = String(data['readerContent'] || data['content'] || '');
+    if (!matchesSearch({ title: String(data['title'] ?? ''), body }, query)) continue;
+    items.push({ id: d.id, data });
+    if (items.length >= limit) return { items, truncated: false };
+  }
+  return { items, truncated: snap.size >= SCAN_MAX };
+}
+
+/**
+ * The word index for the articles already stored (#175): `terms` set
+ * on each whose terms are missing or not what its title and text give
+ * now (reader mode's text included), in pages by document id, as
+ * `applyRetention` pages. Returns how many were written. A run that
+ * reaches the end notes `indexedAt` (`indexStatePath`): every article
+ * stored now has its terms, and the fetcher and reader mode write them
+ * from then on, so search stops scanning on a miss (review on #197).
+ */
+export async function indexItems(db: Firestore, uid: string, pageSize = 400): Promise<number> {
+  let indexed = 0;
+  const done = async () => {
+    await db
+      .doc(indexStatePath(uid))
+      .set({ indexedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return indexed;
+  };
+  let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let query = db
+      .collection(paths.feedItems(uid))
+      .orderBy(FieldPath.documentId())
+      .select('title', 'content', 'readerContent', 'terms')
+      .limit(pageSize);
+    if (after) query = query.startAfter(after);
+    const snap = await query.get();
+    if (snap.empty) return done();
+    const batch = db.batch();
+    let writes = 0;
+    for (const d of snap.docs) {
+      const data = d.data();
+      const want = termsOfItem(data);
+      const have = data['terms'];
+      if (
+        Array.isArray(have) &&
+        have.length === want.length &&
+        have.every((t, i) => t === want[i])
+      ) {
+        continue;
+      }
+      batch.update(d.ref, { terms: want });
+      writes++;
+    }
+    if (writes) await batch.commit();
+    indexed += writes;
+    if (snap.size < pageSize) return done();
     after = snap.docs[snap.docs.length - 1];
   }
 }

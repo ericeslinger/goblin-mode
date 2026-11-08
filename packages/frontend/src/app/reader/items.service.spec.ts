@@ -113,6 +113,29 @@ describe('ItemsService (#162)', () => {
     expect(items.items().map((i) => i.id)).toEqual(['a', 'b', 'c', 'r', 's']);
   });
 
+  it('opens an article no shelf holds, one a search found, without counting it (#175)', () => {
+    const { items, api } = setup();
+    api.push('unread', [item('a', 'f1', 1)]);
+    items.open('a');
+    expect(api.listenOne).not.toHaveBeenCalled();
+    expect(items.find('old')).toBeUndefined();
+    items.open('old');
+    items.open('old');
+    expect(api.listenOne).toHaveBeenCalledTimes(1);
+    expect(api.listenOne.mock.calls[0][1]).toBe('users/u1/feedItems/old');
+    api.pushOne('users/u1/feedItems/old', item('old', 'f1', 9000, { read: true }).data);
+    expect(items.find('old')?.title).toBe('Article old');
+    expect(items.unreadCounts()[ALL]).toBe(1);
+    expect(items.inShelf({ kind: 'folder', name: ALL }, true).map((i) => i.id)).toEqual(['a']);
+    // A mark shows at once; the document's echo takes over.
+    items.setRead('old', false);
+    expect(items.find('old')?.read).toBe(false);
+    api.pushOne('users/u1/feedItems/old', item('old', 'f1', 9000, { read: false }).data);
+    expect(items.find('old')?.read).toBe(false);
+    api.pushOne('users/u1/feedItems/old', undefined);
+    expect(items.find('old')).toBeUndefined();
+  });
+
   it('shows a shelf: a folder, All, Saved, one feed, read ones only when asked', () => {
     const { items, api } = setup();
     api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2), item('c', 'f3', 3)]);

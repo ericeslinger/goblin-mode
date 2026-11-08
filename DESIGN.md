@@ -1264,6 +1264,63 @@ paths resolve against the address as pasted, since `publicRequest` does
 not say where its redirects ended, so a site that redirects to another
 host can come back with no feed found.
 
+**Search over every article (#175, 2026-11-07).** Search was a scan
+of the last thirty days; it now reaches every article stored, for a
+handful of reads, through a word index on the item. The fetcher writes
+`terms` (`FeedItem.terms`, a schema field the owner's update rule never
+lets the app touch; a rules test says so): `termsOf` in
+`reader/terms.ts`, pure, takes the title's words then the content's,
+lowercased and NFC-normalised, runs of letters and digits (accents are
+letters), link targets and addresses left out, two to forty
+characters, no English stop words, each lightly stemmed by hand (a
+plural's s or es, -ies to y, -ed and -ing with their doubled consonant
+undone, a final e dropped, so "glaze", "glazes", "glazed" and
+"glazing" are one term; words of three letters or fewer and anything
+with a digit are left alone), distinct, first seen first, at most two
+hundred, so a long article's later words are not indexed. Reader mode
+writes the terms again when it keeps the page's text (title, the
+page's text, then the feed's). `searchItems` (`firestore-store.ts`)
+reads a query the same way, asks for its longest term, the guess at
+the rarest since there is no table of frequencies, with
+`array-contains` ordered by `published desc` (a composite index,
+`terms` contains, `published desc`), fifty a page, checks each
+document's `terms` for the rest, and stops at the limit or after five
+pages. The app's Search articles, on the Reader's front, calls
+`searchArticles` (`onCall`, signed in, five hundred a day per
+gardener, `searches` in the usage record; a search reads at most 250
+documents from the index, plus one for the index's state and up to
+500 from the scan below while the index may be incomplete) and lists what came back, title, feed and age,
+each linking to the article, or "Nothing found."; it is the one path,
+so the shelves on the device are not searched apart, and it needs the
+network. An article found that no shelf holds (read long ago, past the
+two hundred kept at hand) opens through a listener on its one
+document (`ItemsService.open`, at most twenty), never counted on a
+shelf. `search_feed_items` uses the same index across every article,
+the last `days` only when asked, which changes step 4's thirty-day
+default (2026-11-07); a query of only stop words has no terms, and
+falls back to the thirty-day scan word by word. Articles stored before
+the index have no terms until Settings, Reader, Index articles for
+search calls `indexArticles` (`onCall`, once a day per gardener,
+`indexRuns` in the usage record, given back when the run fails),
+which writes `terms` where they are missing or not what the item's
+text gives now, in pages by document id as retention does, and says
+"Indexed 12 articles." After deploy, press Index articles for search
+once so the older articles join the index. While the composite
+index is still building (the query fails with FAILED_PRECONDITION),
+search falls back to the thirty-day scan word by word, at most 500
+articles; and until a run of Index articles for search has gone
+through every article, a search the index finds nothing for runs
+that scan too and merges it, by id, so recent articles are found from
+the first day (review on #197). That run's end is kept as `indexedAt`
+in `usage/reader`, the server's own (no rule lets the app read or
+write under `usage`); from then on a miss costs the index's reads
+and that one. A search that read its five pages with more behind
+them says so: `truncated` on `searchArticles`, where the front says
+"Nothing found in the newest articles; older ones were not searched."
+or, under what it found, "Older articles were not all searched.", and
+`search_feed_items` answers `{ items, truncated: true }` instead of
+its list.
+
 **Podcasts, step 1: episodes in the data (#178, epic #177,
 2026-11-07).** An episode is a feed item with an audio enclosure, not
 a new kind of document. `parseFeed` reads RSS `<enclosure>`, Atom
@@ -1880,7 +1937,7 @@ it, one backticked tool name per row.
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
 | `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179) | The Reader, step 4 (#163) |
 | `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179) | The Reader, step 4 (#163) |
-| `search_feed_items` | Articles holding every word of a query, the last 30 days by default, with snippets (and an episode's `enclosure`, #178) | The Reader, step 4 (#163) |
+| `search_feed_items` | Articles holding every word of a query, with snippets (and an episode's `enclosure`, #178): across every article by the word index, the last `days` only when asked (#175; a query of only stop words, or one the index finds nothing for, scans the last 30 days; `{ items, truncated: true }` when older ones were not all searched, review on #197) | The Reader, step 4 (#163); the index (#175) |
 | `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |
 | `search_attachments` | Full-text search across every PDF and saved page | Attachment text, server half (#45) |

@@ -103,6 +103,8 @@ import { screenRecipe } from '../kitchen/screen';
 import { randomFillSync } from 'node:crypto';
 import type { RawProposal } from '../organize/proposals';
 import { storeSuggestions } from '../organize/store';
+import { searchItems } from '../reader/firestore-store';
+import { queryTerms } from '../reader/terms';
 import { addLines, setItem } from './lines';
 import { cutsOf, joined } from './verbatim';
 
@@ -2258,33 +2260,44 @@ export class NotesTools {
     };
   }
 
-  /** Articles whose title or text hold every word of a query (#163), the last `days` (30), newest first. */
+  /**
+   * Articles whose title or text hold every word of a query (#163),
+   * newest first. Across every article stored, by the word index
+   * (#175, `searchItems`): only the last `days` when asked. Where the
+   * index cannot answer (only stop words, the index not built yet, or
+   * nothing indexed matches) the last `days` (30) are matched word by
+   * word too, as before. When the index stopped with older articles
+   * unread, the result is `{ items, truncated: true }` rather than the
+   * list (review on #197).
+   */
   async searchFeedItems(args: { query: string; days?: number; limit?: number }) {
     const words = args.query.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) throw new ToolError('query must have a word');
-    const days = Math.min(Math.max(1, args.days ?? 30), 365);
-    const since = Timestamp.fromMillis(this.now() - days * 86_400_000);
-    const snap = await this.feedItems()
-      .where('published', '>=', since)
-      .orderBy('published', 'desc')
-      .limit(2000)
-      .get();
-    const feeds = await this.feedIndex();
     const limit = Math.min(Math.max(1, args.limit ?? 10), 50);
-    const found: Data[] = [];
-    for (const d of snap.docs) {
-      if (found.length >= limit) break;
-      const data = d.data();
+    const terms = queryTerms(args.query);
+    const feeds = await this.feedIndex();
+    const hit = (id: string, data: Data) => {
       const text = String(data['readerContent'] || data['content'] || '');
-      if (!matchesSearch({ title: String(data['title'] ?? ''), body: text }, args.query)) continue;
-      const at = Math.max(0, text.toLowerCase().indexOf(words[0]));
+      const lower = text.toLowerCase();
+      // Where the first word shows; a stem when the word itself does not.
+      const at = [...words, ...terms].map((w) => lower.indexOf(w)).find((i) => i >= 0) ?? 0;
       const snippet = text
         .slice(Math.max(0, at - 120), at + 200)
         .replace(/\s+/g, ' ')
         .trim();
-      found.push({ ...feedItemView(d.id, data, feeds), snippet });
-    }
-    return found;
+      return { ...feedItemView(id, data, feeds), snippet };
+    };
+    const since =
+      args.days === undefined
+        ? undefined
+        : this.now() - Math.min(Math.max(1, args.days), 365) * 86_400_000;
+    const found = await searchItems(this.db, this.uid, args.query, {
+      limit,
+      since,
+      now: this.now(),
+    });
+    const items = found.items.map((f) => hit(f.id, f.data));
+    return found.truncated ? { items, truncated: true } : items;
   }
 
   /**

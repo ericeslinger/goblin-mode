@@ -7,6 +7,7 @@
 import { FEED_CAP, feedItemId } from '@mossgoblin/schema';
 import { type Enclosure, parseFeed } from './feed-parse';
 import { CONTENT_MAX, htmlToMarkdown, summaryOf } from './markdown';
+import { termsOf } from './terms';
 
 /** Minutes between looks: no sooner than this, no later than a day. */
 export const INTERVAL_MIN = 30;
@@ -75,6 +76,8 @@ export interface NewItem {
   enclosure?: Enclosure;
   image?: string;
   episode?: number;
+  /** The word index (#175): the title's and content's terms, for search. */
+  terms: string[];
 }
 
 /** What a look at a feed changes on it; times in milliseconds, null clears. */
@@ -227,10 +230,11 @@ export async function refreshFeed(
   items.forEach((item, n) => {
     if (known.has(ids[n])) return;
     const content = htmlToMarkdown(item.html, item.link || feed.url).slice(0, CONTENT_MAX + 3);
+    const title = item.title || hostOf(item.link || feed.url);
     fresh.push({
       id: ids[n],
       feedId: feed.id,
-      title: item.title || hostOf(item.link || feed.url),
+      title,
       link: item.link,
       ...(item.author ? { author: item.author.slice(0, 200) } : {}),
       published: item.published,
@@ -240,6 +244,7 @@ export async function refreshFeed(
       ...(item.enclosure ? { enclosure: item.enclosure } : {}),
       ...(item.image ? { image: item.image } : {}),
       ...(item.episode === undefined ? {} : { episode: item.episode }),
+      terms: termsOf(title, content),
     });
   });
   if (fresh.length) await store.writeItems(feed.uid, fresh);

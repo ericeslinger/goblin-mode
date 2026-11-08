@@ -69,6 +69,8 @@ describe('refreshFeed (#161)', () => {
         published: NOW - H,
         summary: 'Hi there',
         content: 'Hi *there*',
+        // The word index (#175): the title's and the text's, never the hidden "secret".
+        terms: ['new', 'hi'],
       },
     ]);
     expect(s.updateFeed).toHaveBeenCalledWith('u1', 'f-1', {

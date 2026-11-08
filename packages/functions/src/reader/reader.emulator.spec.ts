@@ -1,8 +1,9 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { applyRetention, sweepOld } from './firestore-store';
+import { applyRetention, indexItems, searchItems, sweepOld } from './firestore-store';
 import { monthsAfter } from './refresh';
+import { termsOf } from './terms';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id so it never touches journey or rules-test data.
@@ -76,5 +77,74 @@ describe('retention (#171)', () => {
     expect(left).toEqual(['old-filed', 'old-read', 'old-saved', 'recent']);
     expect(left).not.toContain('older');
     expect(await sweepOld(db, 'u1', NOW - 90 * DAY)).toBe(0);
+  });
+});
+
+describe('the word index (#175)', () => {
+  const indexed = (id: string, daysAgo: number, title: string, content: string) =>
+    article(id, daysAgo, { title, content, terms: termsOf(title, content) });
+
+  it('finds every article holding all the words, newest first, across pages', async () => {
+    // Older than any date window: a search covers every one stored.
+    await indexed('chairs-old', 900, 'Three chairs', 'Bentwood chairs, steamed.');
+    await indexed('chairs', 2, 'Three chairs', 'A look at three chairs worth sitting in.');
+    await indexed('chair-glaze', 1, 'A glazed chair', 'Celadon on a chair.');
+    await indexed('glazes', 3, 'Celadon glazes', 'Iron in a reduction firing.');
+    expect((await searchItems(db, 'u1', 'chairs')).items.map((f) => f.id)).toEqual([
+      'chair-glaze',
+      'chairs',
+      'chairs-old',
+    ]);
+    expect((await searchItems(db, 'u1', 'celadon GLAZING')).items.map((f) => f.id)).toEqual([
+      'chair-glaze',
+      'glazes',
+    ]);
+    expect((await searchItems(db, 'u1', 'chair celadon')).items.map((f) => f.id)).toEqual([
+      'chair-glaze',
+    ]);
+    expect(await searchItems(db, 'u1', 'the of', { now: NOW })).toEqual({
+      items: [],
+      truncated: false,
+    });
+    expect((await searchItems(db, 'u1', 'chairs', { limit: 1 })).items.map((f) => f.id)).toEqual([
+      'chair-glaze',
+    ]);
+    expect(
+      (await searchItems(db, 'u1', 'chairs', { since: NOW - 10 * DAY })).items.map((f) => f.id),
+    ).toEqual(['chair-glaze', 'chairs']);
+    expect(
+      (await searchItems(db, 'u1', 'chairs', { before: NOW - 2 * DAY })).items.map((f) => f.id),
+    ).toEqual(['chairs-old']);
+  });
+
+  it('reads past a page of near misses to the matches behind it', async () => {
+    // Sixty newer articles hold the asked-for (longest) term but not the other.
+    for (let i = 0; i < 60; i++) await indexed(`kiln-${i}`, 1, `Kilnworks ${i}`, 'Bricks.');
+    await indexed('match', 5, 'Kilnworks', 'Celadon in the kiln.');
+    expect((await searchItems(db, 'u1', 'kilnworks celadon')).items.map((f) => f.id)).toEqual([
+      'match',
+    ]);
+  });
+
+  it('indexes the articles stored before it, and those out of date, once', async () => {
+    await article('bare', 10, { title: 'Celadon glazes', content: 'Iron and ash.' });
+    await article('stale', 10, {
+      title: 'Kilns',
+      content: 'feed text',
+      readerContent: 'The full essay',
+      terms: ['kiln', 'feed', 'text'],
+    });
+    await indexed('fresh', 10, 'Chairs', 'Bentwood');
+    const state = async () => (await db.doc('users/u1/usage/reader').get()).data()?.['indexedAt'];
+    expect(await state()).toBeUndefined();
+    expect(await indexItems(db, 'u1', 2)).toBe(2);
+    // The run went through every article: search stops scanning on a miss (review on #197).
+    expect(await state()).toBeInstanceOf(Timestamp);
+    const terms = async (id: string) =>
+      (await db.doc(`users/u1/feedItems/${id}`).get()).data()?.['terms'];
+    expect(await terms('bare')).toEqual(['celadon', 'glaz', 'iron', 'ash']);
+    expect(await terms('stale')).toEqual(['kiln', 'full', 'essay', 'feed', 'text']);
+    expect(await indexItems(db, 'u1')).toBe(0);
+    expect((await searchItems(db, 'u1', 'essay')).items.map((f) => f.id)).toEqual(['stale']);
   });
 });

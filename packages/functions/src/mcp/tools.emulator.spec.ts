@@ -2,6 +2,7 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ImportedRecipe } from '../kitchen/recipe-import';
+import { termsOf } from '../reader/terms';
 import { NotesTools, ToolError } from './tools';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
@@ -1272,5 +1273,63 @@ describe('line tools', () => {
     expect(text).toContain('- [x] apples');
     expect(text).toContain('- [ ] rice\n- [ ] oats');
     expect(text).toContain('## Butcher\n- [ ] chicken');
+  });
+});
+
+describe('search_feed_items (#175)', () => {
+  const DAY = 86_400_000;
+  async function item(id: string, daysAgo: number, title: string, content: string, idx = true) {
+    await db.doc(`users/u1/feedItems/${id}`).set({
+      feedId: 'f-1',
+      title,
+      link: `https://design.invalid/${id}`,
+      published: Timestamp.fromMillis(T - daysAgo * DAY),
+      summary: content.slice(0, 40),
+      content,
+      read: false,
+      saved: false,
+      ...(idx ? { terms: termsOf(title, content) } : {}),
+      createdAt: Timestamp.fromMillis(T),
+      updatedAt: Timestamp.fromMillis(T),
+    });
+  }
+
+  it('searches every article by the word index, labelled as web content', async () => {
+    await db
+      .doc('users/u1/feeds/f-1')
+      .set({ url: 'https://feeds.invalid/d.xml', title: 'Design notes', folders: [] });
+    await item('old', 400, 'Celadon glazes', 'Iron in a reduction firing turns celadon green.');
+    await item('new', 2, 'Three chairs', 'A look at three chairs worth sitting in.');
+    await item('unindexed', 1, 'More celadon', 'Not indexed yet.', false);
+    const hits = (await tools().searchFeedItems({ query: 'Celadon glaze' })) as {
+      id: string;
+      fromWeb: string;
+      feed: string;
+      snippet: string;
+    }[];
+    // A year old and more: no date window unless asked.
+    expect(hits.map((h) => h.id)).toEqual(['old']);
+    expect(hits[0].fromWeb).toContain('content from the web');
+    expect(hits[0].feed).toBe('Design notes');
+    expect(hits[0].snippet).toContain('celadon green');
+    // Nothing indexed in the window: the last days, word by word, find
+    // what is not indexed yet (review on #197).
+    expect(
+      ((await tools().searchFeedItems({ query: 'celadon', days: 30 })) as { id: string }[]).map(
+        (h) => h.id,
+      ),
+    ).toEqual(['unindexed']);
+    expect(
+      ((await tools().searchFeedItems({ query: 'indexed yet' })) as { id: string }[]).map(
+        (h) => h.id,
+      ),
+    ).toEqual(['unindexed']);
+    expect(
+      ((await tools().searchFeedItems({ query: 'chair' })) as { id: string }[]).map((h) => h.id),
+    ).toEqual(['new']);
+    // Only stop words: the last thirty days, word by word, as before the index.
+    expect(
+      ((await tools().searchFeedItems({ query: 'at' })) as { id: string }[]).map((h) => h.id),
+    ).toEqual(['new']);
   });
 });
