@@ -201,15 +201,20 @@ describe('ItemsService (#162)', () => {
       'users/u1/feedItems/e1',
       { position: 800, playedAt: `TIME:${NOW_MS}`, played: false, updatedAt: 'SERVER_TIME' },
     ]);
+    // Heard to the end: the marks in a merge without playedAt, so a
+    // refused place (#190) never loses them, then the place.
+    const before = api.set.mock.calls.length;
     items.setProgress('e2', { position: 2530, played: true });
-    expect(api.set.mock.lastCall![2]).toEqual({
-      position: 2530,
-      playedAt: `TIME:${NOW_MS}`,
-      played: true,
-      read: true,
-      readAt: 'SERVER_TIME',
-      updatedAt: 'SERVER_TIME',
-    });
+    expect(api.set.mock.calls.slice(before).map((c) => c.slice(1))).toEqual([
+      [
+        'users/u1/feedItems/e2',
+        { played: true, read: true, readAt: 'SERVER_TIME', updatedAt: 'SERVER_TIME' },
+      ],
+      [
+        'users/u1/feedItems/e2',
+        { position: 2530, playedAt: `TIME:${NOW_MS}`, updatedAt: 'SERVER_TIME' },
+      ],
+    ]);
     expect(items.find('e2')?.read).toBe(true);
     expect(items.clock(754.5)).toBe('12:34');
     expect(items.clock(3725)).toBe('1:02:05');

@@ -463,7 +463,9 @@ export class ItemsService {
   /**
    * Keeps where an episode was left (#179), in one merge through the
    * persistent cache, offline too: the position in seconds and when.
-   * Heard to the end, it is also marked played and read.
+   * Heard to the end, it is also marked played and read, in a merge of
+   * its own without playedAt, so the rules' check on playedAt (#190)
+   * can refuse the place but never the played mark.
    *
    * When is the device's clock at the write, not the server's at the
    * sync (Eric, 2026-11-07: client timestamps for conflicting update
@@ -476,14 +478,23 @@ export class ItemsService {
     if (!uid) return undefined;
     const position = Math.max(0, Number.isFinite(progress.position) ? progress.position : 0);
     const at = this.now();
-    if (progress.played) this.local.update((l) => ({ ...l, [id]: { ...l[id], read: true } }));
+    const path = paths.feedItem(uid, id);
+    if (progress.played) {
+      this.local.update((l) => ({ ...l, [id]: { ...l[id], read: true } }));
+      void this.api
+        .set(this.fb.db, path, {
+          played: true,
+          read: true,
+          readAt: this.api.serverTime(),
+          updatedAt: this.api.serverTime(),
+        })
+        .catch((err) => console.error('played mark not saved', err));
+    }
     void this.api
-      .set(this.fb.db, paths.feedItem(uid, id), {
+      .set(this.fb.db, path, {
         position,
         playedAt: this.api.timestamp(at),
-        ...(progress.played
-          ? { played: true, read: true, readAt: this.api.serverTime() }
-          : { played: false }),
+        ...(progress.played ? {} : { played: false }),
         updatedAt: this.api.serverTime(),
       })
       .catch((err) => console.error('listening position not saved', err));

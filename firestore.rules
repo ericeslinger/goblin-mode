@@ -227,6 +227,21 @@ service cloud.firestore {
           && (!('position' in request.resource.data)
             || (request.resource.data.position is number && request.resource.data.position >= 0))
           && (!('playedAt' in request.resource.data) || request.resource.data.playedAt is timestamp)
+          // playedAt is the writing device's clock (Eric, 2026-11-07), and
+          // never more than a minute behind the stored one (#190): a place
+          // kept offline and synced late is refused over a newer one, and
+          // the SDK drops it; the minute covers two devices' clock skew. Nor
+          // more than a minute ahead of the server, so a clock running far
+          // ahead cannot leave every other device's place looking older.
+          // A merge that leaves playedAt alone carries the stored one: it
+          // compares equal behind, and the ahead check is only for a new
+          // playedAt, so an item already stamped ahead still takes other
+          // marks.
+          && (!('playedAt' in request.resource.data) || !('playedAt' in resource.data)
+            || request.resource.data.playedAt >= resource.data.playedAt - duration.value(60, 's'))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['playedAt'])
+            || !('playedAt' in request.resource.data)
+            || request.resource.data.playedAt <= request.time + duration.value(60, 's'))
           && (!('played' in request.resource.data) || request.resource.data.played is bool)
           && request.resource.data.updatedAt is timestamp;
         allow create, delete: if false;

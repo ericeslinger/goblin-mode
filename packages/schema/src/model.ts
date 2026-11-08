@@ -583,6 +583,10 @@ export const FeedItem = z.object({
    * The owner's listening marks (#179): where the episode was left, in
    * seconds, when, and whether it was heard to the end. Written by the
    * player; the newest playedAt is the one other devices offer.
+   * playedAt is the writing device's clock at the write, not the
+   * server's at the sync (Eric, 2026-11-07), and never more than a
+   * minute behind the stored one, nor more than a minute ahead of the
+   * server: the rules refuse either (#190).
    */
   position: z.number().nonnegative().optional(),
   playedAt: Timestamp.optional(),
