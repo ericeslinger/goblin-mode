@@ -21,7 +21,7 @@ const article = (id: string, daysAgo: number, title: string, content: string, id
 });
 
 /** Just the queries searchItems makes; `noIndex` fails the array-contains one as Firestore does. */
-function fakeDb(docs: Doc[], noIndex = false) {
+function fakeDb(docs: Doc[], noIndex = false, indexedAt?: Timestamp) {
   const reads: string[] = [];
   const query = (
     filters: ((d: Doc) => boolean)[],
@@ -65,7 +65,17 @@ function fakeDb(docs: Doc[], noIndex = false) {
       return { docs: page, size: page.length, empty: !page.length };
     },
   });
-  return { db: { collection: () => query([], false) } as unknown as Firestore, reads };
+  const db = {
+    collection: () => query([], false),
+    // The server's note on the index (`indexStatePath`).
+    doc: (path: string) => ({
+      async get() {
+        reads.push(`doc ${path}`);
+        return { data: () => (indexedAt ? { indexedAt } : undefined) };
+      },
+    }),
+  };
+  return { db: db as unknown as Firestore, reads };
 }
 
 const ids = (r: { items: { id: string }[] }) => r.items.map((f) => f.id);
@@ -93,6 +103,24 @@ describe('searchItems where the index cannot answer (#175, review on #197)', () 
     const found = await searchItems(db, 'u1', 'celadon', { now: NOW });
     expect(ids(found)).toEqual(['fresh', 'older']);
     expect(found.items[0].data['title']).toBe('Celadon glazes');
+  });
+
+  it('scans no more on a miss once a run has indexed every article', async () => {
+    const docs = [article('bare', 1, 'Celadon glazes', 'Iron.', false)];
+    const before = fakeDb(docs);
+    expect(ids(await searchItems(before.db, 'u1', 'celadon', { now: NOW }))).toEqual(['bare']);
+    expect(before.reads).toEqual(['index', 'doc users/u1/usage/reader', 'scan']);
+    const after = fakeDb(docs, false, Timestamp.fromMillis(NOW));
+    expect(await searchItems(after.db, 'u1', 'celadon', { now: NOW })).toEqual({
+      items: [],
+      truncated: false,
+    });
+    expect(after.reads).toEqual(['index', 'doc users/u1/usage/reader']);
+    // The other fallbacks stay: the index missing, and only stop words.
+    const missing = fakeDb(docs, true, Timestamp.fromMillis(NOW));
+    expect(ids(await searchItems(missing.db, 'u1', 'celadon', { now: NOW }))).toEqual(['bare']);
+    const stop = fakeDb([article('a', 1, 'The kiln', 'Of it.')], false, Timestamp.fromMillis(NOW));
+    expect(ids(await searchItems(stop.db, 'u1', 'of the', { now: NOW }))).toEqual(['a']);
   });
 
   it('keeps to the index when it finds something', async () => {

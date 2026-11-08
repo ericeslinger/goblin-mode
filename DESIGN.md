@@ -1286,8 +1286,10 @@ the rarest since there is no table of frequencies, with
 `terms` contains, `published desc`), fifty a page, checks each
 document's `terms` for the rest, and stops at the limit or after five
 pages. The app's Search articles, on the Reader's front, calls
-`searchArticles` (`onCall`, signed in, no daily budget: a search is
-at most 250 reads) and lists what came back, title, feed and age,
+`searchArticles` (`onCall`, signed in, five hundred a day per
+gardener, `searches` in the usage record; a search reads at most 250
+documents from the index, plus one for the index's state and up to
+500 from the scan below while the index may be incomplete) and lists what came back, title, feed and age,
 each linking to the article, or "Nothing found."; it is the one path,
 so the shelves on the device are not searched apart, and it needs the
 network. An article found that no shelf holds (read long ago, past the
@@ -1303,12 +1305,16 @@ search calls `indexArticles` (`onCall`, once a day per gardener,
 which writes `terms` where they are missing or not what the item's
 text gives now, in pages by document id as retention does, and says
 "Indexed 12 articles." After deploy, press Index articles for search
-once so the older articles join the index. Until then, and while the
-composite index is still building (the query fails with
-FAILED_PRECONDITION), search falls back to the thirty-day scan word by
-word, and a search the index finds nothing for runs that scan too and
-merges it, by id, so recent articles are found from the first day
-(review on #197). A search that read its five pages with more behind
+once so the older articles join the index. While the composite
+index is still building (the query fails with FAILED_PRECONDITION),
+search falls back to the thirty-day scan word by word, at most 500
+articles; and until a run of Index articles for search has gone
+through every article, a search the index finds nothing for runs
+that scan too and merges it, by id, so recent articles are found from
+the first day (review on #197). That run's end is kept as `indexedAt`
+in `usage/reader`, the server's own (no rule lets the app read or
+write under `usage`); from then on a miss costs the index's reads
+and that one. A search that read its five pages with more behind
 them says so: `truncated` on `searchArticles`, where the front says
 "Nothing found in the newest articles; older ones were not searched."
 or, under what it found, "Older articles were not all searched.", and

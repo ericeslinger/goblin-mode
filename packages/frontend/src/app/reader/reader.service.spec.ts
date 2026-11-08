@@ -228,6 +228,12 @@ describe('ReaderService (#159)', () => {
     expect(await reader.search('chairs')).toEqual({ items: [], truncated: true });
     api.searchArticles.mockRejectedValueOnce(new Error('internal'));
     expect(await reader.search('chairs')).toBe('Could not search. Are you online?');
+    api.searchArticles.mockRejectedValueOnce(
+      new Error('Today’s 500 searches are used up; try again tomorrow. [429]'),
+    );
+    expect(await reader.search('chairs')).toBe(
+      'Today’s 500 searches are used up; try again tomorrow.',
+    );
   });
 
   it('indexes the articles stored before the index, once a day (#175)', async () => {

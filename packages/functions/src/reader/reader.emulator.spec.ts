@@ -135,7 +135,11 @@ describe('the word index (#175)', () => {
       terms: ['kiln', 'feed', 'text'],
     });
     await indexed('fresh', 10, 'Chairs', 'Bentwood');
+    const state = async () => (await db.doc('users/u1/usage/reader').get()).data()?.['indexedAt'];
+    expect(await state()).toBeUndefined();
     expect(await indexItems(db, 'u1', 2)).toBe(2);
+    // The run went through every article: search stops scanning on a miss (review on #197).
+    expect(await state()).toBeInstanceOf(Timestamp);
     const terms = async (id: string) =>
       (await db.doc(`users/u1/feedItems/${id}`).get()).data()?.['terms'];
     expect(await terms('bare')).toEqual(['celadon', 'glaz', 'iron', 'ash']);

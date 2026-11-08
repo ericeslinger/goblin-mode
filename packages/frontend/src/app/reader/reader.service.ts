@@ -475,6 +475,9 @@ export class ReaderService {
       const { items, truncated } = await this.api.searchArticles(q, limit);
       return { items, truncated: truncated === true };
     } catch (err) {
+      // The day's searches used up (review on #197) is the server's to say.
+      const message = callableMessage(err);
+      if (/^Today’s \d+ searches/.test(message)) return message;
       console.error('search failed', err);
       return 'Could not search. Are you online?';
     }

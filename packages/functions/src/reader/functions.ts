@@ -32,6 +32,8 @@ export const DAILY_ARTICLES = 50;
 export const DAILY_DISCOVERIES = 50;
 /** Index articles for search, once a day per gardener (#175): new ones are indexed as fetched. */
 export const DAILY_INDEXES = 1;
+/** Searches from the app a day per gardener (review on #197), counted in the usage record. */
+export const DAILY_SEARCHES = 500;
 /** A reader-mode fetch claimed this long ago is a lost one's, and may be asked again. */
 const ARTICLE_STALE_MS = 2 * 60_000;
 
@@ -320,8 +322,10 @@ function searchHit(id: string, d: FirebaseFirestore.DocumentData) {
 /**
  * Search across every article (#175), from the Reader's front: the
  * word index (`searchItems`), newest first, a row's worth of each.
- * onCall, as everything the app asks the server to do is; a handful
- * of reads a search, so no daily budget.
+ * onCall, as everything the app asks the server to do is. A search
+ * reads at most 250 documents from the index, plus up to 500 from the
+ * recent scan while the index may be incomplete; five hundred a day
+ * per gardener (`searches` in the usage record, review on #197).
  */
 export const searchArticles = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
@@ -332,7 +336,20 @@ export const searchArticles = onCall(async (request) => {
     typeof data?.limit === 'number' && Number.isInteger(data.limit)
       ? Math.min(Math.max(1, data.limit), 50)
       : 20;
-  const found = await searchItems(getFirestore(), request.auth.uid, q, { limit });
+  const uid = request.auth.uid;
+  const db = getFirestore();
+  const usageRef = db.doc(paths.usage(uid, new Date().toISOString().slice(0, 10)));
+  await db.runTransaction(async (tx) => {
+    const used = Number((await tx.get(usageRef)).data()?.['searches'] ?? 0);
+    if (used >= DAILY_SEARCHES) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `Today’s ${DAILY_SEARCHES} searches are used up; try again tomorrow.`,
+      );
+    }
+    tx.set(usageRef, { searches: used + 1 }, { merge: true });
+  });
+  const found = await searchItems(db, uid, q, { limit });
   return {
     items: found.items.map((f) => searchHit(f.id, f.data)),
     // Five pages of the index read with more behind them (review on #197).

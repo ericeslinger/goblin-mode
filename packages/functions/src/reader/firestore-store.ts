@@ -249,8 +249,22 @@ export const SEARCH_PAGE = 50;
 export const SEARCH_PAGES = 5;
 /** The window the scan reads when there is no index to ask (#175), as search did before it. */
 export const SCAN_DAYS = 30;
-/** Articles the scan reads at most, newest first. */
-export const SCAN_MAX = 2000;
+/** Articles the scan reads at most, newest first (review on #197: a miss stays cheap). */
+export const SCAN_MAX = 500;
+
+/**
+ * The server's own note on the word index (review on #197), beside the
+ * day's usage records: `indexedAt` once a run of `indexItems` went
+ * through every article, so every one stored has its terms. No rule
+ * allows the owner this path (nor any under `usage`).
+ */
+export const indexStatePath = (uid: string) => paths.usage(uid, 'reader');
+
+/** Whether a run of `indexItems` has gone through every article (`indexedAt` set). */
+async function fullyIndexed(db: Firestore, uid: string): Promise<boolean> {
+  const doc = await db.doc(indexStatePath(uid)).get();
+  return doc.data()?.['indexedAt'] instanceof Timestamp;
+}
 
 /** An article search found: its id and stored fields. */
 export interface FoundItem {
@@ -290,6 +304,9 @@ const noIndex = (err: unknown) =>
  * the index finds nothing the last thirty days (or from `since`) are
  * also matched word by word (`matchesSearch`), as search did before,
  * and merged, so a freshly deployed app still finds recent articles.
+ * That last scan runs only until a run of `indexItems` has gone
+ * through every article (`indexedAt`, one read to know); after it a
+ * miss is the index's few reads. The scan reads at most 500.
  */
 export async function searchItems(
   db: Firestore,
@@ -308,7 +325,7 @@ export async function searchItems(
     if (!noIndex(err)) throw err;
     return scanItems(db, uid, query, limit, options);
   }
-  if (indexed.items.length) return indexed;
+  if (indexed.items.length || (await fullyIndexed(db, uid))) return indexed;
   const scanned = await scanItems(db, uid, query, limit, options);
   const seen = new Set<string>();
   const items = [...indexed.items, ...scanned.items]
@@ -389,10 +406,19 @@ async function scanItems(
  * The word index for the articles already stored (#175): `terms` set
  * on each whose terms are missing or not what its title and text give
  * now (reader mode's text included), in pages by document id, as
- * `applyRetention` pages. Returns how many were written.
+ * `applyRetention` pages. Returns how many were written. A run that
+ * reaches the end notes `indexedAt` (`indexStatePath`): every article
+ * stored now has its terms, and the fetcher and reader mode write them
+ * from then on, so search stops scanning on a miss (review on #197).
  */
 export async function indexItems(db: Firestore, uid: string, pageSize = 400): Promise<number> {
   let indexed = 0;
+  const done = async () => {
+    await db
+      .doc(indexStatePath(uid))
+      .set({ indexedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return indexed;
+  };
   let after: FirebaseFirestore.QueryDocumentSnapshot | undefined;
   for (;;) {
     let query = db
@@ -402,7 +428,7 @@ export async function indexItems(db: Firestore, uid: string, pageSize = 400): Pr
       .limit(pageSize);
     if (after) query = query.startAfter(after);
     const snap = await query.get();
-    if (snap.empty) return indexed;
+    if (snap.empty) return done();
     const batch = db.batch();
     let writes = 0;
     for (const d of snap.docs) {
@@ -421,7 +447,7 @@ export async function indexItems(db: Firestore, uid: string, pageSize = 400): Pr
     }
     if (writes) await batch.commit();
     indexed += writes;
-    if (snap.size < pageSize) return indexed;
+    if (snap.size < pageSize) return done();
     after = snap.docs[snap.docs.length - 1];
   }
 }
