@@ -76,6 +76,27 @@ test('lists continue on Enter and show bullets off the edited line', async ({ pa
   await (await openMore(page)).getByRole('button', { name: 'Preview' }).click();
 });
 
+test('an item with an empty sublist under it draws as a list item (#118)', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await page.evaluate(() => localStorage.removeItem('goblin.editorMode'));
+  await page.reload();
+  const note = page.getByRole('textbox', { name: 'New note' });
+  const lines = note.locator('.cm-line');
+  await expect(note).toBeFocused();
+
+  await page.keyboard.type('- Monday');
+  await page.keyboard.press('Enter');
+  await expect(lines).toHaveCount(2);
+  // Nest the new, empty item under Monday: a bare `-` two spaces in.
+  await page.keyboard.press('Home');
+  await page.keyboard.type('  ');
+
+  // Monday is off the edited line: a bullet, not a heading.
+  await expect(lines.nth(0)).not.toHaveClass(/mg-h\d/);
+  await expect(note.locator('.mg-bullet')).toHaveCount(1);
+  await expect(lines.nth(0)).toHaveText(/Monday/);
+});
+
 test('dragging the handle resizes Right Now, and it stays that size', async ({ page }) => {
   await signInAs(page, OWNER);
   await page.evaluate(() => localStorage.removeItem('goblin.rightNowShare'));
