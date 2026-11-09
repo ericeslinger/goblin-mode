@@ -20,6 +20,13 @@ Follow them; they are not repeated here.
 - An idea or an open question becomes its own note under the project,
   with your one-line `summary`, so Eric can reply to it there; a
   decision is a dated line on the project page (#119).
+- A page that says how it takes new material (#231: `get_note`
+  shows its `takes`) is added to as its mode says: on a Log page,
+  `add_lines` dates the lines under today's heading itself (pass
+  `timeZone`); on a Synthesis page, weave in, keeping both sides of a
+  contradiction and saying which is newer; on a List, one item a
+  line, no duplicates. `capture` still files a decision under
+  Decisions whatever the page's mode.
 - Set `source` to the PR or session link when there is one.
 - Never file secrets, tokens or anything from `.env` files.
 - A project's stages and item tags, and where each item stands, are

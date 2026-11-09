@@ -96,6 +96,10 @@ import {
   UNCATEGORIZED,
   clippingBody,
   isWebLink,
+  effectiveMode,
+  modeBrief,
+  takesInstructions,
+  type Takes,
 } from '@mossgoblin/schema';
 import {
   type DocumentReference,
@@ -394,6 +398,22 @@ function timesData(t: {
   };
 }
 
+/**
+ * How a note takes new material (#231), as get_note and use_template
+ * show it under `takes`: the mode, set or inherited from its living
+ * template, and the preset words with its instructions in `modeBrief`.
+ */
+function takesView(takes: Takes | undefined, fromTemplate?: unknown) {
+  if (!takes) return {};
+  return {
+    takes: {
+      ...(takes.mode ? { mode: takes.mode } : {}),
+      modeBrief: modeBrief(takes.mode, takes.instructions),
+      ...(takes.inherited ? { inheritedFrom: String(fromTemplate) } : {}),
+    },
+  };
+}
+
 /** Drops FieldValue.delete() entries, to validate the document as it will be. */
 function withoutDeletes(d: Data): Data {
   return Object.fromEntries(Object.entries(d).filter(([, v]) => !(v instanceof FieldValue)));
@@ -590,6 +610,11 @@ export class NotesTools {
         !inTrash(n.data()) &&
         resolveLinks(targetsOf(String(n.get('body') ?? '')), index).includes(args.id),
     );
+    const template = all.docs.find((n) => n.id === d['fromTemplate']);
+    const takes = effectiveMode(
+      { id: doc.id, ...d },
+      template && { id: template.id, ...template.data() },
+    );
     return {
       id: doc.id,
       title: d['title'],
@@ -614,8 +639,22 @@ export class NotesTools {
               'as they are unless he asks you to change them.',
           }
         : {}),
+      ...takesView(takes, d['fromTemplate']),
       ...webLabel(d),
     };
+  }
+
+  /** How note `id` takes new material (#231), read with its template; none if absent. */
+  private async takesOf(id: string): Promise<Takes | undefined> {
+    const doc = await this.notes().doc(id).get();
+    const d = doc.data();
+    if (!d) return undefined;
+    const from = typeof d['fromTemplate'] === 'string' ? d['fromTemplate'] : undefined;
+    const template = from ? await this.notes().doc(from).get() : undefined;
+    return effectiveMode(
+      { id, ...d },
+      template?.exists ? { id: template.id, ...template.data() } : undefined,
+    );
   }
 
   async createNote(args: { body: string; title?: string; tags?: string[] }) {
@@ -1364,7 +1403,7 @@ export class NotesTools {
     title?: string;
     tags?: string[];
     archived?: boolean;
-    /** A template's Instructions for Claude (#111). */
+    /** Instructions for Claude: a template's (#111), or any note's that takes them (#231). */
     instructions?: string;
   }) {
     const ref = this.notes().doc(args.id);
@@ -1398,8 +1437,9 @@ export class NotesTools {
       if (args.tags !== undefined) update['tags'] = args.tags;
       if (args.archived !== undefined) update['archived'] = args.archived;
       if (args.instructions !== undefined) {
-        if (current['kind'] !== 'template')
-          throw new ToolError('only a template has Instructions for Claude');
+        // A template's since #111; any note's that takes them since #231.
+        if (!takesInstructions(current['kind'] as string | undefined))
+          throw new ToolError(`a ${current['kind']} note has no Instructions for Claude`);
         update['instructions'] = args.instructions.trim();
       }
       Note.parse({ ...current, ...update });
@@ -2005,6 +2045,8 @@ export class NotesTools {
           title: String(d.get('title') ?? ''),
           mode: d.get('templateMode') === 'living' ? 'living' : 'entry',
           instructions,
+          // How its living note takes new material (#231), when set.
+          ...(d.get('mode') ? takesView(effectiveMode({ id: d.id, ...d.data() })) : {}),
           skeleton,
           schedule: schedules.docs
             .filter((r) => r.get('template') === d.id)
@@ -2046,6 +2088,10 @@ export class NotesTools {
           instructions,
           created: false,
           note: { id: living.id, title: living.get('title'), body: living.get('body') },
+          ...takesView(
+            effectiveMode({ id: living.id, ...living.data() }, { id: doc.id, ...template }),
+            doc.id,
+          ),
         };
       }
     }
@@ -2058,6 +2104,8 @@ export class NotesTools {
       titleSource: 'words',
       links: resolveLinks(targetsOf(skeleton), await this.names()),
       tags: [],
+      // A living note takes new material as its template does (#231),
+      // read through fromTemplate, so a template changed later is followed.
       fromTemplate: doc.id,
       archived: false,
       createdAt: now,
@@ -2078,6 +2126,7 @@ export class NotesTools {
       instructions,
       created: true,
       note: { id, title: data.title, body: skeleton },
+      ...takesView(effectiveMode({ id, ...data }, { id: doc.id, ...template }), doc.id),
     };
   }
 
@@ -2122,13 +2171,27 @@ export class NotesTools {
     });
   }
 
-  async addLines(args: { id: string; lines: string[]; heading?: string }) {
-    const lines = args.lines.flatMap((l) => l.split('\n'));
+  /**
+   * add_lines as Claude calls it: on a Log note (#231, its own mode or
+   * its living template's) the lines go under a heading for today's
+   * date in `timeZone`, made if missing, newest last, whatever heading
+   * was asked for.
+   */
+  async addLines(args: { id: string; lines: string[]; heading?: string; timeZone?: string }) {
+    const log = (await this.takesOf(args.id))?.mode === 'log';
+    const heading = log ? this.today(args.timeZone) : args.heading;
+    const result = await this.linesUnder(args.id, args.lines, heading);
+    return log ? { ...result, heading } : result;
+  }
+
+  /** Adds lines under `heading`, or at the end, whatever the note's mode. */
+  private async linesUnder(id: string, add: string[], heading?: string) {
+    const lines = add.flatMap((l) => l.split('\n'));
     if (!lines.some((l) => l.trim())) throw new ToolError('lines must have some text');
-    return this.editBody(args.id, 'add_lines', (body, title) => ({
-      body: addLines(body, lines, args.heading),
+    return this.editBody(id, 'add_lines', (body, title) => ({
+      body: addLines(body, lines, heading),
       summary: `Added ${plural(lines.length, 'line')} to ${title || 'a note'}${
-        args.heading ? `, under ${args.heading.replace(/^#+\s*/, '')}` : ''
+        heading ? `, under ${heading.replace(/^#+\s*/, '')}` : ''
       }`,
     }));
   }
@@ -2243,7 +2306,8 @@ export class NotesTools {
     } else {
       const [first, ...rest] = text.split('\n');
       const dated = [`- ${this.today(args.timeZone)}: ${first}`, ...rest.map((l) => `  ${l}`)];
-      await this.addLines({ id: projectId, lines: dated, heading: 'Decisions' });
+      // Decisions go under Decisions, whatever the page's mode (#231).
+      await this.linesUnder(projectId, dated, 'Decisions');
     }
     if (args.remind) {
       // Filed already: a reminder that fails is said, not thrown, so a

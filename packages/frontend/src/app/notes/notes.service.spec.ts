@@ -245,12 +245,19 @@ describe('NotesService', () => {
       expect(new Set(written)).toEqual(new Set(['Ask about the weather.']));
     });
 
-    it('holds nothing for a note that is not a template', () => {
+    it('holds them for any note that takes them (#231), and nothing for a recipe', () => {
       const { notes, signIn, push } = setup();
       signIn('u1');
-      push([{ id: 'n1', data: { body: 'x', kind: 'text' } }]);
-      expect(notes.holdInstructions('n1', 'Ask')).toBe(false);
+      push([
+        { id: 'n1', data: { body: 'x', kind: 'text' } },
+        { id: 'r1', data: { body: 'x', kind: 'recipe' } },
+      ]);
+      expect(notes.holdInstructions('r1', 'Ask')).toBe(false);
       expect(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)).toBeNull();
+      expect(notes.holdInstructions('n1', 'Ask')).toBe(true);
+      expect(JSON.parse(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)!)).toEqual({
+        n1: expect.objectContaining({ uid: 'u1', value: 'Ask' }),
+      });
     });
 
     it('never writes them into another account’s notes', () => {
@@ -1272,6 +1279,26 @@ describe('NotesService', () => {
       notes.settle('b', { edited: true });
       expect(api.set).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('sets and clears how a note takes new material, through the cache (#231)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([
+      { id: 'n1', data: { body: 'Kiln log', kind: 'text' } },
+      { id: 'r1', data: { body: 'Soup', kind: 'recipe' } },
+    ]);
+    notes.setNoteMode('n1', 'log');
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/notes/n1',
+      { mode: 'log', updatedAt: 'SERVER_TIME', updatedBy: 'user', deviceId: notes.deviceId() },
+      true,
+    ]);
+    notes.setNoteMode('n1', undefined);
+    expect(api.set.mock.lastCall![2]['mode']).toBe('REMOVED');
+    // A recipe takes no mode.
+    notes.setNoteMode('r1', 'list');
+    expect(api.set).toHaveBeenCalledTimes(2);
   });
 
   it('archives a note and restores it, a merged field update stamped as Eric’s (#207)', () => {

@@ -168,6 +168,9 @@ describe('the MCP server', () => {
     expect(INSTRUCTIONS).toMatch(/search_attachments and get_attachment_text/);
     expect(INSTRUCTIONS).toMatch(/list_reading_queue .* add_attachment/);
     expect(INSTRUCTIONS).toMatch(/create_concept makes a new person, project or other concept/);
+    // Document modes (#231): a note's takes governs how new material goes in.
+    expect(INSTRUCTIONS).toMatch(/A note's takes, when get_note shows one, governs how new/);
+    expect(INSTRUCTIONS).toMatch(/Read it with get_note before adding to a note/);
     // Loose notes (#107).
     expect(INSTRUCTIONS).toMatch(/linked to no project.*list_notes or search_notes/);
   });

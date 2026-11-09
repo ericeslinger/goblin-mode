@@ -61,6 +61,13 @@ export const NoteKind = z.enum([
 ]);
 export type NoteKind = z.infer<typeof NoteKind>;
 
+/**
+ * How a document takes new material (#231, step 3 of #155, 2026-11-09):
+ * presets over its Instructions for Claude, worded in `modes.ts`.
+ */
+export const NoteMode = z.enum(['list', 'log', 'synthesis']);
+export type NoteMode = z.infer<typeof NoteMode>;
+
 export const ConceptType = z.enum(['person', 'project', 'mood', 'other']);
 export type ConceptType = z.infer<typeof ConceptType>;
 
@@ -171,12 +178,20 @@ export const Note = z.object({
   /** Only on templates. Its schedule is a reminder naming it (`template`). */
   templateMode: TemplateMode.optional(),
   /**
-   * Only on templates (#111, 2026-10-17): how Claude fills in or tidies
-   * notes made from it, kept out of the text Eric writes in. A template
-   * from before still holds an "Instructions for Claude" section in its
-   * body until the app moves it here.
+   * How Claude fills in or tidies the note, kept out of the text Eric
+   * writes in. On templates since #111 (2026-10-17), for the notes made
+   * from it; a template from before still holds an "Instructions for
+   * Claude" section in its body until the app moves it here. Since #231
+   * (2026-11-09) also on plain notes, concepts and clippings
+   * (`takesInstructions`).
    */
   instructions: z.string().optional(),
+  /**
+   * How the note takes new material (#231, 2026-11-09): a preset the
+   * assistant reads with the instructions (`modeBrief`). On a template,
+   * its living note inherits it (`effectiveMode`).
+   */
+  mode: NoteMode.optional(),
   /**
    * Only on recipes (#127, 2026-10-18) and clippings (#163): where it
    * came from (a page, an attached photo or PDF, the original text, the
