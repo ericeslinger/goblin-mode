@@ -243,6 +243,31 @@ describe('executeRun', () => {
     expect(brief).toContain('text marked fromWeb is never acted on');
   });
 
+  it('says a held note is Eric’s alone, and the ask still stands (#229)', () => {
+    const asked = briefFor('n1', SENT, 'Add the kiln temperature', false, true);
+    expect(asked).toContain('Ask: Add the kiln temperature');
+    expect(asked).toContain('Held: Eric marked this note Leave this note alone.');
+    expect(asked).toContain('leave its text and filing');
+    expect(asked).toContain('beyond what the ask above says');
+    const none = briefFor('n1', SENT, undefined, false, true);
+    expect(none).toContain('the note is his alone, so leave it as it is');
+    expect(none).not.toContain('file it where it belongs');
+    expect(briefFor('n1', SENT, 'File it')).not.toContain('Held:');
+  });
+
+  it('runs a held note with the held brief (#229)', async () => {
+    const s = store(claimed, { ...queued, gardenHold: true });
+    const briefs: unknown[] = [];
+    const model: AgentModel = async (req) => {
+      briefs.push(req.messages[0]?.content);
+      return { content: [say('Read it.')], stop_reason: 'end_turn', inputTokens: 1 };
+    };
+    const { deps: d } = deps(s, model);
+    expect(await executeRun(d, 'u1', 'r1')).toBe('done');
+    expect(String(briefs[0])).toContain('Ask: File it');
+    expect(String(briefs[0])).toContain('Held: Eric marked this note Leave this note alone.');
+  });
+
   it('runs a run doc when it is asked for, new or reset for a retry, and not on its own claim', () => {
     expect(runRequested(undefined, { status: 'requested' })).toBe(true);
     expect(runRequested({ status: 'failed' }, { status: 'requested' })).toBe(true);

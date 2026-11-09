@@ -605,6 +605,15 @@ export class NotesTools {
       createdAt: iso(d['createdAt']),
       updatedAt: iso(d['updatedAt']),
       updatedBy: d['updatedBy'],
+      // Leave this note alone (#229): Eric's alone; read it, keep its
+      // text and filing as they are unless he asks otherwise.
+      ...(d['gardenHold'] === true
+        ? {
+            held:
+              'Eric holds this note as his alone: read it, but leave its text and filing ' +
+              'as they are unless he asks you to change them.',
+          }
+        : {}),
       ...webLabel(d),
     };
   }

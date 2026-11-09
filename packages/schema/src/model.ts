@@ -222,6 +222,12 @@ export const Note = z.object({
    * fields when he takes it back or sends it himself.
    */
   sentOnArrival: z.boolean().optional(),
+  /**
+   * Leave this note alone (#229, step 2 of #155): Eric's own, never
+   * sent on arrival; an assistant may read it but leaves its text and
+   * filing as they are. He may still send it himself, with an ask.
+   */
+  gardenHold: z.boolean().optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */
@@ -702,6 +708,17 @@ export const AssistantSettings = z.object({
    * Off when absent.
    */
   gardenOnArrival: z.boolean().optional(),
+  /**
+   * Never gardened on arrival (#229): notes made from these templates
+   * (ids) and notes carrying these tags are left alone. None when
+   * absent.
+   */
+  arrivalSkip: z
+    .object({
+      templates: z.array(z.string()),
+      tags: z.array(z.string()),
+    })
+    .optional(),
   updatedAt: Timestamp,
 });
 export type AssistantSettings = z.infer<typeof AssistantSettings>;

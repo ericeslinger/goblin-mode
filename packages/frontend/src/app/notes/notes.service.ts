@@ -124,6 +124,8 @@ export interface NoteRecord {
   sendRun?: string;
   /** Sent by the server when it first settled, not by Eric (#214). */
   sentOnArrival?: boolean;
+  /** Leave this note alone (#229): never sent on arrival. */
+  gardenHold?: boolean;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -273,6 +275,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(typeof data['sendOutcome'] === 'string' ? { sendOutcome: data['sendOutcome'] } : {}),
     ...(typeof data['sendRun'] === 'string' ? { sendRun: data['sendRun'] } : {}),
     ...(data['sentOnArrival'] === true ? { sentOnArrival: true } : {}),
+    ...(data['gardenHold'] === true ? { gardenHold: true } : {}),
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
@@ -1010,6 +1013,21 @@ export class NotesService {
     if (deleted) this.written.delete(id);
     const update = {
       deletedAt: deleted ? this.api.timestamp(this.now()) : this.api.removeField(),
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+  }
+
+  /**
+   * Leave this note alone (#229): held, Garden on arrival never sends
+   * it. Through the cache like `setArchived`; clearing it sends nothing.
+   */
+  setGardenHold(id: string, held: boolean): void {
+    if (!this.uid || !this.exists(id)) return;
+    const update = {
+      gardenHold: held,
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),

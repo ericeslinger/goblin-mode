@@ -380,6 +380,37 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             at once on your Anthropic key: filed, linked and tagged, your words kept as they are.
             Only plain notes you wrote; it counts in the day’s runs.
           </p>
+          <h3 id="arrival-skip">Never gardened on arrival</h3>
+          <p class="muted">
+            Templates, recipes, concepts, meal plans, the pantry, the context note and clippings are
+            never sent on arrival, nor is a note whose back says Leave this note alone.
+          </p>
+          @if (templates.templates().length) {
+            <ul aria-labelledby="arrival-skip" class="skip-templates">
+              @for (t of templates.templates(); track t.id) {
+                <li>
+                  <label>
+                    <input
+                      type="checkbox"
+                      [checked]="keys.arrivalSkip().templates.includes(t.id)"
+                      (change)="skipTemplate(t.id, $any($event.target).checked)"
+                    />
+                    Notes made from {{ t.title || 'Untitled' }}
+                  </label>
+                </li>
+              }
+            </ul>
+          }
+          <label class="skip-tags">
+            Notes with these tags (comma separated)
+            <input
+              #skipTags
+              type="text"
+              placeholder="private, journal"
+              [value]="keys.arrivalSkip().tags.join(', ')"
+              (change)="skipTagsTo(skipTags.value)"
+            />
+          </label>
         }
         <p><a routerLink="/activity">What assistants changed</a></p>
         <button type="button" (click)="disconnect()">Disconnect all assistants</button>
@@ -485,6 +516,15 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
       flex-wrap: wrap;
       gap: var(--space-2);
       padding: 2px 0;
+    }
+    .skip-templates {
+      list-style: none;
+      padding: 0;
+    }
+    .skip-tags {
+      display: grid;
+      gap: var(--space-1);
+      max-width: 24em;
     }
     .muted {
       color: var(--quiet);
@@ -694,6 +734,21 @@ export class Settings {
   ) as Record<Provider, string>;
   protected readonly keyStatus = signal('');
   protected readonly keyBusy = signal(false);
+
+  /** Notes made from this template are never gardened on arrival, or are again (#229). */
+  protected skipTemplate(id: string, skip: boolean): void {
+    const now = this.keys.arrivalSkip();
+    const templates = now.templates.filter((t) => t !== id);
+    this.keys.setArrivalSkip({ ...now, templates: skip ? [...templates, id] : templates });
+  }
+
+  /** Notes with these tags are never gardened on arrival (#229). */
+  protected skipTagsTo(value: string): void {
+    this.keys.setArrivalSkip({
+      ...this.keys.arrivalSkip(),
+      tags: value.split(',').map((t) => t.trim()),
+    });
+  }
 
   protected keyDate(ms: number): string {
     return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(ms);

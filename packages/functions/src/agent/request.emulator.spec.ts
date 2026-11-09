@@ -48,9 +48,15 @@ const fresh = (over: Record<string, unknown> = {}) => ({
  * A string, not an optional boolean: an explicit `undefined` would take
  * a default parameter's value, and so turn the switch on.
  */
-async function keep(on: 'on' | 'off' | 'unset' | 'no-doc' = 'on', key = true) {
+async function keep(
+  on: 'on' | 'off' | 'unset' | 'no-doc' = 'on',
+  key = true,
+  arrivalSkip?: { templates: string[]; tags: string[] },
+) {
   const ref = db.doc('users/u1/settings/assistant');
-  if (on === 'on') await ref.set({ gardenOnArrival: true, updatedAt: T });
+  if (on === 'on') {
+    await ref.set({ gardenOnArrival: true, ...(arrivalSkip ? { arrivalSkip } : {}), updatedAt: T });
+  }
   if (on === 'off') await ref.set({ gardenOnArrival: false, updatedAt: T });
   if (on === 'unset') await ref.set({ updatedAt: T });
   if (key) await db.doc('secrets/u1').set({ anthropic: { ciphertext: 'sealed' } });
@@ -205,6 +211,46 @@ describe('gardenOnArrival', () => {
     expect((await note('n1'))['sendState']).toBeUndefined();
     // A redelivered trigger event is the same: one run for the arrival.
     expect(await runs()).toEqual(['arrival-n1']);
+  });
+
+  it('leaves a note Eric holds back, and clearing the hold does not send it (#229)', async () => {
+    await keep();
+    expect(await settle('n1', { gardenHold: true })).toBe('not-arrival');
+    const ref = db.doc('users/u1/notes/n1');
+    const before = (await ref.get()).data();
+    await ref.update({ gardenHold: false });
+    const after = (await ref.get()).data();
+    expect(await gardenOnArrival(db, 'u1', 'n1', before, after)).toBe('not-arrival');
+    expect((await note('n1'))['sendState']).toBeUndefined();
+    expect(await runs()).toEqual([]);
+  });
+
+  it('leaves a note held between the write and the run (#229)', async () => {
+    await keep();
+    const ref = db.doc('users/u1/notes/n1');
+    const before = fresh();
+    await ref.set({ ...before, settledAt: Timestamp.fromMillis(T + 1) });
+    const after = (await ref.get()).data();
+    await ref.update({ gardenHold: true });
+    expect(await gardenOnArrival(db, 'u1', 'n1', before, after)).toBe('already');
+    expect((await note('n1'))['sendState']).toBeUndefined();
+    expect(await runs()).toEqual([]);
+  });
+
+  it('leaves a note made from a template Settings skips (#229)', async () => {
+    await keep('on', true, { templates: ['t-journal'], tags: [] });
+    expect(await settle('n1', { fromTemplate: 't-journal' })).toBe('skipped');
+    expect(await settle('n2', { fromTemplate: 't-shopping' })).toBe('sent');
+    expect((await note('n1'))['sendState']).toBeUndefined();
+    expect(await runs()).toEqual(['arrival-n2']);
+  });
+
+  it('leaves a note carrying a tag Settings skips, and sends the rest (#229)', async () => {
+    await keep('on', true, { templates: [], tags: ['private'] });
+    expect(await settle('n1', { tags: ['Private'] })).toBe('skipped');
+    expect(await settle('n2', { tags: ['pottery'] })).toBe('sent');
+    expect((await note('n1'))['sendState']).toBeUndefined();
+    expect(await runs()).toEqual(['arrival-n2']);
   });
 
   it('takes a new note as a new arrival', async () => {

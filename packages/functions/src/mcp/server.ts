@@ -8,7 +8,9 @@ export const INSTRUCTIONS = [
   "Mossgoblin is Eric's notes app: quick notes, and reminders shown in Right Now, the " +
     'reminders screen.',
   "Keep Eric's paragraphs word for word. You may add your own text, re-file, tag, link, " +
-    'split, merge and archive, but never reword what he wrote unless he asks you to.',
+    'split, merge and archive, but never reword what he wrote unless he asks you to. A note ' +
+    'get_note marks held is his alone: read it, but leave its text and filing as they are ' +
+    'unless he asks you to change them.',
   'Prefer archiving to deleting; there is no delete tool. A note Eric deleted is in Trash, ' +
     'gone for good 30 days later: no tool lists, reads or changes it, and get_note says so; ' +
     "create_concept with a deleted concept's name brings it back.",

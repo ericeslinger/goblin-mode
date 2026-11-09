@@ -55,6 +55,28 @@ function read(data: Record<string, unknown>): Partial<Record<Provider, KeyRecord
   return out;
 }
 
+/** Never gardened on arrival (#229): template ids and tags. */
+export interface ArrivalSkip {
+  templates: string[];
+  tags: string[];
+}
+
+const NO_SKIP: ArrivalSkip = { templates: [], tags: [] };
+
+const strings = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+/** Tags as kept: trimmed, without a leading #, each once, none empty. */
+function tagsOf(tags: readonly string[]): string[] {
+  return [...new Set(tags.map((t) => t.trim().replace(/^#/, '').trim()).filter(Boolean))];
+}
+
+function skipOf(v: unknown): ArrivalSkip {
+  if (typeof v !== 'object' || v === null) return NO_SKIP;
+  const o = v as Record<string, unknown>;
+  return { templates: strings(o['templates']), tags: strings(o['tags']) };
+}
+
 /**
  * The gardener's own provider keys (#144): what the app may know of
  * them, from `settings/keys`, which the functions write. Saving and
@@ -74,6 +96,8 @@ export class KeysService {
   readonly keys = signal<Partial<Record<Provider, KeyRecord>> | undefined>(undefined);
   /** Garden new notes on arrival (#214), from `settings/assistant`; off until read. */
   readonly onArrival = signal(false);
+  /** Never gardened on arrival (#229): template ids and tags, from `settings/assistant`. */
+  readonly arrivalSkip = signal<ArrivalSkip>(NO_SKIP);
   private stopAssistant?: () => void;
 
   constructor() {
@@ -86,6 +110,7 @@ export class KeysService {
       this.uid = uid;
       this.keys.set(undefined);
       this.onArrival.set(false);
+      this.arrivalSkip.set(NO_SKIP);
       if (!uid) return;
       this.stop = this.settings.listen(
         this.fb.db,
@@ -96,7 +121,10 @@ export class KeysService {
       this.stopAssistant = this.settings.listen(
         this.fb.db,
         paths.assistant(uid),
-        (data) => this.onArrival.set(data?.['gardenOnArrival'] === true),
+        (data) => {
+          this.onArrival.set(data?.['gardenOnArrival'] === true);
+          this.arrivalSkip.set(skipOf(data?.['arrivalSkip']));
+        },
         (err) => console.error('assistant settings listener', err),
       );
     });
@@ -114,9 +142,27 @@ export class KeysService {
   setOnArrival(on: boolean): void {
     if (!this.uid) return;
     this.onArrival.set(on);
+    this.writeAssistant();
+  }
+
+  /**
+   * What is never gardened on arrival (#229): notes made from these
+   * templates, and notes with these tags. Written as the switch is.
+   */
+  setArrivalSkip(skip: ArrivalSkip): void {
+    if (!this.uid) return;
+    this.arrivalSkip.set({ templates: [...new Set(skip.templates)], tags: tagsOf(skip.tags) });
+    this.writeAssistant();
+  }
+
+  /** The whole doc, since a settings write replaces it. */
+  private writeAssistant(): void {
+    if (!this.uid) return;
+    const skip = this.arrivalSkip();
     this.settings
       .set(this.fb.db, paths.assistant(this.uid), {
-        gardenOnArrival: on,
+        gardenOnArrival: this.onArrival(),
+        ...(skip.templates.length || skip.tags.length ? { arrivalSkip: skip } : {}),
         updatedAt: this.settings.now(),
       })
       .catch((err) => console.error('assistant settings write', err));

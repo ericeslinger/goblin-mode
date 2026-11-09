@@ -59,7 +59,17 @@ export interface RunStore {
   noteState(
     uid: string,
     noteId: string,
-  ): Promise<{ title: string; sendState?: string; sentAt?: string; sendAsk?: string } | undefined>;
+  ): Promise<
+    | {
+        title: string;
+        sendState?: string;
+        sentAt?: string;
+        sendAsk?: string;
+        /** Leave this note alone (#229). */
+        gardenHold?: boolean;
+      }
+    | undefined
+  >;
 }
 
 export interface RunDeps {
@@ -80,13 +90,16 @@ export type RunOutcome = 'done' | 'failed' | 'capped' | 'skipped';
 /**
  * The brief: what the run is for, and the rules the routine's prompt
  * gives. The note's title is not here: it can be a page's words, and
- * get_note labels those (review on #152).
+ * get_note labels those (review on #152). A note Eric holds back
+ * (#229) is his alone: the run reads it and does the ask, if any, and
+ * leaves its text and filing as they are otherwise.
  */
 export function briefFor(
   noteId: string,
   sentAt: string,
   ask: string | undefined,
   arrival = false,
+  held = false,
 ): string {
   return [
     arrival
@@ -97,9 +110,18 @@ export function briefFor(
     `Sent at: ${sentAt}`,
     ask
       ? `Ask: ${ask}`
-      : 'Ask: none. Eric left no ask, so file it where it belongs: link it to the notes, ' +
-        'people and projects it is about, and tag or refile it, keeping his words verbatim. ' +
-        'Never reword them.',
+      : held
+        ? 'Ask: none. Eric left no ask, and the note is his alone, so leave it as it is.'
+        : 'Ask: none. Eric left no ask, so file it where it belongs: link it to the notes, ' +
+          'people and projects it is about, and tag or refile it, keeping his words verbatim. ' +
+          'Never reword them.',
+    ...(held
+      ? [
+          'Held: Eric marked this note Leave this note alone. It is his alone: you may read ' +
+            'it, but leave its text and filing (links, tags, where it is filed) as they are, ' +
+            'beyond what the ask above says.',
+        ]
+      : []),
     '',
     'Read it with get_note, do the ask, then call finish_queued with the note id and sentAt ' +
       'above and one plain line saying what you did. If you cannot do it, finish it with a ' +
@@ -149,7 +171,7 @@ export async function executeRun(deps: RunDeps, uid: string, runId: string): Pro
       runLoop(
         model,
         garden,
-        briefFor(noteId, sentAt, note.sendAsk, run.arrival === true),
+        briefFor(noteId, sentAt, note.sendAsk, run.arrival === true, note.gardenHold === true),
         (step) => deps.store.step(uid, runId, step),
         deps.limits ?? DEFAULT_LIMITS,
         deps.now,
