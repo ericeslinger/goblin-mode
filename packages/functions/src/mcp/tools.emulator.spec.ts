@@ -1465,3 +1465,58 @@ describe('search_feed_items (#175)', () => {
     ).toEqual(['new']);
   });
 });
+
+describe('Trash (#217)', () => {
+  const trashed = { deletedAt: Timestamp.fromMillis(T - 500) };
+
+  it('leaves notes in Trash out of every list, search and count, archived or not', async () => {
+    await concept('c-kiln', 'Kiln', { conceptType: 'project' });
+    await concept('c-vikas', 'Vikas', { conceptType: 'person', ...trashed });
+    await eric('a', 'Studio day\nFire the [[Kiln]] with [[Vikas]].');
+    await eric('b', 'Old [[Kiln]] plan, hotswap', trashed);
+    await eric('c', 'Older [[Kiln]] plan, hotswap', { archived: true, ...trashed });
+    await eric('q', 'Sent, then deleted', {
+      sendState: 'queued',
+      sentAt: Timestamp.fromMillis(T - 900),
+      ...trashed,
+    });
+    await eric('t1', 'Journal\nMood:', { kind: 'template', ...trashed });
+    const t = tools();
+    expect((await t.listNotes({ includeArchived: true })).map((n) => n.id).sort()).toEqual([
+      'a',
+      'c-kiln',
+    ]);
+    expect(await t.searchNotes({ query: 'hotswap', includeArchived: true })).toEqual([]);
+    expect((await t.listConcepts({})).map((c) => [c.id, c.linkedFrom])).toEqual([['c-kiln', 1]]);
+    expect((await t.getBacklinks({ id: 'c-kiln' })).map((b) => b.id)).toEqual(['a']);
+    expect(await t.listQueue({})).toEqual([]);
+    expect(await t.listTemplates()).toEqual([]);
+    await expect(t.useTemplate({ id: 't1' })).rejects.toThrow('no template t1');
+    // Its backlinks leave the deleted ones out too.
+    expect((await t.getNote({ id: 'c-kiln' })).backlinks).toEqual([
+      { id: 'a', title: 'Studio day' },
+    ]);
+  });
+
+  it('says a note is in Trash where Claude names it, and changes nothing in it', async () => {
+    await eric('a', 'Kiln log\nCone 6.');
+    await eric('b', 'Glaze notes', trashed);
+    const t = tools();
+    await expect(t.getNote({ id: 'b' })).rejects.toThrow('note b is in Trash');
+    await expect(t.archiveNote({ id: 'b' })).rejects.toThrow('note b is in Trash');
+    await expect(t.updateNote({ id: 'b', tags: ['x'] })).rejects.toThrow('note b is in Trash');
+    await expect(t.addLines({ id: 'b', lines: ['more'] })).rejects.toThrow('note b is in Trash');
+    await expect(t.linkNotes({ from: 'a', to: ['b'] })).rejects.toThrow('note b is in Trash');
+    await expect(t.mergeNotes({ ids: ['a', 'b'] })).rejects.toThrow('note b is in Trash');
+    await expect(t.refile({ id: 'b', addTags: ['x'] })).rejects.toThrow('note b is in Trash');
+    expect(await body('b')).toMatchObject({ body: 'Glaze notes', updatedBy: 'user' });
+    expect((await body('b'))['tags']).toEqual([]);
+    expect((await db.collection('users/u1/activity').get()).size).toBe(0);
+  });
+
+  it('answers no name for a note in Trash, as for a note not there', async () => {
+    await eric('r', 'Shakshuka', { title: 'Shakshuka', titleSource: 'user', ...trashed });
+    const { id } = await tools().createNote({ body: 'Dinner: [[Shakshuka]]' });
+    expect((await body(id))['links']).not.toContain('r');
+  });
+});

@@ -55,7 +55,10 @@ export const agentRun = onDocumentWritten(
           tools: (owner) => new NotesTools(db, owner).as(GARDEN_AGENT),
           body: async (owner, noteId) => {
             const doc = await db.doc(paths.note(owner, noteId)).get();
-            return doc.exists ? String(doc.get('body') ?? '') : undefined;
+            // A note in Trash (#217) takes no findings.
+            return doc.exists && doc.get('deletedAt') === undefined
+              ? String(doc.get('body') ?? '')
+              : undefined;
           },
         },
         uid,
@@ -95,7 +98,7 @@ export const itemAssigned = onDocumentWritten(
   { document: 'users/{uid}/notes/{noteId}' },
   async (event) => {
     const after = event.data?.after.data();
-    if (!after || after['archived'] === true) return;
+    if (!after || after['archived'] === true || after['deletedAt'] !== undefined) return;
     const settled = after['settledAt'];
     const was = event.data?.before.data()?.['settledAt'];
     const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);

@@ -7,6 +7,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
   untracked,
   viewChild,
@@ -14,6 +15,7 @@ import {
 import { RouterLink } from '@angular/router';
 import {
   RUN_STALE_MS,
+  TRASH_DAYS,
   madeLine,
   normalizeName,
   paths,
@@ -51,7 +53,8 @@ function stamp(ms: number | undefined): string {
  * Claude changed on it; the notes linking here; a concept's or a
  * template's settings, a template's Instructions for Claude (#111)
  * among them; for a grocery list, which dinners want each item (#207);
- * its tags, History and Map, and Archive. The front keeps the text.
+ * its tags, History and Map, Archive, and Delete (#217), which puts it
+ * in Trash after a one-line confirm. The front keeps the text.
  */
 @Component({
   selector: 'app-note-back',
@@ -262,7 +265,21 @@ function stamp(ms: number | undefined): string {
         <button type="button" class="link" (click)="archive(!note().archived)">
           {{ note().archived ? 'Restore' : 'Archive' }}
         </button>
+        @if (deletable() && !confirmingDelete()) {
+          <button type="button" class="link" (click)="confirmingDelete.set(true)">Delete</button>
+        }
       </p>
+      @if (confirmingDelete()) {
+        <p class="confirm">
+          <span id="delete-note"
+            >Delete this note? It stays in Trash for {{ trashDays }} days.</span
+          >
+          <button type="button" class="primary" aria-describedby="delete-note" (click)="delete()">
+            Yes
+          </button>
+          <button type="button" (click)="confirmingDelete.set(false)">No</button>
+        </p>
+      }
       @if (archiveStatus()) {
         <p class="muted" role="status">{{ archiveStatus() }}</p>
       }
@@ -392,6 +409,28 @@ function stamp(ms: number | undefined): string {
       gap: var(--space-3);
       margin: var(--space-3) 0 0;
     }
+    .confirm {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+      margin: var(--space-2) 0 0;
+    }
+    .confirm button {
+      font: inherit;
+      font-size: 14px;
+      padding: 2px 12px;
+      border-radius: var(--radius-pill);
+      border: var(--border) solid var(--rule);
+      color: var(--ink);
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .confirm .primary {
+      border-color: var(--accent);
+      color: var(--on-accent);
+      background: var(--accent);
+    }
     app-note-links {
       padding: 0;
     }
@@ -432,6 +471,21 @@ export class NoteBack {
   protected readonly week = shortDate;
   /** What Archive or Restore just did, said once. */
   protected readonly archiveStatus = signal('');
+  /** Delete asked, waiting for Yes or No (#217). */
+  protected readonly confirmingDelete = signal(false);
+  protected readonly trashDays = TRASH_DAYS;
+  /** The note went to Trash: the page leaves it (#217). */
+  readonly deleted = output<void>();
+  /**
+   * Any note can be deleted but the ones Kitchen and Claude keep and
+   * never empty (#217): the pantry, the meal plans, the context note
+   * and the current grocery list. Those are archived instead.
+   */
+  protected readonly deletable = computed(() => {
+    const note = this.note();
+    if (['pantry', 'mealplan', 'context'].includes(note.kind)) return false;
+    return note.id !== this.grocery.listId();
+  });
   protected readonly sentAt = computed(() => stamp(this.note().sentAt));
 
   /** Do it now (#144 step 3): the garden's own agent, on Eric's Anthropic key. */
@@ -491,11 +545,15 @@ export class NoteBack {
   private shown?: string;
 
   constructor() {
-    // Another note opened here starts with nothing said about archiving.
+    // Another note opened here starts with nothing said about archiving,
+    // and no Delete asked.
     const id = computed(() => this.note().id);
     effect(() => {
       id();
-      untracked(() => this.archiveStatus.set(''));
+      untracked(() => {
+        this.archiveStatus.set('');
+        this.confirmingDelete.set(false);
+      });
     });
     // Watch the note's run while it has one (#144 step 3).
     effect((onCleanup) => {
@@ -589,6 +647,13 @@ export class NoteBack {
   protected archive(archived: boolean): void {
     this.notes.setArchived(this.note().id, archived);
     this.archiveStatus.set(archived ? 'Archived' : 'Restored');
+  }
+
+  /** Yes to Delete (#217): the note goes to Trash, and the page leaves it. */
+  protected delete(): void {
+    this.confirmingDelete.set(false);
+    this.notes.setDeleted(this.note().id, true);
+    this.deleted.emit();
   }
 
   protected setMode(mode: string): void {

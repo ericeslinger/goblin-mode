@@ -6,8 +6,10 @@ import {
   Proposal,
   Recurrence,
   Reminder,
+  TRASH_MS,
   Timestamp,
   paths,
+  trashDaysLeft,
 } from './model';
 
 const ts = { seconds: 1_800_000_000, nanoseconds: 0 };
@@ -47,6 +49,24 @@ describe('Note', () => {
   it('rejects an unknown kind or author', () => {
     expect(Note.safeParse({ ...note, kind: 'folder' }).success).toBe(false);
     expect(Note.safeParse({ ...note, updatedBy: 'someone' }).success).toBe(false);
+  });
+
+  it('takes a Trash stamp as a Timestamp only (#217)', () => {
+    expect(Note.safeParse({ ...note, deletedAt: ts }).success).toBe(true);
+    expect(Note.safeParse({ ...note, deletedAt: '2026-11-09' }).success).toBe(false);
+  });
+});
+
+describe('trashDaysLeft', () => {
+  const day = 24 * 60 * 60_000;
+  it('counts whole days left in Trash, rounded up, never below 0 (#217)', () => {
+    const at = Date.parse('2026-11-09T12:00:00Z');
+    expect(trashDaysLeft(at, at)).toBe(30);
+    expect(trashDaysLeft(at, at + 1)).toBe(30);
+    expect(trashDaysLeft(at, at + day)).toBe(29);
+    expect(trashDaysLeft(at, at + TRASH_MS - 1)).toBe(1);
+    expect(trashDaysLeft(at, at + TRASH_MS)).toBe(0);
+    expect(trashDaysLeft(at, at + TRASH_MS + 5 * day)).toBe(0);
   });
 });
 

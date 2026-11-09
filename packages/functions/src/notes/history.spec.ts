@@ -87,4 +87,15 @@ describe('recordHistory', () => {
       'deleted',
     );
   });
+
+  it('keeps nothing when the sweep removes a note from Trash (#217)', async () => {
+    const store = fakeStore();
+    const trashed = note('gone', { deletedAt: t0 });
+    expect(await recordHistory(store, 'u1', 'n1', 'e1', trashed, undefined, t0)).toBeNull();
+    expect(store.keep).not.toHaveBeenCalled();
+    // A write to it while in Trash keeps a version like any other.
+    expect(
+      await recordHistory(store, 'u1', 'n1', 'e3', trashed, note('x', { deviceId: 'd2' }), t0),
+    ).toBe('device');
+  });
 });

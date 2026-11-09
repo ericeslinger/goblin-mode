@@ -239,6 +239,25 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ settledAt: 'just now' }, { merge: true }));
   });
 
+  it('lets the owner put a note in Trash and take it out, a Timestamp only (#217)', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertSucceeds(ref.set({ ...note(), deletedAt: now() }));
+    await assertSucceeds(
+      ref.set({ deletedAt: firebase.firestore.FieldValue.delete() }, { merge: true }),
+    );
+    await assertSucceeds(ref.set({ deletedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ deletedAt: 'yesterday' }, { merge: true }));
+    await assertFails(ref.set({ ...note(), deletedAt: 1_800_000_000 }));
+    for (const db of [intruder(), anonymous()]) {
+      const theirs = db.doc('users/owner/notes/n1');
+      await assertFails(theirs.set({ deletedAt: now() }, { merge: true }));
+      await assertFails(
+        theirs.set({ deletedAt: firebase.firestore.FieldValue.delete() }, { merge: true }),
+      );
+    }
+  });
+
   it('checks attachments: a known kind, and the reading-queue flags', async () => {
     const attachment = valid['users/owner/attachments/a1'];
     const ref = owner().doc('users/owner/attachments/a1');

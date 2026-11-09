@@ -152,14 +152,24 @@ function snippet(body: string, length = 200): string {
 
 type Data = Record<string, unknown>;
 
-/** What the name index needs of a stored note. */
+/**
+ * In Trash (#217): Eric deleted it, and the sweep removes it for good
+ * 30 days on. To every tool it is a note that is not there, but for
+ * get_note and a write naming it, which say it is in Trash; no tool
+ * deletes, or takes a note out of Trash.
+ */
+const inTrash = (d: Data | undefined) => d?.['deletedAt'] !== undefined;
+const trashError = (id: string) =>
+  new ToolError(`note ${id} is in Trash: Eric deleted it, and only he can restore it`);
+
+/** What the name index needs of a stored note; one in Trash answers to no name. */
 function named(id: string, d: Data) {
   return {
     id,
     title: String(d['title'] ?? ''),
     kind: typeof d['kind'] === 'string' ? d['kind'] : 'text',
     synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
-    archived: d['archived'] === true,
+    archived: d['archived'] === true || inTrash(d),
   };
 }
 
@@ -453,7 +463,9 @@ export class NotesTools {
   /** Names to ids across the gardener's notes (schema, concepts.ts). */
   private async names(): Promise<Map<string, string>> {
     // Names only: no bodies.
-    const snap = await this.notes().select('title', 'kind', 'synonyms', 'archived').get();
+    const snap = await this.notes()
+      .select('title', 'kind', 'synonyms', 'archived', 'deletedAt')
+      .get();
     return nameIndex(snap.docs.map((doc) => named(doc.id, doc.data())));
   }
 
@@ -490,10 +502,12 @@ export class NotesTools {
       );
   }
 
-  /** Every note, with the name index over them (bodies included). */
+  /** Every note but those in Trash, with the name index over them (bodies included). */
   private async garden() {
     const snap = await this.notes().get();
-    const docs = snap.docs.map((doc) => ({ id: doc.id, data: doc.data() as Data }));
+    const docs = snap.docs
+      .map((doc) => ({ id: doc.id, data: doc.data() as Data }))
+      .filter((d) => !inTrash(d.data));
     return { docs, index: nameIndex(docs.map((d) => named(d.id, d.data))) };
   }
 
@@ -530,6 +544,7 @@ export class NotesTools {
     const snap = await this.notes().orderBy('updatedAt', 'desc').get();
     const hits = snap.docs.filter((doc) => {
       const d = doc.data();
+      if (inTrash(d)) return false;
       if (d['archived'] === true && !args.includeArchived) return false;
       return matchesSearch(
         { title: String(d['title'] ?? ''), body: String(d['body'] ?? ''), synonyms: d['synonyms'] },
@@ -551,6 +566,7 @@ export class NotesTools {
       q = q.where('updatedAt', '>=', Timestamp.fromMillis(parseTime(args.since, 'since')));
     const snap = await q.get();
     return snap.docs
+      .filter((doc) => !inTrash(doc.data()))
       .filter((doc) => args.includeArchived || doc.get('archived') !== true)
       .filter((doc) => !args.kind || (doc.get('kind') ?? 'text') === args.kind)
       .slice(0, args.limit ?? LIST_LIMIT)
@@ -561,6 +577,7 @@ export class NotesTools {
     const doc = await this.notes().doc(args.id).get();
     if (!doc.exists) throw new ToolError(`no note ${args.id}`);
     const d = doc.data()!;
+    if (inTrash(d)) throw trashError(args.id);
     // Read from bodies, not stored links, so notes written before links
     // were stored (#28) count too. Every body is parsed: fine for one
     // gardener's notes; once all notes carry links, an array-contains
@@ -570,6 +587,7 @@ export class NotesTools {
     const backlinks = all.docs.filter(
       (n) =>
         n.id !== args.id &&
+        !inTrash(n.data()) &&
         resolveLinks(targetsOf(String(n.get('body') ?? '')), index).includes(args.id),
     );
     return {
@@ -684,7 +702,9 @@ export class NotesTools {
     });
     const ref = this.notes().doc(id);
     await this.db.runTransaction(async (tx) => {
-      if ((await tx.get(ref)).exists) throw new ToolError(`${name} is already a concept (${id})`);
+      const had = await tx.get(ref);
+      if (had.exists && inTrash(had.data())) throw trashError(id);
+      if (had.exists) throw new ToolError(`${name} is already a concept (${id})`);
       tx.set(ref, data);
       tx.set(
         ...this.activity(
@@ -1086,13 +1106,13 @@ export class NotesTools {
   private async groceryList(config: KitchenConfig): Promise<string | undefined> {
     if (config.groceryList) {
       const named = await this.notes().doc(config.groceryList).get();
-      if (named.exists && named.get('archived') !== true) return named.id;
+      if (named.exists && named.get('archived') !== true && !inTrash(named.data())) return named.id;
     }
     const shopping = await this.shoppingTemplate();
     if (!shopping) return undefined;
     const living = await this.notes().where('fromTemplate', '==', shopping.id).get();
     const newest = living.docs
-      .filter((d) => d.get('archived') !== true)
+      .filter((d) => d.get('archived') !== true && !inTrash(d.data()))
       .sort((a, b) => (millis(b.get('updatedAt')) ?? 0) - (millis(a.get('updatedAt')) ?? 0))[0];
     return newest?.id;
   }
@@ -1101,7 +1121,8 @@ export class NotesTools {
   private async shoppingTemplate() {
     const templates = await this.notes().where('kind', '==', 'template').get();
     return templates.docs.find(
-      (d) => d.get('title') === SHOPPING_LIST_NAME && d.get('archived') !== true,
+      (d) =>
+        d.get('title') === SHOPPING_LIST_NAME && d.get('archived') !== true && !inTrash(d.data()),
     );
   }
 
@@ -1127,7 +1148,7 @@ export class NotesTools {
       const raw = old.get('periodStart');
       const was = typeof raw === 'string' ? raw : undefined;
       const stay = { id: current, start: was };
-      if (!old.exists || old.get('archived') === true) return stay;
+      if (!old.exists || old.get('archived') === true || inTrash(old.data())) return stay;
       const title = String(old.get('title') ?? '') || 'the grocery list';
       if (was === undefined) {
         const update = { ...this.stamp(), periodStart: start };
@@ -1146,12 +1167,13 @@ export class NotesTools {
       const own = old.get('fromTemplate');
       const templateRef = typeof own === 'string' ? this.notes().doc(own) : shopping?.ref;
       const template = templateRef ? await tx.get(templateRef) : undefined;
-      if (!template?.exists || template.get('kind') !== 'template') return stay;
+      if (!template?.exists || template.get('kind') !== 'template' || inTrash(template.data()))
+        return stay;
       // The phone may have started the week's list already, offline.
       let ref = this.notes().doc(shoppingListId(start));
       const derived = await tx.get(ref);
       const name = shoppingListTitle(start);
-      if (!derived.exists || derived.get('archived') === true) {
+      if (!derived.exists || derived.get('archived') === true || inTrash(derived.data())) {
         if (derived.exists) ref = this.notes().doc(newId());
         const body = shoppingListBody(
           String(template.get('body') ?? ''),
@@ -1321,6 +1343,7 @@ export class NotesTools {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
       const current = doc.data()!;
+      if (inTrash(current)) throw trashError(args.id);
       const update: Data = {
         updatedAt: Timestamp.fromMillis(this.now()),
         ...this.by(),
@@ -1436,6 +1459,7 @@ export class NotesTools {
       const snaps = await tx.getAll(...refs);
       for (const snap of snaps) {
         if (!snap.exists) throw new ToolError(`no note ${snap.id}`);
+        if (inTrash(snap.data())) throw trashError(snap.id);
         if (snap.get('archived') === true) throw new ToolError(`note ${snap.id} is archived`);
       }
       const [from, ...tos] = snaps;
@@ -1491,6 +1515,7 @@ export class NotesTools {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
       const current = doc.data()!;
+      if (inTrash(current)) throw trashError(args.id);
       if (current['archived'] === true) throw new ToolError(`note ${args.id} is archived`);
       if (current['kind'] !== 'text') throw new ToolError('only a text note can be split');
       const cuts = cutsOf(String(current['body'] ?? ''), args.parts);
@@ -1557,6 +1582,7 @@ export class NotesTools {
       const snaps = await tx.getAll(...refs);
       for (const snap of snaps) {
         if (!snap.exists) throw new ToolError(`no note ${snap.id}`);
+        if (inTrash(snap.data())) throw trashError(snap.id);
         if (snap.get('archived') === true) throw new ToolError(`note ${snap.id} is archived`);
         if (snap.get('kind') !== 'text') throw new ToolError('only text notes can be merged');
       }
@@ -1649,6 +1675,7 @@ export class NotesTools {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
       const current = doc.data()!;
+      if (inTrash(current)) throw trashError(args.id);
       const concept = current['kind'] === 'concept';
       if (!concept && (args.type || args.addSynonyms?.length))
         throw new ToolError('only a concept has a type and other names');
@@ -1696,7 +1723,12 @@ export class NotesTools {
           seen.add(at);
           const up = await tx.get(this.notes().doc(at));
           const data = up.data();
-          if (!up.exists || data?.['conceptType'] !== 'project' || data['archived'] === true) {
+          if (
+            !up.exists ||
+            data?.['conceptType'] !== 'project' ||
+            data['archived'] === true ||
+            inTrash(data)
+          ) {
             if (at === args.parent) throw new ToolError(`no project ${args.parent}`);
             break;
           }
@@ -1802,6 +1834,7 @@ export class NotesTools {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
       const current = doc.data()!;
+      if (inTrash(current)) throw trashError(args.id);
       if ((current['archived'] === true) === archived) return { id: args.id, archived };
       const update = { ...this.stamp(), archived };
       Note.parse({ ...current, ...update });
@@ -1824,7 +1857,7 @@ export class NotesTools {
     const snap = await this.notes().where('sendState', '==', 'queued').get();
     const at = (d: Data) => (d['sentAt'] instanceof Timestamp ? d['sentAt'].toMillis() : 0);
     return snap.docs
-      .filter((doc) => doc.get('archived') !== true)
+      .filter((doc) => doc.get('archived') !== true && !inTrash(doc.data()))
       .sort((a, b) => at(a.data()) - at(b.data()))
       .slice(0, args.limit ?? QUEUE_LIMIT)
       .map((doc) => {
@@ -1856,6 +1889,7 @@ export class NotesTools {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
       const current = doc.data()!;
+      if (inTrash(current)) throw trashError(args.id);
       if (current['sendState'] !== 'queued') {
         throw new ToolError(`note ${args.id} is not waiting in the queue`);
       }
@@ -1900,7 +1934,8 @@ export class NotesTools {
    */
   async getContext(_args: object = {}) {
     const doc = await this.notes().doc(CONTEXT_ID).get();
-    const body = doc.exists && doc.get('archived') !== true ? String(doc.get('body') ?? '') : '';
+    const live = doc.exists && doc.get('archived') !== true && !inTrash(doc.data());
+    const body = live ? String(doc.get('body') ?? '') : '';
     return {
       id: CONTEXT_ID,
       exists: doc.exists,
@@ -1931,7 +1966,7 @@ export class NotesTools {
     const snap = await this.notes().where('kind', '==', 'template').get();
     const schedules = await this.reminders().where('template', '!=', '').get();
     return snap.docs
-      .filter((d) => d.get('archived') !== true)
+      .filter((d) => d.get('archived') !== true && !inTrash(d.data()))
       .map((d) => {
         const field = d.get('instructions') as string | undefined;
         const { skeleton, instructions } = templateParts(String(d.get('body') ?? ''), field);
@@ -1956,7 +1991,12 @@ export class NotesTools {
    */
   async useTemplate(args: { id: string }) {
     const doc = await this.notes().doc(args.id).get();
-    if (!doc.exists || doc.get('kind') !== 'template' || doc.get('archived') === true)
+    if (
+      !doc.exists ||
+      doc.get('kind') !== 'template' ||
+      doc.get('archived') === true ||
+      inTrash(doc.data())
+    )
       throw new ToolError(`no template ${args.id}`);
     const template = doc.data()!;
     const { skeleton, instructions } = templateParts(
@@ -1968,7 +2008,7 @@ export class NotesTools {
     if (mode === 'living') {
       const made = await this.notes().where('fromTemplate', '==', doc.id).get();
       const living = made.docs
-        .filter((d) => d.get('archived') !== true)
+        .filter((d) => d.get('archived') !== true && !inTrash(d.data()))
         .sort((a, b) => (millis(b.get('updatedAt')) ?? 0) - (millis(a.get('updatedAt')) ?? 0))[0];
       if (living) {
         return {
@@ -2032,6 +2072,7 @@ export class NotesTools {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new ToolError(`no note ${id}`);
       const current = doc.data()!;
+      if (inTrash(current)) throw trashError(id);
       if (current['archived'] === true) throw new ToolError(`note ${id} is archived`);
       const result = edit(String(current['body'] ?? ''), String(current['title'] ?? ''));
       if (!result) return { id, changed: false };
@@ -2103,7 +2144,12 @@ export class NotesTools {
     const projectId = index.get(normalizeName(args.project)) ?? args.project;
     const snap = await this.notes().doc(projectId).get();
     const project = snap.data();
-    if (!snap.exists || project?.['conceptType'] !== 'project' || project['archived'] === true)
+    if (
+      !snap.exists ||
+      project?.['conceptType'] !== 'project' ||
+      project['archived'] === true ||
+      inTrash(project)
+    )
       throw new ToolError(`no project ${args.project}; list_concepts with type project names them`);
     const projectTitle = String(project['title'] ?? '');
     const done: Data = { project: { id: projectId, title: projectTitle } };
@@ -2209,8 +2255,11 @@ export class NotesTools {
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:')
       throw new ToolError('url must be a full http(s) link');
-    if (args.noteId && !(await this.notes().doc(args.noteId).get()).exists)
-      throw new ToolError(`no note ${args.noteId}`);
+    if (args.noteId) {
+      const note = await this.notes().doc(args.noteId).get();
+      if (!note.exists) throw new ToolError(`no note ${args.noteId}`);
+      if (inTrash(note.data())) throw trashError(args.noteId);
+    }
     const now = Timestamp.fromMillis(this.now());
     const data = Attachment.parse({
       kind: 'link',
@@ -2472,7 +2521,9 @@ export class NotesTools {
     const d = doc.data()!;
     if (typeof d['noteId'] === 'string' && d['noteId']) {
       const note = await this.notes().doc(d['noteId']).get();
-      if (note.exists) return { id: note.id, title: note.get('title'), alreadyFiled: true };
+      // Filed into a note now in Trash (#217): filed again, as for one not there.
+      if (note.exists && !inTrash(note.data()))
+        return { id: note.id, title: note.get('title'), alreadyFiled: true };
     }
     const feeds = await this.feedIndex();
     // Only a web link is kept, in the body and in `source` (review on #168).
@@ -2552,7 +2603,8 @@ export class NotesTools {
   /** The pantry's text, or '' while there is none. */
   private async pantryBody(): Promise<string> {
     const doc = await this.notes().doc(PANTRY_ID).get();
-    return doc.exists && doc.get('archived') !== true ? String(doc.get('body') ?? '') : '';
+    const live = doc.exists && doc.get('archived') !== true && !inTrash(doc.data());
+    return live ? String(doc.get('body') ?? '') : '';
   }
 
   /**
@@ -2601,7 +2653,8 @@ export class NotesTools {
       this.notes().where('kind', '==', 'mealplan').get(),
       this.pantryBody(),
     ]);
-    const live = (d: { get: (k: string) => unknown }) => d.get('archived') !== true;
+    const live = (d: { get: (k: string) => unknown }) =>
+      d.get('archived') !== true && d.get('deletedAt') === undefined;
     const made = madeHistory(
       plans.docs.filter(live).map((d) => ({
         body: String(d.get('body') ?? ''),

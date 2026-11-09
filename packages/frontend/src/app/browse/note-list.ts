@@ -1,11 +1,12 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { matchesSearch, moodsOf } from '@mossgoblin/schema';
+import { TRASH_DAYS, matchesSearch, moodsOf } from '@mossgoblin/schema';
 import { STATUSES, kindLabel, statusLabel } from '../links/project-labels';
 import { LinksService } from '../links/links.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
-import { type LensId, byTag, inLens, projectTree } from './lenses';
+import { NOW } from '../platform/platform';
+import { type LensId, byTag, goneIn, inLens, projectTree } from './lenses';
 
 /** The text shown under a note's title: its body after the title line. */
 export function snippet(note: NoteRecord, length = 90): string {
@@ -64,6 +65,26 @@ export function matches(note: NoteRecord, search: string): boolean {
           }
         </ul>
       }
+    } @else if (lens() === 'trash') {
+      <!-- Not links: a note in Trash opens nowhere until it is restored (#217). -->
+      <ul aria-label="Notes">
+        @for (note of shown(); track note.id) {
+          <li class="trashed">
+            <span class="row">
+              <span class="title">{{ note.title || 'Untitled' }}</span>
+              <span class="snippet">{{ gone(note) }}</span>
+            </span>
+            <!-- The label starts with the words shown (WCAG 2.5.3). -->
+            <button
+              type="button"
+              [attr.aria-label]="'Restore: ' + (note.title || 'Untitled')"
+              (click)="notes.setDeleted(note.id, false)"
+            >
+              Restore
+            </button>
+          </li>
+        }
+      </ul>
     } @else if (lens() === 'projects') {
       <ul aria-label="Projects">
         @for (p of tree(); track p.note.id) {
@@ -117,6 +138,28 @@ export function matches(note: NoteRecord, search: string): boolean {
       color: var(--ink);
       text-decoration: none;
     }
+    .trashed {
+      display: flex;
+      gap: var(--space-2);
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--rule);
+    }
+    .row {
+      display: grid;
+      gap: 2px;
+      padding: 10px 4px;
+    }
+    .trashed button {
+      font: inherit;
+      font-size: 14px;
+      padding: 2px 12px;
+      border-radius: var(--radius-pill);
+      border: var(--border) solid var(--rule);
+      color: var(--ink);
+      background: var(--surface);
+      cursor: pointer;
+    }
     a[aria-current='true'] .title {
       color: var(--accent);
     }
@@ -151,7 +194,8 @@ export function matches(note: NoteRecord, search: string): boolean {
   `,
 })
 export class NoteList {
-  private readonly notes = inject(NotesService);
+  protected readonly notes = inject(NotesService);
+  private readonly now = inject(NOW);
   private readonly links = inject(LinksService);
   /** The open note, highlighted in the list. */
   readonly current = input<string | undefined>(undefined);
@@ -162,16 +206,15 @@ export class NoteList {
   protected readonly statusFilter = signal('');
   protected readonly statuses = STATUSES;
   protected readonly shown = computed(() =>
-    this.notes
-      .notes()
-      .filter(
-        (n) =>
-          inLens(this.lens(), n) &&
-          matches(n, this.search()) &&
-          (this.lens() !== 'projects' ||
-            !this.statusFilter() ||
-            n.projectStatus === this.statusFilter()),
-      ),
+    // Trash lists the notes deleted, the last deleted first (#217).
+    (this.lens() === 'trash' ? this.notes.trash() : this.notes.notes()).filter(
+      (n) =>
+        inLens(this.lens(), n) &&
+        matches(n, this.search()) &&
+        (this.lens() !== 'projects' ||
+          !this.statusFilter() ||
+          n.projectStatus === this.statusFilter()),
+    ),
   );
   protected readonly tree = computed(() => projectTree(this.shown()));
   protected readonly tagged = computed(() => byTag(this.shown()));
@@ -185,7 +228,13 @@ export class NoteList {
     journal: 'No journal entries yet. Add a feelings journal in Settings.',
     tags: 'No tagged notes yet.',
     archived: 'Nothing archived.',
+    trash: `Nothing in Trash. A deleted note stays here for ${TRASH_DAYS} days.`,
   };
+
+  /** "Gone in 12 days" (#217), by this device's clock. */
+  protected gone(note: NoteRecord): string {
+    return goneIn(note, this.now());
+  }
 
   /** A journal entry: when, and its moods (#40). */
   private journalLine(note: NoteRecord): string {

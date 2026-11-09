@@ -9,7 +9,8 @@ export const INSTRUCTIONS = [
     'reminders screen.',
   "Keep Eric's paragraphs word for word. You may add your own text, re-file, tag, link, " +
     'split, merge and archive, but never reword what he wrote unless he asks you to.',
-  'Prefer archiving to deleting; there is no delete tool.',
+  'Prefer archiving to deleting; there is no delete tool. A note Eric deleted is in Trash, ' +
+    'gone for good 30 days later: no tool lists, reads or changes it, and get_note says so.',
   "In Eric's notes *single stars* mean bold and _underscores_ mean italic; " +
     'write emphasis the same way.',
   'Times are ISO 8601 with an offset. Ask Eric for his time zone if you need one and do not know it.',

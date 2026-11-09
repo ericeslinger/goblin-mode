@@ -144,6 +144,18 @@ describe('putBack', () => {
     });
   });
 
+  it('names a note Eric deleted since as gone, and leaves it in Trash (#217)', async () => {
+    await eric('a', 'Kiln log\nCone 6.');
+    await tools(T).archiveNote({ id: 'a' });
+    const deletedAt = Timestamp.fromMillis(T + 500);
+    await db.doc('users/u1/notes/a').update({ deletedAt });
+    await expect(putBack(db, 'u1', await runOf('archive_note'), T + 1000)).rejects.toMatchObject({
+      code: 'failed-precondition',
+      message: 'Its notes are gone.',
+    });
+    expect(await read('a')).toMatchObject({ archived: true, deletedAt });
+  });
+
   it('puts back a split: the note whole again, its pieces archived', async () => {
     await eric('s', 'Trip\n\nPack the tent.\n\nBook the ferry.');
     const split = await tools(T).splitNote({

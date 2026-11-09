@@ -54,11 +54,12 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  Timestamp,
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { LocalStore } from '../platform/local-store';
-import { ONLINE, RANDOM_BYTES } from '../platform/platform';
+import { NOW, ONLINE, RANDOM_BYTES } from '../platform/platform';
 import { type PendingWrites, isPendingWrite, lost, nextPending } from './pending-writes';
 
 /** Names linked before their concept could be made (needs the server). */
@@ -142,6 +143,8 @@ export interface NoteRecord {
   /** e.g. 'feelings'. */
   tags?: string[];
   archived: boolean;
+  /** In Trash since (#217); milliseconds, on the deleting device's clock. */
+  deletedAt?: number;
   /** Milliseconds; undefined while a new note's server time is pending. */
   updatedAt?: number;
   /** When the note was made; milliseconds. */
@@ -169,6 +172,8 @@ export interface NotesApi {
   createIfAbsent(db: Firestore, path: string, data: Record<string, unknown>): Promise<boolean>;
   remove(db: Firestore, path: string): Promise<void>;
   serverTime(): unknown;
+  /** A Timestamp at `ms`, for a stamp taken from the device's clock. */
+  timestamp(ms: number): unknown;
   /** Takes a field out in a merged write. */
   removeField(): unknown;
 }
@@ -211,6 +216,7 @@ export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
       }),
     remove: (db, path) => deleteDoc(doc(db, path)),
     serverTime: () => serverTimestamp(),
+    timestamp: (ms) => Timestamp.fromMillis(ms),
     removeField: () => deleteField(),
   }),
 });
@@ -276,6 +282,9 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
       ? { tags: data['tags'].map(String) }
       : {}),
     archived: data['archived'] === true,
+    ...(typeof (data['deletedAt'] as { toMillis?: unknown } | undefined)?.toMillis === 'function'
+      ? { deletedAt: (data['deletedAt'] as { toMillis: () => number }).toMillis() }
+      : {}),
     updatedAt: stamp?.toMillis?.(),
     createdAt: (data['createdAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
     settledAt: (data['settledAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
@@ -284,8 +293,8 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
 }
 
 /**
- * The signed-in user's notes: a live list (all of them, newest first;
- * one user's notes are small) and the writes. Writes go through the
+ * The signed-in user's notes: a live list (all of them but those in
+ * Trash, newest first; one user's notes are small) and the writes. Writes go through the
  * Firestore persistent cache, so they land at once and sync later, and
  * are never awaited by the UI (offline they resolve only on reconnect).
  */
@@ -298,6 +307,12 @@ export class NotesService {
   private readonly random = inject(RANDOM_BYTES);
 
   readonly notes = signal<NoteRecord[]>([]);
+  /**
+   * Notes in Trash (#217), the last deleted first. Kept apart from
+   * `notes`, so every list, lens, count and link leaves them out, as
+   * for a note that is not there.
+   */
+  readonly trash = signal<NoteRecord[]>([]);
   /** Names to ids, for resolving `[[links]]` (schema, concepts.ts). */
   readonly names = computed(() => nameIndex(this.notes()));
   /** When each recipe was made, by normalized name, from the meal plans (#129). */
@@ -321,6 +336,7 @@ export class NotesService {
   /** Concepts being made right now, so a second ask waits for the first. */
   private readonly making = new Set<string>();
   private readonly online = inject(ONLINE);
+  private readonly now = inject(NOW);
 
   constructor() {
     effect(() => {
@@ -330,6 +346,7 @@ export class NotesService {
       this.stop = undefined;
       this.uid = uid;
       this.notes.set([]);
+      this.trash.set([]);
       this.loaded.set(false);
       this.written.clear();
       this.replayed = false;
@@ -344,7 +361,13 @@ export class NotesService {
         this.fb.db,
         paths.notes(uid),
         (docs, fromCache) => {
-          this.notes.set(docs.map((d) => toRecord(d.id, d.data)));
+          const all = docs.map((d) => toRecord(d.id, d.data));
+          this.notes.set(all.filter((n) => n.deletedAt === undefined));
+          this.trash.set(
+            all
+              .filter((n) => n.deletedAt !== undefined)
+              .sort((a, b) => b.deletedAt! - a.deletedAt!),
+          );
           // Kept writes are checked against the first snapshot from the
           // server, never the persisted cache: that can be stale, showing
           // the base while someone has written over it since (review on
@@ -392,6 +415,11 @@ export class NotesService {
     return this.written.has(id) || this.find(id) !== undefined;
   }
 
+  /** The note `id` if it is in Trash (#217). */
+  trashed(id: string): NoteRecord | undefined {
+    return this.trash().find((n) => n.id === id);
+  }
+
   /**
    * Writes a note's text: a full document first, then merged updates.
    * A restore writes as its own writer (`RESTORE_SUFFIX`), so noteHistory
@@ -426,8 +454,9 @@ export class NotesService {
     const update = { body, ...title, links, baseHash, updatedAt: now, updatedBy: 'user', deviceId };
     // A known note gets a merged update, keeping fields this device did
     // not set (Claude's links, tags, a title). A new one gets the full
-    // shape the rules require.
-    const known = this.exists(id);
+    // shape the rules require. One in Trash is known: a full write
+    // would replace it, the stamp with it (#217).
+    const known = this.exists(id) || this.trashed(id) !== undefined;
     const data = known
       ? update
       : { kind: 'text', tags: [], archived: false, createdAt: now, ...update };
@@ -464,7 +493,8 @@ export class NotesService {
         continue;
       }
       if (entry.uid !== uid) continue;
-      const note = this.find(id);
+      // Words typed before a delete are the trashed note's (#217).
+      const note = this.find(id) ?? this.trashed(id);
       const now = note ? note.body : null;
       if (lost(entry, now)) {
         this.save(id, entry.value, {
@@ -966,6 +996,28 @@ export class NotesService {
   }
 
   /**
+   * Puts a note in Trash, or takes it out (#217): Eric's own edit,
+   * through the cache like `setArchived`, so it works offline. A
+   * tombstone, `deletedAt` on the device's clock as other client
+   * stamps are; History and Put back still reach the note, and Restore
+   * brings it back as it was, archived or not. The sweep removes it for
+   * good `TRASH_DAYS` after the stamp.
+   */
+  setDeleted(id: string, deleted: boolean): void {
+    if (!this.uid) return;
+    if (deleted ? !this.exists(id) : !this.trashed(id)) return;
+    // Known from here on by the snapshot, in Trash or back in the list.
+    if (deleted) this.written.delete(id);
+    const update = {
+      deletedAt: deleted ? this.api.timestamp(this.now()) : this.api.removeField(),
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+  }
+
+  /**
    * A grocery list from before #207, taken as the week's list: its week
    * stamped in `periodStart`, through the cache like `setArchived`.
    */
@@ -1224,6 +1276,8 @@ export class NotesService {
     // keeps its own (#113).
     const kind = this.find(id)?.kind;
     if (kind === 'template' || kind === 'context') return;
+    // Leaving a note just deleted asks no title of it (#217).
+    if (this.trashed(id)) return;
     if (!edited) {
       const note = this.find(id);
       if (!note?.body.trim()) return;

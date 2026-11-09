@@ -157,6 +157,32 @@ describe('Launch', () => {
     expect(document.activeElement).toBe(content);
   });
 
+  it('holds a note in Trash read-only, saying so (#217)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    notes.trash.set([{ ...noteRecord('old', 'Kiln log'), deletedAt: 1 }]);
+    const { el } = await render({ notes, url: '/n/old' });
+    expect(el.textContent).toContain('This note is in Trash.');
+    expect(el.querySelector('.note-status a')?.getAttribute('href')).toBe('/browse/trash');
+    expect(el.querySelector('.cm-content')!.getAttribute('contenteditable')).toBe('false');
+  });
+
+  it('leaves a note deleted from its back for a fresh one (#217)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n1', 'Kiln day')]);
+    const { el, fixture, url } = await render({ notes, url: '/n/n1' });
+    buttonNamed(el, 'Back')!.click();
+    await fixture.whenStable();
+    buttonNamed(el, 'Delete')!.click();
+    await fixture.whenStable();
+    buttonNamed(el, 'Yes')!.click();
+    await fixture.whenStable();
+    expect(notes.setDeleted).toHaveBeenCalledWith('n1', true);
+    expect(url()).toBe('/');
+    expect(el.querySelector('[aria-label="Back of the note"]')).toBeNull();
+    expect(el.querySelector('.cm-content')?.textContent).not.toContain('Kiln day');
+  });
+
   it('goes to / when coming back after five minutes starts a fresh note', async () => {
     const notes = new FakeNotes();
     notes.signIn([noteRecord('n7', 'Left open')]);

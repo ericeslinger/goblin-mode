@@ -71,18 +71,21 @@ export async function storeSuggestions(
 ): Promise<Stored> {
   await sweepProposals(db, uid, now);
   const snap = await db.collection(paths.notes(uid)).get();
-  const garden: GardenNote[] = snap.docs.map((doc) => {
-    const d = doc.data();
-    return {
-      id: doc.id,
-      kind: String(d['kind'] ?? 'text'),
-      title: String(d['title'] ?? ''),
-      body: String(d['body'] ?? ''),
-      synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
-      conceptType: typeof d['conceptType'] === 'string' ? d['conceptType'] : undefined,
-      archived: d['archived'] === true,
-    };
-  });
+  // A note in Trash (#217) is not in the garden to suggest about.
+  const garden: GardenNote[] = snap.docs
+    .filter((doc) => doc.get('deletedAt') === undefined)
+    .map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        kind: String(d['kind'] ?? 'text'),
+        title: String(d['title'] ?? ''),
+        body: String(d['body'] ?? ''),
+        synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
+        conceptType: typeof d['conceptType'] === 'string' ? d['conceptType'] : undefined,
+        archived: d['archived'] === true,
+      };
+    });
   const proposals = db.collection(paths.proposals(uid));
   const known = await proposals.select('key', 'status').get();
   const waiting = known.docs.filter((d) => d.get('status') === 'open').length;

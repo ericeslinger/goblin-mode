@@ -16,6 +16,8 @@ export interface NoteState {
   titleSource?: string;
   /** `textHash` of the text the writer wrote over; '' when not known. */
   baseHash?: string;
+  /** In Trash since (#217); the sweep removes it for good. */
+  deletedAt?: number;
 }
 
 export interface KeptVersion {
@@ -53,6 +55,9 @@ export async function recordHistory(
   now: number,
 ): Promise<KeepReason | null> {
   if (!before) return null;
+  // The sweep removing a note from Trash (#217) keeps nothing: its
+  // History goes with it, and a version kept now would outlive it.
+  if (!after && before.deletedAt !== undefined) return null;
   // `lastKept = now` rules the interval out: every other reason first.
   let reason = keepReason(before, after, now, now);
   if (!reason && after && after.body !== before.body && before.body.trim()) {

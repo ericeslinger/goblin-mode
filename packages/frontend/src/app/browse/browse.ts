@@ -13,7 +13,8 @@ import { HomeLink } from '../home/home-link';
 
 /**
  * All notes and search, on its own screen (the phone), through lenses:
- * Recent, Concepts, People, Projects, Tags, Archived (#31). Each lens
+ * Recent, Concepts, People, Projects, Tags, Archived (#31), Trash
+ * (#217). Each lens
  * is a URL, /browse/<lens>, so back returns to it.
  */
 @Component({
@@ -154,7 +155,8 @@ export class Browse {
     { initialValue: lensId(undefined) },
   );
   protected readonly lenses = computed(() => {
-    const all = this.notes.notes();
+    // Trash's count is of the notes in it (#217); every other lens leaves them out.
+    const all = [...this.notes.notes(), ...this.notes.trash()];
     // A module that is off takes its lens with it (#126).
     const off = (id: string) =>
       (id === 'projects' && !this.modules.projects()) ||
