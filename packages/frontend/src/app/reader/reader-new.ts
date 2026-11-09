@@ -25,7 +25,9 @@ export const NEW_FOLDERS = 3;
         }
         @if (more(); as n) {
           <li>
-            <a routerLink="/reader">and {{ n }} more {{ n === 1 ? 'folder' : 'folders' }}</a>
+            <a routerLink="/reader/folders"
+              >and {{ n }} more {{ n === 1 ? 'folder' : 'folders' }}</a
+            >
           </li>
         }
       </ul>

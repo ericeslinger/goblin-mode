@@ -22,7 +22,10 @@ import { Swipe } from './swipe';
 import { Icon } from '../home/icon';
 import { ReaderBar, type ReaderTab } from './reader-bar';
 
-/** The shelf a list shows, from its route: `/reader` (All), `/reader/f/<folder>` or `/reader/s/<feedId>`. */
+/**
+ * The shelf a list shows, from its route: `/reader` (All),
+ * `/reader/f/<folder>` or `/reader/s/<feedId>`.
+ */
 export function shelfOf(params: { get(name: string): string | null }): Shelf2 {
   const feed = params.get('feedId');
   return feed ? { kind: 'feed', id: feed } : { kind: 'folder', name: params.get('folder') ?? ALL };

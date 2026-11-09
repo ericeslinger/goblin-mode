@@ -43,7 +43,8 @@ export function articleHtml(markdown: string, images: boolean): string {
  * One article (#162): rendered as notes are, with Open the page, Keep
  * unread, Save, and next and previous by swipe (left for next) or j and
  * k; since #221 the header's controls are icons, named, and Previous
- * and Next sit either side of where the article is on its shelf. Opening marks it read; links inside open in a new tab. Next from
+ * and Next sit either side of where the article is on its shelf.
+ * Opening marks it read; links inside open in a new tab. Next from
  * the shelf's last article is the caught-up page (Eric, 2026-11-07).
  * An episode (#179) has the player's full controls above its notes,
  * and opening it reads nothing: hearing it to the end does. Its
