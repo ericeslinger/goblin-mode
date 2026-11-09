@@ -35,6 +35,13 @@ async function makeTemplate(
   await typeLines(page, lines);
   await letItSave(page);
   await page.getByRole('button', { name: 'Back', exact: true }).click();
+  // From template names a template by its title, which can arrive after
+  // the text does (#226): return once the back reads the first line.
+  await expect(
+    page
+      .getByRole('region', { name: 'Back of the note' })
+      .getByRole('heading', { level: 2, name: lines[0], exact: true }),
+  ).toBeVisible();
   const box = page.getByRole('textbox', { name: 'Instructions for Claude' });
   await box.fill(instructions);
   // Saved on leaving the field, as a phone finishes.

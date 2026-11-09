@@ -31,11 +31,32 @@ const PATHS = {
     'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
   ],
   chevron: ['M9 6l6 6-6 6'],
+  // The Reader's controls (#221, A-Reader and A-Article).
+  'chevron-left': ['M15 6l-6 6 6 6'],
+  search: ['M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14z', 'M20 20l-3.5-3.5'],
+  download: ['M12 3v12', 'M7 10l5 5 5-5', 'M4 20h16'],
+  feeds: ['M4 6h16M4 12h16M4 18h10', 'M18 15.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z'],
+  check: ['M4 12l5 5L20 6'],
+  bookmark: ['M6 3h12v18l-6-4-6 4z'],
+  'leaf-plus': [
+    'M12 21c-5 0-8-3.5-8-8 0-4 3-7 7-8 4-1 6 0 9-2-1 4-1 7-2 10-1.5 4.5-3 8-6 8z',
+    'M12 21c0-5 2-9 6-13',
+    'M18 3v4M16 5h4',
+  ],
+  'open-page': [
+    'M14 4h6v6',
+    'M20 4l-9 9',
+    'M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5',
+  ],
+  play: ['M8 5v14l11-7z'],
 } as const;
 
 export type IconName = keyof typeof PATHS;
 
-/** A mark, drawn at `size`; decoration only, so its link or button names it. */
+/**
+ * A mark, drawn at `size`; decoration only, so its link or button names
+ * it. `filled` fills its shape in ink, for a state such as saved.
+ */
 @Component({
   selector: 'app-icon',
   template: `
@@ -69,15 +90,19 @@ export type IconName = keyof typeof PATHS;
     :host(.leaf) svg {
       stroke: var(--second);
     }
+    :host(.filled) path {
+      fill: var(--ink);
+    }
     .dot {
       fill: var(--ink);
       stroke: none;
     }
   `,
-  host: { '[class.leaf]': "name() === 'leaf'" },
+  host: { '[class.leaf]': "name() === 'leaf'", '[class.filled]': 'filled()' },
 })
 export class Icon {
   readonly name = input.required<IconName>();
   readonly size = input(24);
+  readonly filled = input(false);
   protected readonly paths = computed(() => PATHS[this.name()]);
 }

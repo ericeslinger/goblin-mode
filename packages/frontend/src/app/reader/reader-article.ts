@@ -21,6 +21,8 @@ import { PlayerService } from './player.service';
 import { shelfFromParam, shelfLink, shelfParam, shelfTitle } from './reader-list';
 import { ReaderService } from './reader.service';
 import { Swipe } from './swipe';
+import { HomeLink } from '../home/home-link';
+import { Icon } from '../home/icon';
 
 /**
  * The article's HTML for the page (#162): the stored markdown rendered
@@ -40,7 +42,9 @@ export function articleHtml(markdown: string, images: boolean): string {
 /**
  * One article (#162): rendered as notes are, with Open the page, Keep
  * unread, Save, and next and previous by swipe (left for next) or j and
- * k. Opening marks it read; links inside open in a new tab. Next from
+ * k; since #221 the header's controls are icons, named, and Previous
+ * and Next sit either side of where the article is on its shelf.
+ * Opening marks it read; links inside open in a new tab. Next from
  * the shelf's last article is the caught-up page (Eric, 2026-11-07).
  * An episode (#179) has the player's full controls above its notes,
  * and opening it reads nothing: hearing it to the end does. Its
@@ -49,7 +53,7 @@ export function articleHtml(markdown: string, images: boolean): string {
  */
 @Component({
   selector: 'app-reader-article',
-  imports: [RouterLink, Swipe, CaughtUp],
+  imports: [RouterLink, Swipe, CaughtUp, HomeLink, Icon],
   template: `
     <main
       class="page"
@@ -82,7 +86,74 @@ export function articleHtml(markdown: string, images: boolean): string {
           </div>
         }
       }
-      <a [routerLink]="backLink()" class="back">Back</a>
+      <!-- The header (#221): the shelf to go back to, then the article's own
+           controls as icons, each named for the screen reader. -->
+      <header class="top">
+        <app-home-link />
+        <a [routerLink]="backLink()" class="back"
+          ><app-icon name="chevron-left" [size]="18" />{{ shelfTitle() }}</a
+        >
+        <span class="spacer"></span>
+        @if (!pendingDone() && item(); as it) {
+          @if (it.enclosure && downloads.available()) {
+            @if (downloaded()) {
+              <button
+                type="button"
+                class="icon"
+                aria-label="Remove download"
+                (click)="downloads.remove(it.id)"
+              >
+                <app-icon name="download" [size]="22" />
+                <span class="dot" aria-hidden="true"></span>
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="icon"
+                aria-label="Download"
+                [disabled]="!!progress()"
+                (click)="download(it)"
+              >
+                <app-icon name="download" [size]="22" />
+              </button>
+            }
+          }
+          <button
+            type="button"
+            class="icon"
+            aria-label="Save for later"
+            [attr.aria-pressed]="it.saved ? 'true' : 'false'"
+            (click)="items.setSaved(it.id, !it.saved)"
+          >
+            <app-icon name="bookmark" [size]="22" [filled]="!!it.saved" />
+          </button>
+          @if (it.noteId) {
+            <a class="icon" [routerLink]="['/n', it.noteId]" aria-label="In the garden">
+              <app-icon name="leaf" [size]="22" />
+            </a>
+          } @else {
+            <button
+              type="button"
+              class="icon"
+              aria-label="File in the garden"
+              (click)="file(it.id)"
+            >
+              <app-icon name="leaf-plus" [size]="22" />
+            </button>
+          }
+          @if (it.link) {
+            <a
+              class="icon"
+              [href]="it.link"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open the page"
+            >
+              <app-icon name="open-page" [size]="22" />
+            </a>
+          }
+        }
+      </header>
       @if (pendingDone()) {
         <!-- The caught-up page, shown here while its route loads. -->
         <app-reader-caught-up [shelf]="shelfTitle()" />
@@ -101,14 +172,8 @@ export function articleHtml(markdown: string, images: boolean): string {
               · {{ when(it) }}
             </p>
             <p class="acts">
-              @if (it.link) {
-                <a [href]="it.link" target="_blank" rel="noopener noreferrer">Open the page</a>
-              }
               <button type="button" (click)="items.setRead(it.id, !it.read)">
                 {{ it.read ? 'Keep unread' : 'Mark read' }}
-              </button>
-              <button type="button" (click)="items.setSaved(it.id, !it.saved)">
-                {{ it.saved ? 'Unsave' : 'Save for later' }}
               </button>
               @if (it.readerState === 'done') {
                 <span class="muted">Reader mode</span>
@@ -124,11 +189,6 @@ export function articleHtml(markdown: string, images: boolean): string {
                       : 'Reader mode'
                   }}
                 </button>
-              }
-              @if (it.noteId) {
-                <a [routerLink]="['/n', it.noteId]">In the garden</a>
-              } @else {
-                <button type="button" (click)="file(it.id)">File in the garden</button>
               }
             </p>
             @if (said()) {
@@ -182,25 +242,36 @@ export function articleHtml(markdown: string, images: boolean): string {
               @if (it.played) {
                 <p class="muted">Played to the end.</p>
               }
-              @if (downloads.available()) {
-                <p class="download">
-                  @if (downloaded(); as kept) {
-                    <span class="muted">Downloaded, {{ sizeOf(kept.bytes) }}</span>
-                    <button type="button" (click)="downloads.remove(it.id)">Remove download</button>
-                  } @else if (progress(); as p) {
-                    <span class="muted" role="status">Downloading… {{ progressText(p) }}</span>
-                  } @else {
-                    <button type="button" (click)="download(it)">Download</button>
-                  }
-                </p>
+              <!-- Download and Remove download are the header's icon (#221). -->
+              @if (downloaded(); as kept) {
+                <p class="muted">Downloaded, {{ sizeOf(kept.bytes) }}</p>
+              } @else if (progress(); as p) {
+                <p class="muted" role="status">Downloading… {{ progressText(p) }}</p>
               }
             </section>
           }
           <div class="body" [innerHTML]="html()" (click)="openLink($event)"></div>
         </article>
         <nav class="prevnext" aria-label="Next and previous">
-          <button type="button" [disabled]="!prev()" (click)="go(-1)">Previous</button>
-          <button type="button" [disabled]="!next() && !atEnd()" (click)="go(1)">Next</button>
+          <button
+            type="button"
+            class="icon"
+            aria-label="Previous article"
+            [disabled]="!prev()"
+            (click)="go(-1)"
+          >
+            <app-icon name="chevron-left" [size]="20" />
+          </button>
+          <span class="place">{{ place() }}</span>
+          <button
+            type="button"
+            class="icon"
+            aria-label="Next article"
+            [disabled]="!next() && !atEnd()"
+            (click)="go(1)"
+          >
+            <app-icon name="chevron" [size]="20" />
+          </button>
         </nav>
       } @else if (items.loaded()) {
         <p class="muted">This article is not on this device. Open it online, or go back.</p>
@@ -299,12 +370,6 @@ export function articleHtml(markdown: string, images: boolean): string {
       justify-self: start;
       margin: 0;
     }
-    .player .download {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      align-items: center;
-    }
     .body {
       line-height: 1.55;
       overflow-wrap: anywhere;
@@ -339,12 +404,70 @@ export function articleHtml(markdown: string, images: boolean): string {
       color: var(--quiet);
       font-style: italic;
     }
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .back {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 44px;
+      min-width: 0;
+      margin-left: var(--space-2);
+      padding: 0 8px;
+      color: var(--quiet);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+    .spacer {
+      flex: 1;
+    }
+    /* An icon-only control (#221): a 44 px target, named by its aria-label. */
+    .icon {
+      position: relative;
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius-control);
+      background: transparent;
+      cursor: pointer;
+    }
+    .icon:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+    .dot {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--second);
+    }
     .prevnext {
       display: flex;
-      justify-content: space-between;
+      align-items: center;
+      gap: var(--space-1);
       margin-top: var(--space-4);
       padding-top: var(--space-2);
       border-top: 1px solid var(--rule);
+    }
+    .prevnext .icon {
+      border: var(--border) solid var(--rule);
+    }
+    .place {
+      flex: 1;
+      text-align: center;
+      font-size: 13px;
+      color: var(--quiet);
     }
   `,
 })
@@ -447,6 +570,12 @@ export class ReaderArticle {
   protected readonly atEnd = computed(() => {
     const seq = this.sequence();
     return seq.length > 0 && seq[seq.length - 1].id === this.currentId();
+  });
+  /** "3 of 14": where this article is on its shelf's way through, for the footer (#221). */
+  protected readonly place = computed(() => {
+    const seq = this.sequence();
+    const at = seq.findIndex((i) => i.id === this.currentId());
+    return at < 0 ? '' : `${at + 1} of ${seq.length}`;
   });
   /** The slide to the caught-up page finished; it shows here until its route is in. */
   protected readonly pendingDone = signal(false);

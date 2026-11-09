@@ -104,6 +104,14 @@
           }
         </ul>
       }
+      @if (kitchenTab(); as tab) {
+        <!-- The grocery list's text is a screen the Shopping tab leads to, not the tab's own. -->
+        <app-kitchen-tabs
+          class="kitchen-tabs"
+          [active]="tab"
+          [current]="tab === 'shopping' ? 'true' : 'page'"
+        />
+      }
       @if (back() && record(); as note) {
         <app-note-back class="back" [note]="note" />
       } @else if (record(); as note) {

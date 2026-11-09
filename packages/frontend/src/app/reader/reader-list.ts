@@ -19,8 +19,13 @@ import { type ItemRecord, ItemsService } from './items.service';
 import { ALL, PODCASTS, SAVED, type Shelf2, shelfParam } from './shelves';
 import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
+import { Icon } from '../home/icon';
+import { ReaderBar, type ReaderTab } from './reader-bar';
 
-/** The shelf a list shows, from its route: `/reader/f/<folder>` or `/reader/s/<feedId>`. */
+/**
+ * The shelf a list shows, from its route: `/reader` (All),
+ * `/reader/f/<folder>` or `/reader/s/<feedId>`.
+ */
 export function shelfOf(params: { get(name: string): string | null }): Shelf2 {
   const feed = params.get('feedId');
   return feed ? { kind: 'feed', id: feed } : { kind: 'folder', name: params.get('folder') ?? ALL };
@@ -50,6 +55,14 @@ export function shelfLink(shelf: Shelf2): string[] {
   return shelf.kind === 'feed' ? ['/reader/s', shelf.id] : ['/reader/f', shelf.name];
 }
 
+/** The Reader's tab a shelf is, or is under (#220). */
+export function tabOf(shelf: Shelf2): ReaderTab {
+  if (shelf.kind === 'feed') return 'folders';
+  if (shelf.name === ALL) return 'all';
+  if (shelf.name === SAVED) return 'saved';
+  return shelf.name === PODCASTS ? 'podcasts' : 'folders';
+}
+
 /** A shelf's name as its list's heading shows it. */
 export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string {
   if (shelf.kind === 'feed') return feeds.find((f) => f.id === shelf.id)?.title ?? 'Feed';
@@ -75,23 +88,37 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
  *
  * Opening a folder's list notes when it was seen (#173), so Right Now
  * counts only the articles newer than that.
+ *
+ * Under the Reader's header and tabs (#220): All at `/reader`, Saved
+ * and Podcasts their own tabs, any other folder or a feed under
+ * Folders, with a link back to them and its name.
  */
 @Component({
   selector: 'app-reader-list',
-  imports: [RouterLink, Swipe],
+  imports: [Icon, ReaderBar, RouterLink, Swipe],
   template: `
     <main class="page">
-      <a routerLink="/reader">Back</a>
-      <h1>{{ title() }}</h1>
+      <app-reader-bar [active]="tab()" [current]="tab() === 'folders' ? 'true' : 'page'" />
+      @if (tab() === 'folders') {
+        <!-- A folder's or a feed's shelf, under Folders (#220): back to them, and its name. -->
+        <a class="up" routerLink="/reader/folders"
+          ><app-icon name="chevron-left" [size]="18" />Folders</a
+        >
+        <h2>{{ title() }}</h2>
+      } @else {
+        <h2 class="visually-hidden">{{ title() }}</h2>
+      }
       <p class="tools">
         <label>
           <input type="checkbox" [checked]="showRead()" (change)="showRead.set(!showRead())" />
           Show read
         </label>
-        <button type="button" [disabled]="!unreadCount()" (click)="markAll()">Mark all read</button>
         @if (feedLink()) {
           <a [href]="feedLink()" target="_blank" rel="noopener noreferrer">The site</a>
         }
+        <button type="button" class="all" [disabled]="!unreadCount()" (click)="markAll()">
+          <app-icon name="check" [size]="16" />Mark all read
+        </button>
       </p>
       @if (status()) {
         <p class="status" role="status">
@@ -101,7 +128,7 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
           }
         </p>
       }
-      @if (items.loaded() && list().length === 0) {
+      @if (items.loaded() && list().length === 0 && reader.feeds().length) {
         <p class="muted">
           {{ isSaved() ? 'Nothing saved for later.' : 'All caught up.' }}
         </p>
@@ -176,11 +203,47 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
     </main>
   `,
   styles: `
+    .up {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 44px;
+      margin-top: var(--space-2);
+      color: var(--quiet);
+      text-decoration: none;
+    }
+    h2 {
+      margin: 0;
+      font-size: 18px;
+    }
     .tools {
       display: flex;
       flex-wrap: wrap;
       gap: var(--space-2) var(--space-3);
       align-items: center;
+    }
+    .tools label {
+      margin: 0;
+    }
+    /* Mark all read keeps its word, beside a check, at the row's right (#221). */
+    .all {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 44px;
+      margin-left: auto;
+      padding: 0 12px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--surface);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+    }
+    .all:disabled {
+      color: var(--quiet);
+      cursor: default;
     }
     ul {
       list-style: none;
@@ -317,6 +380,8 @@ export class ReaderList {
   });
   protected readonly unreadCount = computed(() => this.list().filter((i) => !i.read).length);
   protected readonly title = computed(() => shelfTitle(this.shelf(), this.reader.feeds()));
+  /** The Reader's tab this shelf is (#220): All, Saved or Podcasts, else under Folders. */
+  protected readonly tab = computed<ReaderTab>(() => tabOf(this.shelf()));
   /** One feed's site, when the list is that feed's. */
   protected readonly feedLink = computed(() => {
     const shelf = this.shelf();

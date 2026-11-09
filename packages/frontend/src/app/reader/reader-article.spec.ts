@@ -113,7 +113,7 @@ describe('ReaderArticle', () => {
     expect(pane.querySelector('svg[role="img"]')).not.toBeNull();
     swipe.dx.set(0);
     await harness.fixture.whenStable();
-    const next = [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Next')!;
+    const next = el.querySelector<HTMLButtonElement>('button[aria-label="Next article"]')!;
     expect(next.disabled).toBe(false);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
     await harness.fixture.whenStable();

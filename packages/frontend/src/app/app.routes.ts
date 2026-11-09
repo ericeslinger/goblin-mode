@@ -60,12 +60,30 @@ export const routes: Routes = [
     path: 'kitchen',
     loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),
   },
+  // Kitchen's tabs (#220), before a day, which they are not.
+  {
+    path: 'kitchen/shopping',
+    loadComponent: () => import('./kitchen/kitchen-shopping').then((m) => m.KitchenShopping),
+  },
+  {
+    path: 'kitchen/recipes',
+    loadComponent: () => import('./kitchen/kitchen-recipes').then((m) => m.KitchenRecipes),
+  },
+  {
+    path: 'kitchen/pantry',
+    loadComponent: () => import('./kitchen/kitchen-pantry').then((m) => m.KitchenPantry),
+  },
   {
     path: 'kitchen/:day',
     loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),
   },
+  // The Reader opens on All (#220); its folders are a tab of their own.
   {
     path: 'reader',
+    loadComponent: () => import('./reader/reader-list').then((m) => m.ReaderList),
+  },
+  {
+    path: 'reader/folders',
     loadComponent: () => import('./reader/reader').then((m) => m.Reader),
   },
   {

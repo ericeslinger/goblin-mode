@@ -52,6 +52,9 @@ function setup() {
   ]);
   fixture.detectChanges();
   const el = fixture.nativeElement as HTMLElement;
+  // Search is behind the header's icon since #221.
+  el.querySelector<HTMLButtonElement>('button[aria-label="Search articles"]')!.click();
+  fixture.detectChanges();
   const search = async (text: string) => {
     const input = el.querySelector<HTMLInputElement>('input[aria-label="Search articles"]')!;
     input.value = text;
@@ -62,7 +65,7 @@ function setup() {
   return { fixture, feeds, el, search };
 }
 
-describe('Reader front, search articles (#175)', () => {
+describe('Reader, search articles from the header (#175, #221)', () => {
   it('lists what the server found across every article, linking to each', async () => {
     const { feeds, el, search } = setup();
     feeds.searchArticles.mockResolvedValueOnce({

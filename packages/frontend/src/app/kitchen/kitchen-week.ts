@@ -6,21 +6,20 @@ import { map } from 'rxjs';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
-import { HomeLink } from '../home/home-link';
+import { KitchenTabs } from './kitchen-tabs';
 
 /**
  * /kitchen and /kitchen/<a day> (#129): opens the meal plan for the week
  * holding that day (today by default), making it first if no device has
  * yet. The plan is a note, so it opens on the note page, its week drawn
- * above its text.
+ * above its text, under Kitchen's tabs (#220).
  */
 @Component({
   selector: 'app-kitchen-week',
-  imports: [HomeLink, RouterLink],
+  imports: [KitchenTabs, RouterLink],
   template: `
     <main class="page">
-      <app-home-link />
-      <h1>Meal plan</h1>
+      <app-kitchen-tabs active="meals" heading />
       @if (!modules.kitchen()) {
         <p>
           The meal plan is part of Kitchen, which is switched off.

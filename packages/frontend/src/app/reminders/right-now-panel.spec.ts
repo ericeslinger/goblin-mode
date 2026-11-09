@@ -133,7 +133,7 @@ describe('RightNowPanel', () => {
       ['3 new in Design', '/reader/f/Design'],
       ['2 new in Apple', '/reader/f/Apple'],
       ['1 new in Games', '/reader/f/Games'],
-      ['and 2 more folders', '/reader'],
+      ['and 2 more folders', '/reader/folders'],
     ]);
     // All seen: nothing.
     settings.push({

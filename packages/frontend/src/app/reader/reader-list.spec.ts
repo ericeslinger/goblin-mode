@@ -21,7 +21,7 @@ import {
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { DOWNLOADS_API } from './downloads.service';
 import { ITEMS_API, ItemsService } from './items.service';
-import { PASSED_MS, ReaderList, SETTLE_MS, UNDO_MS } from './reader-list';
+import { PASSED_MS, ReaderList, SETTLE_MS, UNDO_MS, tabOf } from './reader-list';
 import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
@@ -280,5 +280,40 @@ describe('ReaderList, a folder seen (#173)', () => {
   it('notes nothing for a shelf that is no folder of the feeds', () => {
     const { settings } = setup(false, 'podcasts');
     expect(settings.set).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReaderList, under the Reader tabs (#220)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('names the tab each shelf is, or is under', () => {
+    expect(tabOf({ kind: 'folder', name: 'all' })).toBe('all');
+    expect(tabOf({ kind: 'folder', name: 'saved' })).toBe('saved');
+    expect(tabOf({ kind: 'folder', name: 'podcasts' })).toBe('podcasts');
+    expect(tabOf({ kind: 'folder', name: 'Design' })).toBe('folders');
+    expect(tabOf({ kind: 'feed', id: 'f1' })).toBe('folders');
+  });
+
+  it('opens on All, its tab the page, with the unread count in it', () => {
+    const { el } = setup(false);
+    const tabs = el.querySelector('nav[aria-label="Reader screens"]')!;
+    const current = tabs.querySelector('a[aria-current]')!;
+    expect(current.getAttribute('aria-current')).toBe('page');
+    expect(current.textContent!.replace(/\s+/g, ' ').trim()).toBe('All 3 unread');
+    expect(el.querySelector('a[href="/reader/folders"]:not(nav a)')).toBeNull();
+  });
+
+  it("draws a folder's shelf under Folders, with the way back and its name", () => {
+    const { el } = setup(false, 'Design');
+    const tabs = el.querySelector('nav[aria-label="Reader screens"]')!;
+    const current = tabs.querySelector('a[aria-current]')!;
+    expect(current.textContent!.trim()).toBe('Folders');
+    expect(current.getAttribute('aria-current')).toBe('true');
+    expect(el.querySelector('a.up')!.getAttribute('href')).toBe('/reader/folders');
+    expect(el.querySelector('h2')!.textContent).toBe('Design');
+    // Icon-only controls carry names (#221).
+    for (const name of ['Search articles', 'Manage feeds']) {
+      expect(el.querySelector(`[aria-label="${name}"]`)).not.toBeNull();
+    }
   });
 });
