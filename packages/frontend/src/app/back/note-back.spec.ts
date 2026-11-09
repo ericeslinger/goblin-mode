@@ -167,6 +167,89 @@ describe('NoteBack (#112)', () => {
     expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask where to.');
   });
 
+  describe('how a note takes new material (#231)', () => {
+    const takes = (el: HTMLElement) =>
+      [...el.querySelectorAll('label')].find((l) =>
+        l.textContent?.includes('Takes new material as'),
+      );
+
+    it('shows the select and the instructions for the kinds that take them', async () => {
+      for (const kind of ['text', 'concept', 'template', 'clipping']) {
+        TestBed.resetTestingModule();
+        const { el } = await render({ ...noteRecord('n1', 'Kiln'), kind }, []);
+        expect(takes(el), kind).toBeDefined();
+        expect(el.querySelector('textarea'), kind).not.toBeNull();
+      }
+      for (const kind of ['recipe', 'mealplan', 'pantry', 'context', 'sketch']) {
+        TestBed.resetTestingModule();
+        const { el } = await render({ ...noteRecord('n1', 'Kiln'), kind }, []);
+        expect(takes(el), kind).toBeUndefined();
+        expect(el.querySelector('textarea'), kind).toBeNull();
+      }
+    });
+
+    it('writes the mode, or none, with the hint under the select', async () => {
+      const { el, notes, fixture } = await render(noteRecord('n1', 'Kiln'), []);
+      const select = takes(el)!.querySelector('select')!;
+      expect([...select.options].map((o) => o.textContent?.trim())).toEqual([
+        'None',
+        'List',
+        'Log',
+        'Synthesis',
+      ]);
+      select.value = 'log';
+      select.dispatchEvent(new Event('change'));
+      expect(notes.setNoteMode).toHaveBeenCalledWith('n1', 'log');
+      fixture.componentRef.setInput('note', { ...noteRecord('n1', 'Kiln'), mode: 'log' });
+      await fixture.whenStable();
+      expect(el.querySelector('#takes-hint')!.textContent).toContain('today’s date');
+      select.value = '';
+      select.dispatchEvent(new Event('change'));
+      expect(notes.setNoteMode).toHaveBeenLastCalledWith('n1', undefined);
+    });
+
+    it('writes a plain note’s instructions through the held path (#200)', async () => {
+      const note: NoteRecord = {
+        ...noteRecord('n1', 'Kiln\n\n## Instructions for Claude\nNot these.'),
+        instructions: 'Date each firing.',
+      };
+      const { el, notes } = await render(note, []);
+      const box = el.querySelector('textarea')!;
+      // A plain note's field is its own, never a section of its text.
+      expect(box.value).toBe('Date each firing.');
+      vi.useFakeTimers();
+      try {
+        box.focus();
+        box.value = 'Date each firing, and the cone.';
+        box.dispatchEvent(new Event('input'));
+        expect(notes.holdInstructions).toHaveBeenLastCalledWith(
+          'n1',
+          'Date each firing, and the cone.',
+        );
+        expect(notes.setInstructions).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(SAVE_DELAY_MS);
+        expect(notes.setInstructions).toHaveBeenCalledWith('n1', 'Date each firing, and the cone.');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('shows a living note the mode it inherits from its template', async () => {
+      const template: NoteRecord = {
+        ...noteRecord('t1', 'Firings'),
+        kind: 'template',
+        templateMode: 'living',
+        mode: 'log',
+        instructions: 'Say the cone.',
+      };
+      const living: NoteRecord = { ...noteRecord('n1', 'Firings'), fromTemplate: 't1' };
+      const { el } = await render(living, [], [template]);
+      expect(el.querySelector('#takes-hint')!.textContent).toContain('From its template: Log.');
+      expect(takes(el)!.querySelector('select')!.value).toBe('');
+      expect(el.textContent).toContain('With none here, its template');
+    });
+  });
+
   describe('Instructions for Claude as they are typed (#200)', () => {
     const template: NoteRecord = {
       ...noteRecord('t1', 'Journal entry\n'),

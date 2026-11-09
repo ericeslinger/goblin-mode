@@ -390,6 +390,21 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     );
   });
 
+  it('lets the owner set and clear how a note takes new material, a known mode only (#231)', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertSucceeds(ref.set({ ...note(), mode: 'log', instructions: 'Dated.' }));
+    await assertSucceeds(ref.set({ mode: 'synthesis' }, { merge: true }));
+    await assertSucceeds(
+      ref.set({ mode: firebase.firestore.FieldValue.delete() }, { merge: true }),
+    );
+    await assertFails(ref.set({ mode: 'diary' }, { merge: true }));
+    await assertFails(ref.set({ ...note(), mode: ['list'] }));
+    for (const db of [intruder(), anonymous()]) {
+      await assertFails(db.doc('users/owner/notes/n1').set({ mode: 'list' }, { merge: true }));
+    }
+  });
+
   it('accepts a server timestamp, as the app writes updatedAt', async () => {
     const note = valid['users/owner/notes/n1'];
     await assertSucceeds(

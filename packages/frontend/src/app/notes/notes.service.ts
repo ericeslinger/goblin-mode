@@ -41,6 +41,8 @@ import {
   type TitleSource,
   agentOf,
   SEND_ASK_MAX,
+  NoteMode,
+  takesInstructions,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -71,7 +73,8 @@ export const PENDING_ITEMS_KEY = 'goblin.pendingItems';
 type PendingItems = Record<string, { parent: string; stage?: string }>;
 /**
  * Instructions for Claude written or typed but not yet acknowledged
- * (#198, #200), by template id, kept until the server has them
+ * (#198, #200), by note id (a template's, or since #231 any note that
+ * takes instructions), kept until the server has them
  * (`pending-writes.ts`; null base: no field).
  */
 export const PENDING_INSTRUCTIONS_KEY = 'goblin.pendingInstructions';
@@ -102,8 +105,13 @@ export interface NoteRecord {
   templateMode?: string;
   /** The template a note was made from. */
   fromTemplate?: string;
-  /** A template's Instructions for Claude, once moved out of its body (#111). */
+  /**
+   * Instructions for Claude: a template's, once moved out of its body
+   * (#111), or since #231 any note's that takes them.
+   */
   instructions?: string;
+  /** How the note takes new material (#231): 'list', 'log' or 'synthesis'. */
+  mode?: NoteMode;
   /** A recipe's source and servings (#127). */
   source?: { url?: string; attachmentId?: string; text?: string; feedItemId?: string };
   servings?: number;
@@ -258,6 +266,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     ...(typeof data['templateMode'] === 'string' ? { templateMode: data['templateMode'] } : {}),
     ...(typeof data['fromTemplate'] === 'string' ? { fromTemplate: data['fromTemplate'] } : {}),
     ...(typeof data['instructions'] === 'string' ? { instructions: data['instructions'] } : {}),
+    ...(NoteMode.safeParse(data['mode']).success ? { mode: data['mode'] as NoteMode } : {}),
     ...(recipeSource(data['source']) ? { source: recipeSource(data['source']) } : {}),
     ...(typeof data['servings'] === 'number' ? { servings: data['servings'] } : {}),
     ...(['requested', 'working', 'done', 'failed'].includes(data['importState'] as string)
@@ -597,8 +606,9 @@ export class NotesService {
   }
 
   /**
-   * A template's Instructions for Claude (#111), its own field, never in
-   * the text a note made from it starts with.
+   * A note's Instructions for Claude, its own field: a template's (#111),
+   * never in the text a note made from it starts with, or since #231
+   * any note's that takes them (`takesInstructions`).
    */
   setInstructions(id: string, instructions: string): void {
     if (!this.holdInstructions(id, instructions) || !this.uid) return;
@@ -618,11 +628,12 @@ export class NotesService {
    * Keeps Instructions for Claude on this device, synchronously, without
    * writing them yet (#200): the field calls it on every keystroke and
    * writes after a pause, so words typed when the page closes are kept
-   * even though no write has started. False for no such template.
+   * even though no write has started. False for no such note, or one
+   * whose kind takes no instructions.
    */
   holdInstructions(id: string, instructions: string): boolean {
     const note = this.find(id);
-    if (!this.uid || note?.kind !== 'template') return false;
+    if (!this.uid || !note || !takesInstructions(note.kind)) return false;
     const pending = this.store.get<PendingWrites>(PENDING_INSTRUCTIONS_KEY) ?? {};
     const prev = isPendingWrite(pending[id]) ? pending[id] : undefined;
     const entry = nextPending(prev, this.uid, instructions, note.instructions ?? null);
@@ -633,7 +644,7 @@ export class NotesService {
   /**
    * Once the server's first snapshot is here, the instructions a closed
    * page did not get into the cache (#198, #200), written again where
-   * `lost` says they were lost. A template absent from the server was
+   * `lost` says they were lost. A note absent from the server was
    * deleted or never synced: its entry goes.
    */
   private replayInstructions(): void {
@@ -646,7 +657,7 @@ export class NotesService {
       }
       if (entry.uid !== this.uid) continue;
       const note = this.find(id);
-      if (note?.kind === 'template' && lost(entry, note.instructions ?? null)) {
+      if (note && takesInstructions(note.kind) && lost(entry, note.instructions ?? null)) {
         this.setInstructions(id, entry.value);
       } else this.forget(PENDING_INSTRUCTIONS_KEY, id);
     }
@@ -1043,6 +1054,22 @@ export class NotesService {
     if (!this.uid || !this.exists(id)) return;
     const update = {
       periodStart,
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    };
+    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+  }
+
+  /**
+   * How a note takes new material (#231), or none: Eric's own edit,
+   * through the cache like `setArchived`, so it works offline.
+   */
+  setNoteMode(id: string, mode: NoteMode | undefined): void {
+    const note = this.find(id);
+    if (!this.uid || !note || !takesInstructions(note.kind)) return;
+    const update = {
+      mode: mode ?? this.api.removeField(),
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),

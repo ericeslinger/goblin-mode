@@ -108,6 +108,8 @@ interface Note {
   projectStatus?: 'active' | 'nearly-done' | 'maintenance' | 'waiting' | 'done' | 'new';
   links: string[];              // note ids this note links to
   tags: string[];               // e.g. 'feelings'
+  instructions?: string;        // Instructions for Claude (#111; any note's, #231)
+  mode?: 'list' | 'log' | 'synthesis'; // how it takes new material (#231)
   archived: boolean;            // merged away by Claude, kept for undo
   mergedInto?: string;
   deletedAt?: Timestamp;        // in Trash since, device clock (#217)
@@ -255,9 +257,10 @@ device or another); What Claude changed on it (the runs among the
 latest hundred that touched it, with a link to them all); Linked from
 and Often together, open; a concept's settings (other names, parent,
 kind, status, stages, item tags; `ConceptHeader` with `side="back"`)
-or a template's mode and Instructions for Claude (#111); its tags; and
-History and Map. The front keeps the text, a concept's name, type and
-one-line kind and status, and a project's items. The editor stays
+or a template's mode and Instructions for Claude (#111; since #231,
+2026-11-09, any note's, Document modes); its tags; and History and
+Map. The front keeps the text, a concept's name, type and one-line
+kind and status, and a project's items. The editor stays
 mounted, hidden, while the back shows, so nothing typed is lost and
 the cursor comes back where it was. A side panel on wide screens and
 the attachments list wait until they are missed.
@@ -458,6 +461,53 @@ generated like any note's.
   by `templateParts`.
 - The rules accept the two fields through the generated note
   validator.
+
+**Document modes (#231, step 3 of #155, 2026-11-09).** Eric asked on
+#155 (2026-10-25) that a document say how it takes new material, as a
+template's Instructions for Claude do, for any note. A note's `mode`
+is `list`, `log` or `synthesis`, or none; the modes are presets over
+the `instructions` field, which since this change any plain note,
+concept, template or clipping carries (`takesInstructions`; not
+sketches, recipes, meal plans, the pantry or the context note, which
+have their own ways). `packages/schema/src/modes.ts` holds `MODES`,
+each a label, a hint for the back and the preset the assistant reads:
+
+- **List.** Each new item on its own line under the section it
+  belongs in; only what is missing, never a duplicate, even one in
+  other words; never drop or reword an unticked item; a ticked one
+  may be left.
+- **Log.** Append under a heading for today's date, newest last; keep
+  the author's voice and tense; never rewrite earlier entries.
+- **Synthesis.** Weave new material into the outline where it
+  belongs; where it contradicts, keep both and say which is newer;
+  Eric's sentences stay verbatim wherever they survive, and nothing is
+  dropped without a line saying so.
+
+`modeBrief(mode, instructions)` joins the preset and the note's own
+instructions, the preset first. `effectiveMode(note, template)` is the
+one place inheritance resolves: a living template's note takes the
+template's mode and its instructions, each unless it sets its own; an
+entry template's notes inherit nothing (`use_template` returns its
+instructions as before). The back of every such note shows, in its
+settings, **Takes new material as** (None, List, Log, Synthesis) with
+the hint under it, or "From its template: Log." when inherited, and
+the Instructions for Claude field, open now to these kinds through the
+same hold-and-write path as a template's (#200), so it saves as
+before; a template keeps its section reading (`templateParts`), other
+notes read only the field. The app writes `mode` through the cache
+like `setArchived`. On the server, `get_note` returns `takes` (the
+`mode`, `modeBrief`, and `inheritedFrom` naming the template) when a
+mode or instructions apply; `list_templates` and `use_template` carry
+it too, and `use_template` copies a living template's mode onto the
+living note it makes. Only a Log changes a tool: `add_lines` puts its
+lines under a `## YYYY-MM-DD` heading for today (the house's date, as
+`capture` dates a decision; in the `timeZone` it is given, UTC
+without), made at the end if missing, newest last, whatever heading
+was asked for; `capture` still files a decision under Decisions. List
+and Synthesis guide in words only. The garden's own agent reads the
+same server instructions, whose clause says a note's `takes` governs
+how new material goes in and that `get_note` shows it, so `briefFor`
+is unchanged. `update_note`'s `instructions` reach any of these kinds.
 
 **Using templates (#38, 2026-10-07).**
 
@@ -2243,7 +2293,7 @@ it, one backticked tool name per row.
 | --- | --- | --- |
 | `search_notes` | Notes whose title, text or synonyms hold every word of a query | Search paragraph below |
 | `list_notes` | Recent notes, newest first, optionally since a time or of one kind | Search paragraph below, Recipes (#127) |
-| `get_note` | One note in full with its links, backlinks and Drive files | Links and concepts (#28) |
+| `get_note` | One note in full with its links, backlinks and Drive files; `takes`, how it takes new material (mode, set or inherited, and `modeBrief`) | Links and concepts (#28), Document modes (#231) |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
 | `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage; a deleted concept's name brings it back from Trash (#217) | Organize tools (#34), Projects (#41), Stages and items |
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
@@ -2254,7 +2304,7 @@ it, one backticked tool name per row.
 | `get_pantry` | What is on hand: each item, its amount as written, always, its section; Kitchen only | On hand (#131) |
 | `update_pantry` | Adds, removes or marks items always on hand, changing only those lines; Kitchen only | On hand (#131) |
 | `suggest_recipes` | Recipes not made in the week before a date, ranked by what is on hand then by how long since made, each with what would need buying; Kitchen only | Suggestions (#132) |
-| `update_note` | Replaces a note's text; `add_lines` is preferred for lists; a template's Instructions for Claude | Safe co-editing (#37), Templates (#111) |
+| `update_note` | Replaces a note's text; `add_lines` is preferred for lists; Instructions for Claude, a template's or any note's that takes them | Safe co-editing (#37), Templates (#111), Document modes (#231) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
 | `get_context` | Eric's Context for Claude, the context note's text | Context for Claude (#113) |
@@ -2266,9 +2316,9 @@ it, one backticked tool name per row.
 | `list_queue` | The notes Eric sent to his assistant, oldest first, with his ask | Send to an assistant (#143) |
 | `finish_queued` | Marks a sent note done, with one line saying what was done, if not sent again since | Send to an assistant (#143) |
 | `suggest_changes` | Stores link, merge and refile suggestions for Eric to accept | Nightly suggestions (#35) |
-| `list_templates` | Templates with their Instructions for Claude (field, or old section) and skeleton | Using templates (#38), #111 |
-| `use_template` | Opens a template's note to work in | Using templates (#38) |
-| `add_lines` | Adds lines under a heading, without rewriting the body | Safe co-editing (#37) |
+| `list_templates` | Templates with their Instructions for Claude (field, or old section) and skeleton; `takes` when one sets a mode | Using templates (#38), #111, Document modes (#231) |
+| `use_template` | Opens a template's note to work in; a living note it makes takes the template's mode | Using templates (#38), Document modes (#231) |
+| `add_lines` | Adds lines under a heading, without rewriting the body; on a Log, under today's date heading (`timeZone`) | Safe co-editing (#37), Document modes (#231) |
 | `check_item` | Ticks a checklist item, by its text | Safe co-editing (#37) |
 | `uncheck_item` | Unticks a checklist item, by its text | Safe co-editing (#37) |
 | `capture` | Files chat words under a project, verbatim ("garden this"): an idea or question as its own note, a decision as a dated line | Garden this (#42, #119) |

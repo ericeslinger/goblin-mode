@@ -877,10 +877,78 @@ describe('template tools', () => {
     });
     await t.updateNote({ id: 't3', instructions: ' Ask about the weather too. ' });
     expect((await body('t3'))['instructions']).toBe('Ask about the weather too.');
+    // Any note that takes them has its own since #231; a recipe has none.
     await eric('n1', 'Not a template');
-    await expect(t.updateNote({ id: 'n1', instructions: 'x' })).rejects.toThrow(
-      'only a template has Instructions for Claude',
+    await t.updateNote({ id: 'n1', instructions: 'Date it.' });
+    expect((await body('n1'))['instructions']).toBe('Date it.');
+    await eric('r1', 'Soup', { kind: 'recipe' });
+    await expect(t.updateNote({ id: 'r1', instructions: 'x' })).rejects.toThrow(
+      'a recipe note has no Instructions for Claude',
     );
+  });
+});
+
+describe('document modes (#231)', () => {
+  it('get_note says how a note takes new material, set or inherited', async () => {
+    await eric('n1', 'Reading list', { mode: 'list', instructions: 'Newest first.' });
+    await eric('t1', 'Firings', {
+      kind: 'template',
+      templateMode: 'living',
+      mode: 'log',
+      instructions: 'Say the cone.',
+    });
+    await eric('n2', 'Firings', { fromTemplate: 't1' });
+    await eric('n3', 'Plain');
+    const own = (await tools().getNote({ id: 'n1' })) as { takes?: Record<string, unknown> };
+    expect(own.takes).toEqual({
+      mode: 'list',
+      modeBrief: expect.stringMatching(
+        /^Takes new material as a list: .*never a duplicate.*\n\nInstructions for Claude: Newest first\.$/s,
+      ),
+    });
+    const inherited = (await tools().getNote({ id: 'n2' })) as { takes?: Record<string, unknown> };
+    expect(inherited.takes).toEqual({
+      mode: 'log',
+      modeBrief: expect.stringContaining('Instructions for Claude: Say the cone.'),
+      inheritedFrom: 't1',
+    });
+    expect((await tools().getNote({ id: 'n3' })) as object).not.toHaveProperty('takes');
+    // list_templates says how its living note takes new material.
+    const [listed] = await tools().listTemplates();
+    expect(listed).toMatchObject({ mode: 'living', takes: { mode: 'log' } });
+  });
+
+  it('add_lines on a Log note lands under today’s heading, one heading a day', async () => {
+    await eric('k', 'Kiln log\n\n## 2026-10-05\n- bisque', { mode: 'log' });
+    const t = ticking();
+    const first = await t.addLines({ id: 'k', lines: ['- glaze'], heading: 'Ignored' });
+    expect(first).toMatchObject({ changed: true, heading: '2026-10-06' });
+    await t.addLines({ id: 'k', lines: ['- cone 6'] });
+    expect((await body('k'))['body']).toBe(
+      'Kiln log\n\n## 2026-10-05\n- bisque\n\n## 2026-10-06\n- glaze\n- cone 6',
+    );
+    // Today is Eric's: past midnight where he is, a new day's heading.
+    await t.addLines({ id: 'k', lines: ['- unload'], timeZone: 'Pacific/Kiritimati' });
+    expect(String((await body('k'))['body'])).toMatch(/- cone 6\n\n## 2026-10-07\n- unload$/);
+    // A living note of a Log template is a Log too; other modes change nothing.
+    await eric('t1', 'Firings', { kind: 'template', templateMode: 'living', mode: 'log' });
+    await eric('f', 'Firings', { fromTemplate: 't1' });
+    await t.addLines({ id: 'f', lines: ['- loaded'] });
+    expect((await body('f'))['body']).toBe('Firings\n\n## 2026-10-06\n- loaded');
+    await eric('l', 'Groceries\n## Produce', { mode: 'list' });
+    await t.addLines({ id: 'l', lines: ['- limes'], heading: 'Produce' });
+    expect((await body('l'))['body']).toBe('Groceries\n## Produce\n- limes');
+  });
+
+  it('use_template gives a living note it makes the template’s mode', async () => {
+    await eric('t1', 'Firings\n## Log', { kind: 'template', templateMode: 'living', mode: 'log' });
+    await eric('t2', 'Journal', { kind: 'template', templateMode: 'entry', mode: 'synthesis' });
+    const t = ticking();
+    const made = await t.useTemplate({ id: 't1' });
+    expect((await body(made.note.id))['mode']).toBe('log');
+    expect(made).toMatchObject({ takes: { mode: 'log' } });
+    const entry = await t.useTemplate({ id: 't2' });
+    expect(await body(entry.note.id)).not.toHaveProperty('mode');
   });
 });
 

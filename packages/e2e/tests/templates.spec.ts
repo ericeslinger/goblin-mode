@@ -125,3 +125,42 @@ test('templates start a new entry or reopen the living note, and Claude can use 
   };
   expect(used).toMatchObject({ created: false, note: { id: shoppingId } });
 });
+
+// Document modes (#231): any note can say how it takes new material, on
+// its back beside its own Instructions for Claude; on a Log, Claude's
+// add_lines goes under a heading for today's date.
+test('a note set to Log on its back takes Claude’s lines under today’s date', async ({ page }) => {
+  await signInAs(page, OWNER);
+  const call = await connectClaude(page);
+  const { id } = (await call('create_note', { body: 'Kiln log\nFirst firing of the year' })) as {
+    id: string;
+  };
+  await page.goto(`/n/${id}`);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  const takes = back.getByRole('combobox', { name: 'Takes new material as' });
+  await takes.selectOption('log');
+  await expect(back).toContainText('Claude adds under today’s date');
+  const box = back.getByRole('textbox', { name: 'Instructions for Claude' });
+  await box.fill('Say the cone.');
+  await box.blur();
+  await noSeriousViolations(page);
+
+  await expect
+    .poll(async () => ((await call('get_note', { id })) as { takes?: { mode?: string } }).takes, {
+      timeout: 15_000,
+    })
+    .toEqual(
+      expect.objectContaining({
+        mode: 'log',
+        modeBrief: expect.stringContaining('Instructions for Claude: Say the cone.'),
+      }),
+    );
+  // The server's day, UTC with no time zone given.
+  const today = new Date().toISOString().slice(0, 10);
+  await call('add_lines', { id, lines: ['✳ Claude: Glazed the bowls, cone 6.'] });
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
+  await expect(note(page)).toHaveText(
+    new RegExp(`First firing of the year[\\s\\S]*${today}[\\s\\S]*Glazed the bowls, cone 6\\.`),
+  );
+});

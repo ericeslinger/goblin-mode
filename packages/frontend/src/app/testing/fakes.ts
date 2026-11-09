@@ -102,6 +102,7 @@ export class FakeNotes {
     },
   );
   setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
+  setNoteMode = vi.fn((_id: string, _mode: string | undefined) => undefined);
   setArchived = vi.fn((_id: string, _archived: boolean) => undefined);
   setDeleted = vi.fn((_id: string, _deleted: boolean) => undefined);
   setGardenHold = vi.fn((_id: string, _held: boolean) => undefined);

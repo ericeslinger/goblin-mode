@@ -14,12 +14,17 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
+  MODES,
+  MODE_IDS,
+  NoteMode,
   RUN_STALE_MS,
   TRASH_DAYS,
+  effectiveMode,
   madeLine,
   normalizeName,
   paths,
   shortDate,
+  takesInstructions,
   templateParts,
 } from '@mossgoblin/schema';
 import { RunsService, type RunView } from '../agent/runs.service';
@@ -51,8 +56,9 @@ function stamp(ms: number | undefined): string {
  * The back of a note (#112, Eric 2026-10-17): what is about the note
  * rather than in it. When it was made and last edited, and by whom; what
  * Claude changed on it; the notes linking here; a concept's or a
- * template's settings, a template's Instructions for Claude (#111)
- * among them; for a grocery list, which dinners want each item (#207);
+ * template's settings; how the note takes new material and its
+ * Instructions for Claude (a template's since #111, any note's that
+ * takes them since #231); for a grocery list, which dinners want each item (#207);
  * its tags, History and Map, Archive, and Delete (#217), which puts it
  * in Trash after a one-line confirm. The front keeps the text.
  */
@@ -120,6 +126,21 @@ function stamp(ms: number | undefined): string {
               </option>
             </select>
           </label>
+        </div>
+      }
+
+      @if (takes()) {
+        <div class="settings">
+          <label>
+            Takes new material as
+            <select #takesMode aria-describedby="takes-hint" (change)="setTakes(takesMode.value)">
+              <option value="" [selected]="!note().mode">None</option>
+              @for (m of modeIds; track m) {
+                <option [value]="m" [selected]="note().mode === m">{{ modes[m].label }}</option>
+              }
+            </select>
+          </label>
+          <p class="hint" id="takes-hint">{{ takesHint() }}</p>
           <label class="instructions">
             Instructions for Claude
             <!--
@@ -135,8 +156,15 @@ function stamp(ms: number | undefined): string {
             ></textarea>
           </label>
           <p class="hint">
-            How Claude fills in or tidies notes made from this template. Notes start from the
-            front's text, without these.
+            @if (note().kind === 'template') {
+              How Claude fills in or tidies notes made from this template. Notes start from the
+              front's text, without these.
+            } @else {
+              How Claude adds to or tidies this note, beside how it takes new material.
+              @if (inherited()?.instructions && !note().instructions?.trim()) {
+                With none here, its template's apply.
+              }
+            }
           </p>
         </div>
       }
@@ -566,10 +594,37 @@ export class NoteBack {
     if (!note.deviceId) return '';
     return note.deviceId.startsWith(this.notes.deviceId()) ? 'on this device' : 'on another device';
   });
-  /** The field, or the section a template from before #111 still holds. */
-  protected readonly instructionsText = computed(
-    () => templateParts(this.note().body, this.note().instructions).instructions,
-  );
+  /**
+   * A template's field, or the section a template from before #111
+   * still holds; any other note's field (#231), never a section.
+   */
+  protected readonly instructionsText = computed(() => {
+    const note = this.note();
+    return note.kind === 'template'
+      ? templateParts(note.body, note.instructions).instructions
+      : (note.instructions ?? '');
+  });
+  /** Whether the note carries a mode and Instructions for Claude (#231). */
+  protected readonly takes = computed(() => takesInstructions(this.note().kind));
+  protected readonly modes = MODES;
+  protected readonly modeIds = MODE_IDS;
+  /** What a living note takes from its template, when it sets nothing itself (#231). */
+  protected readonly inherited = computed(() => {
+    const note = this.note();
+    if (!note.fromTemplate) return undefined;
+    const template = this.notes.find(note.fromTemplate);
+    const takes =
+      template && effectiveMode({ ...note, mode: undefined, instructions: '' }, template);
+    return takes?.inherited ? takes : undefined;
+  });
+  /** The line under the select: the mode's hint, or the template's mode it inherits. */
+  protected readonly takesHint = computed(() => {
+    const mode = this.note().mode;
+    if (mode) return MODES[mode].hint;
+    const from = this.inherited()?.mode;
+    if (from) return `From its template: ${MODES[from].label}. ${MODES[from].hint}`;
+    return 'Claude adds new material as it sees fit.';
+  });
   private readonly instructionsBox = viewChild<ElementRef<HTMLTextAreaElement>>('instructions');
   /** Instructions typed and kept on the device, waiting for the pause to write. */
   private typed?: { id: string; text: string; timer: ReturnType<typeof setTimeout> };
@@ -686,6 +741,12 @@ export class NoteBack {
     this.confirmingDelete.set(false);
     this.notes.setDeleted(this.note().id, true);
     this.deleted.emit();
+  }
+
+  /** How the note takes new material (#231), or None. */
+  protected setTakes(value: string): void {
+    const mode = NoteMode.safeParse(value);
+    this.notes.setNoteMode(this.note().id, mode.success ? mode.data : undefined);
   }
 
   protected setMode(mode: string): void {
