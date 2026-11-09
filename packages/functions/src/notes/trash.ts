@@ -15,14 +15,22 @@ export interface Trashed {
   deletedAt: number;
 }
 
+/**
+ * A note read again just before it goes: its stamp, and `updateTime`,
+ * when the server last wrote it, in milliseconds.
+ */
+export interface Reread {
+  deletedAt?: number;
+  updateTime: number;
+}
+
 export interface TrashStore {
   /** Up to `limit` notes, of every gardener, put in Trash at or before `cutoff`, oldest first. */
   due(cutoff: number, limit: number): Promise<Trashed[]>;
-  /**
-   * Removes the note at `path` and everything under it, if it is still
-   * in Trash since `cutoff` or before (Restore may have come since).
-   */
-  remove(path: string, cutoff: number): Promise<boolean>;
+  /** The note at `path` as it stands now, or undefined when it is gone. */
+  read(path: string): Promise<Reread | undefined>;
+  /** Removes the note at `path` and everything under it. */
+  remove(path: string): Promise<void>;
 }
 
 /** Whether a note put in Trash at `deletedAt` is due to go at `now`. */
@@ -31,7 +39,11 @@ export const dueAt = (deletedAt: number, now: number) => deletedAt + TRASH_MS <=
 /**
  * One run: the notes in Trash `TRASH_DAYS` or longer, at most `limit`
  * of them, oldest first. Idempotent: a note gone already, or restored,
- * is skipped, and a rerun finds only what is left.
+ * is skipped, and a rerun finds only what is left. `deletedAt` is the
+ * device's clock, so a note goes only once the server's own
+ * `updateTime` is as old too: a device set back a month cannot empty
+ * Trash at once, and any later write only puts the sweep off (review
+ * on #230, 2026-11-09).
  */
 export async function sweepTrash(
   store: TrashStore,
@@ -42,7 +54,13 @@ export async function sweepTrash(
   const found = await store.due(cutoff, limit);
   const due = found.filter((t) => dueAt(t.deletedAt, now)).slice(0, limit);
   let removed = 0;
-  for (const t of due) if (await store.remove(t.path, cutoff)) removed++;
+  for (const t of due) {
+    const held = await store.read(t.path);
+    if (!held || held.deletedAt === undefined) continue;
+    if (held.deletedAt > cutoff || held.updateTime > cutoff) continue;
+    await store.remove(t.path);
+    removed++;
+  }
   return { due: due.length, removed, skipped: due.length - removed };
 }
 
@@ -72,13 +90,19 @@ export function firestoreTrashStore(db: Firestore): TrashStore {
       });
     },
 
-    async remove(path, cutoff) {
-      const ref = db.doc(path);
-      const at = millis((await ref.get()).get('deletedAt'));
-      if (at === undefined || at > cutoff) return false;
+    async read(path) {
+      const snap = await db.doc(path).get();
+      if (!snap.exists || !snap.updateTime) return undefined;
+      const at = millis(snap.get('deletedAt'));
+      return {
+        ...(at === undefined ? {} : { deletedAt: at }),
+        updateTime: snap.updateTime.toMillis(),
+      };
+    },
+
+    async remove(path) {
       // The note's subcollections first, then the note itself.
-      await db.recursiveDelete(ref);
-      return true;
+      await db.recursiveDelete(db.doc(path));
     },
   };
 }

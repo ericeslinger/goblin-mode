@@ -24,8 +24,12 @@ beforeEach(async () => {
 });
 afterAll(() => deleteApp(app));
 
-const NOW = Date.parse('2026-12-09T12:00:00Z');
 const day = 24 * 60 * 60_000;
+/**
+ * The sweep's clock, a month and two days on: the server writes the
+ * notes here now, so their `updateTime` is old enough by then.
+ */
+const NOW = Date.now() + TRASH_MS + 2 * day;
 
 /** A note, in Trash since `deletedAt` when given, with a version and a replaced text under it. */
 async function plant(path: string, deletedAt?: number) {
@@ -68,10 +72,21 @@ describe('the Trash sweep over Firestore (#217)', () => {
   it('leaves a note restored since it was found', async () => {
     await plant('users/u1/notes/back', NOW - 40 * day);
     const store = firestoreTrashStore(db);
-    const [found] = await store.due(NOW - TRASH_MS, 10);
-    await db.doc(found.path).update({ deletedAt: FieldValue.delete() });
-    expect(await store.remove(found.path, NOW - TRASH_MS)).toBe(false);
+    const found = await store.due(NOW - TRASH_MS, 10);
+    await db.doc(found[0].path).update({ deletedAt: FieldValue.delete() });
+    const report = await sweepTrash({ ...store, due: async () => found }, NOW);
+    expect(report).toEqual({ due: 1, removed: 0, skipped: 1 });
     expect(await exists('users/u1/notes/back/history/v1')).toBe(true);
+  });
+
+  it('leaves a note stamped 40 days back that the server wrote just now (review on #230)', async () => {
+    // A device whose clock is a month and more behind.
+    const now = Date.now();
+    await plant('users/u1/notes/slow', now - 40 * day);
+    const report = await sweepTrash(firestoreTrashStore(db), now);
+    expect(report).toEqual({ due: 1, removed: 0, skipped: 1 });
+    expect(await exists('users/u1/notes/slow')).toBe(true);
+    expect(await exists('users/u1/notes/slow/history/v1')).toBe(true);
   });
 
   it('takes only a gardener’s notes, a batch at a time', async () => {

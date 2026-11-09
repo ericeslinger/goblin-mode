@@ -701,9 +701,30 @@ export class NotesTools {
       ...this.by(),
     });
     const ref = this.notes().doc(id);
-    await this.db.runTransaction(async (tx) => {
+    return this.db.runTransaction(async (tx) => {
       const had = await tx.get(ref);
-      if (had.exists && inTrash(had.data())) throw trashError(id);
+      const current = had.data();
+      // Naming a deleted concept again brings it back from Trash (review
+      // on #230): its text, type and filing as they were, as Restore
+      // does; what was given here is not applied.
+      if (had.exists && inTrash(current)) {
+        const { deletedAt: _gone, ...kept } = current!;
+        const update = {
+          ...this.stamp(),
+          // Its own text, so a put back of this run finds nothing to change.
+          baseHash: textHash(String(kept['body'] ?? '')),
+        };
+        Note.parse({ ...kept, ...update });
+        tx.update(ref, { ...update, deletedAt: FieldValue.delete() });
+        const title = String(kept['title'] ?? name);
+        tx.set(
+          ...this.activity('create_concept', `Brought back ${title} from Trash`, [
+            touched(id, kept),
+          ]),
+        );
+        const type = (kept['conceptType'] as string | undefined) ?? 'other';
+        return { id, title, type, broughtBack: true };
+      }
       if (had.exists) throw new ToolError(`${name} is already a concept (${id})`);
       tx.set(ref, data);
       tx.set(
@@ -713,8 +734,8 @@ export class NotesTools {
           [touchedNew(id, data)],
         ),
       );
+      return { id, title: data.title, type: data.conceptType };
     });
-    return { id, title: data.title, type: data.conceptType };
   }
 
   /**

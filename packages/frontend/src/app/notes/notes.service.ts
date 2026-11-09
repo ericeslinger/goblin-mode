@@ -1064,11 +1064,17 @@ export class NotesService {
    * exist, so it can never replace a concept another device or Claude
    * made (review on #65). A transaction needs the server: until the
    * notes have loaded and the device is online, the name waits on the
-   * device and is made then.
+   * device and is made then. A concept in Trash by that name (its id
+   * is the name's) comes back instead, as Restore brings it (review on
+   * #230): its text and filing as they were.
    */
   createConcept(name: string, type: 'other' | 'mood' = 'other'): string {
     const id = conceptId(name);
     if (this.exists(id)) return id;
+    if (this.trashed(id)) {
+      this.setDeleted(id, false);
+      return id;
+    }
     const pending = this.store.get<string[]>(PENDING_CONCEPTS_KEY) ?? [];
     if (!pending.some((n) => conceptId(n) === id)) {
       this.store.set(PENDING_CONCEPTS_KEY, [...pending, name.trim()]);
@@ -1116,6 +1122,12 @@ export class NotesService {
         this.donePending(id);
         continue;
       }
+      // Named again while in Trash: brought back, not made (review on #230).
+      if (this.trashed(id)) {
+        this.setDeleted(id, false);
+        this.donePending(id);
+        continue;
+      }
       if (this.making.has(id)) continue;
       this.making.add(id);
       const now = this.api.serverTime();
@@ -1143,7 +1155,16 @@ export class NotesService {
       };
       this.api
         .createIfAbsent(this.fb.db, paths.note(uid, id), stub)
-        .then(() => this.donePending(id))
+        // Not made: it is there already. Known here, or in Trash, it is
+        // done now; otherwise it waits for the snapshot that shows it, so
+        // one in Trash this device has not seen yet still comes back.
+        .then((made) => {
+          if (made || this.exists(id)) this.donePending(id);
+          else if (this.trashed(id)) {
+            this.setDeleted(id, false);
+            this.donePending(id);
+          }
+        })
         // Offline after all, or refused: it stays waiting for next time.
         .catch((err) => console.warn('concept not made yet', err))
         .finally(() => this.making.delete(id));

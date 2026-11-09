@@ -1514,6 +1514,38 @@ describe('Trash (#217)', () => {
     expect((await db.collection('users/u1/activity').get()).size).toBe(0);
   });
 
+  it('brings a deleted concept back when Claude names it again (review on #230)', async () => {
+    await concept('c-kiln', 'Kiln', {
+      body: 'Cone 6, shelf 2',
+      conceptType: 'project',
+      tags: ['studio'],
+      ...trashed,
+    });
+    const t = ticking();
+    expect(await t.createConcept({ name: 'Kiln', body: 'Something new' })).toEqual({
+      id: 'c-kiln',
+      title: 'Kiln',
+      type: 'project',
+      broughtBack: true,
+    });
+    const back = await body('c-kiln');
+    expect(back).not.toHaveProperty('deletedAt');
+    expect(back).toMatchObject({
+      body: 'Cone 6, shelf 2',
+      conceptType: 'project',
+      tags: ['studio'],
+      updatedBy: 'claude',
+    });
+    expect(await runs()).toEqual([
+      expect.objectContaining({
+        tool: 'create_concept',
+        summary: 'Brought back Kiln from Trash',
+        notes: [{ id: 'c-kiln', title: 'Kiln' }],
+      }),
+    ]);
+    expect((await t.getNote({ id: 'c-kiln' })).body).toBe('Cone 6, shelf 2');
+  });
+
   it('answers no name for a note in Trash, as for a note not there', async () => {
     await eric('r', 'Shakshuka', { title: 'Shakshuka', titleSource: 'user', ...trashed });
     const { id } = await tools().createNote({ body: 'Dinner: [[Shakshuka]]' });

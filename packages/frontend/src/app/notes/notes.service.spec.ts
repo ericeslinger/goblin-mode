@@ -821,6 +821,75 @@ describe('NotesService', () => {
     expect(localStorage.getItem(PENDING_MOODS_KEY)).toBeNull();
   });
 
+  describe('naming a concept in Trash again (#217, review on #230)', () => {
+    const at = (ms: number) => ({ toMillis: () => ms });
+    const kiln = {
+      id: 'c-kiln',
+      data: {
+        body: 'Cone 6, shelf 2',
+        title: 'Kiln',
+        kind: 'concept',
+        conceptType: 'project',
+        archived: false,
+        deletedAt: at(CLOCK - 1000),
+      },
+    };
+    const restores = (api: ReturnType<typeof setup>['api']) =>
+      api.set.mock.calls.filter(([, , data]) => data['deletedAt'] === 'REMOVED');
+
+    it('brings it back as Restore does, its text and filing kept, nothing made', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([kiln]);
+      notes.plantConcepts('Fire the [[Kiln]] tomorrow');
+      expect(api.createIfAbsent).not.toHaveBeenCalled();
+      expect(restores(api)).toEqual([
+        [
+          expect.anything(),
+          'users/u1/notes/c-kiln',
+          {
+            deletedAt: 'REMOVED',
+            updatedAt: 'SERVER_TIME',
+            updatedBy: 'user',
+            deviceId: notes.deviceId(),
+          },
+          true,
+        ],
+      ]);
+      expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+    });
+
+    it('brings back one named while it waited on the device', () => {
+      const { notes, api, signIn, push, online } = setup();
+      signIn('u1');
+      online.set(false);
+      push([]);
+      notes.createConcept('Kiln');
+      expect(JSON.parse(localStorage.getItem(PENDING_CONCEPTS_KEY)!)).toEqual(['Kiln']);
+      push([kiln]);
+      online.set(true);
+      notes.makePendingConcepts();
+      expect(api.createIfAbsent).not.toHaveBeenCalled();
+      expect(restores(api)).toHaveLength(1);
+      expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+    });
+
+    it('keeps the name waiting when the server has it but this device has not seen it', async () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([]);
+      api.createIfAbsent.mockResolvedValueOnce(false);
+      notes.createConcept('Kiln');
+      await new Promise((r) => setTimeout(r));
+      // Not made, and not known here yet: it waits for the snapshot.
+      expect(JSON.parse(localStorage.getItem(PENDING_CONCEPTS_KEY)!)).toEqual(['Kiln']);
+      push([kiln]);
+      expect(restores(api)).toHaveLength(1);
+      expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+      expect(api.createIfAbsent).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('keeps a name waiting when the server cannot be reached', async () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

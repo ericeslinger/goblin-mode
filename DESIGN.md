@@ -2188,6 +2188,17 @@ removes the document alone, never its subcollections, and would need
 an expiry field of its own beside `deletedAt`. `noteHistory` keeps no
 version of a note the sweep removes. Attachments and reminders that
 name the note by `noteId` stay, pointing at a note that is not there.
+Since review on #230 (2026-11-09) a note goes only when its
+server-set `updateTime` is 30 days old as well as `deletedAt`, read
+again just before the delete: the stamp is the device's clock, and a
+device set a month behind would otherwise empty Trash on the next
+run; a later write (a restore and a delete again) only puts it off.
+Since the same review, naming a deleted concept again brings it back
+rather than leaving its links unresolved for 30 days (its id is its
+name's): the app clears `deletedAt` when a link plants it (a pending
+name too, once its snapshot shows the tombstone), and `create_concept`
+on its id does the same, its text and filing kept, recorded as
+"Brought back <name> from Trash" and answered with `broughtBack`.
 
 ## MCP server
 
@@ -2232,7 +2243,7 @@ it, one backticked tool name per row.
 | `list_notes` | Recent notes, newest first, optionally since a time or of one kind | Search paragraph below, Recipes (#127) |
 | `get_note` | One note in full with its links, backlinks and Drive files | Links and concepts (#28) |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
-| `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage | Organize tools (#34), Projects (#41), Stages and items |
+| `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage; a deleted concept's name brings it back from Trash (#217) | Organize tools (#34), Projects (#41), Stages and items |
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
 | `import_recipe` | Asks the server to import a link's recipe, as the app does (Claude never reads the page); returns the new recipe's id; Kitchen only | Importing a recipe (#128) |
 | `get_meal_plan` | A week's slots (day, date, meal, what is planned, made, ratio, notes under it) for a date; Kitchen only | Meal plan (#129) |
