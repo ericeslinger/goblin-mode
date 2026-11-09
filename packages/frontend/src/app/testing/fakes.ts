@@ -107,6 +107,7 @@ export class FakeNotes {
     (_id: string, _change: Parameters<NotesService['updateRecipe']>[1]) => undefined,
   );
   setInstructions = vi.fn((_id: string, _text: string) => undefined);
+  holdInstructions = vi.fn((_id: string, _text: string) => true);
   sendToAssistant = vi.fn((_id: string, _ask: string) => undefined);
   clip = vi.fn((_body: string, _title: string, _source: { url?: string; feedItemId: string }) => {
     const id = `clip${++this.n}`;

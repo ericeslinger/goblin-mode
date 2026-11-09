@@ -59,6 +59,7 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { LocalStore } from '../platform/local-store';
 import { ONLINE, RANDOM_BYTES } from '../platform/platform';
+import { type PendingWrites, isPendingWrite, lost, nextPending } from './pending-writes';
 
 /** Names linked before their concept could be made (needs the server). */
 export const PENDING_CONCEPTS_KEY = 'goblin.pendingConcepts';
@@ -68,13 +69,18 @@ export const PENDING_MOODS_KEY = 'goblin.pendingMoods';
 export const PENDING_ITEMS_KEY = 'goblin.pendingItems';
 type PendingItems = Record<string, { parent: string; stage?: string }>;
 /**
- * Instructions for Claude written but not yet acknowledged (#198), by
- * template id: the words, and what the field held before (null for no
- * field). A write the cache had not taken in when the page went away is
- * lost; this copy, kept at once, brings it back on the next load.
+ * Instructions for Claude written or typed but not yet acknowledged
+ * (#198, #200), by template id, kept until the server has them
+ * (`pending-writes.ts`; null base: no field).
  */
 export const PENDING_INSTRUCTIONS_KEY = 'goblin.pendingInstructions';
-type PendingInstructions = Record<string, { instructions: string; base: string | null }>;
+/**
+ * Note text saved but not yet acknowledged (#200), by note id, kept the
+ * same way (null base: a new note), with the writer a restore or a keep
+ * wrote as.
+ */
+export const PENDING_SAVES_KEY = 'goblin.pendingSaves';
+type PendingSaves = Record<string, PendingWrites[string] & { as?: 'restore' | 'keep' }>;
 
 /** A note as the app lists and opens it. */
 export interface NoteRecord {
@@ -145,17 +151,8 @@ export interface NotesApi {
   listen(
     db: Firestore,
     path: string,
-    next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
-    error: (err: unknown) => void,
-  ): () => void;
-  /**
-   * The first snapshot that comes from the server, not the cache, once;
-   * offline, none until the server is reached.
-   */
-  fromServer(
-    db: Firestore,
-    path: string,
-    next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    /** `fromCache`: the persisted cache's view, which may be stale (#200). */
+    next: (docs: { id: string; data: Record<string, unknown> }[], fromCache: boolean) => void,
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>, merge: boolean): Promise<void>;
@@ -170,36 +167,30 @@ export interface NotesApi {
 export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
   providedIn: 'root',
   factory: () => ({
-    listen: (db, path, next, error) =>
-      onSnapshot(
+    listen: (db, path, next, error) => {
+      // With metadata changes, so the first snapshot from the server is
+      // seen even when no document changed (#200); one that changes
+      // nothing else (a write acknowledged) is not passed on.
+      let fromCache: boolean | undefined;
+      return onSnapshot(
         query(collection(db, path), orderBy('updatedAt', 'desc')),
-        // Pending server timestamps read as the local estimate, so a note
-        // just written offline still sorts to the top.
-        (snap) =>
+        { includeMetadataChanges: true },
+        (snap) => {
+          const changed = snap.metadata.fromCache !== fromCache;
+          if (!changed && snap.docChanges().length === 0) return;
+          fromCache = snap.metadata.fromCache;
+          // Pending server timestamps read as the local estimate, so a
+          // note just written offline still sorts to the top.
           next(
             snap.docs.map((d) => ({
               id: d.id,
               data: d.data({ serverTimestamps: 'estimate' }),
             })),
-          ),
-        error,
-      ),
-    fromServer: (db, path, next, error) => {
-      let done = false;
-      // Metadata changes too: the cache's snapshot becoming the server's
-      // raises no other event when no document differs.
-      const stop = onSnapshot(
-        collection(db, path),
-        { includeMetadataChanges: true },
-        (snap) => {
-          if (done || snap.metadata.fromCache) return;
-          done = true;
-          stop();
-          next(snap.docs.map((d) => ({ id: d.id, data: d.data() })));
+            fromCache,
+          );
         },
         error,
       );
-      return stop;
     },
     set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge }),
     createIfAbsent: (db, path, data) =>
@@ -310,6 +301,13 @@ export class NotesService {
   private stop?: () => void;
   /** Ids written in this session: known to exist even before a snapshot. */
   private readonly written = new Set<string>();
+  /** Whether this sign-in's kept writes were checked against the server (#200). */
+  private replayed = false;
+  /**
+   * The kept writes as this sign-in found them, by storage key: only
+   * these are replayed. Words typed again since look after themselves.
+   */
+  private atLoad: Record<string, PendingWrites> = {};
   /** Concepts being made right now, so a second ask waits for the first. */
   private readonly making = new Set<string>();
   private readonly online = inject(ONLINE);
@@ -324,33 +322,30 @@ export class NotesService {
       this.notes.set([]);
       this.loaded.set(false);
       this.written.clear();
+      this.replayed = false;
+      this.atLoad = Object.fromEntries(
+        [PENDING_SAVES_KEY, PENDING_INSTRUCTIONS_KEY].map((k) => [k, this.store.get(k) ?? {}]),
+      );
       if (!uid) return;
       this.stop = this.api.listen(
         this.fb.db,
         paths.notes(uid),
-        (docs) => {
+        (docs, fromCache) => {
           this.notes.set(docs.map((d) => toRecord(d.id, d.data)));
+          // Kept writes are checked against the first snapshot from the
+          // server, never the persisted cache: that can be stale, showing
+          // the base while someone has written over it since (review on
+          // #204). Offline, they wait on the device for the server.
+          if (!fromCache && !this.replayed) {
+            this.replayed = true;
+            this.replaySaves();
+            this.replayInstructions();
+          }
           this.loaded.set(true);
           this.makePendingConcepts();
         },
         (err) => console.error('notes listener', err),
       );
-      // Instructions a closed page lost (#198) wait for the server's
-      // view: the cache's can be older than another writer's words.
-      const pending = this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY);
-      if (pending && Object.keys(pending).length) {
-        const stopList = this.stop;
-        const stopServer = this.api.fromServer(
-          this.fb.db,
-          paths.notes(uid),
-          (docs) => this.replayInstructions(pending, docs),
-          (err) => console.error('notes server snapshot', err),
-        );
-        this.stop = () => {
-          stopList();
-          stopServer();
-        };
-      }
     });
     // Concepts waiting for the server are made when it is back.
     const back = () => this.makePendingConcepts();
@@ -422,8 +417,67 @@ export class NotesService {
     const data = known
       ? update
       : { kind: 'text', tags: [], archived: false, createdAt: now, ...update };
+    // Kept on this device first, synchronously, until the server has it:
+    // the cache takes the write in a moment later, and a page closed in
+    // that moment loses it (#200). Replayed on the next load.
+    const as = restore ? 'restore' : keep ? 'keep' : undefined;
+    const pending = this.store.get<PendingSaves>(PENDING_SAVES_KEY) ?? {};
+    const prev = isPendingWrite(pending[id]) ? pending[id] : undefined;
+    const entry = { ...nextPending(prev, this.uid, body, existing?.body ?? null), as };
+    this.store.set(PENDING_SAVES_KEY, { ...pending, [id]: entry });
     this.written.add(id);
-    this.api.set(this.fb.db, path, data, known).catch(report);
+    this.api
+      .set(this.fb.db, path, data, known)
+      .then(() => this.acknowledged(PENDING_SAVES_KEY, id, body))
+      .catch(report);
+  }
+
+  /**
+   * Once the server's first snapshot is here, the note text a closed
+   * page did not get into the cache (#200), written again where `lost`
+   * says it was lost. A new note (null base) absent from the server is
+   * the lost case itself, so it is made again; its id is fresh and only
+   * this device knew it. Any other note absent from the server was
+   * deleted, and stays gone.
+   */
+  private replaySaves(): void {
+    const uid = this.uid;
+    const atLoad = (this.atLoad[PENDING_SAVES_KEY] ?? {}) as PendingSaves;
+    for (const [id, entry] of Object.entries(atLoad)) {
+      if (!this.unchanged(PENDING_SAVES_KEY, id, entry)) continue;
+      if (!isPendingWrite(entry) || !uid) {
+        this.forget(PENDING_SAVES_KEY, id);
+        continue;
+      }
+      if (entry.uid !== uid) continue;
+      const note = this.find(id);
+      const now = note ? note.body : null;
+      if (lost(entry, now)) {
+        this.save(id, entry.value, {
+          ...(now === null ? {} : { base: now }),
+          restore: entry.as === 'restore',
+          keep: entry.as === 'keep',
+        });
+      } else this.forget(PENDING_SAVES_KEY, id);
+    }
+  }
+
+  /** Whether `id`'s kept write is still the one this sign-in found. */
+  private unchanged(key: string, id: string, entry: unknown): boolean {
+    const now = (this.store.get<Record<string, unknown>>(key) ?? {})[id];
+    return JSON.stringify(now) === JSON.stringify(entry);
+  }
+
+  /** The server has `value` for `id`: forget it, unless newer words wait. */
+  private acknowledged(key: string, id: string, value: string): void {
+    const pending = this.store.get<PendingWrites>(key) ?? {};
+    if (pending[id]?.value === value) this.forget(key, id);
+  }
+
+  private forget(key: string, id: string): void {
+    const { [id]: _done, ...rest } = this.store.get<PendingWrites>(key) ?? {};
+    if (Object.keys(rest).length) this.store.set(key, rest);
+    else this.store.remove(key);
   }
 
   /**
@@ -496,19 +550,7 @@ export class NotesService {
    * the text a note made from it starts with.
    */
   setInstructions(id: string, instructions: string): void {
-    const note = this.find(id);
-    if (!this.uid || note?.kind !== 'template') return;
-    // Kept on this device first, synchronously: the cache takes the write
-    // in a moment later, and a page closed or reloaded in that moment
-    // loses it (#198). The base is the oldest unacknowledged one.
-    const pending = this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {};
-    const base = id in pending ? pending[id].base : (note.instructions ?? null);
-    this.store.set(PENDING_INSTRUCTIONS_KEY, { ...pending, [id]: { instructions, base } });
-    this.writeInstructions(id, instructions);
-  }
-
-  private writeInstructions(id: string, instructions: string): void {
-    if (!this.uid) return;
+    if (!this.holdInstructions(id, instructions) || !this.uid) return;
     const update = {
       instructions,
       updatedAt: this.api.serverTime(),
@@ -517,52 +559,45 @@ export class NotesService {
     };
     this.api
       .set(this.fb.db, paths.note(this.uid, id), update, true)
-      .then(() => {
-        // On the server: forget it, unless newer words are waiting.
-        const pending = this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {};
-        if (pending[id]?.instructions === instructions) this.dropInstructions(id);
-      })
+      .then(() => this.acknowledged(PENDING_INSTRUCTIONS_KEY, id, instructions))
       .catch(report);
   }
 
-  private dropInstructions(id: string): void {
-    const { [id]: _done, ...rest } =
-      this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {};
-    if (Object.keys(rest).length) this.store.set(PENDING_INSTRUCTIONS_KEY, rest);
-    else this.store.remove(PENDING_INSTRUCTIONS_KEY);
+  /**
+   * Keeps Instructions for Claude on this device, synchronously, without
+   * writing them yet (#200): the field calls it on every keystroke and
+   * writes after a pause, so words typed when the page closes are kept
+   * even though no write has started. False for no such template.
+   */
+  holdInstructions(id: string, instructions: string): boolean {
+    const note = this.find(id);
+    if (!this.uid || note?.kind !== 'template') return false;
+    const pending = this.store.get<PendingWrites>(PENDING_INSTRUCTIONS_KEY) ?? {};
+    const prev = isPendingWrite(pending[id]) ? pending[id] : undefined;
+    const entry = nextPending(prev, this.uid, instructions, note.instructions ?? null);
+    this.store.set(PENDING_INSTRUCTIONS_KEY, { ...pending, [id]: entry });
+    return true;
   }
 
   /**
-   * The instructions a closed page did not get into the cache (#198),
-   * against the first snapshot from the server: written again only while
-   * the field still holds what it held before they were typed. Holding
-   * the words, they were kept; holding anything else, someone wrote the
-   * field since, and theirs is newer; no note, it is gone or never
-   * reached the server, and nothing is left to write to. Until such a
-   * snapshot comes (offline), they wait, across loads.
-   *
-   * The check is on the field's state, so it cannot see another writer
-   * change the field and change it back to the base (an ABA): it reads
-   * as untouched and the typed words are written. Accepted: what was
-   * left is the very text he typed over, so his edit is still the newest
-   * made from what he saw; catching it would need a write counter.
+   * Once the server's first snapshot is here, the instructions a closed
+   * page did not get into the cache (#198, #200), written again where
+   * `lost` says they were lost. A template absent from the server was
+   * deleted or never synced: its entry goes.
    */
-  private replayInstructions(
-    atLoad: PendingInstructions,
-    docs: { id: string; data: Record<string, unknown> }[],
-  ): void {
-    const server = new Map(docs.map((d) => [d.id, d.data]));
-    for (const [id, { instructions, base }] of Object.entries(atLoad)) {
-      // Typed again since this load: that write looks after itself.
-      const current = (this.store.get<PendingInstructions>(PENDING_INSTRUCTIONS_KEY) ?? {})[id];
-      if (current?.instructions !== instructions || current.base !== base) continue;
-      const data = server.get(id);
-      const now = typeof data?.['instructions'] === 'string' ? data['instructions'] : null;
-      if (data?.['kind'] === 'template' && now === base && now !== instructions) {
-        this.writeInstructions(id, instructions);
-      } else {
-        this.dropInstructions(id);
+  private replayInstructions(): void {
+    const atLoad = this.atLoad[PENDING_INSTRUCTIONS_KEY] ?? {};
+    for (const [id, entry] of Object.entries(atLoad)) {
+      if (!this.unchanged(PENDING_INSTRUCTIONS_KEY, id, entry)) continue;
+      if (!isPendingWrite(entry)) {
+        this.forget(PENDING_INSTRUCTIONS_KEY, id);
+        continue;
       }
+      if (entry.uid !== this.uid) continue;
+      const note = this.find(id);
+      if (note?.kind === 'template' && lost(entry, note.instructions ?? null)) {
+        this.setInstructions(id, entry.value);
+      } else this.forget(PENDING_INSTRUCTIONS_KEY, id);
     }
   }
 
@@ -1065,6 +1100,8 @@ export class NotesService {
   remove(id: string): void {
     if (!this.uid) return;
     this.written.delete(id);
+    // Emptied or bare: nothing typed in it is left to keep.
+    this.forget(PENDING_SAVES_KEY, id);
     this.notes.update((list) => list.filter((n) => n.id !== id));
     this.api.remove(this.fb.db, paths.note(this.uid, id)).catch(report);
   }

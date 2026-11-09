@@ -1,12 +1,15 @@
+import { DOCUMENT } from '@angular/common';
 import {
   Component,
   DestroyRef,
+  type ElementRef,
   computed,
   effect,
   inject,
   input,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { RUN_STALE_MS, madeLine, normalizeName, paths, templateParts } from '@mossgoblin/schema';
@@ -19,6 +22,7 @@ import { FIREBASE } from '../firebase';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
 import { ModulesService } from '../modules/modules.service';
+import { SAVE_DELAY_MS } from '../capture/capture.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
 /** "Oct 17, 9:05 PM", in the device's own words. */
@@ -106,12 +110,16 @@ function stamp(ms: number | undefined): string {
           </label>
           <label class="instructions">
             Instructions for Claude
-            <!-- Saved on change: on leaving the field, as a phone finishes. -->
+            <!--
+              Kept on the device as typed, written after a pause, and at once
+              on leaving the field or the page (#200). Its value is set by
+              the class, never over typing.
+            -->
             <textarea
               #instructions
               rows="5"
-              [value]="instructionsText()"
-              (change)="notes.setInstructions(note().id, instructions.value.trim())"
+              (input)="typeInstructions(instructions.value)"
+              (change)="leaveInstructions(instructions.value)"
             ></textarea>
           </label>
           <p class="hint">
@@ -434,6 +442,11 @@ export class NoteBack {
   protected readonly instructionsText = computed(
     () => templateParts(this.note().body, this.note().instructions).instructions,
   );
+  private readonly instructionsBox = viewChild<ElementRef<HTMLTextAreaElement>>('instructions');
+  /** Instructions typed and kept on the device, waiting for the pause to write. */
+  private typed?: { id: string; text: string; timer: ReturnType<typeof setTimeout> };
+  /** Which template's instructions the field shows. */
+  private shown?: string;
 
   constructor() {
     // Watch the note's run while it has one (#144 step 3).
@@ -462,7 +475,59 @@ export class NoteBack {
         (err) => console.error('activity listener', err),
       );
     });
-    inject(DestroyRef).onDestroy(() => stop?.());
+    // The field shows the stored instructions, except while it has focus:
+    // a snapshot of an earlier write must never land on later typing.
+    const doc = inject(DOCUMENT);
+    effect(() => {
+      const box = this.instructionsBox()?.nativeElement;
+      const text = this.instructionsText();
+      const id = this.note().id;
+      if (!box || (box === doc.activeElement && this.shown === id)) return;
+      box.value = text;
+      this.shown = id;
+    });
+    // A page closed with the field focused never fires change (#200).
+    const onPageHide = () => this.writeInstructions();
+    doc.defaultView?.addEventListener('pagehide', onPageHide);
+    inject(DestroyRef).onDestroy(() => {
+      stop?.();
+      doc.defaultView?.removeEventListener('pagehide', onPageHide);
+      this.writeInstructions();
+    });
+  }
+
+  /**
+   * Every keystroke in Instructions for Claude: kept on the device at
+   * once, so a page closed now keeps it, and written after a pause.
+   */
+  protected typeInstructions(value: string): void {
+    const id = this.note().id;
+    const text = value.trim();
+    // Typed into another template's field: that one is written first.
+    if (this.typed && this.typed.id !== id) this.writeInstructions();
+    clearTimeout(this.typed?.timer);
+    this.notes.holdInstructions(id, text);
+    this.typed = { id, text, timer: setTimeout(() => this.writeInstructions(), SAVE_DELAY_MS) };
+  }
+
+  /** Writes the instructions waiting for a pause, now. */
+  protected writeInstructions(): void {
+    const typed = this.typed;
+    if (!typed) return;
+    clearTimeout(typed.timer);
+    this.typed = undefined;
+    this.notes.setInstructions(typed.id, typed.text);
+  }
+
+  /**
+   * Leaving the field (change): what waits is written now. With nothing
+   * waiting, the words are written only if the note does not hold them,
+   * as when a change comes without input events.
+   */
+  protected leaveInstructions(value: string): void {
+    if (!this.typed && value.trim() === (this.note().instructions ?? '')) return;
+    this.typeInstructions(value);
+    this.writeInstructions();
   }
 
   protected setServings(value: string): void {

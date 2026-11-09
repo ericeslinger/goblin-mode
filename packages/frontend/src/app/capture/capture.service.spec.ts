@@ -1,7 +1,11 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { NotesService } from '../notes/notes.service';
-import { FakeNotes, noteRecord } from '../testing/fakes';
-import { NOW } from '../platform/platform';
+import type { User } from 'firebase/auth';
+import { AuthService } from '../auth.service';
+import { FIREBASE } from '../firebase';
+import { NOTES_API, type NotesApi, NotesService, PENDING_SAVES_KEY } from '../notes/notes.service';
+import { FakeNotes, fakeFirebase, noteRecord } from '../testing/fakes';
+import { NOW, ONLINE } from '../platform/platform';
 import {
   CaptureService,
   LAST_SEEN_KEY,
@@ -478,5 +482,127 @@ describe('CaptureService', () => {
     const leave = vi.spyOn(capture, 'leave');
     window.dispatchEvent(new Event('pagehide'));
     expect(leave).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The capture loop over the real NotesService, the cache's write never
+ * acknowledged (#200): a page loaded again keeps this device's storage,
+ * and the next instances must find the words there.
+ */
+describe('CaptureService, when the page goes before the cache has the text (#200)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  type Doc = { id: string; data: Record<string, unknown> };
+  function load({ reload = false }: { reload?: boolean } = {}) {
+    if (reload) TestBed.resetTestingModule();
+    else localStorage.clear();
+    const user = signal<User | null | undefined>(undefined);
+    let push: (docs: Doc[], fromCache: boolean) => void = () => undefined;
+    const api = {
+      listen: vi.fn((_db, _path, next) => {
+        push = next;
+        return vi.fn();
+      }),
+      // The cache never takes it in: the page goes first.
+      set: vi.fn(
+        (_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
+          new Promise<void>(() => undefined),
+      ),
+      createIfAbsent: vi.fn(() => Promise.resolve(true)),
+      remove: vi.fn(() => Promise.resolve()),
+      serverTime: () => 'SERVER_TIME',
+      removeField: () => 'REMOVED',
+    } satisfies NotesApi;
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: FIREBASE, useValue: fakeFirebase(true) },
+        { provide: AuthService, useValue: { user } },
+        { provide: NOTES_API, useValue: api },
+        { provide: ONLINE, useValue: () => true },
+        { provide: NOW, useValue: () => clock },
+      ],
+    });
+    const capture = TestBed.inject(CaptureService);
+    TestBed.tick();
+    const signIn = (docs: Doc[]) => {
+      user.set({ uid: 'u1' } as User);
+      TestBed.tick();
+      push(docs, false);
+      TestBed.tick();
+    };
+    const bodies = () =>
+      api.set.mock.calls
+        .filter(([, , d]) => 'body' in d)
+        .map(([, path, d, merge]) => ({
+          path,
+          body: d['body'],
+          merge,
+        }));
+    return { capture, signIn, bodies };
+  }
+  const text = (id: string, body: string): Doc => ({ id, data: { body, kind: 'text' } });
+
+  it('a new note typed and the page closed within the save delay', () => {
+    const first = load();
+    first.signIn([]);
+    const id = first.capture.open().id;
+    first.capture.onText('a thought on the bus');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(first.bodies()).toEqual([
+      { path: `users/u1/notes/${id}`, body: 'a thought on the bus', merge: false },
+    ]);
+    expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+    expect(localStorage.getItem(PENDING_SAVES_KEY)).not.toBeNull();
+
+    const next = load({ reload: true });
+    // Reopened at once: the note comes back where it was.
+    expect(next.capture.open().id).toBe(id);
+    next.signIn([]);
+    expect(next.bodies()).toEqual([
+      { path: `users/u1/notes/${id}`, body: 'a thought on the bus', merge: false },
+    ]);
+  });
+
+  it('an edit of an existing note, saved after the pause, then the page closed', () => {
+    const first = load();
+    first.signIn([text('n1', 'groceries')]);
+    first.capture.openNote('n1');
+    first.capture.onText('groceries\n- limes');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(first.bodies()).toEqual([
+      { path: 'users/u1/notes/n1', body: 'groceries\n- limes', merge: true },
+    ]);
+    window.dispatchEvent(new Event('pagehide'));
+
+    const next = load({ reload: true });
+    next.signIn([text('n1', 'groceries')]);
+    expect(next.bodies()).toEqual([
+      { path: 'users/u1/notes/n1', body: 'groceries\n- limes', merge: true },
+    ]);
+  });
+
+  it('typing before the notes load: the draft, then kept until acknowledged', () => {
+    const first = load();
+    const id = first.capture.open().id;
+    first.capture.onText('before sign-in');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(JSON.parse(localStorage.getItem(PENDING_DRAFT_KEY)!)).toEqual({
+      id,
+      body: 'before sign-in',
+    });
+    // The notes load and the draft is written; the page goes at once.
+    first.signIn([]);
+    expect(first.bodies()).toEqual([
+      { path: `users/u1/notes/${id}`, body: 'before sign-in', merge: false },
+    ]);
+    expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+
+    const next = load({ reload: true });
+    next.signIn([]);
+    expect(next.bodies()).toEqual([
+      { path: `users/u1/notes/${id}`, body: 'before sign-in', merge: false },
+    ]);
   });
 });

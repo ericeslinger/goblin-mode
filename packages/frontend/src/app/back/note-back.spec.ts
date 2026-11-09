@@ -17,6 +17,7 @@ import {
 } from '../testing/fakes';
 import { RunsService, type RunView } from '../agent/runs.service';
 import { KeysService } from '../keys/keys.service';
+import { SAVE_DELAY_MS } from '../capture/capture.service';
 import { NoteBack } from './note-back';
 
 /** Do it now (#144 step 3): a key kept or not, and one run to watch. */
@@ -160,6 +161,74 @@ describe('NoteBack (#112)', () => {
     box.value = 'Ask where to.';
     box.dispatchEvent(new Event('change'));
     expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask where to.');
+  });
+
+  describe('Instructions for Claude as they are typed (#200)', () => {
+    const template: NoteRecord = {
+      ...noteRecord('t1', 'Journal entry\n'),
+      kind: 'template',
+      instructions: 'Ask first.',
+    };
+    afterEach(() => vi.useRealTimers());
+
+    async function typing() {
+      const rendered = await render(template, []);
+      vi.useFakeTimers();
+      const box = rendered.el.querySelector('textarea')!;
+      box.focus();
+      box.value = 'Ask how';
+      box.dispatchEvent(new Event('input'));
+      return { ...rendered, box };
+    }
+
+    it('keeps every keystroke on the device at once, and writes after a pause', async () => {
+      const { notes, box } = await typing();
+      expect(notes.holdInstructions).toHaveBeenLastCalledWith('t1', 'Ask how');
+      expect(notes.setInstructions).not.toHaveBeenCalled();
+      box.value = 'Ask how the day went ';
+      box.dispatchEvent(new Event('input'));
+      expect(notes.holdInstructions).toHaveBeenLastCalledWith('t1', 'Ask how the day went');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      expect(notes.setInstructions).toHaveBeenCalledTimes(1);
+      expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask how the day went');
+    });
+
+    it('writes at once when the page goes with the field still focused', async () => {
+      const { notes } = await typing();
+      window.dispatchEvent(new Event('pagehide'));
+      expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask how');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      expect(notes.setInstructions).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes at once on leaving the field, and only once', async () => {
+      const { notes, box, fixture } = await typing();
+      box.dispatchEvent(new Event('change'));
+      expect(notes.setInstructions).toHaveBeenCalledTimes(1);
+      fixture.componentRef.setInput('note', { ...template, instructions: 'Ask how' });
+      box.dispatchEvent(new Event('change'));
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      expect(notes.setInstructions).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes what waits when the back closes', async () => {
+      const { notes, fixture } = await typing();
+      fixture.destroy();
+      expect(notes.setInstructions).toHaveBeenCalledWith('t1', 'Ask how');
+    });
+
+    it('never puts an earlier write’s snapshot over typing in the field', async () => {
+      const { box, fixture } = await typing();
+      box.value = 'Ask how the day went';
+      fixture.componentRef.setInput('note', { ...template, instructions: 'Ask how' });
+      fixture.detectChanges();
+      expect(box.value).toBe('Ask how the day went');
+      // Out of the field, it shows the stored words again.
+      box.blur();
+      fixture.componentRef.setInput('note', { ...template, instructions: 'Claude’s words.' });
+      fixture.detectChanges();
+      expect(box.value).toBe('Claude’s words.');
+    });
   });
 
   it('sends the note to an assistant, says it waits, and shows what was done (#143)', async () => {
