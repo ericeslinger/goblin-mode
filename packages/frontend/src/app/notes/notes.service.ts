@@ -80,6 +80,13 @@ export const PENDING_INSTRUCTIONS_KEY = 'goblin.pendingInstructions';
  * wrote as.
  */
 export const PENDING_SAVES_KEY = 'goblin.pendingSaves';
+/**
+ * A recipe's or a concept's name typed but not yet acknowledged (#205),
+ * by note id, kept the same way. One store serves both: a note is one
+ * kind or the other, and the replay renames it through its own kind's
+ * path, a concept's with its synonyms and stub folding.
+ */
+export const PENDING_NAMES_KEY = 'goblin.pendingNames';
 type PendingSaves = Record<string, PendingWrites[string] & { as?: 'restore' | 'keep' }>;
 
 /** A note as the app lists and opens it. */
@@ -324,7 +331,10 @@ export class NotesService {
       this.written.clear();
       this.replayed = false;
       this.atLoad = Object.fromEntries(
-        [PENDING_SAVES_KEY, PENDING_INSTRUCTIONS_KEY].map((k) => [k, this.store.get(k) ?? {}]),
+        [PENDING_SAVES_KEY, PENDING_INSTRUCTIONS_KEY, PENDING_NAMES_KEY].map((k) => [
+          k,
+          this.store.get(k) ?? {},
+        ]),
       );
       if (!uid) return;
       this.stop = this.api.listen(
@@ -340,6 +350,7 @@ export class NotesService {
             this.replayed = true;
             this.replaySaves();
             this.replayInstructions();
+            this.replayNames();
           }
           this.loaded.set(true);
           this.makePendingConcepts();
@@ -829,12 +840,20 @@ export class NotesService {
     id: string,
     change: { title?: string; servings?: number | null; url?: string },
   ): void {
-    if (!this.uid || this.find(id)?.kind !== 'recipe') return;
+    this.writeRecipe(id, change)?.catch(report);
+  }
+
+  /** `updateRecipe`'s write, undefined when nothing was written. */
+  private writeRecipe(
+    id: string,
+    change: { title?: string; servings?: number | null; url?: string },
+  ): Promise<void> | undefined {
+    if (!this.uid || this.find(id)?.kind !== 'recipe') return undefined;
     const update: Record<string, unknown> = {};
     const title = change.title?.trim();
     if (title && title !== this.find(id)?.title) {
       const owner = this.names().get(normalizeName(title));
-      if (owner !== undefined && owner !== id) return;
+      if (owner !== undefined && owner !== id) return undefined;
       update['title'] = title;
       update['titleSource'] = 'user';
     }
@@ -845,13 +864,83 @@ export class NotesService {
     if (change.url !== undefined) {
       update['source'] = { ...this.find(id)?.source, url: change.url.trim() };
     }
-    if (Object.keys(update).length === 0) return;
+    if (Object.keys(update).length === 0) return undefined;
     const stamp = {
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),
     };
-    this.api.set(this.fb.db, paths.note(this.uid, id), { ...update, ...stamp }, true).catch(report);
+    return this.api.set(this.fb.db, paths.note(this.uid, id), { ...update, ...stamp }, true);
+  }
+
+  /**
+   * Keeps a recipe's or a concept's name on this device, synchronously,
+   * without writing it yet (#205): the field calls it on every keystroke,
+   * so a name typed when the page closes is kept though no write has
+   * started. A blank name is no name (leaving the field puts the note's
+   * back), so it keeps nothing and forgets what was kept. False for a
+   * blank name or no such note.
+   */
+  holdName(id: string, name: string): boolean {
+    const note = this.find(id);
+    const title = name.trim();
+    if (!this.uid || (note?.kind !== 'recipe' && note?.kind !== 'concept')) return false;
+    if (!title) {
+      this.forget(PENDING_NAMES_KEY, id);
+      return false;
+    }
+    const pending = this.store.get<PendingWrites>(PENDING_NAMES_KEY) ?? {};
+    const prev = isPendingWrite(pending[id]) ? pending[id] : undefined;
+    const entry = nextPending(prev, this.uid, title, note.title);
+    this.store.set(PENDING_NAMES_KEY, { ...pending, [id]: entry });
+    return true;
+  }
+
+  /**
+   * Renames a recipe or a concept through its own path (`updateRecipe`,
+   * `updateConcept`: a concept's old name becomes another name, and an
+   * empty stub holding the new one is folded in), kept on this device
+   * until the server has it (#205). A name another note answers to is
+   * refused and not kept; the refused names are returned.
+   */
+  rename(id: string, name: string): string[] {
+    if (!this.holdName(id, name)) return [];
+    const title = name.trim();
+    const concept = this.find(id)?.kind === 'concept';
+    const { refused, written } = concept
+      ? this.writeConcept(id, { title })
+      : { refused: [], written: this.writeRecipe(id, { title }) };
+    if (written) {
+      written.then(() => this.acknowledged(PENDING_NAMES_KEY, id, title)).catch(report);
+    } else if (this.find(id)?.title !== title) {
+      // Nothing written over another name: the name is taken.
+      this.forget(PENDING_NAMES_KEY, id);
+      return concept ? refused : [title];
+    }
+    return refused;
+  }
+
+  /**
+   * Once the server's first snapshot is here, the names a closed page did
+   * not get into the cache (#205), renamed again where `lost` says they
+   * were lost, through `rename`, so a concept's old name is kept and a
+   * stub folded as when it was typed. A note the server lacks drops its
+   * entry.
+   */
+  private replayNames(): void {
+    const atLoad = this.atLoad[PENDING_NAMES_KEY] ?? {};
+    for (const [id, entry] of Object.entries(atLoad)) {
+      if (!this.unchanged(PENDING_NAMES_KEY, id, entry)) continue;
+      if (!isPendingWrite(entry)) {
+        this.forget(PENDING_NAMES_KEY, id);
+        continue;
+      }
+      if (entry.uid !== this.uid) continue;
+      const note = this.find(id);
+      const named = note?.kind === 'recipe' || note?.kind === 'concept';
+      if (named && lost(entry, note.title)) this.rename(id, entry.value);
+      else this.forget(PENDING_NAMES_KEY, id);
+    }
   }
 
   /**
@@ -1044,8 +1133,18 @@ export class NotesService {
       tags?: string[];
     },
   ): string[] {
+    const { refused, written } = this.writeConcept(id, change);
+    written?.catch(report);
+    return refused;
+  }
+
+  /** `updateConcept`'s write of the concept, absent when nothing was written. */
+  private writeConcept(
+    id: string,
+    change: Parameters<NotesService['updateConcept']>[1],
+  ): { refused: string[]; written?: Promise<void> } {
     const concept = this.find(id);
-    if (!this.uid || concept?.kind !== 'concept') return [];
+    if (!this.uid || concept?.kind !== 'concept') return { refused: [] };
     const names = this.names();
     const refused: string[] = [];
     const folded = new Set<string>();
@@ -1091,19 +1190,19 @@ export class NotesService {
     if (change.stage === null) update['stage'] = this.api.removeField();
     else if (change.stage !== undefined) update['stage'] = change.stage;
     if (change.tags) update['tags'] = tidy(change.tags);
-    if (Object.keys(update).length === 0) return refused;
+    if (Object.keys(update).length === 0) return { refused };
     const path = paths.note(this.uid, id);
     const stamp = {
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),
     };
-    this.api.set(this.fb.db, path, { ...update, ...stamp }, true).catch(report);
+    const written = this.api.set(this.fb.db, path, { ...update, ...stamp }, true);
     for (const stub of folded) {
       const merged = { archived: true, mergedInto: id, ...stamp };
       this.api.set(this.fb.db, paths.note(this.uid, stub), merged, true).catch(report);
     }
-    return refused;
+    return { refused, written };
   }
 
   /**
@@ -1138,6 +1237,7 @@ export class NotesService {
     // Emptied or bare: nothing typed in it is left to keep.
     this.forget(PENDING_SAVES_KEY, id);
     this.forget(PENDING_INSTRUCTIONS_KEY, id);
+    this.forget(PENDING_NAMES_KEY, id);
     this.notes.update((list) => list.filter((n) => n.id !== id));
     this.api.remove(this.fb.db, paths.note(this.uid, id)).catch(report);
   }

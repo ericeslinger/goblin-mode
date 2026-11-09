@@ -13,6 +13,7 @@ import {
   PENDING_CONCEPTS_KEY,
   PENDING_INSTRUCTIONS_KEY,
   PENDING_MOODS_KEY,
+  PENDING_NAMES_KEY,
   PENDING_SAVES_KEY,
 } from './notes.service';
 
@@ -478,6 +479,189 @@ describe('NotesService', () => {
       push([]);
       expect(api.set).not.toHaveBeenCalled();
       expect(localStorage.getItem(PENDING_SAVES_KEY)).not.toBeNull();
+    });
+  });
+
+  describe('A recipe’s or a concept’s name, when the page goes before the cache has it (#205)', () => {
+    const recipe = (title: string) => ({
+      id: 'r1',
+      data: { body: '', title, kind: 'recipe', titleSource: 'user' },
+    });
+    const concept = (title: string, more: Record<string, unknown> = {}) => ({
+      id: 'c-vikas',
+      data: { body: 'Glazes.', title, kind: 'concept', titleSource: 'user', ...more },
+    });
+    /** An empty stub concept, made by linking [[Vikas S.]] first. */
+    const stub = { id: 'c-vikas-s', data: { body: '', title: 'Vikas S.', kind: 'concept' } };
+    const writes = (api: ReturnType<typeof setup>['api']) =>
+      api.set.mock.calls.map(([, path, data]) => [path, data]);
+    const stored = () => localStorage.getItem(PENDING_NAMES_KEY);
+
+    /** Typed (and, with `written`, written unacknowledged), then reloaded. */
+    function typedThenReloaded(
+      docs: Parameters<ReturnType<typeof setup>['push']>[0],
+      id: string,
+      name: string,
+      { written = false, as = 'u1' } = {},
+    ) {
+      const first = setup();
+      first.signIn('u1');
+      first.push(docs);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      if (written) first.notes.rename(id, name);
+      else expect(first.notes.holdName(id, name)).toBe(true);
+      expect(first.api.set.mock.calls.length > 0).toBe(written);
+      const next = setup({ reload: true });
+      next.signIn(as);
+      return next;
+    }
+
+    it.each([false, true])(
+      'renames a recipe again when the server still shows its old name (written: %s)',
+      (written) => {
+        const { api, push } = typedThenReloaded([recipe('Dal')], 'r1', 'Red lentil dal', {
+          written,
+        });
+        push([recipe('Dal')]);
+        expect(writes(api)).toEqual([
+          [
+            'users/u1/notes/r1',
+            expect.objectContaining({
+              title: 'Red lentil dal',
+              titleSource: 'user',
+              updatedBy: 'user',
+            }),
+          ],
+        ]);
+        expect(api.set.mock.calls[0][3]).toBe(true);
+      },
+    );
+
+    it('writes nothing again when the server has the name, and forgets it', () => {
+      const { api, push } = typedThenReloaded([recipe('Dal')], 'r1', 'Red lentil dal');
+      push([recipe('Red lentil dal')]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(stored()).toBeNull();
+    });
+
+    it('never writes over a name someone else gave it since', () => {
+      const { api, push } = typedThenReloaded([recipe('Dal')], 'r1', 'Red lentil dal');
+      push([recipe('Tarka dal')]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(stored()).toBeNull();
+    });
+
+    it('forgets the name of a note the server does not have', () => {
+      const { api, push } = typedThenReloaded([recipe('Dal')], 'r1', 'Red lentil dal');
+      push([]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(stored()).toBeNull();
+    });
+
+    it('never trusts the persisted cache, and waits for the server', () => {
+      const { api, push } = typedThenReloaded([recipe('Dal')], 'r1', 'Red lentil dal');
+      push([recipe('Dal')], { fromCache: true });
+      expect(api.set).not.toHaveBeenCalled();
+      push([recipe('Dal')]);
+      push([recipe('Dal')]);
+      expect(writes(api)).toHaveLength(1);
+    });
+
+    it('never renames into another account’s notes', () => {
+      const { api, push } = typedThenReloaded([recipe('Dal')], 'r1', 'Red lentil dal', {
+        as: 'u2',
+      });
+      push([recipe('Dal')]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(stored()).not.toBeNull();
+    });
+
+    it('renames a concept again through the rename: its old name kept, a stub folded in', () => {
+      const { api, push } = typedThenReloaded(
+        [concept('Vikas', { synonyms: ['Vik'] }), stub],
+        'c-vikas',
+        'Vikas S.',
+      );
+      push([concept('Vikas', { synonyms: ['Vik'] }), stub]);
+      expect(writes(api)).toEqual([
+        [
+          'users/u1/notes/c-vikas',
+          expect.objectContaining({ title: 'Vikas S.', synonyms: ['Vik', 'Vikas'] }),
+        ],
+        [
+          'users/u1/notes/c-vikas-s',
+          expect.objectContaining({ archived: true, mergedInto: 'c-vikas' }),
+        ],
+      ]);
+    });
+
+    it('renames a concept written but never acknowledged once, not twice', () => {
+      const { api, push } = typedThenReloaded([concept('Vikas'), stub], 'c-vikas', 'Vikas S.', {
+        written: true,
+      });
+      push([concept('Vikas'), stub]);
+      expect(writes(api)[0]).toEqual([
+        'users/u1/notes/c-vikas',
+        expect.objectContaining({ title: 'Vikas S.', synonyms: ['Vikas'] }),
+      ]);
+      expect(writes(api)).toHaveLength(2);
+    });
+
+    it('leaves a concept someone renamed since, forgetting the name', () => {
+      const { api, push } = typedThenReloaded([concept('Vikas')], 'c-vikas', 'Vikas S.');
+      push([concept('Vikas Singh')]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(stored()).toBeNull();
+    });
+
+    it('forgets a concept’s name the server has', () => {
+      const { api, push } = typedThenReloaded([concept('Vikas')], 'c-vikas', 'Vikas S.');
+      push([concept('Vikas S.', { synonyms: ['Vikas'] })]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(stored()).toBeNull();
+    });
+
+    it('forgets a concept’s name that another note took since, writing nothing', () => {
+      const { api, push } = typedThenReloaded([concept('Vikas')], 'c-vikas', 'Vikas S.');
+      push([concept('Vikas'), { ...stub, data: { ...stub.data, body: 'Not a stub now.' } }]);
+      expect(api.set).not.toHaveBeenCalled();
+      expect(stored()).toBeNull();
+    });
+
+    it('forgets the name once the server has it, unless newer words wait', async () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([recipe('Dal')]);
+      let ack!: () => void;
+      api.set.mockReturnValueOnce(new Promise<void>((done) => (ack = () => done())));
+      notes.rename('r1', 'Red lentil');
+      notes.holdName('r1', 'Red lentil dal');
+      ack();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(JSON.parse(stored()!)['r1']).toMatchObject({ value: 'Red lentil dal' });
+      notes.rename('r1', 'Red lentil dal');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(stored()).toBeNull();
+    });
+
+    it('keeps no name that is taken or blank, and forgets a note removed here', () => {
+      const { notes, signIn, push } = setup();
+      signIn('u1');
+      push([recipe('Dal'), concept('Vikas'), { ...stub, data: { ...stub.data, body: 'x' } }]);
+      expect(notes.rename('c-vikas', 'Vikas S.')).toEqual(['Vikas S.']);
+      expect(notes.rename('r1', 'vikas s.')).toEqual(['vikas s.']);
+      expect(stored()).toBeNull();
+      notes.holdName('r1', 'Red');
+      expect(notes.holdName('r1', '  ')).toBe(false);
+      expect(stored()).toBeNull();
+      expect(notes.holdName('n1', 'Red')).toBe(false);
+      notes.holdName('r1', 'Red');
+      notes.holdName('c-vikas', 'Vikas S');
+      notes.remove('r1');
+      notes.remove('c-vikas');
+      expect(stored()).toBeNull();
     });
   });
 
