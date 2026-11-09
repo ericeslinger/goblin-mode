@@ -521,19 +521,18 @@ note of its own; a note with one thought, however long, is never
 split. With an ask, the ask stands, and the brief says to split only
 if it says to. A held note (#229) is never split: its brief carries
 the held rule and no split rule. `split_note` already moves text only
-verbatim and
-links the pieces from what is left (`Split off:`); since this change
-each piece links back too, with a `Split from: [[original]]` line
-decided as `Split off:` is (Organize tools, below), its own title
-still its first words. Put back undoes a split as it did before: the
-note's text comes back from History by its hash and the pieces, which
-the record marks `made`, are archived. The emulator's stand-in
-(`agent/stand-in.emulator.ts`) splits too, so a journey can follow
-it: after `get_note`, a note whose first line holds the word "ramble"
-(the journeys' marker) and which has two or more paragraphs split by
-a blank line is split a paragraph a part, then finished with "Split
-it into N notes (emulator stand-in)."; any other note is read and
-finished as before.
+verbatim and links the pieces from what is left (`Split off:`); since
+this change each piece links back too, with a `Split from:
+[[original]]` line decided as `Split off:` is (Organize tools, below),
+its own title still its first words. Put back undoes a split as it
+did before: the note's text comes back from History by its hash and
+the pieces, which the record marks `made`, are archived. The
+emulator's stand-in (`agent/stand-in.emulator.ts`) splits too, so a
+journey can follow it: after `get_note`, a note whose first line holds
+the word "ramble" (the journeys' marker) and which has two or more
+paragraphs split by a blank line is split a paragraph a part, then
+finished with "Split it into N notes (emulator stand-in)."; any other
+note is read and finished as before.
 
 **Using templates (#38, 2026-10-07).**
 
