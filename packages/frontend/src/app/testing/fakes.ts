@@ -110,6 +110,8 @@ export class FakeNotes {
   );
   setInstructions = vi.fn((_id: string, _text: string) => undefined);
   holdInstructions = vi.fn((_id: string, _text: string) => true);
+  holdName = vi.fn((_id: string, name: string) => !!name.trim());
+  rename = vi.fn((_id: string, _name: string) => [] as string[]);
   sendToAssistant = vi.fn((_id: string, _ask: string) => undefined);
   clip = vi.fn((_body: string, _title: string, _source: { url?: string; feedItemId: string }) => {
     const id = `clip${++this.n}`;

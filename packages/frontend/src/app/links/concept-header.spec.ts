@@ -73,7 +73,7 @@ describe('ConceptHeader', () => {
     const name = el.querySelector<HTMLInputElement>('.name input')!;
     name.value = 'The kiln';
     name.dispatchEvent(new Event('change'));
-    expect(notes.updateConcept).toHaveBeenLastCalledWith('c-kiln', { title: 'The kiln' });
+    expect(notes.rename).toHaveBeenLastCalledWith('c-kiln', 'The kiln');
 
     const type = el.querySelector<HTMLSelectElement>('select')!;
     type.value = 'person';
@@ -101,9 +101,9 @@ describe('ConceptHeader', () => {
     name.value = '  ';
     name.dispatchEvent(new Event('change'));
     expect(name.value).toBe('Kiln');
-    expect(notes.updateConcept).not.toHaveBeenCalled();
+    expect(notes.rename).not.toHaveBeenCalled();
 
-    notes.updateConcept.mockReturnValueOnce(['Banjo']);
+    notes.rename.mockReturnValueOnce(['Banjo']);
     name.value = 'Banjo';
     name.dispatchEvent(new Event('change'));
     await TestBed.inject(ApplicationRef).whenStable();
@@ -111,6 +111,62 @@ describe('ConceptHeader', () => {
     expect(el.querySelector('[role="status"]')?.textContent).toContain(
       '“Banjo” already names another note.',
     );
+  });
+
+  describe('the name as it is typed (#205)', () => {
+    async function typing() {
+      const rendered = await render(kiln);
+      const name = rendered.el.querySelector<HTMLInputElement>('.name input')!;
+      name.focus();
+      name.value = 'The ki';
+      name.dispatchEvent(new Event('input'));
+      return { ...rendered, name };
+    }
+
+    it('keeps every keystroke on the device at once, and renames only on leaving', async () => {
+      const { notes, name } = await typing();
+      vi.useFakeTimers();
+      try {
+        expect(notes.holdName).toHaveBeenLastCalledWith('c-kiln', 'The ki');
+        name.value = 'The kiln';
+        name.dispatchEvent(new Event('input'));
+        expect(notes.holdName).toHaveBeenLastCalledWith('c-kiln', 'The kiln');
+        // No pause write: a half-typed name would become another name.
+        vi.advanceTimersByTime(10_000);
+        expect(notes.rename).not.toHaveBeenCalled();
+        name.dispatchEvent(new Event('change'));
+        expect(notes.rename).toHaveBeenCalledTimes(1);
+        expect(notes.rename).toHaveBeenCalledWith('c-kiln', 'The kiln');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('renames at once when the page goes with the field still focused', async () => {
+      const { notes } = await typing();
+      window.dispatchEvent(new Event('pagehide'));
+      expect(notes.rename).toHaveBeenCalledWith('c-kiln', 'The ki');
+      window.dispatchEvent(new Event('pagehide'));
+      expect(notes.rename).toHaveBeenCalledTimes(1);
+    });
+
+    it('renames with what waits when the header goes', async () => {
+      const { notes, fixture } = await typing();
+      fixture.destroy();
+      expect(notes.rename).toHaveBeenCalledWith('c-kiln', 'The ki');
+    });
+
+    it('never puts a snapshot over typing in the field', async () => {
+      const { name, fixture } = await typing();
+      fixture.componentRef.setInput('note', { ...kiln, title: 'Claude’s kiln' });
+      fixture.detectChanges();
+      expect(name.value).toBe('The ki');
+      // Out of the field, it shows the stored name again.
+      name.blur();
+      fixture.componentRef.setInput('note', { ...kiln, title: 'Kiln room' });
+      fixture.detectChanges();
+      expect(name.value).toBe('Kiln room');
+    });
   });
 
   it('offers Project as a type only while Projects is on (#126)', async () => {

@@ -1,4 +1,14 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import {
+  Component,
+  DestroyRef,
+  type ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  viewChild,
+} from '@angular/core';
 import { SET_ASIDE_HEADING, hostOf, ingredients, methodSteps } from '@mossgoblin/schema';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 
@@ -14,7 +24,17 @@ import { NotesService, type NoteRecord } from '../notes/notes.service';
     <section class="recipe" aria-label="Recipe">
       <label class="name">
         <span class="visually-hidden">Recipe name</span>
-        <input #name [value]="note().title" (change)="rename(name)" (keydown.enter)="name.blur()" />
+        <!--
+          Kept on the device as typed, and written on leaving the field or
+          the page (#205), never after a pause, as the concept name is. Its
+          value is set by the class, never over typing.
+        -->
+        <input
+          #name
+          (input)="typeName(name.value)"
+          (change)="leaveName(name)"
+          (keydown.enter)="name.blur()"
+        />
       </label>
       <p class="meta">{{ summary() }}</p>
       @if (reading()) {
@@ -99,13 +119,64 @@ export class RecipeHeader {
       .join(' · ');
   });
 
-  protected rename(input: HTMLInputElement): void {
-    const title = input.value.trim();
+  private readonly nameBox = viewChild<ElementRef<HTMLInputElement>>('name');
+  /** A name typed and kept on the device, not yet written. */
+  private typed?: { id: string; name: string };
+  /** Which recipe's name the field shows. */
+  private shown?: string;
+
+  constructor() {
+    // The field shows the stored name, except while it has focus: a
+    // snapshot of an earlier write must never land on later typing.
+    const doc = inject(DOCUMENT);
+    effect(() => {
+      const box = this.nameBox()?.nativeElement;
+      const { id, title } = this.note();
+      if (!box || (box === doc.activeElement && this.shown === id)) return;
+      box.value = title;
+      this.shown = id;
+    });
+    // A page closed with the field focused never fires change (#205).
+    const onPageHide = () => this.writeName();
+    doc.defaultView?.addEventListener('pagehide', onPageHide);
+    inject(DestroyRef).onDestroy(() => {
+      doc.defaultView?.removeEventListener('pagehide', onPageHide);
+      this.writeName();
+    });
+  }
+
+  /**
+   * Every keystroke in the name: kept on the device at once, so a page
+   * closed now keeps it, and written on leaving. Not after a pause: meal
+   * plan slots link to a recipe by its title, and a half-typed one would
+   * break them, show in lists, and can read as taken. A blank name keeps
+   * nothing.
+   */
+  protected typeName(value: string): void {
+    const id = this.note().id;
+    // Typed into another recipe's field: that one is written first.
+    if (this.typed && this.typed.id !== id) this.writeName();
+    this.typed = this.notes.holdName(id, value) ? { id, name: value } : undefined;
+  }
+
+  /** Writes the name waiting, now. */
+  private writeName(): void {
+    const typed = this.typed;
+    if (!typed) return;
+    this.typed = undefined;
+    this.notes.rename(typed.id, typed.name);
+  }
+
+  /** Leaving the field (change): what waits is written now. */
+  protected leaveName(input: HTMLInputElement): void {
     // A recipe always has a name: a blank one puts the old name back.
-    if (!title) {
+    if (!input.value.trim()) {
+      this.typeName('');
       input.value = this.note().title;
       return;
     }
-    this.notes.updateRecipe(this.note().id, { title });
+    if (!this.typed && input.value.trim() === this.note().title) return;
+    this.typeName(input.value);
+    this.writeName();
   }
 }

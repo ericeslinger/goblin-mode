@@ -630,7 +630,19 @@ typing from before the notes load and, once `save` is called for it,
 is kept as a note save like any other. The Instructions field keeps every
 keystroke this way and writes after the save delay, on leaving the
 field, and on `pagehide`, since a page closed with the field focused
-never fires `change`.
+never fires `change`. A recipe's and a concept's name are kept the
+same way (`goblin.pendingNames`, #205, 2026-11-09), and a replay re-runs
+the field's own rename (`NotesService.rename`): a recipe's, or a concept's
+in full, its old name kept as another name and an empty stub holding
+the new one folded in; a name another note answers to by then is
+forgotten, as is a note the server lacks. Unlike the Instructions
+field, both names are kept on every keystroke but written only on
+leaving the field or the page, never after a pause, since a half-typed
+name would do harm: a recipe's title is what meal plan slots link by,
+so it would break them and show in lists, either can read as taken and
+flash the refusal, and each concept rename keeps the name before it
+and folds a stub holding the new one, so a pause on "Vik" on the way
+to "Vikas" would make "Vik" another name and fold its stub.
 
 **Lists and search.** One live listener on the user's whole `notes`
 collection, newest first, feeds Recent, Previous note and search; one

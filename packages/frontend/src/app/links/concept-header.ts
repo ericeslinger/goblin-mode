@@ -1,5 +1,16 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
+import {
+  Component,
+  DestroyRef,
+  type ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { checklist, childrenOf, selfAndDescendants, stageOrder } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
@@ -38,10 +49,16 @@ const TYPES = [
         <div class="row">
           <label class="name">
             <span class="visually-hidden">Name</span>
+            <!--
+              Kept on the device as typed, and written on leaving the field
+              or the page (#205); a rename never waits on a pause, since a
+              half-typed name would be kept as another name. Its value is
+              set by the class, never over typing.
+            -->
             <input
               #name
-              [value]="note().title"
-              (change)="rename(name)"
+              (input)="typeName(name.value)"
+              (change)="leaveName(name)"
               (keydown.enter)="name.blur()"
             />
           </label>
@@ -657,14 +674,66 @@ export class ConceptHeader {
     this.reminders.done(task);
   }
 
-  protected rename(input: HTMLInputElement): void {
-    const title = input.value.trim();
+  private readonly nameBox = viewChild<ElementRef<HTMLInputElement>>('name');
+  /** A name typed and kept on the device, not yet written. */
+  private typed?: { id: string; name: string };
+  /** Which concept's name the field shows. */
+  private shown?: string;
+
+  constructor() {
+    // The field shows the stored name, except while it has focus: a
+    // snapshot of another device's write must never land on typing.
+    const doc = inject(DOCUMENT);
+    effect(() => {
+      const box = this.nameBox()?.nativeElement;
+      const { id, title } = this.note();
+      if (!box || (box === doc.activeElement && this.shown === id)) return;
+      box.value = title;
+      this.shown = id;
+    });
+    // A page closed with the field focused never fires change (#205).
+    const onPageHide = () => this.writeName();
+    doc.defaultView?.addEventListener('pagehide', onPageHide);
+    inject(DestroyRef).onDestroy(() => {
+      doc.defaultView?.removeEventListener('pagehide', onPageHide);
+      this.writeName();
+    });
+  }
+
+  /**
+   * Every keystroke in the name: kept on the device at once, so a page
+   * closed now keeps it, and renamed on leaving. Not after a pause: each
+   * rename keeps the name before it as another name and folds a stub
+   * holding the new one, so "Vik" on the way to "Vikas" would be both.
+   */
+  protected typeName(value: string): void {
+    const id = this.note().id;
+    // Typed into another concept's field: that one is written first.
+    if (this.typed && this.typed.id !== id) this.writeName();
+    this.typed = this.notes.holdName(id, value) ? { id, name: value } : undefined;
+  }
+
+  /** Renames with the name waiting, now; the names refused, if any. */
+  private writeName(): string[] {
+    const typed = this.typed;
+    if (!typed) return [];
+    this.typed = undefined;
+    const refused = this.notes.rename(typed.id, typed.name);
+    if (typed.id === this.note().id) this.say(refused);
+    return refused;
+  }
+
+  /** Leaving the field (change): the rename happens now. */
+  protected leaveName(input: HTMLInputElement): void {
     // A concept always has a name: a blank one puts the old name back.
-    if (!title) {
+    if (!input.value.trim()) {
+      this.typeName('');
       input.value = this.note().title;
       return;
     }
-    if (this.update({ title }).length) input.value = this.note().title;
+    if (!this.typed && input.value.trim() === this.note().title) return;
+    this.typeName(input.value);
+    if (this.writeName().length) input.value = this.note().title;
   }
 
   protected add(name: string): void {
@@ -676,9 +745,11 @@ export class ConceptHeader {
     this.update({ synonyms: this.synonyms().filter((s) => s !== name) });
   }
 
-  private update(change: { title?: string; synonyms?: string[] }): string[] {
-    const refused = this.notes.updateConcept(this.note().id, change);
+  private update(change: { synonyms?: string[] }): void {
+    this.say(this.notes.updateConcept(this.note().id, change));
+  }
+
+  private say(refused: string[]): void {
     this.refusal.set(refused.length ? `“${refused.join('”, “')}” already names another note.` : '');
-    return refused;
   }
 }
