@@ -940,13 +940,15 @@ describe('document modes (#231)', () => {
     expect((await body('l'))['body']).toBe('Groceries\n## Produce\n- limes');
   });
 
-  it('use_template gives a living note it makes the template’s mode', async () => {
+  it('use_template shows a living note’s mode as its template’s, inherited not copied', async () => {
     await eric('t1', 'Firings\n## Log', { kind: 'template', templateMode: 'living', mode: 'log' });
     await eric('t2', 'Journal', { kind: 'template', templateMode: 'entry', mode: 'synthesis' });
     const t = ticking();
     const made = await t.useTemplate({ id: 't1' });
-    expect((await body(made.note.id))['mode']).toBe('log');
-    expect(made).toMatchObject({ takes: { mode: 'log' } });
+    // Inherited through fromTemplate (review on #234): the note holds no
+    // mode of its own, so a template changed later is followed.
+    expect(await body(made.note.id)).not.toHaveProperty('mode');
+    expect(made).toMatchObject({ takes: { mode: 'log', inheritedFrom: 't1' } });
     const entry = await t.useTemplate({ id: 't2' });
     expect(await body(entry.note.id)).not.toHaveProperty('mode');
   });

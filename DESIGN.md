@@ -498,12 +498,14 @@ notes read only the field. The app writes `mode` through the cache
 like `setArchived`. On the server, `get_note` returns `takes` (the
 `mode`, `modeBrief`, and `inheritedFrom` naming the template) when a
 mode or instructions apply; `list_templates` and `use_template` carry
-it too, and `use_template` copies a living template's mode onto the
-living note it makes. Only a Log changes a tool: `add_lines` puts its
-lines under a `## YYYY-MM-DD` heading for today (the house's date, as
-`capture` dates a decision; in the `timeZone` it is given, UTC
-without), made at the end if missing, newest last, whatever heading
-was asked for; `capture` still files a decision under Decisions. List
+it too. A living note holds no mode of its own: it inherits its
+template's through `fromTemplate`, so a template changed later is
+followed (review on #234). Only a Log changes a tool: `add_lines`
+puts its lines under a `## YYYY-MM-DD` heading for today (the house's
+date, as `capture` dates a decision; in the `timeZone` it is given,
+UTC without), made at the end if missing, newest last, whatever
+heading was asked for; `capture` still files a decision under
+Decisions. List
 and Synthesis guide in words only. The garden's own agent reads the
 same server instructions, whose clause says a note's `takes` governs
 how new material goes in and that `get_note` shows it, so `briefFor`
@@ -2317,7 +2319,7 @@ it, one backticked tool name per row.
 | `finish_queued` | Marks a sent note done, with one line saying what was done, if not sent again since | Send to an assistant (#143) |
 | `suggest_changes` | Stores link, merge and refile suggestions for Eric to accept | Nightly suggestions (#35) |
 | `list_templates` | Templates with their Instructions for Claude (field, or old section) and skeleton; `takes` when one sets a mode | Using templates (#38), #111, Document modes (#231) |
-| `use_template` | Opens a template's note to work in; a living note it makes takes the template's mode | Using templates (#38), Document modes (#231) |
+| `use_template` | Opens a template's note to work in; a living note it makes takes new material as the template does | Using templates (#38), Document modes (#231) |
 | `add_lines` | Adds lines under a heading, without rewriting the body; on a Log, under today's date heading (`timeZone`) | Safe co-editing (#37), Document modes (#231) |
 | `check_item` | Ticks a checklist item, by its text | Safe co-editing (#37) |
 | `uncheck_item` | Unticks a checklist item, by its text | Safe co-editing (#37) |

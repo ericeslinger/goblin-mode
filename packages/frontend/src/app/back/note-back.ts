@@ -58,9 +58,10 @@ function stamp(ms: number | undefined): string {
  * Claude changed on it; the notes linking here; a concept's or a
  * template's settings; how the note takes new material and its
  * Instructions for Claude (a template's since #111, any note's that
- * takes them since #231); for a grocery list, which dinners want each item (#207);
- * its tags, History and Map, Archive, and Delete (#217), which puts it
- * in Trash after a one-line confirm. The front keeps the text.
+ * takes them since #231); for a grocery list, which dinners want each
+ * item (#207); its tags, History and Map, Archive, and Delete (#217),
+ * which puts it in Trash after a one-line confirm. The front keeps the
+ * text.
  */
 @Component({
   selector: 'app-note-back',

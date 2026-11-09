@@ -398,7 +398,6 @@ function timesData(t: {
   };
 }
 
-/** Drops FieldValue.delete() entries, to validate the document as it will be. */
 /**
  * How a note takes new material (#231), as get_note and use_template
  * show it under `takes`: the mode, set or inherited from its living
@@ -415,6 +414,7 @@ function takesView(takes: Takes | undefined, fromTemplate?: unknown) {
   };
 }
 
+/** Drops FieldValue.delete() entries, to validate the document as it will be. */
 function withoutDeletes(d: Data): Data {
   return Object.fromEntries(Object.entries(d).filter(([, v]) => !(v instanceof FieldValue)));
 }
@@ -2104,9 +2104,9 @@ export class NotesTools {
       titleSource: 'words',
       links: resolveLinks(targetsOf(skeleton), await this.names()),
       tags: [],
+      // A living note takes new material as its template does (#231),
+      // read through fromTemplate, so a template changed later is followed.
       fromTemplate: doc.id,
-      // A living note takes new material as its template does (#231).
-      ...(mode === 'living' && template['mode'] ? { mode: template['mode'] } : {}),
       archived: false,
       createdAt: now,
       updatedAt: now,

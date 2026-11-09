@@ -657,7 +657,8 @@ export function buildServer(
       title: 'Use a template',
       description:
         "Open the note to work in for a template: a living template's one note (made the first " +
-        'time, taking the template’s mode), or a new note from its skeleton. Returns the note ' +
+        'time; it takes new material as the template does), or a new note from its skeleton. ' +
+        'Returns the note ' +
         'and the Instructions for Claude, with takes when the note has a mode: follow them, so ' +
         "the note is done Eric's way, and write with update_note.",
       inputSchema: { id: z.string().min(1) },
