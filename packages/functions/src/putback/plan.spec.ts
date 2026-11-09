@@ -474,6 +474,41 @@ describe('planPutBack', () => {
     });
   });
 
+  it('puts back a reroute: the links and the text before its See also line (#235)', () => {
+    const before = 'Kiln\nCone 6.';
+    const after = `${before}\n\nSee also [[Pottery]]`;
+    const reroute = run({
+      id: 'reroute-putback-r1',
+      tool: 'reroute',
+      summary: 'Filed Kiln under Pottery',
+      device: 'agent:Mossgoblin~reroute-putback-r1',
+      notes: [{ id: 'k', title: 'Kiln', before: { body: textHash(before), links: [] } }],
+    });
+    expect(didOf(reroute)).toEqual(new Map([['k', { kind: 'fields', text: true }]]));
+    const plan = planPutBack({
+      run: reroute,
+      base: reroute,
+      depth: 0,
+      notes: notes(
+        note('k', {
+          body: after,
+          deviceId: 'agent:Mossgoblin~reroute-putback-r1',
+          fields: { links: ['c-pottery'] },
+        }),
+      ),
+      textBefore: new Map([['k', before]]),
+    });
+    expect(plan.writes).toEqual([
+      {
+        id: 'k',
+        title: 'k',
+        fields: { links: [] },
+        body: before,
+        before: { links: ['c-pottery'], body: textHash(after) },
+      },
+    ]);
+  });
+
   it('names a note gone since', () => {
     const plan = planPutBack({
       run: run(),

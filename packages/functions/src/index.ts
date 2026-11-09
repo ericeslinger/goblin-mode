@@ -28,7 +28,7 @@ export {
   sweepArticles,
 } from './reader/functions';
 export { proposalAccepted } from './organize/triggers';
-export { revertRun } from './putback/callable';
+export { rerouteRun, revertRun } from './putback/callable';
 export { sendDuePush } from './push/send-due-push';
 export { reminderScheduled, reminderWake } from './push/reminder-wake';
 export {

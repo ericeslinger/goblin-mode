@@ -3,7 +3,7 @@ import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestor
 import { textHash } from '@mossgoblin/schema';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NotesTools } from '../mcp/tools';
-import { DAILY_PUT_BACKS, putBack } from './firestore';
+import { DAILY_PUT_BACKS, putBack, reroute } from './firestore';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id. No functions run here, so the texts noteHistory
@@ -352,5 +352,149 @@ describe('putBack', () => {
     await expect(putBack(db, 'u2', await runOf('archive_note'), T + 1000)).rejects.toMatchObject({
       code: 'not-found',
     });
+  });
+});
+
+describe('reroute (#235)', () => {
+  /** Pottery and Garden, two projects, made by an assistant a moment before. */
+  async function projects() {
+    await tools(T - 3000).createConcept({ name: 'Pottery', type: 'project' });
+    await tools(T - 3000).createConcept({ name: 'Garden', type: 'project' });
+  }
+
+  it('files a note put back from a link under the project Eric picks, and can be put back', async () => {
+    await projects();
+    await eric('k', 'Kiln log\nCone 6.');
+    await tools(T).linkNotes({ from: 'k', to: ['c-pottery'] });
+    await remember('k', 'Kiln log\nCone 6.');
+    const runId = await runOf('link_notes');
+    await putBack(db, 'u1', runId, T + 1000);
+    expect((await read('k'))['body']).toBe('Kiln log\nCone 6.');
+
+    const result = await reroute(db, 'u1', `putback-${runId}`, 'c-garden', T + 2000);
+    expect(result).toEqual({ status: 'done', id: `reroute-putback-${runId}`, notes: 1 });
+    const k = await read('k');
+    expect(k['body']).toBe('Kiln log\nCone 6.\n\nSee also [[Garden]]');
+    expect(k['links']).toEqual(['c-garden']);
+    expect(k).toMatchObject({
+      updatedBy: 'claude',
+      agent: 'Mossgoblin',
+      deviceId: `agent:Mossgoblin~reroute-putback-${runId}`,
+    });
+    const record = (await db.doc(`users/u1/activity/reroute-putback-${runId}`).get()).data()!;
+    expect(record).toMatchObject({
+      tool: 'reroute',
+      agent: 'Mossgoblin',
+      summary: 'Filed Kiln log under Garden',
+      notes: [
+        {
+          id: 'k',
+          title: 'Kiln log',
+          before: { body: textHash('Kiln log\nCone 6.'), links: [] },
+        },
+      ],
+      reminders: [],
+    });
+    expect((await db.doc('users/u1/usage/2026-11-08').get()).get('putBacks')).toBe(2);
+    // A second tap says so and writes nothing.
+    expect(await reroute(db, 'u1', `putback-${runId}`, 'c-pottery', T + 3000)).toEqual({
+      status: 'already',
+      id: `reroute-putback-${runId}`,
+      notes: 0,
+    });
+
+    // Its own put back takes the line off again, Eric's text as it was.
+    await remember('k', 'Kiln log\nCone 6.');
+    await putBack(db, 'u1', `reroute-putback-${runId}`, T + 4000);
+    const back = await read('k');
+    expect(back['body']).toBe('Kiln log\nCone 6.');
+    expect(back['links']).toEqual([]);
+  });
+
+  it('files the originals a merge put back restored', async () => {
+    await projects();
+    await eric('x', 'Kiln log\nCone 6.');
+    await eric('y', 'Firing notes\nShelf 2.');
+    const merged = await tools(T).mergeNotes({ ids: ['x', 'y'] });
+    const runId = await runOf('merge_notes');
+    await putBack(db, 'u1', runId, T + 1000);
+
+    const result = await reroute(db, 'u1', `putback-${runId}`, 'c-pottery', T + 2000);
+    expect(result).toMatchObject({ status: 'done', notes: 2 });
+    expect((await read('x'))['body']).toBe('Kiln log\nCone 6.\n\nSee also [[Pottery]]');
+    expect((await read('y'))['body']).toBe('Firing notes\nShelf 2.\n\nSee also [[Pottery]]');
+    expect((await read(merged.id))['archived']).toBe(true);
+    const record = (await db.doc(`users/u1/activity/reroute-putback-${runId}`).get()).data()!;
+    expect(record['summary']).toBe('Filed 2 notes under Pottery');
+  });
+
+  it('files a project under another with parent, and puts that back', async () => {
+    await projects();
+    await tools(T - 1000).createConcept({ name: 'Glazes', type: 'project' });
+    await tools(T).refile({ id: 'c-glazes', parent: 'c-pottery' });
+    const runId = await runOf('refile');
+    await putBack(db, 'u1', runId, T + 1000);
+    expect((await read('c-glazes'))['parent']).toBeUndefined();
+
+    await reroute(db, 'u1', `putback-${runId}`, 'c-garden', T + 2000);
+    expect((await read('c-glazes'))['parent']).toBe('c-garden');
+    const record = (await db.doc(`users/u1/activity/reroute-putback-${runId}`).get()).data()!;
+    expect(record['notes']).toEqual([
+      { id: 'c-glazes', title: 'Glazes', before: { parent: null } },
+    ]);
+
+    await putBack(db, 'u1', `reroute-putback-${runId}`, T + 3000);
+    expect((await read('c-glazes'))['parent']).toBeUndefined();
+  });
+
+  it('refuses a put back of a text edit, a project gone, a loop, and with Projects off', async () => {
+    await projects();
+    await eric('a', 'Shopping\n\n## Produce\n- [ ] limes');
+    await tools(T).addLines({ id: 'a', heading: 'Produce', lines: ['- [ ] oats'] });
+    await remember('a', 'Shopping\n\n## Produce\n- [ ] limes', 'history');
+    const edit = await runOf('add_lines');
+    await putBack(db, 'u1', edit, T + 1000);
+    await expect(reroute(db, 'u1', `putback-${edit}`, 'c-pottery', T + 2000)).rejects.toMatchObject(
+      { code: 'failed-precondition' },
+    );
+    // Only a put back, one deep.
+    await expect(reroute(db, 'u1', edit, 'c-pottery', T + 2000)).rejects.toMatchObject({
+      code: 'failed-precondition',
+    });
+    await expect(reroute(db, 'u1', 'putback-nope', 'c-pottery', T)).rejects.toMatchObject({
+      code: 'not-found',
+    });
+
+    // A project cannot go under one under it.
+    await tools(T - 1000).createConcept({ name: 'Glazes', type: 'project', parent: 'c-garden' });
+    await tools(T).refile({ id: 'c-garden', parent: 'c-pottery' });
+    const filed = await runOf('refile');
+    await putBack(db, 'u1', filed, T + 1000);
+    await expect(reroute(db, 'u1', `putback-${filed}`, 'c-glazes', T + 2000)).rejects.toMatchObject(
+      { code: 'failed-precondition' },
+    );
+    await expect(reroute(db, 'u1', `putback-${filed}`, 'c-nope', T + 2000)).rejects.toMatchObject({
+      code: 'not-found',
+    });
+
+    await db.doc('users/u1/settings/modules').set({
+      projects: { enabled: false },
+      updatedAt: Timestamp.fromMillis(T),
+    });
+    await expect(
+      reroute(db, 'u1', `putback-${filed}`, 'c-pottery', T + 2000),
+    ).rejects.toMatchObject({ code: 'failed-precondition', message: /Projects/ });
+  });
+
+  it('reads only the caller’s own put backs', async () => {
+    await projects();
+    await eric('k', 'Kiln log\nCone 6.');
+    await tools(T).linkNotes({ from: 'k', to: ['c-pottery'] });
+    await remember('k', 'Kiln log\nCone 6.');
+    const runId = await runOf('link_notes');
+    await putBack(db, 'u1', runId, T + 1000);
+    await expect(reroute(db, 'u2', `putback-${runId}`, 'c-garden', T + 2000)).rejects.toMatchObject(
+      { code: 'not-found' },
+    );
   });
 });
