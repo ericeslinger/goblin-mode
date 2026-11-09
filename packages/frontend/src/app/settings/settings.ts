@@ -9,6 +9,7 @@ import {
   PROVIDER_INFO,
   type Provider,
   QUEUE_PROMPT,
+  type StartOn,
   WEEKDAYS,
   addDays,
   localDate,
@@ -16,6 +17,7 @@ import {
   weekdayOf,
 } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
+import { StartOnService } from '../home/start-on';
 import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
@@ -29,16 +31,17 @@ import { RemindersService } from '../reminders/reminders.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
 import { reloadPage } from '../unknown-route';
+import { HomeLink } from '../home/home-link';
 
 /** The weekly reminder to plan the meals (#129). */
 export const PLAN_REMINDER = 'Plan next week’s meals';
 
 @Component({
   selector: 'app-settings',
-  imports: [RouterLink, ThemePicker],
+  imports: [HomeLink, RouterLink, ThemePicker],
   template: `
     <main class="page">
-      <a routerLink="/">Back</a>
+      <app-home-link />
       <h1>Settings</h1>
       @if (auth.user(); as user) {
         <p>Signed in as {{ user.email }}</p>
@@ -46,6 +49,27 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
       } @else {
         <p>Not signed in.</p>
       }
+      <h2 id="start-on">Start on</h2>
+      <p class="muted">
+        The screen the app opens on. Home is one tap away from everywhere either way.
+      </p>
+      <div role="radiogroup" aria-labelledby="start-on" class="start-on">
+        @for (c of startChoices; track c.value) {
+          <label>
+            <input
+              type="radio"
+              name="start-on"
+              [value]="c.value"
+              [checked]="startOn.choice() === c.value"
+              (change)="startOn.set(c.value)"
+            />
+            <span>
+              {{ c.label }}
+              <span class="muted">{{ startNote(c.value) ?? c.about }}</span>
+            </span>
+          </label>
+        }
+      </div>
       <h2>Appearance</h2>
       <app-theme-picker />
       @if (auth.user()) {
@@ -376,6 +400,20 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
     </main>
   `,
   styles: `
+    .start-on label {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      min-height: 44px;
+      margin: 0;
+    }
+    .start-on label > span {
+      display: flex;
+      flex-direction: column;
+    }
+    .start-on .muted {
+      font-size: 13px;
+    }
     .keys {
       list-style: none;
       margin: 0;
@@ -553,6 +591,23 @@ export class Settings {
     }
   }
   protected readonly moduleList = MODULES;
+  protected readonly startOn = inject(StartOnService);
+  /** Start on's choices (#219), as the Settings sketch words them. */
+  protected readonly startChoices: { value: StartOn; label: string; about: string }[] = [
+    { value: 'home', label: 'Home', about: 'Capture, Right Now and the modules' },
+    { value: 'note', label: 'A new note', about: 'As before: the editor, ready to type' },
+    { value: 'right-now', label: 'Right Now', about: 'Reminders and what is new' },
+    { value: 'kitchen', label: 'Kitchen', about: 'This week’s meals' },
+    { value: 'reader', label: 'Reader', about: 'Unread articles' },
+  ];
+
+  /** A module's choice while it is off: it opens Home instead. */
+  protected startNote(choice: StartOn): string | undefined {
+    if (choice === 'kitchen' && !this.modules.kitchen())
+      return 'Kitchen is off, so this opens Home';
+    if (choice === 'reader' && !this.modules.reader()) return 'Reader is off, so this opens Home';
+    return undefined;
+  }
   private readonly router = inject(Router);
 
   protected readonly weekdays = WEEKDAYS;

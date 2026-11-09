@@ -6,6 +6,7 @@ import { map } from 'rxjs';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
+import { HomeLink } from '../home/home-link';
 
 /**
  * /kitchen and /kitchen/<a day> (#129): opens the meal plan for the week
@@ -15,10 +16,10 @@ import { NOW } from '../platform/platform';
  */
 @Component({
   selector: 'app-kitchen-week',
-  imports: [RouterLink],
+  imports: [HomeLink, RouterLink],
   template: `
     <main class="page">
-      <a routerLink="/">Back</a>
+      <app-home-link />
       <h1>Meal plan</h1>
       @if (!modules.kitchen()) {
         <p>

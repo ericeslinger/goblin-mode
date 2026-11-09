@@ -1,4 +1,5 @@
 import { type Routes, type UrlMatchResult, type UrlSegment } from '@angular/router';
+import { startOnGuard } from './home/start-on';
 import { Launch } from './launch/launch';
 import { UnknownRoute } from './unknown-route';
 
@@ -16,7 +17,9 @@ export function launchMatcher(segments: UrlSegment[]): UrlMatchResult | null {
 
 export const routes: Routes = [
   // Eager, not lazy: launch must never wait on a chunk (DESIGN.md, Editor).
-  { matcher: launchMatcher, component: Launch },
+  // A cold open of / goes where Start on says (#219); a new note unless chosen.
+  { matcher: launchMatcher, component: Launch, canActivate: [startOnGuard] },
+  { path: 'home', loadComponent: () => import('./home/home').then((m) => m.Home) },
   { path: 'browse', loadComponent: () => import('./browse/browse').then((m) => m.Browse) },
   {
     path: 'browse/:lens',

@@ -62,7 +62,7 @@ users/{uid}
     history/{versionId}
   reminders/{reminderId}
   devices/{deviceId}          push tokens
-  settings/app                theme and mode, shared by devices
+  settings/app                theme, mode, startOn (#219); shared by devices
   settings/keys               masked provider keys, function-written (#144)
   settings/reader             the Reader's folder order and switches (#159)
   settings/assistant          the assistant's switches (#214)
@@ -810,6 +810,42 @@ Escape (back to its button) and on a tap outside.
 control joins the bar beside More: View on a note with text, Edit
 while viewing (Editor, Viewing). It is in the bar, not under More,
 because it is reached for in the store with one hand.
+
+**Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
+design A over B (a bar of slots along the bottom): a Home screen at
+`/home` with a header (the leaf, Mossgoblin, the sync word, a gear to
+Settings), a one-line box, "Plant a thought", the Right Now row (the
+next two reminders as Right Now places them, and how many are new in
+the Reader, linking to `/right-now`) and a two-column grid of tiles,
+each an icon, a name and a line on how it stands: Notes (what Browse's
+Recent counts, and how many were written in today), Kitchen (tonight's
+dinner from this week's plan, what the grocery list has open), Reader
+(unread, and unread episodes), Reading queue, Assistants (open
+suggestions, runs today) and Map. A module that is off has no tile;
+the order is fixed until step 2 makes it arrangeable. The box does not
+fork the editor: it is a link to `/`, so the capture flow, the pending
+draft, settle and every journey stay exactly as they were, and the
+editor takes the cursor as it opens. Being a link, not a field, it
+never holds a keystroke. The growth is a plain navigation for now, no
+animation. The icons are one `app-icon` (`home/icon.ts`): a single
+stroke, 1.6 at 24, in ink, the leaf alone in `--second`.
+
+The leaf (`app-home-link`, a 44 px link to `/home`) takes the place of
+Back at the top of Browse, Right Now, Settings, the Kitchen week, the
+Reader, History, What assistants changed, the garden map and the
+Reading queue, and sits at the left of the launch bar; a Back that
+means something else (an article to its shelf) stays. Start on, in
+Settings, picks where a cold open of `/` lands: Home, A new note, Right
+Now, Kitchen or Reader. It is stored as `startOn` in `settings/app`,
+which `ThemeSync` writes whole, so each write carries both the theme
+and it, and kept on the device under `goblin.startOn` with whether
+Kitchen and the Reader were on when last read. A guard on the launch
+route reads only that, so nothing waits on auth or the network; it acts
+only on the first navigation and only on a bare `/`, so a share, a Send
+to, a note's link or any other URL opens as it says. A module chosen
+while off falls back to Home. The default is A new note, so nothing
+changed for Eric until he picks Home. A choice made on another device
+applies from the next cold open here.
 
 **Modules (#126, Eric, 2026-10-18; epic #125).** Parts of Mossgoblin
 are modules, switched on per user in Settings, Modules: the code ships

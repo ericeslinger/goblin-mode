@@ -6,6 +6,7 @@ import { map } from 'rxjs';
 import { LinksService } from '../links/links.service';
 import { NotesService } from '../notes/notes.service';
 import { bedGrid, beds, lanes, plant } from './garden';
+import { HomeLink } from '../home/home-link';
 
 const CELL = 240;
 const SHOWN_PER_BED = 20;
@@ -23,10 +24,10 @@ const WIDTH = 760;
  */
 @Component({
   selector: 'app-garden-map',
-  imports: [RouterLink, DatePipe],
+  imports: [HomeLink, RouterLink, DatePipe],
   template: `
     <main class="page wide">
-      <a routerLink="/">Back</a>
+      <app-home-link />
       <h1>Map</h1>
       <nav aria-label="Layouts">
         <a routerLink="/map" [attr.aria-current]="layout() === 'garden' ? 'page' : null">Garden</a>

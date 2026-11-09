@@ -5,6 +5,7 @@ import { DownloadPrefs } from './download-prefs';
 import { DownloadsService, size } from './downloads.service';
 import { ALL, type ItemRecord, ItemsService, PODCASTS, SAVED } from './items.service';
 import { ReaderService, type SearchHit } from './reader.service';
+import { HomeLink } from '../home/home-link';
 
 /**
  * The Reader's front (#162): the folders with what is unread in each,
@@ -17,10 +18,10 @@ import { ReaderService, type SearchHit } from './reader.service';
  */
 @Component({
   selector: 'app-reader',
-  imports: [RouterLink],
+  imports: [HomeLink, RouterLink],
   template: `
     <main class="page">
-      <a routerLink="/browse">Back</a>
+      <app-home-link />
       <h1>Reader</h1>
       @if (!modules.reader()) {
         <p class="muted">

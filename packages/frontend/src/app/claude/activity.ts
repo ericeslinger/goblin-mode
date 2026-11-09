@@ -15,6 +15,7 @@ import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
 import { ProposalsService } from './proposals.service';
 import { PutBack } from './put-back';
+import { HomeLink } from '../home/home-link';
 
 /** A run as What assistants changed lists it; times in milliseconds. */
 export interface RunRecord {
@@ -99,10 +100,10 @@ export function putBackState(runs: RunRecord[]): (run: RunRecord) => 'offer' | '
  */
 @Component({
   selector: 'app-activity',
-  imports: [RouterLink, PutBack],
+  imports: [HomeLink, RouterLink, PutBack],
   template: `
     <main class="page">
-      <a routerLink="/">Back</a>
+      <app-home-link />
       <h1>What assistants changed</h1>
       @if (proposals.shown().length) {
         <section aria-labelledby="suggestions">

@@ -30,6 +30,10 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await page.getByRole('button', { name: 'Previous note' }).click();
   await expectNoSeriousViolations(page);
 
+  await page.goto('/home');
+  await expect(page.getByRole('heading', { name: 'Mossgoblin', level: 1 })).toBeVisible();
+  await expectNoSeriousViolations(page);
+
   await page.goto('/browse');
   await expect(page.getByRole('list', { name: 'Notes' })).toBeVisible();
   await expectNoSeriousViolations(page);

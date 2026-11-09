@@ -9,6 +9,7 @@ import { provideRouter } from '@angular/router';
 import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { FIREBASE, initFirebase } from './firebase';
+import { rememberModules } from './home/start-on';
 import { PushService } from './push/push.service';
 import { ThemeSync } from './theme/theme-sync.service';
 import { ThemeService } from './theme/theme.service';
@@ -27,6 +28,8 @@ export const appConfig: ApplicationConfig = {
     provideEnvironmentInitializer(() => void inject(ThemeService)),
     // Keeps it in the gardener's settings, across devices.
     provideEnvironmentInitializer(() => void inject(ThemeSync)),
+    // Which modules are on, for Start on's next cold open (#219).
+    provideEnvironmentInitializer(rememberModules),
     // Refreshes this device's push token after each sign-in; never awaited.
     provideEnvironmentInitializer(() => void inject(PushService)),
   ],

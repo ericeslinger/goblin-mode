@@ -30,7 +30,8 @@ describe('Browse', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('h1')?.textContent).toBe('Notes');
     expect(el.textContent).toContain('Groceries');
-    expect(el.querySelector('a')?.getAttribute('href')).toBe('/');
+    // The way back is the leaf, to Home (#219).
+    expect(el.querySelector('a[aria-label="Home"]')?.getAttribute('href')).toBe('/home');
   });
 
   it('says how many suggestions wait in What assistants changed', async () => {
