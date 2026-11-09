@@ -1,11 +1,20 @@
-import { Component, DestroyRef, InjectionToken, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  InjectionToken,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { agentOf, paths } from '@mossgoblin/schema';
+import { agentOf, canPutBack, paths, putBackId } from '@mossgoblin/schema';
 import { type Firestore, collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
 import { ProposalsService } from './proposals.service';
+import { PutBack } from './put-back';
 
 /** A run as What assistants changed lists it; times in milliseconds. */
 export interface RunRecord {
@@ -13,6 +22,8 @@ export interface RunRecord {
   at?: number;
   /** Which assistant (#142): Claude for runs before. */
   agent: string;
+  /** The tool, e.g. 'merge_notes'; 'put_back' for a put back (#154). */
+  tool: string;
   summary: string;
   notes: { id: string; title: string }[];
   reminders: { id: string; title: string }[];
@@ -59,6 +70,7 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
     id,
     at: millis(data['at']),
     agent: agentOf(data),
+    tool: String(data['tool'] ?? ''),
     summary: String(data['summary'] ?? ''),
     notes: touched(data['notes']),
     reminders: touched(data['reminders']),
@@ -66,15 +78,26 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
 }
 
 /**
+ * Whether a run can be put back, and whether it has been (#154 step 1):
+ * its put back's id is derived from its own, and is newer, so it is in
+ * the same list.
+ */
+export function putBackState(runs: RunRecord[]): (run: RunRecord) => 'offer' | 'done' | 'none' {
+  const ids = new Set(runs.map((r) => r.id));
+  return (run) => (!canPutBack(run) ? 'none' : ids.has(putBackId(run.id)) ? 'done' : 'offer');
+}
+
+/**
  * What assistants changed (#34, renamed in #142): every run of a tool
  * by an assistant that wrote
  * something, newest first, each linking the notes it touched and their
- * History, so any change can be read and put back. Above it, the nightly
- * run's suggestions (#35), to accept or dismiss.
+ * History, so any change can be read and put back, and Put back to undo
+ * a run in one tap (#154 step 1). Above it, the nightly run's
+ * suggestions (#35), to accept or dismiss.
  */
 @Component({
   selector: 'app-activity',
-  imports: [RouterLink],
+  imports: [RouterLink, PutBack],
   template: `
     <main class="page">
       <a routerLink="/">Back</a>
@@ -167,6 +190,10 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
                 <span class="when">{{ when(run) }}</span>
                 <span class="agent">{{ run.agent }}:</span> {{ run.summary }}
               </p>
+              @let state = putBack()(run);
+              @if (state !== 'none') {
+                <app-put-back [run]="run" [done]="state === 'done'" />
+              }
               @if (run.notes.length) {
                 <ul class="touched" [attr.aria-label]="'Notes: ' + run.summary">
                   @for (n of run.notes; track n.id) {
@@ -240,6 +267,9 @@ export function toRun(id: string, data: Record<string, unknown>): RunRecord {
       font-weight: 600;
       margin-right: var(--space-1);
     }
+    app-put-back {
+      margin: 0 0 var(--space-1);
+    }
     .touched li {
       display: flex;
       flex-wrap: wrap;
@@ -261,6 +291,7 @@ export class Activity {
 
   protected readonly runs = signal<RunRecord[]>([]);
   protected readonly loaded = signal(false);
+  protected readonly putBack = computed(() => putBackState(this.runs()));
 
   constructor() {
     let stop: (() => void) | undefined;

@@ -100,6 +100,18 @@ describe('NoteBack (#112)', () => {
     expect(el.querySelector('a[href="/history?note=pots"]')).not.toBeNull();
   });
 
+  it('offers Put back on the runs that changed it (#154)', async () => {
+    const { el } = await render(noteRecord('pots', 'Pots'), [
+      run('putback-r1', 'Put back “Filed Lovers vase here”', ['pots']),
+      run('r1', 'Filed Lovers vase here', ['pots']),
+    ]);
+    const items = [...el.querySelectorAll('[aria-labelledby="claude-changes"] > li')];
+    expect(items).toHaveLength(2);
+    expect(items[0].querySelector('app-put-back button')?.textContent).toContain('Put back');
+    expect(items[1].querySelector('app-put-back button')).toBeNull();
+    expect(items[1].querySelector('app-put-back')?.textContent?.trim()).toBe('Put back');
+  });
+
   it('says who edited last from this device or another', async () => {
     const { el } = await render(
       { ...noteRecord('n1', 'x'), updatedAt: 1, updatedBy: 'user', deviceId: 'elsewhere' },

@@ -13,7 +13,8 @@ import { RUN_STALE_MS, madeLine, normalizeName, paths, templateParts } from '@mo
 import { RunsService, type RunView } from '../agent/runs.service';
 import { AuthService } from '../auth.service';
 import { KeysService } from '../keys/keys.service';
-import { ACTIVITY_API, toRun, type RunRecord } from '../claude/activity';
+import { ACTIVITY_API, putBackState, toRun, type RunRecord } from '../claude/activity';
+import { PutBack } from '../claude/put-back';
 import { FIREBASE } from '../firebase';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
@@ -41,7 +42,7 @@ function stamp(ms: number | undefined): string {
  */
 @Component({
   selector: 'app-note-back',
-  imports: [ConceptHeader, NoteLinks, RouterLink],
+  imports: [ConceptHeader, NoteLinks, PutBack, RouterLink],
   template: `
     <section class="back" aria-label="Back of the note">
       <h2 class="title">{{ note().title || 'Untitled' }}</h2>
@@ -197,6 +198,10 @@ function stamp(ms: number | undefined): string {
           @for (run of changes(); track run.id) {
             <li>
               <span class="when">{{ when(run) }}</span> {{ run.summary }}
+              @let state = putBack()(run);
+              @if (state !== 'none') {
+                <app-put-back [run]="run" [done]="state === 'done'" />
+              }
             </li>
           }
         </ul>
@@ -368,6 +373,8 @@ export class NoteBack {
   protected readonly changes = computed(() =>
     this.runs().filter((r) => r.notes.some((n) => n.id === this.note().id)),
   );
+  /** Put back (#154 step 1), judged against every run listed, not only this note's. */
+  protected readonly putBack = computed(() => putBackState(this.runs()));
 
   protected readonly madeAt = computed(() => stamp(this.note().createdAt));
   /** "Made 4 times, last Oct 2", from the meal plans' ticked dinners (#129). */

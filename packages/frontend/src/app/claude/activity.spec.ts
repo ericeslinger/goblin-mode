@@ -120,6 +120,64 @@ describe('Activity', () => {
     expect(runs[1].textContent).toContain('Water seeds');
   });
 
+  it('offers Put back on runs that touched notes, and marks one put back (#154)', async () => {
+    const { el, push } = await render();
+    await push([
+      {
+        id: 'putback-r2',
+        data: {
+          at: at(Date.parse('2026-10-07T04:00:00Z')),
+          tool: 'put_back',
+          summary: 'Put back “Merged 2 notes into one”',
+          notes: [{ id: 'm1', title: 'Kiln' }],
+          reminders: [],
+          agent: 'Mossgoblin',
+        },
+      },
+      {
+        id: 'r2',
+        data: {
+          at: at(Date.parse('2026-10-07T03:00:00Z')),
+          tool: 'merge_notes',
+          summary: 'Merged 2 notes into one',
+          notes: [{ id: 'm1', title: 'Kiln' }],
+          reminders: [],
+        },
+      },
+      {
+        id: 'r3',
+        data: {
+          at: at(Date.parse('2026-10-07T02:30:00Z')),
+          tool: 'refile',
+          summary: 'Filed a note as a person',
+          notes: [{ id: 'm1', title: 'Kiln' }],
+          reminders: [],
+        },
+      },
+      {
+        id: 'r1',
+        data: {
+          at: at(Date.parse('2026-10-07T02:00:00Z')),
+          tool: 'create_reminder',
+          summary: 'Made a reminder',
+          notes: [],
+          reminders: [{ id: 'x', title: 'Water seeds' }],
+        },
+      },
+    ]);
+    const runs = [...el.querySelectorAll('.runs > li')];
+    const putBack = (li: Element) => li.querySelector('app-put-back');
+    // The put back is a run too, by Mossgoblin, and can itself be put back.
+    expect(runs[0].textContent).toContain('Mossgoblin:');
+    expect(putBack(runs[0])?.querySelector('button')?.textContent).toContain('Put back');
+    // The merge it put back says so, with no button.
+    expect(putBack(runs[1])?.querySelector('button')).toBeNull();
+    expect(putBack(runs[1])?.textContent?.trim()).toBe('Put back');
+    // Filing and reminders are not History's to put back.
+    expect(putBack(runs[2])).toBeNull();
+    expect(putBack(runs[3])).toBeNull();
+  });
+
   it('stops listening when the owner signs out', async () => {
     const { api, auth, fixture } = await render();
     const stop = api.listen.mock.results[0].value as ReturnType<typeof vi.fn>;
