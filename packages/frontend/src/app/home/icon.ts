@@ -49,6 +49,7 @@ const PATHS = {
     'M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5',
   ],
   play: ['M8 5v14l11-7z'],
+  grip: ['M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01'],
 } as const;
 
 export type IconName = keyof typeof PATHS;
