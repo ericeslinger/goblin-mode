@@ -74,9 +74,10 @@ function runFacts(id: string, d: Record<string, unknown>): RunFacts {
     summary: String(d['summary'] ?? ''),
     device: tool === PUT_BACK_TOOL ? putBackDevice(id) : agentDevice(agentOf(d)),
     notes: Array.isArray(d['notes'])
-      ? d['notes'].map((t: { id?: unknown; title?: unknown }) => ({
+      ? d['notes'].map((t: { id?: unknown; title?: unknown; made?: unknown }) => ({
           id: String(t.id ?? ''),
           title: String(t.title ?? ''),
+          ...(t.made === true ? { made: true } : {}),
         }))
       : [],
   };
@@ -92,7 +93,6 @@ function noteFacts(snap: DocumentSnapshot): NoteFacts | undefined {
     ...(typeof d['titleSource'] === 'string' ? { titleSource: d['titleSource'] } : {}),
     archived: d['archived'] === true,
     ...(typeof d['mergedInto'] === 'string' ? { mergedInto: d['mergedInto'] } : {}),
-    createdAt: millis(d['createdAt']),
     updatedAt: millis(d['updatedAt']),
     deviceId: String(d['deviceId'] ?? ''),
     ...(typeof d['baseHash'] === 'string' && d['baseHash'] ? { baseHash: d['baseHash'] } : {}),

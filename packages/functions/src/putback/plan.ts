@@ -19,7 +19,8 @@ export interface RunFacts {
   summary: string;
   /** The deviceId the run's note writes carry. */
   device: string;
-  notes: { id: string; title: string }[];
+  /** `made`: the run made that note (#211); absent on older records. */
+  notes: { id: string; title: string; made?: boolean }[];
 }
 
 /** A note as it stands now. */
@@ -30,7 +31,6 @@ export interface NoteFacts {
   titleSource?: string;
   archived: boolean;
   mergedInto?: string;
-  createdAt?: number;
   updatedAt?: number;
   deviceId: string;
   /** `textHash` of the text its last body write replaced. */
@@ -46,21 +46,23 @@ export type Did =
 
 /**
  * What run `base` (an assistant's own run) did to each note it lists.
- * A merge lists the merged note first, then its originals; a note made
- * by the run was made at its time; archive_note and update_note say in
- * their summary whether they archived or restored. Everything else
- * changed text, if it wrote the note at all (a link's targets it only
- * names), which the plan checks against the note.
+ * A merge lists the merged note first, then its originals; the record
+ * marks a note the run made (`made`, #211, 2026-11-09), never a note's
+ * own times, which a note Eric made a moment before shares; archive_note
+ * and update_note say in their summary whether they archived or
+ * restored. Everything else changed text, if it wrote the note at all
+ * (a link's targets it only names), which the plan checks against the
+ * note. A record from before `made` reads a note it made as edited,
+ * with no text before it, so the plan leaves it alone.
  */
-export function didOf(base: RunFacts, notes: Map<string, NoteFacts>): Map<string, Did> {
+export function didOf(base: RunFacts): Map<string, Did> {
   const out = new Map<string, Did>();
   base.notes.forEach((t, i) => {
     if (base.tool === 'merge_notes') {
       out.set(t.id, i === 0 ? { kind: 'merged' } : { kind: 'original', into: base.notes[0].id });
       return;
     }
-    const created = notes.get(t.id)?.createdAt;
-    if (created !== undefined && created <= base.at && created >= base.at - RUN_SLACK_MS) {
+    if (t.made === true) {
       out.set(t.id, { kind: 'created' });
       return;
     }
@@ -123,7 +125,7 @@ export function planPutBack(args: {
   textBefore: Map<string, string>;
 }): Plan {
   const { run, base, depth, notes, textBefore } = args;
-  const did = didOf(base, notes);
+  const did = didOf(base);
   const redo = depth % 2 === 1;
   const writes: NoteWrite[] = [];
   const skipped: Skip[] = [];

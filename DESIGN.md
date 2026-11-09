@@ -2310,9 +2310,13 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   deleted; a merge's originals come back (without `mergedInto`) and
   the merged note is archived. What the run did is read from its
   record: the tool, the summary's "Archived a note" or "Restored a
-  note", a merge listing its merged note first, and a note made at the
-  run's time. Filing (`refile`) and `finish_queued` change fields
-  History does not keep, so they offer no Put back.
+  note", a merge listing its merged note first, and the record marking
+  each note the run made (`made` on its entry, #211, 2026-11-09).
+  Until then a note made at the run's time read as made, which caught
+  a note Eric made seconds before and archived it; a record from
+  before `made` leaves a note it made alone. Filing (`refile`) and
+  `finish_queued` change fields History does not keep, so they offer
+  no Put back.
 - **Only what the run left.** A note written since the run (Eric's
   edit, another run) is left alone and named in the put back's line;
   History still has the run's version. A note the run only named (a
@@ -2326,7 +2330,9 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   writes back the text the put back replaced). The derived id makes it
   idempotent: a second Put back of a run answers that it is already put
   back, and the list shows the run as put back without a stored flag.
-  No stored schema changed. 50 put backs a day (`usage`).
+  No stored schema changed, but for `made` on an activity entry
+  (optional, function-only; #211, 2026-11-09). 50 put backs a day
+  (`usage`).
 - **No MCP tool.** An assistant undoes its own work by doing it again
   with the tools it has; Put back is Eric's, in the app.
 

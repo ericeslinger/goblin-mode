@@ -339,6 +339,12 @@ export type ModuleSettings = z.infer<typeof ModuleSettings>;
 export const Touched = z.object({
   id: z.string().min(1),
   title: z.string(),
+  /**
+   * The run made this note, so putting it back archives it (#211,
+   * 2026-11-09). Absent on a note it only changed, and on every record
+   * from before.
+   */
+  made: z.boolean().optional(),
 });
 export type Touched = z.infer<typeof Touched>;
 

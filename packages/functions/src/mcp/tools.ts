@@ -161,6 +161,8 @@ const targetsOf = (body: string) => wikiLinkTargets(parseNote(body));
 const newId = () => autoId((bytes) => void randomFillSync(bytes));
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const touched = (id: string, d: Data): Touched => ({ id, title: String(d['title'] ?? '') });
+/** A note the run made, so putting the run back archives it (#211). */
+const touchedNew = (id: string, d: Data): Touched => ({ ...touched(id, d), made: true });
 
 /** A name that can sit inside `[[...]]` as it is. */
 const linkable = (name: string) => !/\[\[|\]\]|\||\n/.test(name) && name.trim() !== '';
@@ -582,7 +584,7 @@ export class NotesTools {
     const id = newId();
     const batch = this.db.batch();
     batch.set(this.notes().doc(id), data);
-    batch.set(...this.activity('create_note', 'Wrote a new note', [touched(id, data)]));
+    batch.set(...this.activity('create_note', 'Wrote a new note', [touchedNew(id, data)]));
     await batch.commit();
     return { id, title: data.title };
   }
@@ -663,7 +665,7 @@ export class NotesTools {
         ...this.activity(
           'create_concept',
           `Made ${data.title} a ${data.conceptType === 'other' ? 'concept' : data.conceptType}`,
-          [touched(id, data)],
+          [touchedNew(id, data)],
         ),
       );
     });
@@ -726,7 +728,7 @@ export class NotesTools {
     if (owner !== undefined) {
       batch.update(this.notes().doc(owner), { archived: true, mergedInto: id, ...this.stamp() });
     }
-    batch.set(...this.activity('create_recipe', `Made the recipe ${name}`, [touched(id, data)]));
+    batch.set(...this.activity('create_recipe', `Made the recipe ${name}`, [touchedNew(id, data)]));
     await batch.commit();
     return {
       id,
@@ -798,7 +800,7 @@ export class NotesTools {
     batch.set(this.notes().doc(id), data);
     batch.set(
       ...this.activity('import_recipe', `Asked to import a recipe from ${hostOf(url)}`, [
-        touched(id, data),
+        touchedNew(id, data),
       ]),
     );
     await batch.commit();
@@ -931,16 +933,20 @@ export class NotesTools {
   /**
    * The plan for the week starting `start`, made if missing (#129): its
    * slots from the configuration, the fish dinner linked to the "Fish of
-   * the week" placeholder recipe, which is made too if missing.
+   * the week" placeholder recipe, which is made too if missing. Says
+   * whether it made the plan.
    */
-  private async ensurePlan(start: string, config: KitchenConfig): Promise<string> {
+  private async ensurePlan(
+    start: string,
+    config: KitchenConfig,
+  ): Promise<{ id: string; made: boolean }> {
     const id = planId(start);
     const names = await this.names();
-    await this.db.runTransaction(async (tx) => {
+    const made = await this.db.runTransaction(async (tx) => {
       const ref = this.notes().doc(id);
       const fish = this.notes().doc(FISH_ID);
       const [plan, placeholder] = await Promise.all([tx.get(ref), tx.get(fish)]);
-      if (plan.exists) return;
+      if (plan.exists) return false;
       const now = Timestamp.fromMillis(this.now());
       const base = { links: [], tags: [], archived: false, createdAt: now, updatedAt: now };
       const by = this.by();
@@ -973,8 +979,9 @@ export class NotesTools {
           links: resolveLinks(targetsOf(body), names),
         }),
       );
+      return true;
     });
-    return id;
+    return { id, made };
   }
 
   /**
@@ -1021,20 +1028,25 @@ export class NotesTools {
         throw new ToolError(`no recipe named ${link}; make it with create_recipe or import_recipe`);
       }
     }
-    const id = await this.ensurePlan(start, config);
+    const { id, made } = await this.ensurePlan(start, config);
     const day = weekdayOf(args.date);
     const when = `${day} ${meal} (${shortDate(args.date)})`;
     let before: Slot | undefined;
     let others: Slot[] = [];
-    const result = await this.editBody(id, 'plan_meal', (body) => {
-      const slots = planSlots(body, start);
-      before = slots.find((s) => s.day === day && s.meal === meal);
-      // Dinners already made need nothing more from the shop.
-      others = slots.filter((s) => s !== before && !s.made);
-      const next = setSlot(body, start, day, meal, text);
-      if (next === body) return undefined;
-      return { body: next, summary: text ? `Planned ${when}: ${text}` : `Cleared ${when}` };
-    });
+    const result = await this.editBody(
+      id,
+      'plan_meal',
+      (body) => {
+        const slots = planSlots(body, start);
+        before = slots.find((s) => s.day === day && s.meal === meal);
+        // Dinners already made need nothing more from the shop.
+        others = slots.filter((s) => s !== before && !s.made);
+        const next = setSlot(body, start, day, meal, text);
+        if (next === body) return undefined;
+        return { body: next, summary: text ? `Planned ${when}: ${text}` : `Cleared ${when}` };
+      },
+      { made },
+    );
     const after = planSlots(`- [ ] ${day} ${meal}: ${text}`, start)[0];
     const grocery = result.changed
       ? await this.replanGrocery(config, before, after, mealLabel(day, meal), others)
@@ -1392,7 +1404,7 @@ export class NotesTools {
       tx.set(
         ...this.activity('split_note', `Split a note into ${cuts.length}`, [
           touched(args.id, { ...current, ...update }),
-          ...pieces.map((p) => touched(p.id, p.data)),
+          ...pieces.map((p) => touchedNew(p.id, p.data)),
         ]),
       );
       return {
@@ -1465,7 +1477,7 @@ export class NotesTools {
       }
       tx.set(
         ...this.activity('merge_notes', `Merged ${plural(ids.length, 'note')} into one`, [
-          touched(id, merged),
+          touchedNew(id, merged),
           ...originals.map((o) => touched(o.id, o.data)),
         ]),
       );
@@ -1853,7 +1865,7 @@ export class NotesTools {
     batch.set(this.notes().doc(id), data);
     batch.set(
       ...this.activity('use_template', `Started a note from ${about.title || 'a template'}`, [
-        touched(id, data),
+        touchedNew(id, data),
       ]),
     );
     await batch.commit();
@@ -1874,8 +1886,11 @@ export class NotesTools {
     id: string,
     tool: string,
     edit: (body: string, title: string) => { body: string; summary: string } | undefined,
-    /** Names known before the run, and writes that land with it (capture). */
-    opts: { names?: Map<string, string>; also?: (tx: Transaction) => void } = {},
+    /**
+     * Names known before the run, writes that land with it (capture),
+     * and whether the run made the note (a week's plan, the pantry).
+     */
+    opts: { names?: Map<string, string>; also?: (tx: Transaction) => void; made?: boolean } = {},
   ) {
     const ref = this.notes().doc(id);
     const names = opts.names ?? (await this.names());
@@ -1896,7 +1911,8 @@ export class NotesTools {
       Note.parse({ ...current, ...update });
       opts.also?.(tx);
       tx.update(ref, update);
-      tx.set(...this.activity(tool, result.summary, [touched(id, current)]));
+      const entry = opts.made ? touchedNew(id, current) : touched(id, current);
+      tx.set(...this.activity(tool, result.summary, [entry]));
       return { id, changed: true, body: result.body };
     });
   }
@@ -2009,7 +2025,7 @@ export class NotesTools {
           names,
           also: (tx) => {
             tx.set(this.notes().doc(id), data);
-            tx.set(...this.activity('capture', 'Wrote a new note', [touched(id, data)]));
+            tx.set(...this.activity('capture', 'Wrote a new note', [touchedNew(id, data)]));
           },
         },
       );
@@ -2355,7 +2371,7 @@ export class NotesTools {
     batch.update(ref, { noteId: id, updatedAt: now });
     batch.set(
       ...this.activity('clip_feed_item', `Filed “${data.title}” from the Reader`, [
-        touched(id, data),
+        touchedNew(id, data),
       ]),
     );
     await batch.commit();
@@ -2408,14 +2424,15 @@ export class NotesTools {
   /**
    * The pantry, made if missing (#131): its name and the store's
    * sections. An archived one is brought back, its text as it was.
+   * Says whether it made the pantry.
    */
-  private async ensurePantry(): Promise<void> {
-    await this.db.runTransaction(async (tx) => {
+  private async ensurePantry(): Promise<boolean> {
+    return this.db.runTransaction(async (tx) => {
       const ref = this.notes().doc(PANTRY_ID);
       const doc = await tx.get(ref);
       if (doc.exists) {
         if (doc.get('archived') === true) tx.update(ref, { archived: false, ...this.stamp() });
-        return;
+        return false;
       }
       const now = Timestamp.fromMillis(this.now());
       tx.set(
@@ -2433,6 +2450,7 @@ export class NotesTools {
           ...this.by(),
         }),
       );
+      return true;
     });
   }
 
@@ -2494,17 +2512,22 @@ export class NotesTools {
     if (!args.add?.length && !args.remove?.length && !args.always?.length) {
       throw new ToolError('say what to add, remove or mark always');
     }
-    await this.ensurePantry();
-    const result = await this.editBody(PANTRY_ID, 'update_pantry', (body) => {
-      const next = editPantry(body, args);
-      if (next === body) return undefined;
-      const parts = [
-        args.add?.length && `added ${args.add.map((a) => a.item).join(', ')}`,
-        args.remove?.length && `took off ${args.remove.join(', ')}`,
-        args.always?.length && `marked ${args.always.join(', ')} always`,
-      ].filter(Boolean);
-      return { body: next, summary: `On hand: ${parts.join('; ')}` };
-    });
+    const made = await this.ensurePantry();
+    const result = await this.editBody(
+      PANTRY_ID,
+      'update_pantry',
+      (body) => {
+        const next = editPantry(body, args);
+        if (next === body) return undefined;
+        const parts = [
+          args.add?.length && `added ${args.add.map((a) => a.item).join(', ')}`,
+          args.remove?.length && `took off ${args.remove.join(', ')}`,
+          args.always?.length && `marked ${args.always.join(', ')} always`,
+        ].filter(Boolean);
+        return { body: next, summary: `On hand: ${parts.join('; ')}` };
+      },
+      { made },
+    );
     return { changed: result.changed, ...(await this.getPantry()) };
   }
 

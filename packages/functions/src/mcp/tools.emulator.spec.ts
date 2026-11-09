@@ -275,7 +275,7 @@ describe('organizing tools', () => {
       expect.objectContaining({
         tool: 'create_note',
         summary: 'Wrote a new note',
-        notes: [{ id, title: 'Seed list' }],
+        notes: [{ id, title: 'Seed list', made: true }],
         reminders: [],
       }),
       expect.objectContaining({
@@ -354,6 +354,7 @@ describe('organizing tools', () => {
     const [run] = await runs();
     expect(run).toMatchObject({ tool: 'split_note', summary: 'Split a note into 2' });
     expect(run['notes'].map((n: { id: string }) => n.id)).toEqual(['a', pieces[0].id]);
+    expect(run['notes'].map((n: { made?: boolean }) => n.made)).toEqual([undefined, true]);
   });
 
   it('merges into a new note, archiving the originals; links to them follow', async () => {
