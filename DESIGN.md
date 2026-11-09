@@ -847,6 +847,42 @@ while off falls back to Home. The default is A new note, so nothing
 changed for Eric until he picks Home. A choice made on another device
 applies from the next cold open here.
 
+**Module tabs and the Reader's icons (#220, #221, steps 3 and 4 of
+#216, 2026-11-09).** Kitchen and the Reader each have a segmented bar
+of tabs under their header (`app-module-tabs`, a `nav` with a name,
+`aria-current` on the tab shown, counts in the mono font). Each tab is
+a link to its own URL, so Back steps between them and a tab can be
+linked. Kitchen's (`app-kitchen-tabs`): Meals (`/kitchen` and
+`/kitchen/<day>`, as before: the week's plan on its note page, the week
+header's actions unchanged), Shopping (`/kitchen/shopping`, the grocery
+list `GroceryService.listId()` finds, in List view, written through the
+persistent cache like the note page's, with "N to buy" on the tab, or
+Make the grocery list while there is none), Recipes
+(`/kitchen/recipes`, every recipe newest first, each with "Made N
+times, last <date>" from the plans' made history) and On hand
+(`/kitchen/pantry`, which opens the pantry note, made if missing). The
+note page draws the tabs over a week's plan, the pantry and a grocery
+list. The Reader's: All (`/reader`, which now opens on All; unread
+count), Saved (`/reader/f/saved`), Podcasts (`/reader/f/podcasts`,
+unread episodes, once a feed is one) and Folders (`/reader/folders`,
+the old front: Refresh, Continue listening and the folders). A
+folder's or a feed's shelf (`/reader/f/<folder>`, `/reader/s/<id>`)
+keeps Folders as the current tab, with a link back to Folders and the
+shelf's name. Manage feeds and Downloads stay screens of their own.
+
+The icon rule: a control drawn as an icon alone is a real button or
+link with a name (`aria-label`) and a 44 px target; words stay where
+there is room. The Reader's header has Search articles (which opens
+the search under the tabs), Downloads (with a `--second` dot while
+anything is downloaded) and Manage feeds as icons; Mark all read keeps
+its word beside a check, Undo stays a word. The article's header is
+the shelf's name as the way back, then Download or Remove download for
+an episode (one icon, its name saying which), Save for later (a toggle,
+`aria-pressed` when saved, in place of Unsave), File in the garden (or
+In the garden once filed) and Open the page; Previous article and Next
+article are icons either side of "N of M", and the swipe stays. Manage
+feeds, Downloads and the mini player keep their words.
+
 **Modules (#126, Eric, 2026-10-18; epic #125).** Parts of Mossgoblin
 are modules, switched on per user in Settings, Modules: the code ships
 with the app, and which are on (and, later, each one's configuration)

@@ -32,6 +32,7 @@ import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteBack } from '../back/note-back';
 import { GroceryService } from '../kitchen/grocery.service';
+import { type KitchenTab, KitchenTabs } from '../kitchen/kitchen-tabs';
 import { HomeLink } from '../home/home-link';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
@@ -80,6 +81,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
     RecipeHeader,
     ClippingHeader,
     MealPlanHeader,
+    KitchenTabs,
     NoteList,
     RightNowPanel,
     ListView,
@@ -169,6 +171,14 @@ export class Launch {
    * linked to it) and the unticked boxes on its page.
    */
   protected readonly modules = inject(ModulesService);
+  /** Kitchen's tabs (#220) over a week's plan, the pantry and the grocery list. */
+  protected readonly kitchenTab = computed<KitchenTab | undefined>(() => {
+    const note = this.record();
+    if (!note || !this.modules.kitchen()) return undefined;
+    if (note.kind === 'mealplan') return 'meals';
+    if (note.kind === 'pantry') return 'pantry';
+    return this.grocery.isList(note) ? 'shopping' : undefined;
+  });
   protected readonly projects = computed(() => {
     // Off, Projects shows nowhere (#126).
     if (!this.modules.projects()) return [];

@@ -15,7 +15,10 @@ import { OWNER } from '../src/personas';
 // across every article and its index (#175), and last, feed discovery
 // from a site's address (#174), and a folder named for a special
 // shelf, renamed (#185). Feedly's full export, its saves and boards,
-// has a journey of its own (#176).
+// has a journey of its own (#176). Since #220 the Reader opens on All
+// under its tabs (All, Saved, Podcasts, Folders); Refresh and the
+// folders are the Folders tab; Search, Downloads and Manage feeds are
+// the header's icons, and the article's controls are icons too (#221).
 
 const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="1.0">
@@ -46,6 +49,9 @@ const swipe = async (page: Page, text: string, dx: number) => {
   await page.mouse.move(x + dx, y, { steps: 4 });
   await page.mouse.up();
 };
+
+/** The Reader's tabs (#220). */
+const readerTabs = (page: Page) => page.getByRole('navigation', { name: 'Reader screens' });
 
 const axe = async (page: Page) => {
   const { violations } = await new AxeBuilder({ page })
@@ -114,24 +120,30 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
   await letItSave(page);
 
-  // Step 2: Refresh from the front; the fixtures answer, the rest cannot be reached.
+  // Step 2: Refresh from the Folders tab; the fixtures answer, the rest cannot be reached.
   await page.getByRole('link', { name: 'Back' }).click();
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
+  const tabs = readerTabs(page);
+  await expect(tabs.getByRole('link', { name: /^All/ })).toHaveAttribute('aria-current', 'page');
+  await tabs.getByRole('link', { name: 'Folders' }).click();
+  await expect(page).toHaveURL(/\/reader\/folders$/);
+  await expect(tabs.getByRole('link', { name: 'Folders' })).toHaveAttribute('aria-current', 'page');
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText(
     'Looked at 5 feeds: 7 new articles, 2 could not be read.',
     { timeout: 30_000 },
   );
   const nav = page.getByRole('navigation', { name: 'Folders' });
-  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('7 unread');
+  await expect(tabs.getByRole('link', { name: /^All/ })).toContainText('7 unread');
   await expect(nav.getByRole('link', { name: /^Design/ })).toContainText('3 unread');
   await expect(nav.getByRole('link', { name: /^Games/ })).toContainText('2 unread');
   await expect(nav.getByRole('link', { name: /^Apple/ })).not.toContainText('unread');
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText('Refreshed a moment ago');
 
-  // Search across every article (#175), from the front: the server's
-  // word index, which the fetcher wrote; "chairs" finds the chairs.
+  // Search across every article (#175), from the header's icon (#221):
+  // the server's word index, which the fetcher wrote; "chairs" finds the chairs.
+  await page.getByRole('button', { name: 'Search articles' }).click();
   const searchBox = page.getByRole('searchbox', { name: 'Search articles' });
   await searchBox.fill('chairs');
   await searchBox.press('Enter');
@@ -187,13 +199,14 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await onScroll.uncheck();
   await letItSave(page);
   await page.goto('/reader');
-  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('7 unread');
+  await expect(tabs.getByRole('link', { name: /^All/ })).toContainText('7 unread');
 
-  // Podcasts (#178): the shelf after Saved, episodes with their length; the feed marked.
-  const podcasts = nav.getByRole('link', { name: /^Podcasts/ });
+  // Podcasts (#178): the tab after Saved, episodes with their length; the feed marked.
+  const podcasts = tabs.getByRole('link', { name: /^Podcasts/ });
   await expect(podcasts).toContainText('2 unread');
   await podcasts.click();
-  await expect(page.getByRole('heading', { name: 'Podcasts', level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(/\/reader\/f\/podcasts$/);
+  await expect(podcasts).toHaveAttribute('aria-current', 'page');
   const episodes = page.getByRole('list', { name: 'Articles' }).getByRole('listitem');
   await expect(episodes).toHaveCount(2);
   await expect(episodes.first()).toContainText('Reduction firing');
@@ -201,7 +214,6 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(episodes.nth(1)).toContainText('1 h 05 min');
   await expect(episodes.first().getByRole('img', { name: 'episode' })).toBeVisible();
   await axe(page);
-  await page.getByRole('link', { name: 'Back' }).click();
   await page.getByRole('link', { name: 'Manage feeds' }).click();
   await folders.locator('summary', { hasText: 'Listening' }).click();
   await expect(page.getByRole('list', { name: 'Feeds in Listening' })).toContainText(
@@ -221,18 +233,24 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
     '2 new in Listening',
   ]);
   await fresh.getByRole('link', { name: /new in Design/ }).click();
-  await expect(page.getByRole('heading', { name: 'Design', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Design', level: 2 })).toBeVisible();
   await expect(articles.getByRole('listitem')).toHaveCount(3);
   await letItSave(page);
   await page.goto('/right-now');
   await expect(fresh.getByRole('link')).toHaveText(['2 new in Games', '2 new in Listening']);
   await expect(page.getByRole('link', { name: /new in Design/ })).toHaveCount(0);
-  await page.goto('/reader');
+  await page.goto('/reader/folders');
   await expect(nav.getByRole('link', { name: /^Design/ })).toContainText('3 unread');
 
-  // Step 3: the list, a swipe, the article, next by key, Show read.
+  // Step 3: the list, a swipe, the article, next by key, Show read. A
+  // folder's shelf is under the Folders tab, with a way back to them (#220).
   await nav.getByRole('link', { name: /^Design/ }).click();
-  await expect(page.getByRole('heading', { name: 'Design', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Design', level: 2 })).toBeVisible();
+  await expect(tabs.getByRole('link', { name: 'Folders' })).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByRole('link', { name: 'Folders', exact: true }).last()).toHaveAttribute(
+    'href',
+    '/reader/folders',
+  );
   await expect(articles.getByRole('listitem')).toHaveCount(3);
   await expect(articles.getByRole('listitem').first()).toContainText('Three chairs');
   await expect(articles.getByRole('listitem').first()).toContainText('Design notes ·');
@@ -253,6 +271,8 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
     'https://design.invalid/three-chairs',
   );
   await expect(page.getByRole('button', { name: 'Keep unread' })).toBeVisible();
+  // The header's way back is the shelf, by name (#221).
+  await expect(page.getByRole('link', { name: 'Design', exact: true })).toBeVisible();
   await axe(page);
 
   // Step 4: reader mode fetches the page's article; File in the garden makes a clipping.
@@ -283,7 +303,8 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   const pageSwipe = async (dx: number) => {
     const box = (await page.locator('main').boundingBox())!;
     const x = box.x + box.width / 2;
-    const y = box.y + 60;
+    // Below the header's links and icons (#221), which a drag would pick up.
+    const y = box.y + 80;
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.move(x + dx / 2, y, { steps: 4 });
@@ -294,8 +315,11 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('heading', { name: 'Three chairs', level: 1 })).toBeVisible();
   await pageSwipe(-140);
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
-  await page.getByRole('button', { name: 'Save for later' }).click();
-  await expect(page.getByRole('button', { name: 'Unsave' })).toBeVisible();
+  // Save for later is a toggle (#221): one name, its state pressed.
+  const saveForLater = page.getByRole('button', { name: 'Save for later' });
+  await expect(saveForLater).toHaveAttribute('aria-pressed', 'false');
+  await saveForLater.click();
+  await expect(saveForLater).toHaveAttribute('aria-pressed', 'true');
   // Past the shelf's last article, the caught-up page (Eric, 2026-11-07);
   // a swipe right goes back to that article, Back to the list.
   const caughtUp = page.getByRole('heading', { name: 'You are all caught up', level: 1 });
@@ -324,7 +348,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await page.keyboard.press('j');
   await expect(caughtUp).toBeVisible();
   await page.getByRole('link', { name: 'Back' }).click();
-  await expect(page.getByRole('heading', { name: 'Design', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Design', level: 2 })).toBeVisible();
   await expect(page.getByText('All caught up.')).toBeVisible();
   await page.getByRole('checkbox', { name: 'Show read' }).check();
   await expect(articles.getByRole('listitem')).toHaveCount(3);
@@ -336,8 +360,10 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('list', { name: 'Reading queue' })).toContainText(
     'https://design.invalid/celadon',
   );
-  await page.goto('/reader/f/saved');
-  await expect(page.getByRole('heading', { name: 'Saved', level: 1 })).toBeVisible();
+  await page.goto('/reader');
+  await tabs.getByRole('link', { name: 'Saved' }).click();
+  await expect(page).toHaveURL(/\/reader\/f\/saved$/);
+  await expect(tabs.getByRole('link', { name: 'Saved' })).toHaveAttribute('aria-current', 'page');
   // Saved keeps what is saved, read or not.
   await expect(articles.getByRole('listitem')).toHaveCount(1);
   await expect(articles.getByRole('listitem').first()).toContainText('Celadon glazes');
@@ -601,14 +627,14 @@ test('import Feedly’s full export: the feeds, the saves, boards as tags', asyn
   );
 
   // Refresh looks at the OPML's four feeds, not the Feedly saves; the saves move no unread count.
-  await page.goto('/reader');
+  await page.goto('/reader/folders');
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText(
     'Looked at 4 feeds: 5 new articles, 2 could not be read.',
     { timeout: 30_000 },
   );
   const nav = page.getByRole('navigation', { name: 'Folders' });
-  await expect(nav.getByRole('link', { name: /^All/ })).toContainText('5 unread');
+  await expect(readerTabs(page).getByRole('link', { name: /^All/ })).toContainText('5 unread');
   await expect(nav.getByRole('link', { name: /^Design/ })).toContainText('3 unread');
 
   // The assistant finds a board's articles by its tag, labelled as web content.
@@ -736,10 +762,10 @@ test('play an episode, keep the place across a reload and on another device', as
   await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
   await letItSave(page);
   await page.getByRole('link', { name: 'Back' }).click();
+  await readerTabs(page).getByRole('link', { name: 'Folders' }).click();
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText('2 new articles', { timeout: 30_000 });
-  const nav = page.getByRole('navigation', { name: 'Folders' });
-  const podcasts = nav.getByRole('link', { name: /^Podcasts/ });
+  const podcasts = readerTabs(page).getByRole('link', { name: /^Podcasts/ });
   await expect(podcasts).toContainText('2 unread');
   await expect(page.getByRole('list', { name: 'Continue listening' })).toHaveCount(0);
 
@@ -772,7 +798,7 @@ test('play an episode, keep the place across a reload and on another device', as
   await page.reload();
   await expect(slider).toHaveAttribute('aria-valuetext', `${kept} of 42:10`);
   await expect(player.getByRole('button', { name: 'Play' })).toBeVisible();
-  await page.goto('/reader');
+  await page.goto('/reader/folders');
   const bar = page.getByRole('complementary', { name: 'Now playing' });
   await expect(bar).toContainText('Reduction firing');
   await expect(bar).toContainText(`${kept} / 42:10`);
@@ -788,7 +814,7 @@ test('play an episode, keep the place across a reload and on another device', as
   await prepPage(second);
   await serveEpisodes(second);
   await signInAs(second, OWNER, { reset: false });
-  await second.goto('/reader');
+  await second.goto('/reader/folders');
   const elsewhere = second.getByRole('list', { name: 'Continue listening' });
   await expect(elsewhere).toContainText('Reduction firing');
   await expect(elsewhere).toContainText(`${kept} of 42:10`);
@@ -840,30 +866,33 @@ test('download an episode, play it offline, remove it', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
   await letItSave(page);
   await page.getByRole('link', { name: 'Back' }).click();
+  await readerTabs(page).getByRole('link', { name: 'Folders' }).click();
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByRole('status')).toContainText('2 new articles', { timeout: 30_000 });
   // Nothing downloaded and no podcast keeping any: no Downloads link yet.
   await expect(page.getByRole('link', { name: 'Downloads' })).toHaveCount(0);
 
   // Download from the episode's page: through the proxy, with the ID token.
-  const nav = page.getByRole('navigation', { name: 'Folders' });
-  await nav.getByRole('link', { name: /^Podcasts/ }).click();
+  await readerTabs(page)
+    .getByRole('link', { name: /^Podcasts/ })
+    .click();
   await page
     .getByRole('list', { name: 'Articles' })
     .getByRole('link', { name: /Reduction firing/ })
     .click();
   await expect(page.getByRole('heading', { name: 'Reduction firing', level: 1 })).toBeVisible();
   const player = page.getByRole('region', { name: 'Player' });
-  await player.getByRole('button', { name: 'Download' }).click();
+  // Download is the header's icon (#221); downloaded, the same place offers Remove download.
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
   await expect(player).toContainText('Downloaded, 47 KB', { timeout: 15_000 });
   await expect(page.locator('article header .meta')).toContainText('Downloaded ·');
   expect(asked).toHaveLength(1);
   expect(asked[0]).toMatch(/^Bearer \S+$/);
+  await expect(page.getByRole('button', { name: 'Remove download' })).toBeVisible();
   await axe(page);
 
-  // The Downloads list: its size, the total against the cap.
-  await page.getByRole('link', { name: 'Back' }).click();
-  await page.getByRole('link', { name: 'Back' }).click();
+  // The Downloads list, from the shelf's header icon: its size, the total against the cap.
+  await page.getByRole('link', { name: 'Podcasts', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
   await page.getByRole('link', { name: 'Downloads' }).click();
   await expect(page.getByRole('heading', { name: 'Downloads', level: 1 })).toBeVisible();

@@ -214,6 +214,11 @@
   font-size: 14px;
   color: var(--quiet);
 }
+/* Kitchen's tabs (#220), over a week's plan, the pantry and the list. */
+.kitchen-tabs {
+  flex: none;
+  padding: var(--space-2) var(--space-3) 0;
+}
 /* A project with many items scrolls in its own box and leaves the note
    at least half the room (2026-10-17). */
 .concept-header {

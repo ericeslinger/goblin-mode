@@ -259,6 +259,45 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await expect(
     plan.getByRole('button', { name: 'Change Wed dinner, Oct 28: [[Dal]]' }),
   ).toBeVisible();
+
+  // Kitchen's tabs (#220): the week is Meals; Shopping is the week's
+  // list to shop from, with what is left to buy on its tab; Recipes is
+  // the recipe book, each with how often it was made; On hand opens the
+  // pantry. Each is a URL of its own.
+  const tabs = page.getByRole('navigation', { name: 'Kitchen screens' });
+  await expect(tabs.getByRole('link', { name: 'Meals' })).toHaveAttribute('aria-current', 'page');
+  await tabs.getByRole('link', { name: /^Shopping/ }).click();
+  await expect(page).toHaveURL(/\/kitchen\/shopping$/);
+  const shopping = tabs.getByRole('link', { name: /^Shopping/ });
+  await expect(shopping).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Kitchen', level: 1 })).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'List' }).getByRole('checkbox', { name: '2 onions, sliced' }),
+  ).toBeVisible();
+  await expect(shopping).toContainText(/\d+ to buy/);
+  const { violations: onShopping } = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  expect(
+    onShopping
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => `${v.id}: ${v.help}`),
+  ).toEqual([]);
+  await tabs.getByRole('link', { name: 'Recipes' }).click();
+  await expect(page).toHaveURL(/\/kitchen\/recipes$/);
+  const book = page.getByRole('list', { name: 'Recipes' });
+  await expect(book.getByRole('link', { name: /Dal/ })).toContainText('Made once, last Oct 20');
+  await expect(book.getByRole('link', { name: /Shakshuka/ })).toContainText('Not made yet');
+  // Newest first: Dal was written after Shakshuka.
+  await expect(book.getByRole('link')).toHaveText([/^Dal/, /^Shakshuka/]);
+  await tabs.getByRole('link', { name: 'On hand' }).click();
+  await expect(page).toHaveURL(/\/n\/pantry$/);
+  await expect(tabs.getByRole('link', { name: 'On hand' })).toHaveAttribute('aria-current', 'page');
+  // Back steps through the tabs.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/kitchen\/recipes$/);
+  await book.getByRole('link', { name: /Dal/ }).click();
+  await expect(page.getByRole('textbox', { name: 'New note' })).toContainText('lentils');
 });
 
 // Any note can be archived from its back, and restored (#207): nothing
