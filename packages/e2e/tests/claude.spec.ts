@@ -101,7 +101,9 @@ test('Claude connects with OAuth, writes a note through MCP, and can be disconne
   await page.goto('/browse');
   await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Filed by Claude');
 
-  await page.getByRole('link', { name: 'Back' }).click();
+  // Home (#219), then its box, back to the editor.
+  await page.getByRole('link', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Plant a thought' }).click();
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByText(/\/mcp$/)).toBeVisible();
   await page.getByRole('button', { name: 'Disconnect all assistants' }).click();

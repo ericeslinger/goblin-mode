@@ -1,5 +1,4 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { SECTIONS } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { ReaderNew } from '../reader/reader-new';
@@ -8,6 +7,7 @@ import { AddReminder } from './add-reminder';
 import { ReminderRow } from './reminder-row';
 import { RemindersService } from './reminders.service';
 import { UndoBar } from './undo-bar';
+import { HomeLink } from '../home/home-link';
 
 /**
  * Right Now, full screen: what is new in the Reader (#173), every open
@@ -15,14 +15,14 @@ import { UndoBar } from './undo-bar';
  */
 @Component({
   selector: 'app-right-now',
-  imports: [RouterLink, AddReminder, ReaderNew, ReminderRow, SignIn, UndoBar],
+  imports: [HomeLink, AddReminder, ReaderNew, ReminderRow, SignIn, UndoBar],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
     } @else {
       <main class="page">
         <div class="top">
-          <a routerLink="/">Back</a>
+          <app-home-link />
           @if (!adding()) {
             <button
               type="button"

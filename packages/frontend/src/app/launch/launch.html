@@ -3,6 +3,8 @@
 } @else {
   <div class="launch">
     <header class="bar">
+      <!-- Home (#219): the leaf, at the left of every screen's top. -->
+      <app-home-link />
       <button type="button" class="link" (click)="newNote()">New</button>
       @if (templates.templates().length > 0) {
         <button

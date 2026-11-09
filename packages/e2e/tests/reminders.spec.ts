@@ -36,7 +36,9 @@ test('add a reminder, see it in Right Now, then done and undo', async ({ page })
   await expect(section(page, 'Overdue')).toContainText('Call the bank');
   await expect(section(page, 'Someday')).toContainText('Learn the banjo');
 
-  await page.getByRole('link', { name: 'Back' }).click();
+  // Home (#219), then its box, back to the editor.
+  await page.getByRole('link', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Plant a thought' }).click();
   await expect(rightNow(page)).toContainText('Call the bank');
   await expect(rightNow(page)).not.toContainText('Learn the banjo');
 
@@ -105,7 +107,9 @@ test('wide screens put Right Now above all notes', async ({ page }) => {
   await signInAs(page, OWNER);
   await page.goto('/right-now');
   await addReminder(page, 'Buy stamps', { inMinutes: -1 });
-  await page.getByRole('link', { name: 'Back' }).click();
+  // Home (#219), then its box, back to the editor.
+  await page.getByRole('link', { name: 'Home' }).click();
+  await page.getByRole('link', { name: 'Plant a thought' }).click();
   await page.setViewportSize({ width: 1200, height: 800 });
   const panel = (await rightNow(page).boundingBox())!;
   const list = (await page.getByRole('complementary', { name: 'All notes' }).boundingBox())!;

@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { type ReadingItem, ReadingService } from './reading.service';
+import { HomeLink } from '../home/home-link';
 
 /**
  * The reading queue (#48): PDFs and links saved to read later, newest
@@ -10,10 +11,10 @@ import { type ReadingItem, ReadingService } from './reading.service';
  */
 @Component({
   selector: 'app-reading',
-  imports: [RouterLink],
+  imports: [HomeLink, RouterLink],
   template: `
     <main class="page">
-      <a routerLink="/browse">Back</a>
+      <app-home-link />
       <h1>Reading queue</h1>
       <form novalidate (submit)="save($event, link)">
         <label>

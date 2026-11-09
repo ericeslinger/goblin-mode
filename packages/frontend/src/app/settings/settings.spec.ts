@@ -10,6 +10,7 @@ import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { type PushState, PushService } from '../push/push.service';
 import { type ReminderRecord, RemindersService } from '../reminders/reminders.service';
 import { KeysService } from '../keys/keys.service';
+import { START_ON_KEY, StartOnService } from '../home/start-on';
 import { Settings } from './settings';
 
 function fakePush(state: PushState = 'off') {
@@ -264,5 +265,21 @@ describe('Settings', () => {
     const el = await render(auth);
     button(el, 'Check for updates')!.click();
     await vi.waitFor(() => expect(el.textContent).toContain('Updates are not managed here'));
+  });
+
+  it('chooses the screen to start on, a new note until then (#219)', async () => {
+    localStorage.removeItem(START_ON_KEY);
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const el = await render(auth);
+    const radio = (value: string) =>
+      el.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)!;
+    expect(el.querySelectorAll('[role="radiogroup"] input[type="radio"]')).toHaveLength(5);
+    expect(radio('note').checked).toBe(true);
+    expect(el.textContent).toContain('Kitchen is off, so this opens Home');
+    radio('home').click();
+    expect(TestBed.inject(StartOnService).choice()).toBe('home');
+    expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toMatchObject({ choice: 'home' });
+    localStorage.removeItem(START_ON_KEY);
   });
 });

@@ -9,6 +9,7 @@ import { ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
 import { LENSES, inLens, lensId } from './lenses';
 import { NoteList } from './note-list';
+import { HomeLink } from '../home/home-link';
 
 /**
  * All notes and search, on its own screen (the phone), through lenses:
@@ -17,10 +18,10 @@ import { NoteList } from './note-list';
  */
 @Component({
   selector: 'app-browse',
-  imports: [RouterLink, NoteList],
+  imports: [HomeLink, RouterLink, NoteList],
   template: `
     <main class="page">
-      <a routerLink="/">Back</a>
+      <app-home-link />
       <h1>Notes</h1>
       <p class="more">
         <a routerLink="/map">See the whole garden as a map</a>

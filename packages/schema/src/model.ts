@@ -311,10 +311,19 @@ export type ThemeId = z.infer<typeof ThemeId>;
 export const ThemeMode = z.enum(['system', 'light', 'dark']);
 export type ThemeMode = z.infer<typeof ThemeMode>;
 
+/**
+ * The screen a cold open of `/` lands on (#219, 2026-11-09): Home, a
+ * new note (as before, the default), Right Now, Kitchen or the Reader.
+ */
+export const StartOn = z.enum(['home', 'note', 'right-now', 'kitchen', 'reader']);
+export type StartOn = z.infer<typeof StartOn>;
+
 /** The gardener's settings, one doc (`settings/app`), shared by devices. */
 export const Settings = z.object({
   theme: ThemeId,
   mode: ThemeMode,
+  /** Absent until chosen, and on every doc from before #219: a new note. */
+  startOn: StartOn.optional(),
   updatedAt: Timestamp,
 });
 export type Settings = z.infer<typeof Settings>;

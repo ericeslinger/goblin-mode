@@ -299,6 +299,9 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     const ref = owner().doc('users/owner/settings/app');
     await assertFails(ref.set({ ...settings(), theme: 'neon' }));
     await assertFails(ref.set({ ...settings(), mode: 'auto' }));
+    // Start on (#219): one of the five screens, or absent.
+    await assertSucceeds(ref.set({ ...settings(), startOn: 'home' }));
+    await assertFails(ref.set({ ...settings(), startOn: 'garden' }));
     await assertSucceeds(
       ref.set({ ...settings(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }),
     );

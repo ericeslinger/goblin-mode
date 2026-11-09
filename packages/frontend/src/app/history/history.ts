@@ -8,13 +8,14 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { type KeepReason, agentOf, paths } from '@mossgoblin/schema';
 import { type Firestore, collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { CaptureService } from '../capture/capture.service';
 import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
+import { HomeLink } from '../home/home-link';
 
 /** A kept version as History lists it; times in milliseconds. */
 export interface VersionRecord {
@@ -90,10 +91,10 @@ export function reasonLabel(v: VersionRecord): string {
  */
 @Component({
   selector: 'app-history',
-  imports: [RouterLink],
+  imports: [HomeLink],
   template: `
     <main class="page">
-      <a routerLink="/">Back</a>
+      <app-home-link />
       <h1>History</h1>
       @if (title()) {
         <p class="muted">{{ title() }}</p>

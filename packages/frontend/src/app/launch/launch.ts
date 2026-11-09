@@ -32,6 +32,7 @@ import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteBack } from '../back/note-back';
 import { GroceryService } from '../kitchen/grocery.service';
+import { HomeLink } from '../home/home-link';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { ClippingHeader } from '../reader/clipping-header';
@@ -72,6 +73,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
   selector: 'app-launch',
   imports: [
     RouterLink,
+    HomeLink,
     ConceptHeader,
     NoteEditorComponent,
     NoteBack,

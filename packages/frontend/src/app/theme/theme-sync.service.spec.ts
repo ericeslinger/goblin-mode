@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { START_ON_KEY, StartOnService } from '../home/start-on';
 import { FakeAuthService, fakeFirebase } from '../testing/fakes';
 import { SETTINGS_API, type SettingsApi, ThemeSync } from './theme-sync.service';
 import { PREFERS_DARK, THEME_KEY, ThemeService } from './theme.service';
@@ -39,12 +40,13 @@ function setup(stored?: unknown) {
   });
   TestBed.inject(ThemeSync);
   const theme = TestBed.inject(ThemeService);
+  const startOn = TestBed.inject(StartOnService);
   TestBed.tick();
   const signIn = (uid = 'u1') => {
     auth.user.set({ uid, email: 'eric@example.com' } as User);
     TestBed.tick();
   };
-  return { api, auth, theme, signIn };
+  return { api, auth, theme, startOn, signIn };
 }
 
 describe('ThemeSync', () => {
@@ -171,5 +173,61 @@ describe('ThemeSync', () => {
     auth.user.set(null);
     TestBed.tick();
     expect(api.stop).toHaveBeenCalled();
+  });
+
+  it('carries Start on in the same doc, both ways (#219)', () => {
+    const { api, theme, startOn, signIn } = setup();
+    signIn();
+    api.push({ theme: 'moss', mode: 'light', startOn: 'home', updatedAt: 'x' });
+    TestBed.tick();
+    expect(startOn.choice()).toBe('home');
+    expect(api.set).not.toHaveBeenCalled();
+
+    startOn.set('right-now');
+    TestBed.tick();
+    expect(api.set).toHaveBeenLastCalledWith(expect.anything(), 'users/u1/settings/app', {
+      theme: 'moss',
+      mode: 'light',
+      startOn: 'right-now',
+      updatedAt: 'SERVER_TIME',
+    });
+    // A theme chosen later keeps it in the doc, which is written whole.
+    theme.set('night', 'dark');
+    TestBed.tick();
+    expect(api.set).toHaveBeenLastCalledWith(expect.anything(), 'users/u1/settings/app', {
+      theme: 'night',
+      mode: 'dark',
+      startOn: 'right-now',
+      updatedAt: 'SERVER_TIME',
+    });
+  });
+
+  it('keeps this device’s Start on when the doc has none', () => {
+    const { api, startOn, signIn } = setup();
+    startOn.set('home');
+    signIn();
+    api.push({ theme: 'moss', mode: 'light', updatedAt: 'x' });
+    TestBed.tick();
+    expect(startOn.choice()).toBe('home');
+  });
+
+  it('writes a Start on chosen while sign-in is restoring, over the older doc', () => {
+    const { api, auth, startOn, signIn } = setup();
+    auth.user.set(undefined);
+    TestBed.tick();
+    startOn.set('note');
+    TestBed.tick();
+    expect(api.set).not.toHaveBeenCalled();
+    signIn();
+    api.push({ theme: 'herbarium', mode: 'system', startOn: 'home', updatedAt: 'x' }, true);
+    TestBed.tick();
+    expect(startOn.choice()).toBe('note');
+    expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toMatchObject({ choice: 'note' });
+    expect(api.set).toHaveBeenLastCalledWith(expect.anything(), 'users/u1/settings/app', {
+      theme: 'herbarium',
+      mode: 'system',
+      startOn: 'note',
+      updatedAt: 'SERVER_TIME',
+    });
   });
 });
