@@ -1210,9 +1210,23 @@ describe('the meal plan (#129)', () => {
     );
     // The same week again, or an older one, leaves the list be.
     await t.planMeal({ date: '2026-11-03', slot: '[[Dal]]' });
+    // A dinner in an older week feeds no list (2026-11-09): nothing on,
+    // nothing recorded, and clearing it takes nothing off.
+    const listed = await body('shopping-2026-11-02');
+    const recorded = async () =>
+      (await db.doc('users/u1/settings/modules').get()).get('kitchen.config.wrote');
+    const wroteBefore = await recorded();
     const older = await t.planMeal({ date: '2026-10-19', slot: '[[Dal]]' });
-    expect(older.grocery.list).toBe('shopping-2026-11-02');
-    expect(await body('shopping-2026-11-02')).toMatchObject({ archived: false });
+    expect(older.grocery).toEqual({ list: 'shopping-2026-11-02', added: 0, removed: 0 });
+    expect(await body('shopping-2026-11-02')).toMatchObject({
+      archived: false,
+      body: listed['body'],
+    });
+    expect(await recorded()).toEqual(wroteBefore);
+    const unplanned = await t.planMeal({ date: '2026-10-19', slot: '' });
+    expect(unplanned.grocery).toEqual({ list: 'shopping-2026-11-02', added: 0, removed: 0 });
+    expect((await body('shopping-2026-11-02'))['body']).toBe(listed['body']);
+    expect(await recorded()).toEqual(wroteBefore);
   });
 
   it('keeps what is on hand: Claude edits it, a dinner made uses it up, plans skip it (#131)', async () => {

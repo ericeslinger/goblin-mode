@@ -305,6 +305,18 @@ export function listIsOlder(listStart: string | undefined, start: string): boole
   return !!listStart && listStart < start;
 }
 
+/**
+ * Whether a dinner planned into the week starting `start` feeds the list
+ * at all (#207, 2026-11-09): not when the list is for a newer week. That
+ * week's list is archived, and a dinner planned into the past is a
+ * record of what was eaten, not a thing to shop for: nothing goes on,
+ * nothing is recorded, nothing comes off. A list with no week (made
+ * before #207) is taken as the planned week's first, so it feeds.
+ */
+export function feedsList(listStart: string | undefined, start: string): boolean {
+  return !listStart || start >= listStart;
+}
+
 const MEAL_PLAN_HEADING = /^(#{1,6})[ \t]+Meal plan[ \t]*#*[ \t]*$/im;
 
 /**

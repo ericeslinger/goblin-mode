@@ -6,6 +6,7 @@ import {
   type PlannedDinner,
   addBought,
   checklist,
+  feedsList,
   isIsoDate,
   listIsOlder,
   listSources,
@@ -138,7 +139,9 @@ export class GroceryService {
    * old list's staples, and archives the old one, never deleting it; its
    * lines go on the new list. A list from before #207, with no week, is
    * taken as the planned week's instead. Clearing a slot, or planning
-   * the list's own week or an older one, leaves the list be.
+   * the list's own week, leaves the list be. A slot in a week older than
+   * the list's feeds no list (`feedsList`, 2026-11-09): nothing goes on,
+   * is recorded or comes off.
    */
   replan(
     start: string,
@@ -153,6 +156,7 @@ export class GroceryService {
     const from = this.dinner(before, label, start);
     const to = this.dinner(after, label, start);
     if (!from && !to) return { added: 0, removed: 0 };
+    if (!feedsList(current.periodStart, start)) return { added: 0, removed: 0 };
     let list: { id: string; body: string; start?: string } = {
       id: current.id,
       body: current.body,

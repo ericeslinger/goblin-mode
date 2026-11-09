@@ -984,9 +984,14 @@ week a new list, and the dinner's lines go there; the old list is
 archived, never deleted: it keeps its History and shows under Browse,
 Archived. Opening a week (Next week), reading one (`get_meal_plan`),
 clearing a slot, or planning the list's own week or an older one
-leaves the list be, and so does having no list. A list from before
-#207, with no `periodStart`, is not archived: on the first recipe
-planned it is taken as that week's list, its `periodStart` stamped.
+starts no new list, and nor does having no list. A dinner planned
+into a week older than the list's feeds no list at all (2026-11-09,
+review on #213): nothing goes on, nothing is recorded in `wrote`, and
+clearing it takes nothing off; that week's list is archived, and a
+dinner in the past is a record of what was eaten, not a thing to shop
+for (`feedsList`). A list from before #207, with no `periodStart`, is
+not archived: on the first recipe planned it is taken as that week's
+list, its `periodStart` stamped.
 The new list is made from the Shopping list template as before
 (`fromTemplate`, so List view and Done shopping work), its text the
 template's without the instructions or a Meal plan section, with the

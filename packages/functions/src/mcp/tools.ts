@@ -43,6 +43,7 @@ import {
   setSlot,
   shortDate,
   SHOPPING_LIST_NAME,
+  feedsList,
   listIsOlder,
   shoppingListBody,
   shoppingListId,
@@ -1195,7 +1196,7 @@ export class NotesTools {
    * dinner's go on and are recorded (`wrote`, #207), and where the list
    * files things is remembered in Kitchen's settings for next time. A
    * dinner planned into a week newer than the list's starts that week's
-   * list first (`weekList`, #207).
+   * list first (`weekList`, #207); one in an older week feeds no list.
    */
   private async replanGrocery(
     start: string,
@@ -1212,6 +1213,11 @@ export class NotesTools {
       ...others.map((s) => this.dinnerOf(s, mealLabel(s.day, s.meal), start)),
     ]);
     if (!current || (!from && !to)) return { list: current ?? null, added: 0, removed: 0 };
+    // A dinner in a week older than the list's feeds no list (#207, 2026-11-09).
+    const held = (await this.notes().doc(current).get()).get('periodStart');
+    if (!feedsList(typeof held === 'string' ? held : undefined, start)) {
+      return { list: current, added: 0, removed: 0 };
+    }
     const { id: list, start: listStart } = to
       ? await this.weekList(current, start)
       : { id: current, start: undefined };

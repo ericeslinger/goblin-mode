@@ -155,6 +155,27 @@ describe('GroceryService (#130)', () => {
     });
   });
 
+  it('feeds no list from a week older than the list’s (2026-11-09)', () => {
+    const later: NoteRecord = { ...list, periodStart: '2026-10-26' };
+    const { grocery, notes, modules } = setup([later, template, recipe]);
+    const wrote = { '2026-10-26/Mon/dinner': ['- [ ] rice'] };
+    modules.configureKitchen({ wrote });
+    modules.configureKitchen.mockClear();
+    expect(grocery.replan(W, slot(''), slot('[[Shakshuka]]'), 'Mon')).toEqual({
+      added: 0,
+      removed: 0,
+    });
+    expect(grocery.replan(W, slot('[[Shakshuka]]'), slot(''), 'Mon')).toEqual({
+      added: 0,
+      removed: 0,
+    });
+    expect(notes.save).not.toHaveBeenCalled();
+    expect(notes.create).not.toHaveBeenCalled();
+    expect(notes.setWeek).not.toHaveBeenCalled();
+    expect(modules.configureKitchen).not.toHaveBeenCalled();
+    expect(modules.config().wrote).toEqual(wrote);
+  });
+
   it('leaves things be with no list, and says which dinners want an item', () => {
     const { grocery, notes } = setup([template, recipe]);
     expect(grocery.replan(W, slot(''), slot('[[Shakshuka]]'), 'Mon')).toBeUndefined();

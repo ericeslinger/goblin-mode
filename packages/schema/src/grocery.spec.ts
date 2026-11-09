@@ -3,6 +3,7 @@ import {
   FROM_RECIPES,
   addDinner,
   dinnerLines,
+  feedsList,
   itemKey,
   listIsOlder,
   listSections,
@@ -236,6 +237,11 @@ describe('a list a week (#207)', () => {
     expect(listIsOlder('2026-10-26', '2026-10-19')).toBe(false);
     // A list from before #207 has no week: taken as the week's, not older.
     expect(listIsOlder(undefined, '2026-10-19')).toBe(false);
+    // A dinner in a week older than the list's feeds no list (2026-11-09).
+    expect(feedsList('2026-10-26', '2026-10-19')).toBe(false);
+    expect(feedsList('2026-10-26', '2026-10-26')).toBe(true);
+    expect(feedsList('2026-10-26', '2026-11-02')).toBe(true);
+    expect(feedsList(undefined, '2026-10-19')).toBe(true);
   });
 
   it('starts a list from the template, without its instructions or Meal plan, keeping staples', () => {
