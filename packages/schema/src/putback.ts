@@ -32,12 +32,15 @@ export function putBackDepth(runId: string): { base: string; depth: number } {
 }
 
 /**
- * Runs History cannot undo: filing (types, names, tags, stages) and a
- * sent note marked done change fields History does not keep, only text.
+ * Runs that change fields History does not keep, only text: filing
+ * (types, names, tags, stages) and a sent note marked done. Their
+ * records keep the values they replaced (`before` on each note, #206,
+ * 2026-11-09); a record from before that cannot be put back.
  */
-const NOT_PUT_BACK = new Set(['refile', 'finish_queued']);
+const KEEPS_BEFORE = new Set(['refile', 'finish_queued']);
 
-/** Whether a run can be offered Put back: it touched notes, in a way History can undo. */
-export function canPutBack(run: { tool: string; notes: readonly unknown[] }): boolean {
-  return run.notes.length > 0 && !NOT_PUT_BACK.has(run.tool);
+/** Whether a run can be offered Put back: it touched notes, in a way it can undo. */
+export function canPutBack(run: { tool: string; notes: readonly { before?: unknown }[] }): boolean {
+  if (run.notes.length === 0) return false;
+  return !KEEPS_BEFORE.has(run.tool) || run.notes.every((n) => n.before !== undefined);
 }

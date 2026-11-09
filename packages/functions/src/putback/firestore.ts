@@ -4,6 +4,7 @@
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   Activity,
+  type FieldBefore,
   GARDEN_AGENT,
   Note,
   PUT_BACK_TOOL,
@@ -74,11 +75,16 @@ function runFacts(id: string, d: Record<string, unknown>): RunFacts {
     summary: String(d['summary'] ?? ''),
     device: tool === PUT_BACK_TOOL ? putBackDevice(id) : agentDevice(agentOf(d)),
     notes: Array.isArray(d['notes'])
-      ? d['notes'].map((t: { id?: unknown; title?: unknown; made?: unknown }) => ({
-          id: String(t.id ?? ''),
-          title: String(t.title ?? ''),
-          ...(t.made === true ? { made: true } : {}),
-        }))
+      ? d['notes'].map(
+          (t: { id?: unknown; title?: unknown; made?: unknown; before?: unknown }) => ({
+            id: String(t.id ?? ''),
+            title: String(t.title ?? ''),
+            ...(t.made === true ? { made: true } : {}),
+            ...(t.before && typeof t.before === 'object'
+              ? { before: t.before as Record<string, FieldBefore> }
+              : {}),
+          }),
+        )
       : [],
   };
 }
@@ -96,16 +102,18 @@ function noteFacts(snap: DocumentSnapshot): NoteFacts | undefined {
     updatedAt: millis(d['updatedAt']),
     deviceId: String(d['deviceId'] ?? ''),
     ...(typeof d['baseHash'] === 'string' && d['baseHash'] ? { baseHash: d['baseHash'] } : {}),
+    fields: d,
   };
 }
 
 /**
  * Puts back activity run `runId` of gardener `uid`: the notes it wrote
  * go back to the text they had before it, notes it archived come back,
- * a merge's originals come back and the merged note is archived, and a
- * note it made is archived (never deleted). Recorded as a run of its
- * own, id `putBackId(runId)`, so it shows in What assistants changed
- * and can be put back in turn.
+ * a merge's originals come back and the merged note is archived, a
+ * note it made is archived (never deleted), and the fields a filing or
+ * a finished queue item changed get the values its record kept (#206).
+ * Recorded as a run of its own, id `putBackId(runId)`, so it shows in
+ * What assistants changed and can be put back in turn.
  */
 export async function putBack(
   db: Firestore,
@@ -160,7 +168,14 @@ export async function putBack(
     // the replaced texts first (every one, for two days), then History.
     const textBefore = new Map<string, string>();
     for (const t of run.notes) {
-      const hash = notes.get(t.id)?.baseHash;
+      // Filing keeps the hash of the text it rewrote in its record (#206);
+      // without one it wrote no text, whatever the note's baseHash says.
+      const recorded = t.before?.['body'];
+      const hash = t.before
+        ? typeof recorded === 'string'
+          ? recorded
+          : undefined
+        : notes.get(t.id)?.baseHash;
       if (!hash) continue;
       const replaced = await tx.get(db.doc(`${paths.replaced(uid, t.id)}/${hash}`));
       const body = replaced.get('body');
@@ -212,8 +227,17 @@ export async function putBack(
       const next = { ...current, ...update };
       if (w.mergedInto === null) delete next['mergedInto'];
       else if (w.mergedInto !== undefined) update['mergedInto'] = next['mergedInto'] = w.mergedInto;
+      // Fields a filing or a finished queue item changed (#206): null was absent.
+      const gone: string[] = [];
+      for (const [k, v] of Object.entries(w.fields ?? {})) {
+        if (v === null) {
+          delete next[k];
+          gone.push(k);
+        } else update[k] = next[k] = v;
+      }
       Note.parse(next);
       if (w.mergedInto === null) update['mergedInto'] = FieldValue.delete();
+      for (const k of gone) update[k] = FieldValue.delete();
       tx.update(db.doc(paths.note(uid, w.id)), update);
     }
     tx.set(
@@ -222,7 +246,11 @@ export async function putBack(
         at: Timestamp.fromMillis(now),
         tool: PUT_BACK_TOOL,
         summary: putBackSummary(run, plan),
-        notes: plan.writes.map((w) => ({ id: w.id, title: w.title })),
+        notes: plan.writes.map((w) => ({
+          id: w.id,
+          title: w.title,
+          ...(w.before ? { before: w.before } : {}),
+        })),
         reminders: [],
         agent: GARDEN_AGENT,
       }),

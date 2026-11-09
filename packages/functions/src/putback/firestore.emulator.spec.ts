@@ -212,11 +212,119 @@ describe('putBack', () => {
     expect((await db.doc(`users/u1/activity/putback-${runId}`).get()).exists).toBe(false);
   });
 
-  it('refuses a run that is not there, filing, and a day past its budget', async () => {
+  it('puts back filing: a tag and a stage, and records what it replaced (#206)', async () => {
+    await tools(T - 2000).createConcept({ name: 'Pottery', type: 'project', stages: ['glazed'] });
+    await tools(T - 1000).createConcept({ name: 'Vase', type: 'project', parent: 'c-pottery' });
+    const tags = (await read('c-vase'))['tags'];
+    await tools(T).refile({ id: 'c-vase', addTags: ['gift'], stage: 'glazed' });
+    expect(await read('c-vase')).toMatchObject({
+      tags: [...(tags ?? []), 'gift'],
+      stage: 'glazed',
+    });
+    const runId = await runOf('refile');
+
+    expect(await putBack(db, 'u1', runId, T + 1000)).toMatchObject({ status: 'done', notes: 1 });
+    const vase = await read('c-vase');
+    expect(vase['tags']).toEqual(tags);
+    expect(vase['stage']).toBeUndefined();
+    expect(vase).toMatchObject({
+      parent: 'c-pottery',
+      deviceId: `agent:Mossgoblin~putback-${runId}`,
+    });
+    const record = (await db.doc(`users/u1/activity/putback-${runId}`).get()).data()!;
+    expect(record['notes']).toEqual([
+      { id: 'c-vase', title: 'Vase', before: { tags: [...(tags ?? []), 'gift'], stage: 'glazed' } },
+    ]);
+
+    // Putting back the put back files it again.
+    await putBack(db, 'u1', `putback-${runId}`, T + 2000);
+    expect(await read('c-vase')).toMatchObject({
+      tags: [...(tags ?? []), 'gift'],
+      stage: 'glazed',
+    });
+  });
+
+  it('puts back filing as a project, its text by the hash its record kept (#206)', async () => {
+    await eric('c-kiln', 'Kiln\nCone 6.', { kind: 'concept', title: 'Kiln' });
+    await tools(T).refile({ id: 'c-kiln', type: 'project' });
+    const sectioned = String((await read('c-kiln'))['body']);
+    expect(sectioned).not.toBe('Kiln\nCone 6.');
+    const runId = await runOf('refile');
+    expect((await db.doc(`users/u1/activity/${runId}`).get()).get('notes')).toEqual([
+      {
+        id: 'c-kiln',
+        title: 'Kiln',
+        before: { conceptType: null, body: textHash('Kiln\nCone 6.') },
+      },
+    ]);
+    await remember('c-kiln', 'Kiln\nCone 6.');
+
+    await putBack(db, 'u1', runId, T + 1000);
+    const kiln = await read('c-kiln');
+    expect(kiln['body']).toBe('Kiln\nCone 6.');
+    expect(kiln['conceptType']).toBeUndefined();
+    expect((await db.doc(`users/u1/activity/putback-${runId}`).get()).get('notes')).toEqual([
+      {
+        id: 'c-kiln',
+        title: expect.any(String),
+        before: { conceptType: 'project', body: textHash(sectioned) },
+      },
+    ]);
+
+    // Putting back the put back files it as a project again, sections and all.
+    await remember('c-kiln', sectioned);
+    await putBack(db, 'u1', `putback-${runId}`, T + 2000);
+    expect(await read('c-kiln')).toMatchObject({ body: sectioned, conceptType: 'project' });
+  });
+
+  it('puts back a finished queue item: queued again, as it was sent (#206)', async () => {
+    const sentAt = Timestamp.fromMillis(T - 500);
+    await eric('q', 'Kiln log\nCone 6.', { sendState: 'queued', sendAsk: 'File it', sentAt });
+    await tools(T).finishQueued({
+      id: 'q',
+      sentAt: new Date(T - 500).toISOString(),
+      outcome: 'Filed it',
+    });
+    const runId = await runOf('finish_queued');
+
+    await putBack(db, 'u1', runId, T + 1000);
+    const q = await read('q');
+    expect(q).toMatchObject({ sendState: 'queued', sendAsk: 'File it', body: 'Kiln log\nCone 6.' });
+    expect(q['sentAt'].toMillis()).toBe(T - 500);
+    expect(q['sendOutcome']).toBeUndefined();
+    expect((await tools(T + 1500).listQueue({})).map((n) => n.id)).toEqual(['q']);
+
+    // Putting back the put back marks it done again, with its line.
+    await putBack(db, 'u1', `putback-${runId}`, T + 2000);
+    expect(await read('q')).toMatchObject({ sendState: 'done', sendOutcome: 'Filed it' });
+  });
+
+  it('leaves a finished queue item Eric sent again alone (#206)', async () => {
+    await eric('q', 'Kiln log', { sendState: 'queued', sentAt: Timestamp.fromMillis(T - 500) });
+    await tools(T).finishQueued({
+      id: 'q',
+      sentAt: new Date(T - 500).toISOString(),
+      outcome: 'Filed it',
+    });
+    await db.doc('users/u1/notes/q').update({
+      sendState: 'queued',
+      sentAt: Timestamp.fromMillis(T + 500),
+      updatedAt: Timestamp.fromMillis(T + 500),
+    });
+    await expect(putBack(db, 'u1', await runOf('finish_queued'), T + 1000)).rejects.toMatchObject({
+      code: 'failed-precondition',
+      message: expect.stringMatching(/changed since/),
+    });
+  });
+
+  it('refuses a run that is not there, older filing, and a day past its budget', async () => {
     await expect(putBack(db, 'u1', 'nope', T)).rejects.toMatchObject({ code: 'not-found' });
     await eric('a', 'Kiln log\nCone 6.');
+    // Filing recorded before #206, without what it replaced.
     await tools(T).refile({ id: 'a', addTags: ['pottery'] });
-    await expect(putBack(db, 'u1', await runOf('refile'), T)).rejects.toMatchObject({
+    const filed = await runOf('refile');
+    await db.doc(`users/u1/activity/${filed}`).update({ notes: [{ id: 'a', title: 'Kiln log' }] });
+    await expect(putBack(db, 'u1', filed, T)).rejects.toMatchObject({
       code: 'failed-precondition',
     });
     await tools(T).archiveNote({ id: 'a' });

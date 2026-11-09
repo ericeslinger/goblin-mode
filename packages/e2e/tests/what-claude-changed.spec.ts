@@ -6,7 +6,8 @@ import { OWNER } from '../src/personas';
 
 // What assistants changed (#34): Claude organizes through MCP, and the app
 // lists each change with the notes it touched and their History. Put back
-// (#154 step 1) undoes a change in one tap, as a run of its own.
+// (#154 step 1) undoes a change in one tap, as a run of its own, filing
+// included (#206).
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -99,4 +100,22 @@ test('a merge by Claude shows in What assistants changed, with its notes and His
   await page.goto(`/n/${firing.id}`);
   await expect(note(page)).toContainText('Shelf 2 cracked.');
   await expect(note(page)).not.toContainText('order a new shelf');
+
+  // Claude tags the note; putting that back takes the tag off (#206).
+  await call('refile', { id: firing.id, addTags: ['kiln'] });
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(back.getByRole('list', { name: 'Tags' })).toContainText('kiln');
+  await page.goto('/activity');
+  await changes
+    .getByRole('button', { name: 'Put back: Refiled Firing notes: tagged kiln' })
+    .click();
+  await expect(changes).toContainText('Put back 1 note?');
+  await changes.getByRole('button', { name: 'Yes' }).click();
+  await expect(changes).toContainText('Put back 1 note.');
+  await expect(changes).toContainText('Mossgoblin: Put back “Refiled Firing notes: tagged kiln”');
+  await page.goto(`/n/${firing.id}`);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(back).toBeVisible();
+  await expect(back.getByRole('list', { name: 'Tags' })).toHaveCount(0);
 });

@@ -25,7 +25,8 @@ export interface RunRecord {
   /** The tool, e.g. 'merge_notes'; 'put_back' for a put back (#154). */
   tool: string;
   summary: string;
-  notes: { id: string; title: string }[];
+  /** `before`: the record kept the fields the run changed (#206), so it can be put back. */
+  notes: { id: string; title: string; before?: unknown }[];
   reminders: { id: string; title: string }[];
 }
 
@@ -59,9 +60,10 @@ const millis = (v: unknown) => (v as { toMillis?: () => number } | undefined)?.t
 
 const touched = (v: unknown) =>
   Array.isArray(v)
-    ? v.map((t: { id?: unknown; title?: unknown }) => ({
+    ? v.map((t: { id?: unknown; title?: unknown; before?: unknown }) => ({
         id: String(t.id ?? ''),
         title: String(t.title ?? ''),
+        ...(t.before && typeof t.before === 'object' ? { before: t.before } : {}),
       }))
     : [];
 

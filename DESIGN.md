@@ -2425,8 +2425,19 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   Until then a note made at the run's time read as made, which caught
   a note Eric made seconds before and archived it; a record from
   before `made` leaves a note it made alone. Filing (`refile`) and
-  `finish_queued` change fields History does not keep, so they offer
-  no Put back.
+  `finish_queued` change fields History does not keep; since #206
+  (2026-11-09) their records keep each changed field's value before
+  (`before` on the note's entry, null where it was absent), and Put
+  back sets those back: tags, other names, type, parent, kind, status,
+  stages, item tags and stage, or the queue mark, so a finished note
+  waits in the queue again as Eric sent it. Filing as a project, which
+  adds the project sections, also keeps `body`: the `textHash` of the
+  text before, the key the replaced texts and History keep it by, so
+  the text comes back from the record, never from the summary's words
+  or the note's own latest `baseHash`. `finish_queued` leaves who
+  last wrote the note as it was, so its note counts as the run's while
+  it is still marked done. A record from before keeps nothing, and
+  offers no Put back.
 - **Only what the run left.** A note written since the run (Eric's
   edit, another run) is left alone and named in the put back's line;
   History still has the run's version. A note the run only named (a
@@ -2441,8 +2452,10 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   idempotent: a second Put back of a run answers that it is already put
   back, and the list shows the run as put back without a stored flag.
   No stored schema changed, but for `made` on an activity entry
-  (optional, function-only; #211, 2026-11-09). 50 put backs a day
-  (`usage`).
+  (optional, function-only; #211, 2026-11-09) and `before` (likewise;
+  #206, 2026-11-09), which a put back of filing or of a finished
+  queue item also writes, with the values it replaced, so its own put
+  back does the run again. 50 put backs a day (`usage`).
 - **No MCP tool.** An assistant undoes its own work by doing it again
   with the tools it has; Put back is Eric's, in the app.
 

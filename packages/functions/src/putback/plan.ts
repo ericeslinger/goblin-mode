@@ -2,7 +2,7 @@
 // it started from, and the notes as they stand now, which writes put
 // them back (DESIGN.md, Trust, step 1). The text comes back verbatim
 // from what the run wrote over; nothing here composes text.
-import { firstWordsTitle } from '@mossgoblin/schema';
+import { type FieldBefore, firstWordsTitle, textHash } from '@mossgoblin/schema';
 
 /**
  * How far before its activity record a run's own note write can be
@@ -19,8 +19,11 @@ export interface RunFacts {
   summary: string;
   /** The deviceId the run's note writes carry. */
   device: string;
-  /** `made`: the run made that note (#211); absent on older records. */
-  notes: { id: string; title: string; made?: boolean }[];
+  /**
+   * `made`: the run made that note (#211); `before`: the fields it
+   * changed, with their values before (#206). Absent on older records.
+   */
+  notes: { id: string; title: string; made?: boolean; before?: Record<string, FieldBefore> }[];
 }
 
 /** A note as it stands now. */
@@ -35,6 +38,8 @@ export interface NoteFacts {
   deviceId: string;
   /** `textHash` of the text its last body write replaced. */
   baseHash?: string;
+  /** Its stored fields, for putting back a run's `before` (#206). */
+  fields?: Record<string, unknown>;
 }
 
 /** What the original run did to one note, read from its record and tool. */
@@ -42,7 +47,13 @@ export type Did =
   | { kind: 'created' }
   | { kind: 'merged' }
   | { kind: 'original'; into: string }
-  | { kind: 'edited'; flip?: 'archived' | 'restored'; text: boolean };
+  | { kind: 'edited'; flip?: 'archived' | 'restored'; text: boolean }
+  /**
+   * Filing or a finished queue item (#206): fields its record kept the
+   * values before of, and the text too where the record keeps the hash
+   * of the text it rewrote (`before.body`, filing as a project).
+   */
+  | { kind: 'fields'; text: boolean };
 
 /**
  * What run `base` (an assistant's own run) did to each note it lists.
@@ -53,13 +64,23 @@ export type Did =
  * restored. Everything else changed text, if it wrote the note at all
  * (a link's targets it only names), which the plan checks against the
  * note. A record from before `made` reads a note it made as edited,
- * with no text before it, so the plan leaves it alone.
+ * with no text before it, so the plan leaves it alone. Filing and
+ * `finish_queued` change fields, which their records keep (`before`,
+ * #206, 2026-11-09); a record from before that names its notes only.
  */
 export function didOf(base: RunFacts): Map<string, Did> {
   const out = new Map<string, Did>();
   base.notes.forEach((t, i) => {
     if (base.tool === 'merge_notes') {
       out.set(t.id, i === 0 ? { kind: 'merged' } : { kind: 'original', into: base.notes[0].id });
+      return;
+    }
+    if (base.tool === 'refile' || base.tool === 'finish_queued') {
+      if (t.before)
+        out.set(t.id, {
+          kind: 'fields',
+          text: typeof t.before['body'] === 'string',
+        });
       return;
     }
     if (t.made === true) {
@@ -99,6 +120,10 @@ export interface NoteWrite {
   /** The text the run wrote over, verbatim, and its first-words title. */
   body?: string;
   newTitle?: string;
+  /** Fields to set back (#206); null deletes the field. */
+  fields?: Record<string, FieldBefore>;
+  /** What those fields hold now, null where absent: the put back's own `before`. */
+  before?: Record<string, FieldBefore>;
 }
 
 export type Skip = { id: string; title: string; why: 'gone' | 'changed' | 'unkept' };
@@ -115,7 +140,14 @@ export interface Plan {
  * wrote are written: one written since is left alone (Eric's edit after
  * the run stays; History has the rest), and one it never wrote (a
  * link's target) needs nothing. Text comes from `textBefore`, the text
- * the run's write replaced, found by the write's `baseHash`.
+ * the run's write replaced, found by the write's `baseHash` (for filing,
+ * by the hash its record kept, `before.body`). Fields come
+ * from the run's own record (`before`, #206): at an even depth the
+ * values `base` replaced, at an odd one the values its put back
+ * replaced, which are what `base` wrote, so both directions are one
+ * path. `finish_queued` leaves who last wrote a note as it was, so its
+ * notes are the run's while the queue mark is as it left it: done, or
+ * queued again after a put back.
  */
 export function planPutBack(args: {
   run: RunFacts;
@@ -129,6 +161,9 @@ export function planPutBack(args: {
   const redo = depth % 2 === 1;
   const writes: NoteWrite[] = [];
   const skipped: Skip[] = [];
+  // finish_queued writes no stamp; its notes are told by the queue mark.
+  const unstamped = run.tool === 'finish_queued';
+  const queue = base.tool === 'finish_queued' ? (redo ? 'queued' : 'done') : undefined;
   for (const t of run.notes) {
     const note = notes.get(t.id);
     const what = did.get(t.id);
@@ -138,11 +173,11 @@ export function planPutBack(args: {
     }
     if (!what) continue;
     const at = note.updatedAt ?? 0;
-    if (at > run.at) {
+    if (at > run.at || (queue && note.fields?.['sendState'] !== queue)) {
       skipped.push({ id: t.id, title: note.title || t.title, why: 'changed' });
       continue;
     }
-    if (note.deviceId !== run.device || at < run.at - RUN_SLACK_MS) continue;
+    if (!unstamped && (note.deviceId !== run.device || at < run.at - RUN_SLACK_MS)) continue;
     const write: NoteWrite = { id: t.id, title: note.title };
     let archived: boolean | undefined;
     switch (what.kind) {
@@ -162,20 +197,43 @@ export function planPutBack(args: {
     if (write.mergedInto !== undefined && (write.mergedInto ?? undefined) === note.mergedInto) {
       delete write.mergedInto;
     }
-    if (what.kind === 'edited' && what.text) {
+    if (what.kind === 'fields') {
+      if (!t.before) {
+        skipped.push({ id: t.id, title: note.title || t.title, why: 'unkept' });
+        continue;
+      }
+      const fields: Record<string, FieldBefore> = {};
+      const before: Record<string, FieldBefore> = {};
+      for (const [k, v] of Object.entries(t.before)) {
+        if (k === 'body') continue;
+        const now = (note.fields?.[k] as FieldBefore | undefined) ?? null;
+        if (JSON.stringify(now) === JSON.stringify(v)) continue;
+        fields[k] = v;
+        before[k] = now;
+      }
+      if (Object.keys(fields).length) Object.assign(write, { fields, before });
+    }
+    if ((what.kind === 'edited' || what.kind === 'fields') && what.text) {
       const before = textBefore.get(t.id);
       if (before === undefined) {
         skipped.push({ id: t.id, title: note.title || t.title, why: 'unkept' });
-        if (write.archived === undefined) continue;
+        if (write.archived === undefined && write.fields === undefined) continue;
       } else if (before !== note.body) {
         write.body = before;
         if (note.titleSource === 'words') {
           write.newTitle = firstWordsTitle(before);
           write.title = write.newTitle;
         }
+        // Its own record names the text it replaces, so its put back finds it.
+        if (what.kind === 'fields') write.before = { ...write.before, body: textHash(note.body) };
       }
     }
-    if (write.archived !== undefined || write.mergedInto !== undefined || write.body !== undefined)
+    if (
+      write.archived !== undefined ||
+      write.mergedInto !== undefined ||
+      write.body !== undefined ||
+      write.fields !== undefined
+    )
       writes.push(write);
   }
   return { writes, skipped };
