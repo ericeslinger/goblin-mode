@@ -258,6 +258,30 @@ describe('NoteBack (#112)', () => {
       [],
     );
     expect(done.el.textContent).toContain('Done: Linked it to pottery.');
+    expect(done.el.textContent).not.toContain('Sent on arrival');
+  });
+
+  it('says a note was sent on arrival, not by Eric, queued and done (#214)', async () => {
+    const queued = await render(
+      { ...noteRecord('n5', 'Seeds'), sendState: 'queued', sentAt: 1, sentOnArrival: true },
+      [],
+    );
+    expect(queued.el.querySelector('.arrival')?.textContent).toContain('Sent on arrival');
+    expect(queued.el.textContent).toContain('with no ask, to be filed');
+    TestBed.resetTestingModule();
+
+    const done = await render(
+      {
+        ...noteRecord('n6', 'Moss'),
+        sendState: 'done',
+        sentAt: 1,
+        sentOnArrival: true,
+        sendOutcome: 'Linked it to pottery.',
+      },
+      [],
+    );
+    expect(done.el.textContent).toContain('Sent on arrival');
+    expect(done.el.textContent).toContain('Done: Linked it to pottery.');
   });
 
   const button = (el: HTMLElement, text: string) =>

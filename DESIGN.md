@@ -65,6 +65,7 @@ users/{uid}
   settings/app                theme and mode, shared by devices
   settings/keys               masked provider keys, function-written (#144)
   settings/reader             the Reader's folder order and switches (#159)
+  settings/assistant          the assistant's switches (#214)
   activity/{runId}            "What Claude changed" records
   runs/{runId}                the garden's own agent runs (#144 step 3)
   feeds/{feedId}              feeds followed, id from the URL (#159)
@@ -2219,6 +2220,37 @@ is slow.
   (`agent/stand-in.emulator.ts`, `EMULATOR_ONLY`, as the KMS one)
   that reads the note and finishes it, so a journey follows the whole
   flow.
+- **Garden on arrival (#214, step 1 of #155, 2026-11-09).** Eric
+  decided on #155 (2026-10-25) that a new note can be gardened without
+  being sent. Settings, AI assistants, shows **Garden new notes on
+  arrival** to a gardener with an Anthropic key kept; off by default,
+  stored as `gardenOnArrival` in its own doc, `settings/assistant`
+  (`AssistantSettings`), which the app writes through the cache like
+  the modules' doc, since `settings/keys` is the functions' alone. The
+  signal is the settle that asks for a title: a note Eric is still
+  editing is not sent, and capture waits on none of this. The trigger
+  `noteArrived` acts only on the write where `settledAt` goes from
+  absent to set, with the switch on, a key kept, and the note a plain
+  text note (kind `text`: no template, recipe, concept, meal plan,
+  pantry, clipping or the context note), last written by Eric
+  (`updatedBy: user`), not archived, with words in it and never sent
+  (`sendState` absent). It then does what Send to an assistant and Do
+  it now do together, through `requestRun` (`agent/request.ts`), the
+  one function `startRun` calls too: in one transaction it sets
+  `sendState: queued`, `sentAt` and `sentOnArrival: true`, no ask, and
+  writes the run as `requested` for `agentRun`. The run's id is
+  `arrival-<note id>`, so a redelivered event, a later settle, a note
+  taken back, or a settle cleared and set again never sends the same
+  note twice; a new note is a new arrival. Same `DAILY_RUNS` cap: once
+  the day's runs are spent the note is left unsent and unqueued, not
+  queued for the routine, since Eric did not send it and may run no
+  routine; it is not tried again. The brief says the note arrived and
+  that Eric left no ask, so the routine prompt's filing rules apply:
+  file it where it belongs, link and tag it, keep his words verbatim,
+  never reword them; the `fromWeb` rules stay. The back says "Sent on
+  arrival" with the time, "with no ask, to be filed", above the usual
+  run and Done lines. Take it back, or sending it himself, clears
+  `sentOnArrival` with the other send fields.
 - **Items assigned to the assistant (#144 step 4, 2026-10-25).** A
   checklist item ending in `@goblin` is the assistant's, typed like
   anything else, so it works offline. When the note settles (the

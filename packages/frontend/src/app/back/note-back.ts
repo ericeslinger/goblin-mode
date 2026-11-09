@@ -152,6 +152,9 @@ function stamp(ms: number | undefined): string {
       }
 
       <h3 id="send-to">Send to an assistant</h3>
+      @if (note().sendState && note().sentOnArrival) {
+        <p class="arrival">Sent on arrival {{ sentAt() }}, with no ask, to be filed.</p>
+      }
       @if (note().sendState === 'queued') {
         @if (run(); as r) {
           <p role="status" class="run">

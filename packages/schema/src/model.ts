@@ -19,6 +19,7 @@
 // | feeds | client, direct | the feeds followed (#159): an OPML import works offline; functions add fetch state |
 // | feedItems | function, plus the owner's read and saved marks | the Reader's articles (#159), written by the fetcher |
 // | settings/reader | client, direct | the Reader's folder order and switches (#159) |
+// | settings/assistant | client, direct | the assistant's switches, e.g. garden on arrival (#214) |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 // | secrets (top level) | function only | a gardener's encrypted provider keys (#144), never client-readable |
 //
@@ -203,6 +204,12 @@ export const Note = z.object({
   sendOutcome: z.string().max(SEND_OUTCOME_MAX).optional(),
   /** The run doing it now (#144 step 3), under `runs`, if Eric asked for one. */
   sendRun: z.string().optional(),
+  /**
+   * Sent by the server when the note first settled, not by Eric (#214,
+   * Garden on arrival): the back says so. Cleared with the other send
+   * fields when he takes it back or sends it himself.
+   */
+  sentOnArrival: z.boolean().optional(),
   /** The id of the template this note was made from. */
   fromTemplate: z.string().optional(),
   /** Merged away by Claude; kept so a merge can be undone. */
@@ -635,6 +642,23 @@ export const ReaderSettings = z.object({
 });
 export type ReaderSettings = z.infer<typeof ReaderSettings>;
 
+/**
+ * The assistant's own switches (#214), one doc, `settings/assistant`,
+ * written by the app; the functions read it. Its own doc, as the
+ * modules', since `settings/keys` is the functions' alone.
+ */
+export const AssistantSettings = z.object({
+  /**
+   * Garden new notes on arrival (#214, step 1 of #155): a plain text
+   * note of the gardener's, once it first settles, is sent to the
+   * garden's agent with no ask and done at once on the Anthropic key.
+   * Off when absent.
+   */
+  gardenOnArrival: z.boolean().optional(),
+  updatedAt: Timestamp,
+});
+export type AssistantSettings = z.infer<typeof AssistantSettings>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,
@@ -657,6 +681,8 @@ export const paths = {
   feedItems: (uid: string) => `users/${uid}/feedItems`,
   feedItem: (uid: string, id: string) => `users/${uid}/feedItems/${id}`,
   reader: (uid: string) => `users/${uid}/settings/reader`,
+  /** The assistant's switches (#214), e.g. garden on arrival. */
+  assistant: (uid: string) => `users/${uid}/settings/assistant`,
   /** The gardener's masked provider keys (#144), read by the app. */
   keys: (uid: string) => `users/${uid}/settings/keys`,
   /** Server only: the gardener's encrypted provider keys (#144). */

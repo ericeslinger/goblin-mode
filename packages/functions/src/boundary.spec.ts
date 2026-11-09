@@ -24,6 +24,7 @@ const EXPORTS = [
   'startRun',
   'agentRun',
   'itemAssigned',
+  'noteArrived',
   'feedsRefresh',
   'refreshFeeds',
   'feedRemoved',

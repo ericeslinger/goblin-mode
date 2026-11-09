@@ -33,6 +33,8 @@ function fakeKeys() {
     >({}),
     save: vi.fn(async () => ({ masked: 'sk-ant-…0123' })),
     remove: vi.fn(async () => undefined),
+    onArrival: signal(false),
+    setOnArrival: vi.fn(),
   };
 }
 const keys = fakeKeys();
@@ -150,6 +152,23 @@ describe('Settings', () => {
       TestBed.tick();
       expect(el.textContent).toContain('revoke it at Anthropic too');
     });
+  });
+
+  it('offers Garden new notes on arrival only with an Anthropic key kept (#214)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    keys.keys.set({});
+    const el = await render(auth);
+    const toggle = () =>
+      [...el.querySelectorAll('label')]
+        .find((l) => l.textContent?.includes('Garden new notes on arrival'))
+        ?.querySelector('input');
+    expect(toggle()).toBeUndefined();
+    keys.keys.set({ anthropic: { masked: 'sk-ant-…0123', broken: false } });
+    TestBed.tick();
+    expect(toggle()!.checked).toBe(false);
+    toggle()!.click();
+    expect(keys.setOnArrival).toHaveBeenCalledWith(true);
   });
 
   it('shows the connector URL and disconnects Claude', async () => {

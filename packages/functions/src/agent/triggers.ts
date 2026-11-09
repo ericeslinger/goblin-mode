@@ -11,6 +11,7 @@ import { executeRun, runRequested } from './core';
 import { firestoreRunStore } from './firestore-store';
 import { gardenTools } from './garden-tools';
 import { executeItemRun, itemRunId } from './items';
+import { gardenOnArrival } from './request';
 import { type AgentModel, anthropicModel } from './model';
 import { standInModel } from './stand-in';
 
@@ -133,6 +134,27 @@ export const itemAssigned = onDocumentWritten(
       if (made) started++;
     }
     if (started) logger.info('itemAssigned', { noteId, started });
+  },
+);
+
+/**
+ * Garden on arrival (#214, step 1 of #155): a note's first settle, with
+ * the switch on in Settings and a key kept, sends it to the garden's
+ * agent with no ask and starts its run. The note was written offline
+ * as ever; this runs once that settle reaches the server.
+ */
+export const noteArrived = onDocumentWritten(
+  { document: 'users/{uid}/notes/{noteId}' },
+  async (event) => {
+    const { uid, noteId } = event.params;
+    const outcome = await gardenOnArrival(
+      getFirestore(),
+      uid,
+      noteId,
+      event.data?.before.data(),
+      event.data?.after.data(),
+    );
+    if (outcome !== 'not-arrival') logger.info('noteArrived', { noteId, outcome });
   },
 );
 

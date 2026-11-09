@@ -33,6 +33,8 @@ export interface RunRecord {
   noteId?: unknown;
   sentAt?: unknown;
   status?: unknown;
+  /** Started by the note's arrival, not by Eric (#214). */
+  arrival?: unknown;
   /** An assigned item's (step 4). */
   itemKey?: unknown;
   itemText?: unknown;
@@ -80,15 +82,24 @@ export type RunOutcome = 'done' | 'failed' | 'capped' | 'skipped';
  * gives. The note's title is not here: it can be a page's words, and
  * get_note labels those (review on #152).
  */
-export function briefFor(noteId: string, sentAt: string, ask: string | undefined): string {
+export function briefFor(
+  noteId: string,
+  sentAt: string,
+  ask: string | undefined,
+  arrival = false,
+): string {
   return [
-    'Eric sent you a note from Mossgoblin to do now.',
+    arrival
+      ? 'A new note of Eric’s arrived in Mossgoblin; he asks for new notes to be gardened ' +
+        'on arrival, so it is yours to do now.'
+      : 'Eric sent you a note from Mossgoblin to do now.',
     `Note id: ${noteId}`,
     `Sent at: ${sentAt}`,
     ask
       ? `Ask: ${ask}`
-      : 'Ask: none. File it: link it to the notes, people and projects it is about, and tag ' +
-        "or refile it, keeping Eric's words verbatim.",
+      : 'Ask: none. Eric left no ask, so file it where it belongs: link it to the notes, ' +
+        'people and projects it is about, and tag or refile it, keeping his words verbatim. ' +
+        'Never reword them.',
     '',
     'Read it with get_note, do the ask, then call finish_queued with the note id and sentAt ' +
       'above and one plain line saying what you did. If you cannot do it, finish it with a ' +
@@ -102,7 +113,7 @@ export function briefFor(noteId: string, sentAt: string, ask: string | undefined
 }
 
 /** UTC day, YYYY-MM-DD. */
-const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+export const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 export async function executeRun(deps: RunDeps, uid: string, runId: string): Promise<RunOutcome> {
   const claim = await deps.store.claim(uid, runId, dayOf(deps.now()), DAILY_RUNS);
@@ -138,7 +149,7 @@ export async function executeRun(deps: RunDeps, uid: string, runId: string): Pro
       runLoop(
         model,
         garden,
-        briefFor(noteId, sentAt, note.sendAsk),
+        briefFor(noteId, sentAt, note.sendAsk, run.arrival === true),
         (step) => deps.store.step(uid, runId, step),
         deps.limits ?? DEFAULT_LIMITS,
         deps.now,

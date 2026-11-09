@@ -340,6 +340,23 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
           connector, and give it this prompt; any assistant that runs on a schedule can use it too.
         </p>
         <pre class="prompt"><code>{{ queuePrompt }}</code></pre>
+        @if (keys.keys()?.anthropic) {
+          <h3>Garden on arrival</h3>
+          <label>
+            <input
+              type="checkbox"
+              role="switch"
+              [checked]="keys.onArrival()"
+              (change)="keys.setOnArrival($any($event.target).checked)"
+            />
+            Garden new notes on arrival
+          </label>
+          <p class="muted">
+            Once you leave a new note, it is sent to the garden’s own assistant with no ask and done
+            at once on your Anthropic key: filed, linked and tagged, your words kept as they are.
+            Only plain notes you wrote; it counts in the day’s runs.
+          </p>
+        }
         <p><a routerLink="/activity">What assistants changed</a></p>
         <button type="button" (click)="disconnect()">Disconnect all assistants</button>
         @if (claudeStatus()) {

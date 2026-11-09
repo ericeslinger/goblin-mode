@@ -72,15 +72,20 @@ export class KeysService {
 
   /** The kept keys, by provider; undefined until read. */
   readonly keys = signal<Partial<Record<Provider, KeyRecord>> | undefined>(undefined);
+  /** Garden new notes on arrival (#214), from `settings/assistant`; off until read. */
+  readonly onArrival = signal(false);
+  private stopAssistant?: () => void;
 
   constructor() {
     effect(() => {
       const uid = this.auth.user()?.uid;
       if (uid === this.uid) return;
       this.stop?.();
-      this.stop = undefined;
+      this.stopAssistant?.();
+      this.stop = this.stopAssistant = undefined;
       this.uid = uid;
       this.keys.set(undefined);
+      this.onArrival.set(false);
       if (!uid) return;
       this.stop = this.settings.listen(
         this.fb.db,
@@ -88,8 +93,33 @@ export class KeysService {
         (data) => this.keys.set(data ? read(data as KeySettings) : {}),
         (err) => console.error('keys listener', err),
       );
+      this.stopAssistant = this.settings.listen(
+        this.fb.db,
+        paths.assistant(uid),
+        (data) => this.onArrival.set(data?.['gardenOnArrival'] === true),
+        (err) => console.error('assistant settings listener', err),
+      );
     });
-    inject(DestroyRef).onDestroy(() => this.stop?.());
+    inject(DestroyRef).onDestroy(() => {
+      this.stop?.();
+      this.stopAssistant?.();
+    });
+  }
+
+  /**
+   * Turns Garden new notes on arrival on or off (#214). A settings
+   * write like the theme's: through the cache, never awaited, so it
+   * works offline; the functions read it when a note settles.
+   */
+  setOnArrival(on: boolean): void {
+    if (!this.uid) return;
+    this.onArrival.set(on);
+    this.settings
+      .set(this.fb.db, paths.assistant(this.uid), {
+        gardenOnArrival: on,
+        updatedAt: this.settings.now(),
+      })
+      .catch((err) => console.error('assistant settings write', err));
   }
 
   /** Keeps a pasted key; the masked record arrives through the listener. */
