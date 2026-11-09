@@ -1102,6 +1102,7 @@ export class NotesService {
     this.written.delete(id);
     // Emptied or bare: nothing typed in it is left to keep.
     this.forget(PENDING_SAVES_KEY, id);
+    this.forget(PENDING_INSTRUCTIONS_KEY, id);
     this.notes.update((list) => list.filter((n) => n.id !== id));
     this.api.remove(this.fb.db, paths.note(this.uid, id)).catch(report);
   }

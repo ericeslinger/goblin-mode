@@ -614,17 +614,17 @@ of this device's that the cache had not yet shown when the last were
 typed. Holding the words, the cache kept them; holding anything else,
 someone wrote the field since, and theirs is newer: nothing is written
 over it. A field written over and then back to `base` cannot be told
-from one never touched, and is accepted. A snapshot carries a write only after the cache holds it, so a new
-write takes what the cache shows as its `base`
-(`notes/pending-writes.ts`). It
-applies in three places: note text (`goblin.pendingSaves`, every
-`NotesService.save`: a new note, an edit, a restore or keep, the
-first-words title riding along; a new note the cache never took is
-made again, any other note the server lacks stays gone), a template's
-Instructions for Claude (`goblin.pendingInstructions`; a template the
-server lacks drops its entry), and, before the notes load,
-the pending draft (`goblin.pendingDraft`), which hands over to the
-first at the moment it is written. The Instructions field keeps every
+from one never touched, and is accepted. A snapshot carries a write
+only after the cache holds it, so a new write takes what the cache
+shows as its `base` (`notes/pending-writes.ts`). It applies in three
+places: note text (`goblin.pendingSaves`, every `NotesService.save`: a
+new note, an edit, a restore or keep, the first-words title riding
+along; a new note the cache never took is made again, any other note
+the server lacks stays gone), a template's Instructions for Claude
+(`goblin.pendingInstructions`; a template the server lacks drops its
+entry), and the pending draft (`goblin.pendingDraft`), which holds
+typing from before the notes load and, once `save` is called for it,
+is kept as a note save like any other. The Instructions field keeps every
 keystroke this way and writes after the save delay, on leaving the
 field, and on `pagehide`, since a page closed with the field focused
 never fires `change`.
@@ -2310,9 +2310,13 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   deleted; a merge's originals come back (without `mergedInto`) and
   the merged note is archived. What the run did is read from its
   record: the tool, the summary's "Archived a note" or "Restored a
-  note", a merge listing its merged note first, and a note made at the
-  run's time. Filing (`refile`) and `finish_queued` change fields
-  History does not keep, so they offer no Put back.
+  note", a merge listing its merged note first, and the record marking
+  each note the run made (`made` on its entry, #211, 2026-11-09).
+  Until then a note made at the run's time read as made, which caught
+  a note Eric made seconds before and archived it; a record from
+  before `made` leaves a note it made alone. Filing (`refile`) and
+  `finish_queued` change fields History does not keep, so they offer
+  no Put back.
 - **Only what the run left.** A note written since the run (Eric's
   edit, another run) is left alone and named in the put back's line;
   History still has the run's version. A note the run only named (a
@@ -2326,7 +2330,9 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   writes back the text the put back replaced). The derived id makes it
   idempotent: a second Put back of a run answers that it is already put
   back, and the list shows the run as put back without a stored flag.
-  No stored schema changed. 50 put backs a day (`usage`).
+  No stored schema changed, but for `made` on an activity entry
+  (optional, function-only; #211, 2026-11-09). 50 put backs a day
+  (`usage`).
 - **No MCP tool.** An assistant undoes its own work by doing it again
   with the tools it has; Put back is Eric's, in the app.
 

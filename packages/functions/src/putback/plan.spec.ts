@@ -28,7 +28,6 @@ const note = (id: string, over: Partial<NoteFacts> = {}): NoteFacts => ({
   title: id,
   titleSource: 'user',
   archived: false,
-  createdAt: T - DAY,
   updatedAt: T,
   deviceId: 'claude',
   ...over,
@@ -47,7 +46,6 @@ describe('didOf', () => {
             { id: 'x', title: '' },
           ],
         }),
-        notes(),
       ),
     ).toEqual(
       new Map([
@@ -55,17 +53,16 @@ describe('didOf', () => {
         ['x', { kind: 'original', into: 'm' }],
       ]),
     );
-    // A split: the note keeps its first part; the pieces were made then.
+    // A split: the note keeps its first part; the record marks the pieces made.
     expect(
       didOf(
         run({
           tool: 'split_note',
           notes: [
             { id: 'a', title: '' },
-            { id: 'p', title: '' },
+            { id: 'p', title: '', made: true },
           ],
         }),
-        notes(note('a'), note('p', { createdAt: T - 2 })),
       ),
     ).toEqual(
       new Map<string, unknown>([
@@ -73,17 +70,14 @@ describe('didOf', () => {
         ['p', { kind: 'created' }],
       ]),
     );
-    expect(didOf(run({ tool: 'archive_note', summary: 'Archived a note' }), notes())).toEqual(
+    expect(didOf(run({ tool: 'archive_note', summary: 'Archived a note' }))).toEqual(
       new Map([['a', { kind: 'edited', flip: 'archived', text: false }]]),
     );
+    expect(didOf(run({ tool: 'update_note', summary: "Changed a note's title and tags" }))).toEqual(
+      new Map([['a', { kind: 'edited', text: false }]]),
+    );
     expect(
-      didOf(run({ tool: 'update_note', summary: "Changed a note's title and tags" }), notes()),
-    ).toEqual(new Map([['a', { kind: 'edited', text: false }]]));
-    expect(
-      didOf(
-        run({ tool: 'update_note', summary: "Changed a note's text; Restored a note" }),
-        notes(),
-      ),
+      didOf(run({ tool: 'update_note', summary: "Changed a note's text; Restored a note" })),
     ).toEqual(new Map([['a', { kind: 'edited', flip: 'restored', text: true }]]));
   });
 });
@@ -160,15 +154,45 @@ describe('planPutBack', () => {
   });
 
   it('archives a note the run made, never deleting it', () => {
+    const r = run({
+      tool: 'create_note',
+      summary: 'Wrote a new note',
+      notes: [{ id: 'a', title: 'Shopping', made: true }],
+    });
+    const plan = planPutBack({
+      run: r,
+      base: r,
+      depth: 0,
+      notes: notes(note('a')),
+      textBefore: new Map(),
+    });
+    expect(plan.writes).toEqual([{ id: 'a', title: 'a', archived: true }]);
+  });
+
+  it('puts back the text of a note Eric made a moment before the run (#211)', () => {
+    // Made seconds before the run, but the record does not mark it made.
+    const a = note('a', { body: 'Kiln\n- cone 6', baseHash: 'h' });
+    const plan = planPutBack({
+      run: run(),
+      base: run(),
+      depth: 0,
+      notes: notes(a),
+      textBefore: new Map([['a', 'Kiln\n']]),
+    });
+    expect(plan).toEqual({ writes: [{ id: 'a', title: 'a', body: 'Kiln\n' }], skipped: [] });
+  });
+
+  it('leaves alone a note an older record made, archiving nothing', () => {
+    // Before `made`, a record named a note it made like any other.
     const r = run({ tool: 'create_note', summary: 'Wrote a new note' });
     const plan = planPutBack({
       run: r,
       base: r,
       depth: 0,
-      notes: notes(note('a', { createdAt: T })),
+      notes: notes(note('a')),
       textBefore: new Map(),
     });
-    expect(plan.writes).toEqual([{ id: 'a', title: 'a', archived: true }]);
+    expect(plan).toEqual({ writes: [], skipped: [{ id: 'a', title: 'a', why: 'unkept' }] });
   });
 
   it('brings back a merge’s originals and archives the merged note', () => {
@@ -186,7 +210,7 @@ describe('planPutBack', () => {
       base: r,
       depth: 0,
       notes: notes(
-        note('m', { createdAt: T - DAY }),
+        note('m'),
         note('x', { archived: true, mergedInto: 'm' }),
         note('y', { archived: true, mergedInto: 'm' }),
       ),
@@ -256,7 +280,7 @@ describe('planPutBack', () => {
       run: back,
       base: run({ at: T - DAY }),
       depth: 1,
-      notes: notes(note('a', { body: 'before', deviceId: 'pb', createdAt: T - 2 * DAY })),
+      notes: notes(note('a', { body: 'before', deviceId: 'pb' })),
       textBefore: new Map([['a', 'after the run']]),
     });
     expect(plan.writes).toEqual([{ id: 'a', title: 'a', body: 'after the run' }]);

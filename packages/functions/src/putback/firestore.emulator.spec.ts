@@ -113,6 +113,21 @@ describe('putBack', () => {
     expect((await read('a'))['updatedAt'].toMillis()).toBe(T + 60_000);
   });
 
+  it('puts back a line added to a note Eric made a moment before (#211)', async () => {
+    await eric('j', 'Pottery\n- [ ] glaze', {
+      createdAt: Timestamp.fromMillis(T - 3000),
+      updatedAt: Timestamp.fromMillis(T - 3000),
+    });
+    await tools(T).addLines({ id: 'j', lines: ['- [ ] fire'] });
+    expect(
+      (await db.doc(`users/u1/activity/${await runOf('add_lines')}`).get()).get('notes'),
+    ).toEqual([{ id: 'j', title: 'Pottery' }]);
+    await remember('j', 'Pottery\n- [ ] glaze');
+
+    await putBack(db, 'u1', await runOf('add_lines'), T + 1000);
+    expect(await read('j')).toMatchObject({ body: 'Pottery\n- [ ] glaze', archived: false });
+  });
+
   it('restores what a run archived, and archives what one made', async () => {
     await eric('a', 'Kiln log\nCone 6.');
     await tools(T).archiveNote({ id: 'a' });
@@ -120,6 +135,8 @@ describe('putBack', () => {
     expect((await read('a'))['archived']).toBe(false);
 
     const made = await tools(T + 2000).createNote({ body: 'Filed by Claude\nabout trains' });
+    const record = await db.doc(`users/u1/activity/${await runOf('create_note')}`).get();
+    expect(record.get('notes')).toEqual([{ id: made.id, title: expect.any(String), made: true }]);
     await putBack(db, 'u1', await runOf('create_note'), T + 3000);
     expect(await read(made.id)).toMatchObject({
       archived: true,
