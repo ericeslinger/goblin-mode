@@ -511,6 +511,30 @@ same server instructions, whose clause says a note's `takes` governs
 how new material goes in and that `get_note` shows it, so `briefFor`
 is unchanged. `update_note`'s `instructions` reach any of these kinds.
 
+**Split a ramble (#233, step 4 of #155, 2026-11-09).** A capture can
+hold several thoughts, each of which belongs somewhere different, and
+filed whole it can belong nowhere. With no ask (on arrival, or sent
+with none) `briefFor` tells the agent to split such a note first with
+`split_note`, one note a thought, each part Eric's words verbatim and
+whole, never a sentence cut in two, and then to file each piece as a
+note of its own; a note with one thought, however long, is never
+split. With an ask, the ask stands, and the brief says to split only
+if it says to. A held note (#229) is never split: its brief carries
+the held rule and no split rule. `split_note` already moves text only
+verbatim and
+links the pieces from what is left (`Split off:`); since this change
+each piece links back too, with a `Split from: [[original]]` line
+decided as `Split off:` is (Organize tools, below), its own title
+still its first words. Put back undoes a split as it did before: the
+note's text comes back from History by its hash and the pieces, which
+the record marks `made`, are archived. The emulator's stand-in
+(`agent/stand-in.emulator.ts`) splits too, so a journey can follow
+it: after `get_note`, a note whose first line holds the word "ramble"
+(the journeys' marker) and which has two or more paragraphs split by
+a blank line is split a paragraph a part, then finished with "Split
+it into N notes (emulator stand-in)."; any other note is read and
+finished as before.
+
 **Using templates (#38, 2026-10-07).**
 
 - **Making one.** Settings, Templates, lists them (name and mode) and
@@ -2622,7 +2646,11 @@ keeps the history.
   where there is whitespace (`mcp/verbatim.ts`); the first part stays
   in the note, which links the new ones. `merge_notes` joins whole
   bodies with a blank line between. Claude's own words are only the
-  `See also` and `Split off:` lines.
+  `See also` and `Split off:` lines, and since 2026-11-09 (#233) the
+  `Split from: [[original]]` line under each piece, added as `Split
+  off:` is: where the original's title, as it reads after the split,
+  is linkable and reaches the original in the name index. A piece's
+  title stays its own first words.
 - **Links follow a merge.** The merged note answers to its originals'
   titles as synonyms, and `nameIndex` now indexes the synonyms of any
   note, after every title, so `[[Old title]]` elsewhere reaches the

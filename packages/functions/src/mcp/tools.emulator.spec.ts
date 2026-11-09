@@ -361,9 +361,11 @@ describe('organizing tools', () => {
     });
     expect(pieces).toEqual([{ id: expect.any(String), title: 'Glaze notes' }]);
     const piece = await body(pieces[0].id);
+    // The piece links back to the note it came from (#233); its title stays its own.
     expect(piece).toMatchObject({
-      body: 'Glaze notes\nCeladon ran.',
+      body: 'Glaze notes\nCeladon ran.\n\nSplit from: [[Kiln day]]',
       title: 'Glaze notes',
+      links: ['a'],
       tags: ['clay'],
       updatedBy: 'claude',
     });
@@ -374,6 +376,25 @@ describe('organizing tools', () => {
     expect(run).toMatchObject({ tool: 'split_note', summary: 'Split a note into 2' });
     expect(run['notes'].map((n: { id: string }) => n.id)).toEqual(['a', pieces[0].id]);
     expect(run['notes'].map((n: { made?: boolean }) => n.made)).toEqual([undefined, true]);
+  });
+
+  it('links a piece back only where the original’s name reaches it (#233)', async () => {
+    // Another note answers to "Kiln day" first, so no "Split from:" line.
+    await eric('a', 'Kiln day\nNotes.');
+    await eric('b', 'Kiln day\nFire to cone 6.\n\nGlaze notes\nCeladon ran.');
+    const t = ticking();
+    const { pieces } = await t.splitNote({
+      id: 'b',
+      parts: ['Kiln day\nFire to cone 6.', 'Glaze notes\nCeladon ran.'],
+    });
+    const piece = await body(pieces[0].id);
+    expect(piece['body']).toBe('Glaze notes\nCeladon ran.');
+    expect(piece['links']).toEqual([]);
+    // A title Eric gave his note is the name the pieces link back by.
+    await eric('c', 'Sunday\nBread.\n\nSoup\nLeek.', { title: 'Weekend', titleSource: 'user' });
+    const split = await t.splitNote({ id: 'c', parts: ['Sunday\nBread.', 'Soup\nLeek.'] });
+    expect((await body(split.pieces[0].id))['body']).toBe('Soup\nLeek.\n\nSplit from: [[Weekend]]');
+    expect((await body('c'))['title']).toBe('Weekend');
   });
 
   it('merges into a new note, archiving the originals; links to them follow', async () => {

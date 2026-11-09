@@ -493,7 +493,8 @@ export function buildServer(
       description:
         'Cut a note into pieces. parts must be the note itself, word for word and in order, cut ' +
         'only where there is whitespace; anything reworded is refused. The first part stays in ' +
-        'the note, which links to the new notes made from the rest. History keeps the whole note.',
+        'the note, which links to the new notes made from the rest; each links back to it. ' +
+        'History keeps the whole note.',
       inputSchema: {
         id: z.string().min(1),
         parts: z.array(z.string().min(1)).min(2).max(20),
