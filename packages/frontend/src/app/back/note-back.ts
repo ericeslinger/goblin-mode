@@ -224,6 +224,22 @@ function stamp(ms: number | undefined): string {
         </p>
       }
 
+      @if (canHold()) {
+        <label class="hold">
+          <input
+            type="checkbox"
+            role="switch"
+            [checked]="note().gardenHold === true"
+            (change)="notes.setGardenHold(note().id, $any($event.target).checked)"
+          />
+          Leave this note alone
+        </label>
+        <p class="hint">
+          Never gardened on arrival; an assistant may read it but leaves its words and filing as
+          they are. You can still send it with an ask.
+        </p>
+      }
+
       <h3 id="claude-changes">What assistants changed</h3>
       @if (!loaded()) {
         <p class="muted" role="status">Loading…</p>
@@ -356,6 +372,12 @@ function stamp(ms: number | undefined): string {
     }
     .send label {
       flex: 1 1 12em;
+    }
+    .hold {
+      display: flex;
+      gap: var(--space-2);
+      align-items: center;
+      margin-top: var(--space-2);
     }
     .actions {
       display: flex;
@@ -497,6 +519,16 @@ export class NoteBack {
     const going = run && (run.status === 'working' || run.status === 'requested') && !this.stale();
     return !!this.keys.keys()?.anthropic && !going;
   });
+  /**
+   * Leave this note alone (#229): a plain text note, with an Anthropic
+   * key kept; a note already held shows it with no key too, so the hold
+   * can be seen and cleared (review on #232).
+   */
+  protected readonly canHold = computed(
+    () =>
+      this.note().kind === 'text' &&
+      (!!this.keys.keys()?.anthropic || this.note().gardenHold === true),
+  );
   /** Ticks while a run is watched, so a lost run reads as lost in time (review on #152). */
   private readonly tick = signal(Date.now());
   protected readonly stale = computed(() => {

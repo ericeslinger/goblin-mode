@@ -104,6 +104,7 @@ export class FakeNotes {
   setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
   setArchived = vi.fn((_id: string, _archived: boolean) => undefined);
   setDeleted = vi.fn((_id: string, _deleted: boolean) => undefined);
+  setGardenHold = vi.fn((_id: string, _held: boolean) => undefined);
   setWeek = vi.fn((_id: string, _start: string) => undefined);
   createRecipe = vi.fn((name: string) =>
     this.names().has(name.trim().toLowerCase()) ? undefined : `new${++this.n}`,
@@ -323,7 +324,9 @@ export class FakeSettingsApi implements SettingsApi {
       return this.stop;
     },
   );
-  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge?: boolean) =>
+    Promise.resolve(),
+  );
   now = () => 'SERVER_TIME';
 
   push(data: Record<string, unknown> | undefined, fromCache = false, local = false): void {
@@ -348,7 +351,9 @@ export class FakeItemsApi implements ItemsApi {
       return vi.fn();
     },
   );
-  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge?: boolean) =>
+    Promise.resolve(),
+  );
   setMany = vi.fn((_db: unknown, _writes: { path: string; data: Record<string, unknown> }[]) =>
     Promise.resolve(),
   );

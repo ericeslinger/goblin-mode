@@ -110,10 +110,12 @@ test('an item ending in @goblin is researched and answered under itself', async 
 // Garden on arrival (#214, step 1 of #155): with the switch on and an
 // Anthropic key kept, a new note is sent once it first settles, with
 // no ask, and the garden's agent (the emulator's stand-in) finishes it.
+// Leave it alone (#229): a note held on its back, a note made from a
+// template Settings skips, and a note with a tag it names, are not sent.
 test('a new note is gardened on arrival once it settles, and its back says so', async ({
   page,
 }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   await signInAs(page, OWNER);
   await page.goto('/settings');
   const keys = page.getByRole('list', { name: 'API keys' });
@@ -152,4 +154,97 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   // Its text is as Eric left it.
   await page.getByRole('button', { name: 'Front', exact: true }).click();
   await expect(note).toContainText('Cone 6 firing on Saturday');
+
+  // Leave this note alone, on its back before it settles.
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New' }).click();
+  await note.click();
+  await typeLines(page, ['Letter to Dad', 'Not for filing']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const hold = back.getByRole('switch', { name: 'Leave this note alone' });
+  await hold.check();
+  await expect(hold).toBeChecked();
+  await letItSave(page);
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
+  await page.getByRole('button', { name: 'New' }).click();
+
+  // A template whose notes Settings says are never gardened on arrival.
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'New template', exact: true }).click();
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  await note.click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Delete');
+  await typeLines(page, ['Pottery journal', 'Fired: ']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(back.getByRole('heading', { level: 2, name: 'Pottery journal' })).toBeVisible();
+  await page.goto('/settings');
+  const skip = page.getByRole('checkbox', { name: 'Notes made from Pottery journal' });
+  await skip.check();
+  await expect(skip).toBeChecked();
+  await letItSave(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'From template' }).click();
+  await page
+    .getByRole('list', { name: 'Templates' })
+    .getByRole('button', { name: 'Pottery journal' })
+    .click();
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  await note.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.type('bisque, cone 04');
+  await letItSave(page);
+  await page.getByRole('button', { name: 'New' }).click();
+
+  // A tag Settings names, typed with a # and a stray space, kept tidy
+  // across a reload; the assistant tags a note, and Eric's next line
+  // settles it unsent.
+  await page.goto('/settings');
+  const tags = page.getByRole('textbox', { name: 'Notes with these tags' });
+  await tags.fill('private, #journal ');
+  await tags.press('Tab');
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Notes with these tags' })).toHaveValue(
+    'private, journal',
+  );
+  const call = await connectClaude(page);
+  await page.goto('/');
+  await note.click();
+  await typeLines(page, ['Letter to Mum', 'Birthday plans']);
+  await letItSave(page);
+  const [mum] = (await call('search_notes', { query: 'Birthday' })) as { id: string }[];
+  await call('refile', { id: mum.id, addTags: ['private'] });
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(back.getByRole('list', { name: 'Tags' })).toContainText('private');
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
+  await note.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await typeLines(page, ['', 'Cake on Sunday']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'New' }).click();
+
+  // A plain note settled after all three is sent: by then they would be.
+  await note.click();
+  await typeLines(page, ['Glaze order', 'Celadon and shino']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'New' }).click();
+  const backOf = async (title: RegExp) => {
+    await page.goto('/browse');
+    await page.getByRole('list', { name: 'Notes' }).getByRole('link', { name: title }).click();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+  };
+  await backOf(/Glaze order/);
+  await expect(back.getByText('Sent on arrival', { exact: false })).toBeVisible({
+    timeout: 30_000,
+  });
+  for (const title of [/Letter to Dad/, /Pottery journal/, /Letter to Mum/]) {
+    await backOf(title);
+    await expect(
+      back.getByRole('heading', { level: 3, name: 'Send to an assistant' }),
+    ).toBeVisible();
+    await expect(back.getByText('Sent on arrival', { exact: false })).toHaveCount(0);
+  }
 });

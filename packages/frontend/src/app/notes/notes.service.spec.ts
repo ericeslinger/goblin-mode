@@ -1304,6 +1304,30 @@ describe('NotesService', () => {
     });
   });
 
+  it('holds a note back from Garden on arrival through the cache, and lets it go (#229)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'n1', data: { body: 'Letter to Dad', archived: false } }]);
+    expect(notes.find('n1')?.gardenHold).toBeUndefined();
+    notes.setGardenHold('n1', true);
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/notes/n1',
+      {
+        gardenHold: true,
+        updatedAt: 'SERVER_TIME',
+        updatedBy: 'user',
+        deviceId: notes.deviceId(),
+      },
+      true,
+    ]);
+    notes.setGardenHold('n1', false);
+    expect(api.set.mock.lastCall![2]['gardenHold']).toBe(false);
+    notes.setGardenHold('gone', true);
+    expect(api.set).toHaveBeenCalledTimes(2);
+    push([{ id: 'n1', data: { body: 'Letter to Dad', archived: false, gardenHold: true } }]);
+    expect(notes.find('n1')?.gardenHold).toBe(true);
+  });
+
   it('records the text a save was written over, or that it is not known', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

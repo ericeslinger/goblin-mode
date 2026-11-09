@@ -51,6 +51,7 @@ export function firestoreRunStore(db: Firestore): RunStore {
         sendState: typeof d['sendState'] === 'string' ? d['sendState'] : undefined,
         sentAt: iso(d['sentAt']),
         sendAsk: typeof d['sendAsk'] === 'string' && d['sendAsk'] ? d['sendAsk'] : undefined,
+        ...(d['gardenHold'] === true ? { gardenHold: true } : {}),
       };
     },
   };

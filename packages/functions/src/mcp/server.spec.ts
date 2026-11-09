@@ -149,6 +149,8 @@ describe('the MCP server', () => {
       /Overview, Working notes, Tasks, Ideas, Open questions, Decisions and Links/,
     );
     expect(INSTRUCTIONS).toMatch(/file nothing without his yes/);
+    // Leave this note alone (#229).
+    expect(INSTRUCTIONS).toMatch(/get_note marks held is his alone/);
     expect(INSTRUCTIONS).toMatch(/capture once per\s+item/);
     expect(INSTRUCTIONS).toMatch(/timeZone and source/);
     expect(INSTRUCTIONS).toMatch(/what was filed, one line each/);

@@ -316,6 +316,38 @@ describe('NoteBack (#112)', () => {
     expect(button(el, 'Do it now')).toBeTruthy();
   });
 
+  it('offers Leave this note alone on a plain text note with a key, and writes it (#229)', async () => {
+    const hold = (el: HTMLElement) =>
+      [...el.querySelectorAll('label')]
+        .find((l) => l.textContent?.includes('Leave this note alone'))
+        ?.querySelector('input');
+    keys.keys.set({});
+    const without = await render(noteRecord('n1', 'Letter to Dad'), []);
+    expect(hold(without.el)).toBeUndefined();
+    TestBed.resetTestingModule();
+
+    keys.keys.set({ anthropic: { masked: 'sk-ant-…0123', broken: false } });
+    const { el, notes, fixture } = await render(noteRecord('n1', 'Letter to Dad'), []);
+    expect(hold(el)!.checked).toBe(false);
+    hold(el)!.click();
+    expect(notes.setGardenHold).toHaveBeenCalledWith('n1', true);
+    fixture.componentRef.setInput('note', {
+      ...noteRecord('n1', 'Letter to Dad'),
+      gardenHold: true,
+    });
+    await fixture.whenStable();
+    expect(hold(el)!.checked).toBe(true);
+    hold(el)!.click();
+    expect(notes.setGardenHold).toHaveBeenLastCalledWith('n1', false);
+    // Not on a note of another kind.
+    for (const kind of ['template', 'recipe', 'concept', 'clipping'] as const) {
+      fixture.componentRef.setInput('note', { ...noteRecord('n1', 'Letter to Dad'), kind });
+      await fixture.whenStable();
+      expect(hold(el)).toBeUndefined();
+    }
+    keys.keys.set({});
+  });
+
   it('archives the note from its back, and restores it (#207)', async () => {
     const { el, notes, fixture } = await render(noteRecord('n1', 'Glaze notes'), []);
     button(el, 'Archive')!.click();

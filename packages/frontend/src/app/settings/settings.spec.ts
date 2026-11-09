@@ -36,6 +36,8 @@ function fakeKeys() {
     remove: vi.fn(async () => undefined),
     onArrival: signal(false),
     setOnArrival: vi.fn(),
+    arrivalSkip: signal<{ templates: string[]; tags: string[] }>({ templates: [], tags: [] }),
+    setArrivalSkip: vi.fn(),
   };
 }
 const keys = fakeKeys();
@@ -170,6 +172,50 @@ describe('Settings', () => {
     expect(toggle()!.checked).toBe(false);
     toggle()!.click();
     expect(keys.setOnArrival).toHaveBeenCalledWith(true);
+  });
+
+  it('lists templates and takes tags never gardened on arrival (#229)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    keys.keys.set({ anthropic: { masked: 'sk-ant-…0123', broken: false } });
+    keys.arrivalSkip.set({ templates: ['t1'], tags: ['private'] });
+    keys.setArrivalSkip.mockClear();
+    const notes = new FakeNotes();
+    notes.signIn([
+      { ...noteRecord('t1', 'Shopping list'), kind: 'template', templateMode: 'living' },
+      { ...noteRecord('t2', 'Journal'), kind: 'template' },
+      noteRecord('n1', 'Not a template'),
+    ]);
+    const el = await render(auth, fakePush(), notes);
+    expect(el.textContent).toContain('Never gardened on arrival');
+    expect(el.textContent).toContain('the pantry, the context note and clippings');
+    const list = el.querySelector('[aria-labelledby="arrival-skip"]')!;
+    const boxes = [...list.querySelectorAll('label')].map((l) => [
+      l.textContent!.trim(),
+      l.querySelector('input')!.checked,
+    ]);
+    expect(boxes).toEqual([
+      ['Notes made from Journal', false],
+      ['Notes made from Shopping list', true],
+    ]);
+    list.querySelectorAll('input')[0]!.click();
+    expect(keys.setArrivalSkip).toHaveBeenLastCalledWith({
+      templates: ['t1', 't2'],
+      tags: ['private'],
+    });
+    list.querySelectorAll('input')[1]!.click();
+    expect(keys.setArrivalSkip).toHaveBeenLastCalledWith({ templates: [], tags: ['private'] });
+    const tags = [...el.querySelectorAll('label')]
+      .find((l) => l.textContent?.includes('Notes with these tags'))!
+      .querySelector('input')!;
+    expect(tags.value).toBe('private');
+    tags.value = 'private, journal';
+    tags.dispatchEvent(new Event('change'));
+    expect(keys.setArrivalSkip).toHaveBeenLastCalledWith({
+      templates: ['t1'],
+      tags: ['private', 'journal'],
+    });
+    keys.arrivalSkip.set({ templates: [], tags: [] });
   });
 
   it('shows the connector URL and disconnects Claude', async () => {

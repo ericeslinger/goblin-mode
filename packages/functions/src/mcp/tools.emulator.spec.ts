@@ -202,6 +202,10 @@ describe('NotesTools', () => {
       },
     ]);
     expect((await t.getNote({ id: 'a' })).driveFiles).toEqual([]);
+    expect(await t.getNote({ id: 'a' })).not.toHaveProperty('held');
+    // Leave this note alone (#229): get_note says it is Eric's alone.
+    await eric('e', 'Letter to Dad\nnot for filing', { gardenHold: true });
+    expect((await t.getNote({ id: 'e' })).held).toContain('leave its text and filing');
   });
 
   it('stores the ids a note links to, when Claude writes it', async () => {

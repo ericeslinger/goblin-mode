@@ -66,7 +66,8 @@ users/{uid}
                               homeHidden (#222); shared by devices
   settings/keys               masked provider keys, function-written (#144)
   settings/reader             the Reader's folder order and switches (#159)
-  settings/assistant          the assistant's switches (#214)
+  settings/assistant          the assistant's switches (#214):
+                              gardenOnArrival, arrivalSkip (#229)
   activity/{runId}            "What Claude changed" records
   runs/{runId}                the garden's own agent runs (#144 step 3)
   feeds/{feedId}              feeds followed, id from the URL (#159)
@@ -115,6 +116,7 @@ interface Note {
   updatedBy: 'user' | 'claude';
   deviceId: string;             // last writer, for conflict history
   settledAt?: Timestamp;        // last left after a change; asks for a title
+  gardenHold?: boolean;         // Leave this note alone (#229)
 }
 ```
 
@@ -2407,6 +2409,35 @@ is slow.
   arrival" with the time, "with no ask, to be filed", above the usual
   run and Done lines. Take it back, or sending it himself, clears
   `sentOnArrival` with the other send fields.
+- **Leave it alone (#229, step 2 of #155, 2026-11-09).** Two ways to
+  hold a note back from Garden on arrival. Per note, the back of a
+  plain text note shows **Leave this note alone** to a gardener with an
+  Anthropic key kept, near Send to an assistant; it is stored as
+  `gardenHold: true` on the note, written through the cache like
+  Archive (`setGardenHold`). A held note is never sent on arrival, and
+  clearing the hold sends nothing. Eric may still send it himself, and
+  then his ask stands: `get_note` returns `held`, saying the note is
+  his alone, to be read but left with its text and filing as they are
+  unless he asks; `INSTRUCTIONS` say the same in one clause, and the
+  run's brief gains a `Held:` line (with no ask, it leaves the note as
+  it is). `list_queue` is unchanged, since arrival never queues a held
+  note. By kind and template, Settings, AI assistants, under the
+  arrival switch, says **Never gardened on arrival**: the fixed set
+  (templates, recipes, concepts, meal plans, the pantry, the context
+  note, clippings) as text, then a checkbox for each of the gardener's
+  templates, "notes made from" it, and a field of tags, comma
+  separated. They are stored in `settings/assistant` as `arrivalSkip:
+  { templates, tags }` (template ids; tags trimmed, without `#`), the
+  doc written whole with the switch. `arrives` checks the hold first,
+  then `fromTemplate` against the skipped templates, then the note's
+  tags against the skipped tags (compared without case or `#`), before
+  the rest; the hold, which needs no settings, is checked before the
+  switch is read. This closes the #214 follow-up: a note made from a
+  template is kind `text`, and was sent like any other; one from a
+  skipped template no longer is. A note held after the write
+  that settled it is caught again in `requestRun`'s transaction. The
+  rules check only that `gardenHold` is a boolean and `arrivalSkip` a
+  map, as for other maps.
 - **Items assigned to the assistant (#144 step 4, 2026-10-25).** A
   checklist item ending in `@goblin` is the assistant's, typed like
   anything else, so it works offline. When the note settles (the

@@ -21,6 +21,44 @@ interface NoteFields {
   updatedBy?: unknown;
   sendState?: unknown;
   settledAt?: unknown;
+  gardenHold?: unknown;
+  fromTemplate?: unknown;
+  tags?: unknown;
+}
+
+/** What Settings says is never gardened on arrival (#229): template ids and tags. */
+export interface ArrivalSkip {
+  templates: readonly string[];
+  tags: readonly string[];
+}
+
+const NO_SKIP: ArrivalSkip = { templates: [], tags: [] };
+
+/** A tag as compared: trimmed, without a leading #, in lower case. */
+const tagKey = (t: string) => t.trim().replace(/^#/, '').toLowerCase();
+
+const strings = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+/** `arrivalSkip` as stored in settings/assistant, whatever shape it has. */
+export function arrivalSkipOf(v: unknown): ArrivalSkip {
+  if (typeof v !== 'object' || v === null) return NO_SKIP;
+  const o = v as Record<string, unknown>;
+  return { templates: strings(o['templates']), tags: strings(o['tags']) };
+}
+
+/**
+ * Whether Eric holds this note back from arrival (#229): the note's
+ * own Leave this note alone, then a template, then a tag Settings
+ * names, in that order.
+ */
+export function leftAlone(note: NoteFields, skip: ArrivalSkip = NO_SKIP): boolean {
+  if (note.gardenHold === true) return true;
+  if (typeof note.fromTemplate === 'string' && skip.templates.includes(note.fromTemplate)) {
+    return true;
+  }
+  const skipped = new Set(skip.tags.map(tagKey).filter(Boolean));
+  return strings(note.tags).some((t) => skipped.has(tagKey(t)));
 }
 
 const settled = (v: unknown) => v instanceof Timestamp;
@@ -29,14 +67,17 @@ const settled = (v: unknown) => v instanceof Timestamp;
  * Whether this write is a note's arrival (#214): its first settle
  * (`settledAt` absent before, set now), on a plain text note of the
  * gardener's own with words in it, not sent or done already. A note
- * settling again, or taken back after it was sent, is not an arrival.
+ * settling again, or taken back after it was sent, is not an arrival,
+ * nor is one Eric holds back (#229), which is checked first.
  */
 export function arrives(
   noteId: string,
   before: NoteFields | undefined,
   after: NoteFields | undefined,
+  skip: ArrivalSkip = NO_SKIP,
 ): boolean {
   if (!after || noteId === 'context') return false;
+  if (leftAlone(after, skip)) return false;
   if (settled(before?.settledAt) || !settled(after.settledAt)) return false;
   return (
     after.kind === 'text' &&
@@ -90,6 +131,8 @@ export async function requestRun(
       if (note['sendState'] !== undefined) {
         throw new HttpsError('failed-precondition', 'Already sent.');
       }
+      // Held back since the write that settled it (#229).
+      if (note['gardenHold'] === true) throw new HttpsError('failed-precondition', 'Held back.');
       // A spent day leaves the note unsent: Eric did not send it, and
       // queued it would wait on a routine he may not run.
       if (Number(usage?.data()?.['runs'] ?? 0) >= DAILY_RUNS) {
@@ -136,13 +179,14 @@ export async function requestRun(
 
 /** What a note's write came to under Garden on arrival (#214). */
 export type ArrivalOutcome =
-  'sent' | 'not-arrival' | 'off' | 'no-key' | 'capped' | 'already' | 'gone';
+  'sent' | 'not-arrival' | 'off' | 'skipped' | 'no-key' | 'capped' | 'already' | 'gone';
 
 /**
  * Garden on arrival (#214, step 1 of #155): on a note's arrival, with
  * the gardener's switch on and an Anthropic key kept, queues it with no
  * ask and starts its run, as Send to an assistant and Do it now would
- * together. Everything else leaves the note as it is.
+ * together. A note held back, or made from a template or carrying a
+ * tag Settings skips (#229), is left as it is, as is everything else.
  */
 export async function gardenOnArrival(
   db: Firestore,
@@ -154,6 +198,9 @@ export async function gardenOnArrival(
   if (!arrives(noteId, before, after)) return 'not-arrival';
   const settings = await db.doc(paths.assistant(uid)).get();
   if (settings.get('gardenOnArrival') !== true) return 'off';
+  if (!arrives(noteId, before, after, arrivalSkipOf(settings.get('arrivalSkip')))) {
+    return 'skipped';
+  }
   if ((await firestoreKeyStore(db).ciphertext(uid, 'anthropic')) === undefined) return 'no-key';
   try {
     await requestRun(db, uid, noteId, 'arrival');

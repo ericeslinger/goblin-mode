@@ -364,6 +364,32 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...note(), sentOnArrival: 'yes' }));
   });
 
+  it('lets the owner hold a note back and let it go, as a boolean (#229)', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertSucceeds(ref.set(note()));
+    await assertSucceeds(ref.update({ gardenHold: true }));
+    await assertSucceeds(ref.update({ gardenHold: false }));
+    await assertFails(ref.update({ gardenHold: 'yes' }));
+    await assertFails(intruder().doc('users/owner/notes/n1').update({ gardenHold: true }));
+  });
+
+  it('keeps what is never gardened on arrival in settings/assistant (#229)', async () => {
+    const ref = owner().doc('users/owner/settings/assistant');
+    const assistant = valid['users/owner/settings/assistant'];
+    await assertSucceeds(
+      ref.set({ ...assistant(), arrivalSkip: { templates: ['t1'], tags: ['private'] } }),
+    );
+    await assertSucceeds(ref.set({ ...assistant(), arrivalSkip: { templates: [], tags: [] } }));
+    await assertFails(ref.set({ ...assistant(), arrivalSkip: 'private' }));
+    await assertFails(ref.set({ ...assistant(), arrivalSkip: ['private'] }));
+    await assertFails(
+      intruder()
+        .doc('users/owner/settings/assistant')
+        .set({ ...assistant(), arrivalSkip: { templates: [], tags: [] } }),
+    );
+  });
+
   it('accepts a server timestamp, as the app writes updatedAt', async () => {
     const note = valid['users/owner/notes/n1'];
     await assertSucceeds(
