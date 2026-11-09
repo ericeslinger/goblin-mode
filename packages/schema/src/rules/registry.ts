@@ -3,6 +3,7 @@
 // collections (history, activity, oauth) are `allow write: if false`
 // and need none. See the write-path table in model.ts.
 import {
+  AssistantSettings,
   Attachment,
   Device,
   Feed,
@@ -24,6 +25,7 @@ export const CLIENT_WRITTEN: ValidatedCollection[] = [
   { name: 'Attachment', schema: Attachment },
   { name: 'Feed', schema: Feed },
   { name: 'ReaderSettings', schema: ReaderSettings },
+  { name: 'AssistantSettings', schema: AssistantSettings },
 ];
 
 /** The generated block for firestore.rules, plus any warnings. */

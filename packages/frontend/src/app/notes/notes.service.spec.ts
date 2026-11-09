@@ -716,6 +716,8 @@ describe('NotesService', () => {
         sendAsk: 'file this under pottery',
         sentAt: 'SERVER_TIME',
         sendOutcome: 'REMOVED',
+        // Sent by Eric himself now, not on arrival (#214).
+        sentOnArrival: 'REMOVED',
       },
       true,
     );

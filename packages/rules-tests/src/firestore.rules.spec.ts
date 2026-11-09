@@ -84,6 +84,7 @@ const valid: Record<string, () => object> = {
     images: true,
     updatedAt: now(),
   }),
+  'users/owner/settings/assistant': () => ({ gardenOnArrival: true, updatedAt: now() }),
 };
 
 describe('client-written collections: notes, reminders, devices, settings, attachments', () => {
@@ -316,6 +317,23 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     // Each doc keeps its own shape.
     await assertFails(ref.set(valid['users/owner/settings/app']()));
     await assertFails(owner().doc('users/owner/settings/app').set(modules()));
+  });
+
+  it('keeps the assistant’s switches in settings/assistant (#214)', async () => {
+    const ref = owner().doc('users/owner/settings/assistant');
+    const assistant = valid['users/owner/settings/assistant'];
+    await assertSucceeds(ref.set({ updatedAt: now() }));
+    await assertSucceeds(ref.set({ gardenOnArrival: false, updatedAt: now() }));
+    await assertFails(ref.set({ ...assistant(), gardenOnArrival: 'yes' }));
+    await assertFails(ref.set(valid['users/owner/settings/app']()));
+    await assertFails(owner().doc('users/owner/settings/app').set(assistant()));
+  });
+
+  it('lets a note say it was sent on arrival, as a boolean (#214)', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertSucceeds(ref.set({ ...note(), sendState: 'queued', sentOnArrival: true }));
+    await assertFails(ref.set({ ...note(), sentOnArrival: 'yes' }));
   });
 
   it('accepts a server timestamp, as the app writes updatedAt', async () => {

@@ -106,3 +106,50 @@ test('an item ending in @goblin is researched and answered under itself', async 
     /mg-done/,
   );
 });
+
+// Garden on arrival (#214, step 1 of #155): with the switch on and an
+// Anthropic key kept, a new note is sent once it first settles, with
+// no ask, and the garden's agent (the emulator's stand-in) finishes it.
+test('a new note is gardened on arrival once it settles, and its back says so', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  const keys = page.getByRole('list', { name: 'API keys' });
+  await keys
+    .getByRole('textbox', { name: 'Anthropic key' })
+    .fill('sk-ant-api03-e2e-abcdefghijklmnopqrstuvwxyz0123');
+  await keys.getByRole('button', { name: 'Save' }).first().click();
+  await expect(keys).toContainText('sk-ant-…0123');
+  const toggle = page.getByRole('switch', { name: 'Garden new notes on arrival' });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect(toggle).toBeChecked();
+  await letItSave(page);
+
+  await page.goto('/');
+  const note = page.getByRole('textbox', { name: 'New note' });
+  await note.click();
+  await typeLines(page, ['Kiln log', 'Cone 6 firing on Saturday']);
+  await letItSave(page);
+  // New settles the note: its arrival.
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.goto('/browse');
+  await page
+    .getByRole('list', { name: 'Notes' })
+    .getByRole('link', { name: /Kiln log/ })
+    .click();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  await expect(back.getByText('Sent on arrival', { exact: false })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(back.getByRole('status').first()).toContainText(
+    'Done: Read it (emulator stand-in).',
+    { timeout: 30_000 },
+  );
+  // Its text is as Eric left it.
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
+  await expect(note).toContainText('Cone 6 firing on Saturday');
+});

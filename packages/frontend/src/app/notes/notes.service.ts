@@ -121,6 +121,8 @@ export interface NoteRecord {
   sendOutcome?: string;
   /** The run doing it now (#144 step 3), if Eric asked for one. */
   sendRun?: string;
+  /** Sent by the server when it first settled, not by Eric (#214). */
+  sentOnArrival?: boolean;
   /** A concept's other names. */
   synonyms?: string[];
   /** A concept's type: 'person', 'project', 'mood' or 'other'. */
@@ -264,6 +266,7 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
       : {}),
     ...(typeof data['sendOutcome'] === 'string' ? { sendOutcome: data['sendOutcome'] } : {}),
     ...(typeof data['sendRun'] === 'string' ? { sendRun: data['sendRun'] } : {}),
+    ...(data['sentOnArrival'] === true ? { sentOnArrival: true } : {}),
     ...(data['updatedBy'] === 'claude' || data['updatedBy'] === 'user'
       ? { updatedBy: data['updatedBy'] }
       : {}),
@@ -817,6 +820,8 @@ export class NotesService {
       sendAsk: text || this.api.removeField(),
       sentAt: this.api.serverTime(),
       sendOutcome: this.api.removeField(),
+      // Sent by Eric now, not on its arrival (#214).
+      sentOnArrival: this.api.removeField(),
     };
     this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
@@ -831,6 +836,7 @@ export class NotesService {
       sentAt: gone,
       sendOutcome: gone,
       sendRun: gone,
+      sentOnArrival: gone,
     };
     this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
