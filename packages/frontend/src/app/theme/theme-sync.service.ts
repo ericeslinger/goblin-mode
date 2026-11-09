@@ -3,6 +3,7 @@ import { Settings, StartOn, paths } from '@mossgoblin/schema';
 import { type Firestore, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { HomeTilesService } from '../home/home-tiles';
 import { StartOnService } from '../home/start-on';
 import { ThemeService } from './theme.service';
 
@@ -55,7 +56,8 @@ export const SETTINGS_API = new InjectionToken<SettingsApi>('settings-api', {
  * choice made while sign-in is still being restored is written once
  * the gardener is known, rather than lost to the older doc. Start on
  * (#219) rides in the same doc and is kept the same way: the doc is
- * written whole, so each write carries both.
+ * written whole, so each write carries both. So does Home's
+ * arrangement (#222), `homeTiles` and `homeHidden`.
  */
 @Injectable({ providedIn: 'root' })
 export class ThemeSync {
@@ -64,21 +66,25 @@ export class ThemeSync {
   private readonly auth = inject(AuthService);
   private readonly theme = inject(ThemeService);
   private readonly startOn = inject(StartOnService);
+  private readonly tiles = inject(HomeTilesService);
 
   private uid?: string;
   private stop?: () => void;
   private seen = untracked(() => this.theme.chosen());
   private seenStart = untracked(() => this.startOn.chosen());
+  private seenTiles = untracked(() => this.tiles.chosen());
   /** A choice made before the gardener was known, to write on arrival. */
   private pending = false;
   /** That choice included Start on, so the doc's must not replace it. */
   private pendingStart = false;
+  /** That choice included Home's tiles, likewise. */
+  private pendingTiles = false;
 
   constructor() {
     effect(() => {
       const user = this.auth.user();
       // Signed out: a choice held from sign-in restore is no longer anyone's.
-      if (user === null) this.pending = this.pendingStart = false;
+      if (user === null) this.pending = this.pendingStart = this.pendingTiles = false;
       const uid = user?.uid;
       if (uid === this.uid) return;
       this.stop?.();
@@ -107,6 +113,15 @@ export class ThemeSync {
         this.write();
       });
     });
+    effect(() => {
+      const chosen = this.tiles.chosen();
+      if (chosen === this.seenTiles) return;
+      this.seenTiles = chosen;
+      untracked(() => {
+        if (!this.uid) this.pendingTiles = true;
+        this.write();
+      });
+    });
     inject(DestroyRef).onDestroy(() => this.stop?.());
   }
 
@@ -126,15 +141,32 @@ export class ThemeSync {
     if (startOn.success && !(this.pending && this.pendingStart)) {
       this.startOn.adopt(startOn.data);
     }
+    // Home's tiles (#222) the same way; a doc with neither list keeps
+    // this device's.
+    const order = Settings.shape.homeTiles.safeParse(data?.['homeTiles']);
+    const hidden = Settings.shape.homeHidden.safeParse(data?.['homeHidden']);
+    if (
+      order.success &&
+      hidden.success &&
+      (order.data || hidden.data) &&
+      !(this.pending && this.pendingTiles)
+    ) {
+      this.tiles.adopt({ order: order.data ?? [], hidden: hidden.data ?? [] });
+    }
     if (this.pending) {
-      this.pending = this.pendingStart = false;
+      this.pending = this.pendingStart = this.pendingTiles = false;
       this.write();
       return;
     }
     if (data === undefined) {
       // Only the server can say there is no doc: an empty cache (a new
       // device, offline) must not overwrite another device's choice.
-      if (!fromCache && (this.theme.hasStoredChoice() || this.startOn.hasStoredChoice())) {
+      if (
+        !fromCache &&
+        (this.theme.hasStoredChoice() ||
+          this.startOn.hasStoredChoice() ||
+          this.tiles.hasStoredChoice())
+      ) {
         this.write();
       }
       return;
@@ -154,6 +186,12 @@ export class ThemeSync {
       mode: this.theme.mode(),
       // Only once chosen here or read from the doc.
       ...(this.startOn.hasStoredChoice() ? { startOn: this.startOn.choice() } : {}),
+      ...(this.tiles.hasStoredChoice()
+        ? {
+            homeTiles: this.tiles.arrangement().order,
+            homeHidden: this.tiles.arrangement().hidden,
+          }
+        : {}),
       updatedAt: this.api.now(),
     };
     this.api.set(this.fb.db, paths.settings(this.uid), data).catch((err) => {

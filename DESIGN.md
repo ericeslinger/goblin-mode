@@ -62,7 +62,8 @@ users/{uid}
     history/{versionId}
   reminders/{reminderId}
   devices/{deviceId}          push tokens
-  settings/app                theme, mode, startOn (#219); shared by devices
+  settings/app                theme, mode, startOn (#219), homeTiles and
+                              homeHidden (#222); shared by devices
   settings/keys               masked provider keys, function-written (#144)
   settings/reader             the Reader's folder order and switches (#159)
   settings/assistant          the assistant's switches (#214)
@@ -846,6 +847,37 @@ to, a note's link or any other URL opens as it says. A module chosen
 while off falls back to Home. The default is A new note, so nothing
 changed for Eric until he picks Home. A choice made on another device
 applies from the next cold open here.
+
+**Arranging Home (#222, step 2 of #216, 2026-11-09).** A tile held for
+400 ms, or the Arrange Home button at the foot of Home (for keyboards
+and mice), opens Arrange Home in place: a header with Done, the box and
+Right Now shown dashed because they stay put, the tiles as a list
+("Tiles, drag to reorder") with a grip on each, and Not on Home, where
+a tile taken off (its Remove) waits to be added back at the end. The
+grip is a 44 px `<button>` named "Move" and the tile: a pointer on it
+lifts the tile with a transform and drags it, the others gliding to
+the slots they would take and a dashed drop target where it would
+land, and lifting the pointer drops it; with focus, Left and Right
+move it a slot and Up and Down a row, and a live region says where it
+is now ("Map, 2 of 4"). Pointer events, no library; the grip takes
+`touch-action: none` so a drag is not a scroll, and a finger that
+wanders 10 px before the hold ends is a scroll, not a hold. Motion
+follows `--motion`, and reduced motion drops the lifted tile's tilt.
+Done returns to Home.
+
+The arrangement is two lists of tile ids in `settings/app`:
+`homeTiles`, the order, and `homeHidden`, the tiles taken off. The
+issue named only the first; the second is there because a tile missing
+from the order must join it (a new module, or a list from an older
+app), so missing cannot also mean taken off. Home shows the order,
+skipping a module that is off and anything it does not know, then
+every tile missing from it, in the fixed default order (`TILE_IDS` in
+`home/home-tiles.ts`). It is written as Start on is: kept on the device
+under `goblin.homeTiles` at once, so Home applies it before auth or
+the server, carried whole by `ThemeSync` in every write of the doc, and
+never replaced by an older doc's lists when it was arranged while
+sign-in was restoring. A doc with neither list keeps the device's. The
+rules check both are lists.
 
 **Module tabs and the Reader's icons (#220, #221, steps 3 and 4 of
 #216, 2026-11-09).** Kitchen and the Reader each have a segmented bar

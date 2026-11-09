@@ -324,6 +324,13 @@ export const Settings = z.object({
   mode: ThemeMode,
   /** Absent until chosen, and on every doc from before #219: a new note. */
   startOn: StartOn.optional(),
+  /**
+   * Home's tiles in the gardener's order (#222, 2026-11-09), by id.
+   * Absent until arranged; a tile missing from it joins at the end.
+   */
+  homeTiles: z.array(z.string().min(1).max(40)).max(40).optional(),
+  /** The tiles taken off Home in Arrange Home, by id (#222). */
+  homeHidden: z.array(z.string().min(1).max(40)).max(40).optional(),
   updatedAt: Timestamp,
 });
 export type Settings = z.infer<typeof Settings>;

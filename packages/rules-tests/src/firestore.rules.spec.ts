@@ -302,6 +302,12 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     // Start on (#219): one of the five screens, or absent.
     await assertSucceeds(ref.set({ ...settings(), startOn: 'home' }));
     await assertFails(ref.set({ ...settings(), startOn: 'garden' }));
+    // Home's order and the tiles taken off it (#222): lists, or absent.
+    await assertSucceeds(
+      ref.set({ ...settings(), homeTiles: ['map', 'notes'], homeHidden: ['reader'] }),
+    );
+    await assertFails(ref.set({ ...settings(), homeTiles: 'map,notes' }));
+    await assertFails(ref.set({ ...settings(), homeHidden: { map: true } }));
     await assertSucceeds(
       ref.set({ ...settings(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }),
     );

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { HOME_TILES_KEY, HomeTilesService } from '../home/home-tiles';
 import { START_ON_KEY, StartOnService } from '../home/start-on';
 import { FakeAuthService, fakeFirebase } from '../testing/fakes';
 import { SETTINGS_API, type SettingsApi, ThemeSync } from './theme-sync.service';
@@ -41,12 +42,13 @@ function setup(stored?: unknown) {
   TestBed.inject(ThemeSync);
   const theme = TestBed.inject(ThemeService);
   const startOn = TestBed.inject(StartOnService);
+  const tiles = TestBed.inject(HomeTilesService);
   TestBed.tick();
   const signIn = (uid = 'u1') => {
     auth.user.set({ uid, email: 'eric@example.com' } as User);
     TestBed.tick();
   };
-  return { api, auth, theme, startOn, signIn };
+  return { api, auth, theme, startOn, tiles, signIn };
 }
 
 describe('ThemeSync', () => {
@@ -227,6 +229,62 @@ describe('ThemeSync', () => {
       theme: 'herbarium',
       mode: 'system',
       startOn: 'note',
+      updatedAt: 'SERVER_TIME',
+    });
+  });
+
+  it('carries Home’s tiles in the same doc, both ways (#222)', () => {
+    const { api, tiles, signIn } = setup();
+    signIn();
+    api.push({ theme: 'moss', mode: 'light', homeTiles: ['map', 'notes'], updatedAt: 'x' });
+    TestBed.tick();
+    expect(tiles.arrangement()).toEqual({ order: ['map', 'notes'], hidden: [] });
+    expect(api.set).not.toHaveBeenCalled();
+
+    tiles.reorder(['notes', 'map']);
+    tiles.remove('reader');
+    TestBed.tick();
+    expect(api.set).toHaveBeenLastCalledWith(expect.anything(), 'users/u1/settings/app', {
+      theme: 'moss',
+      mode: 'light',
+      homeTiles: ['notes', 'map'],
+      homeHidden: ['reader'],
+      updatedAt: 'SERVER_TIME',
+    });
+  });
+
+  it('keeps this device’s tiles when the doc has none, and ignores a malformed list', () => {
+    const { api, tiles, signIn } = setup();
+    tiles.reorder(['map']);
+    signIn();
+    api.push({ theme: 'moss', mode: 'light', updatedAt: 'x' });
+    api.push({ theme: 'moss', mode: 'light', homeTiles: 'notes', updatedAt: 'x' });
+    TestBed.tick();
+    expect(tiles.arrangement().order).toEqual(['map']);
+  });
+
+  it('writes tiles arranged while sign-in is restoring, over the older doc', () => {
+    const { api, auth, tiles, signIn } = setup();
+    auth.user.set(undefined);
+    TestBed.tick();
+    tiles.reorder(['assistants', 'notes']);
+    TestBed.tick();
+    expect(api.set).not.toHaveBeenCalled();
+    signIn();
+    api.push(
+      { theme: 'herbarium', mode: 'system', homeTiles: ['notes', 'assistants'], updatedAt: 'x' },
+      true,
+    );
+    TestBed.tick();
+    expect(tiles.arrangement().order).toEqual(['assistants', 'notes']);
+    expect(JSON.parse(localStorage.getItem(HOME_TILES_KEY)!)).toMatchObject({
+      order: ['assistants', 'notes'],
+    });
+    expect(api.set).toHaveBeenLastCalledWith(expect.anything(), 'users/u1/settings/app', {
+      theme: 'herbarium',
+      mode: 'system',
+      homeTiles: ['assistants', 'notes'],
+      homeHidden: [],
       updatedAt: 'SERVER_TIME',
     });
   });

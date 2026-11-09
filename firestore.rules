@@ -83,10 +83,12 @@ service cloud.firestore {
 
     function isValidSettings(data) {
       return data.keys().hasAll(['theme', 'mode', 'updatedAt'])
-        && data.keys().hasOnly(['theme', 'mode', 'startOn', 'updatedAt'])
+        && data.keys().hasOnly(['theme', 'mode', 'startOn', 'homeTiles', 'homeHidden', 'updatedAt'])
         && (data.theme is string && data.theme in ['herbarium', 'night', 'moss', 'bog', 'pixel'])
         && (data.mode is string && data.mode in ['system', 'light', 'dark'])
         && (!('startOn' in data) || (data.startOn is string && data.startOn in ['home', 'note', 'right-now', 'kitchen', 'reader']))
+        && (!('homeTiles' in data) || data.homeTiles is list)
+        && (!('homeHidden' in data) || data.homeHidden is list)
         && data.updatedAt is timestamp;
     }
 
