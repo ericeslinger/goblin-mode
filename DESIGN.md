@@ -614,17 +614,17 @@ of this device's that the cache had not yet shown when the last were
 typed. Holding the words, the cache kept them; holding anything else,
 someone wrote the field since, and theirs is newer: nothing is written
 over it. A field written over and then back to `base` cannot be told
-from one never touched, and is accepted. A snapshot carries a write only after the cache holds it, so a new
-write takes what the cache shows as its `base`
-(`notes/pending-writes.ts`). It
-applies in three places: note text (`goblin.pendingSaves`, every
-`NotesService.save`: a new note, an edit, a restore or keep, the
-first-words title riding along; a new note the cache never took is
-made again, any other note the server lacks stays gone), a template's
-Instructions for Claude (`goblin.pendingInstructions`; a template the
-server lacks drops its entry), and, before the notes load,
-the pending draft (`goblin.pendingDraft`), which hands over to the
-first at the moment it is written. The Instructions field keeps every
+from one never touched, and is accepted. A snapshot carries a write
+only after the cache holds it, so a new write takes what the cache
+shows as its `base` (`notes/pending-writes.ts`). It applies in three
+places: note text (`goblin.pendingSaves`, every `NotesService.save`: a
+new note, an edit, a restore or keep, the first-words title riding
+along; a new note the cache never took is made again, any other note
+the server lacks stays gone), a template's Instructions for Claude
+(`goblin.pendingInstructions`; a template the server lacks drops its
+entry), and the pending draft (`goblin.pendingDraft`), which holds
+typing from before the notes load and, once `save` is called for it,
+is kept as a note save like any other. The Instructions field keeps every
 keystroke this way and writes after the save delay, on leaving the
 field, and on `pagehide`, since a page closed with the field focused
 never fires `change`.
