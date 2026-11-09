@@ -112,6 +112,8 @@ describe('the MCP server', () => {
     ]);
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
     expect(INSTRUCTIONS).toMatch(/word for word/);
+    // No tool deletes; a note Eric deleted is in Trash (#217).
+    expect(INSTRUCTIONS).toMatch(/there is no delete tool\. A note Eric deleted is in Trash/);
   });
 
   it('tells Claude which modules are on, and what an off one means (#126)', () => {

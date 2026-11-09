@@ -149,6 +149,11 @@ export class Launch {
   protected readonly routeIsContext = computed(() => this.routeId() === CONTEXT_ID);
   /** The URL names a concept (its id is derived from its name). */
   protected readonly routeIsConcept = computed(() => !!this.routeId()?.startsWith(CONCEPT_PREFIX));
+  /** The URL names a note in Trash (#217): it stays read-only until restored. */
+  protected readonly routeInTrash = computed(() => {
+    const id = this.routeId();
+    return !!id && this.notes.trashed(id) !== undefined;
+  });
 
   /** Names a `[[` can complete to: concepts, synonyms, note titles. */
   protected readonly suggest = (query: string) => suggestLinks(query, this.notes.notes());

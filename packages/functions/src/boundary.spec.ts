@@ -8,6 +8,7 @@ const EXPORTS = [
   'mcp',
   'noteHistory',
   'noteTitle',
+  'trashSweep',
   'oauth',
   'proposalAccepted',
   'revertRun',

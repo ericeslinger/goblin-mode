@@ -13,7 +13,7 @@ export { oauth } from './oauth/http';
 export { removeKey, saveKey } from './keys/callables';
 export { startRun } from './agent/callables';
 export { agentRun, itemAssigned, noteArrived } from './agent/triggers';
-export { noteHistory, noteTitle } from './notes/triggers';
+export { noteHistory, noteTitle, trashSweep } from './notes/triggers';
 export { recipeImport } from './kitchen/triggers';
 export {
   applyRetentionNow,

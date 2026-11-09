@@ -9,7 +9,9 @@ export const INSTRUCTIONS = [
     'reminders screen.',
   "Keep Eric's paragraphs word for word. You may add your own text, re-file, tag, link, " +
     'split, merge and archive, but never reword what he wrote unless he asks you to.',
-  'Prefer archiving to deleting; there is no delete tool.',
+  'Prefer archiving to deleting; there is no delete tool. A note Eric deleted is in Trash, ' +
+    'gone for good 30 days later: no tool lists, reads or changes it, and get_note says so; ' +
+    "create_concept with a deleted concept's name brings it back.",
   "In Eric's notes *single stars* mean bold and _underscores_ mean italic; " +
     'write emphasis the same way.',
   'Times are ISO 8601 with an offset. Ask Eric for his time zone if you need one and do not know it.',
@@ -228,7 +230,8 @@ export function buildServer(
       title: 'Create a concept',
       description:
         'A new person, project, mood or other named thing, which [[links]] to its name or other ' +
-        'names then reach. Use names as Eric wrote them. Refused when a name is taken. ' +
+        'names then reach. Use names as Eric wrote them. Refused when a name is taken. A ' +
+        'concept Eric deleted comes back from Trash as it was instead (broughtBack). ' +
         'A project may have a parent project, a kind and a status; its text gets the project ' +
         'sections (Overview, Working notes, Tasks, Ideas, Open questions, Decisions, Links), ' +
         'with any body given under Overview. A project may list stages and itemTags for its ' +

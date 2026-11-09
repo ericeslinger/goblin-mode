@@ -125,6 +125,18 @@ export function agentOf(data: { agent?: unknown }): string {
   return typeof data.agent === 'string' && data.agent.trim() ? data.agent : 'Claude';
 }
 
+/** Days a deleted note stays in Trash before the sweep removes it (#217). */
+export const TRASH_DAYS = 30;
+export const TRASH_MS = TRASH_DAYS * 24 * 60 * 60_000;
+
+/**
+ * Whole days until a note deleted at `deletedAt` is gone for good, as
+ * Trash says it ("gone in N days"): rounded up, never below 0.
+ */
+export function trashDaysLeft(deletedAt: number, now: number): number {
+  return Math.max(0, Math.ceil((deletedAt + TRASH_MS - now) / (24 * 60 * 60_000)));
+}
+
 /** How long a Send to an assistant ask, and its outcome, may be (#143). */
 export const SEND_ASK_MAX = 500;
 export const SEND_OUTCOME_MAX = 300;
@@ -215,6 +227,12 @@ export const Note = z.object({
   /** Merged away by Claude; kept so a merge can be undone. */
   archived: z.boolean(),
   mergedInto: z.string().optional(),
+  /**
+   * In Trash (#217): when Eric deleted it, on the device's clock. A
+   * tombstone, so a delete works offline and Restore clears it; the
+   * sweep removes the note for good `TRASH_DAYS` later.
+   */
+  deletedAt: Timestamp.optional(),
   /**
    * When Eric last left the note after changing it (a fresh note after
    * five minutes, New, or opening another note). Asks noteTitle for a

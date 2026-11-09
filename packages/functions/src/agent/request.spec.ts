@@ -22,7 +22,7 @@ describe('arrives', () => {
     expect(arrives('n1', { ...note, settledAt: settled }, undefined)).toBe(false);
   });
 
-  it('is not a note of another kind, empty, archived, an assistant’s, or sent', () => {
+  it('is not a note of another kind, empty, archived, in Trash, an assistant’s, or sent', () => {
     const at = (over: Record<string, unknown>) =>
       arrives('n1', note, { ...note, ...over, settledAt: settled });
     for (const kind of ['template', 'recipe', 'concept', 'mealplan', 'pantry', 'clipping'])
@@ -30,6 +30,7 @@ describe('arrives', () => {
     expect(arrives('context', note, { ...note, settledAt: settled })).toBe(false);
     expect(at({ body: ' \n ' })).toBe(false);
     expect(at({ archived: true })).toBe(false);
+    expect(at({ deletedAt: settled })).toBe(false);
     expect(at({ updatedBy: 'claude' })).toBe(false);
     expect(at({ sendState: 'queued' })).toBe(false);
     expect(at({ sendState: 'done' })).toBe(false);

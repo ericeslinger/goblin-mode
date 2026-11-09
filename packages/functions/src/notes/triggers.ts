@@ -1,11 +1,13 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { claudeTitler, federationFromEnv } from './claude-titler';
 import { firestoreNotesStore, noteState } from './firestore-store';
 import { recordHistory } from './history';
 import { mergeConflict, rememberReplaced } from './merge';
 import { type Titler, titleNote } from './title';
+import { firestoreTrashStore, sweepTrash } from './trash';
 
 const NOTE = 'users/{uid}/notes/{noteId}';
 
@@ -67,5 +69,18 @@ export const noteTitle = onDocumentWritten(
       (message, err) => logger.warn(message, err),
     );
     if (outcome !== 'skipped') logger.debug('noteTitle', { noteId, outcome });
+  },
+);
+
+/**
+ * Daily: the notes in Trash 30 days or more go for good, with their
+ * History and replaced texts (#217), a batch at a time.
+ */
+export const trashSweep = onSchedule(
+  // A retried run finds only what is left: removing is idempotent.
+  { schedule: 'every 24 hours', timeZone: 'UTC', timeoutSeconds: 540 },
+  async () => {
+    const report = await sweepTrash(firestoreTrashStore(getFirestore()), Date.now());
+    if (report.due) logger.info('trashSweep', report);
   },
 );

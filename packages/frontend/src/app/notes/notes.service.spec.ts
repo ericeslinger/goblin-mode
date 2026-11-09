@@ -5,7 +5,7 @@ import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { fakeFirebase } from '../testing/fakes';
-import { ONLINE } from '../platform/platform';
+import { NOW, ONLINE } from '../platform/platform';
 import {
   NOTES_API,
   type NotesApi,
@@ -16,6 +16,9 @@ import {
   PENDING_NAMES_KEY,
   PENDING_SAVES_KEY,
 } from './notes.service';
+
+/** The device's clock in these specs. */
+const CLOCK = Date.parse('2026-11-09T12:00:00Z');
 
 /** `reload` keeps this device's storage, as a page loaded again does. */
 function setup({ reload = false }: { reload?: boolean } = {}) {
@@ -36,6 +39,7 @@ function setup({ reload = false }: { reload?: boolean } = {}) {
     ),
     remove: vi.fn((_db: unknown, _path: string) => Promise.resolve()),
     serverTime: () => 'SERVER_TIME',
+    timestamp: (ms: number) => ({ ms }),
     removeField: () => 'REMOVED',
   } satisfies NotesApi;
   const online = signal(true);
@@ -45,6 +49,7 @@ function setup({ reload = false }: { reload?: boolean } = {}) {
       { provide: AuthService, useValue: { user } },
       { provide: NOTES_API, useValue: api },
       { provide: ONLINE, useValue: () => online() },
+      { provide: NOW, useValue: () => CLOCK },
     ],
   });
   const notes = TestBed.inject(NotesService);
@@ -816,6 +821,75 @@ describe('NotesService', () => {
     expect(localStorage.getItem(PENDING_MOODS_KEY)).toBeNull();
   });
 
+  describe('naming a concept in Trash again (#217, review on #230)', () => {
+    const at = (ms: number) => ({ toMillis: () => ms });
+    const kiln = {
+      id: 'c-kiln',
+      data: {
+        body: 'Cone 6, shelf 2',
+        title: 'Kiln',
+        kind: 'concept',
+        conceptType: 'project',
+        archived: false,
+        deletedAt: at(CLOCK - 1000),
+      },
+    };
+    const restores = (api: ReturnType<typeof setup>['api']) =>
+      api.set.mock.calls.filter(([, , data]) => data['deletedAt'] === 'REMOVED');
+
+    it('brings it back as Restore does, its text and filing kept, nothing made', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([kiln]);
+      notes.plantConcepts('Fire the [[Kiln]] tomorrow');
+      expect(api.createIfAbsent).not.toHaveBeenCalled();
+      expect(restores(api)).toEqual([
+        [
+          expect.anything(),
+          'users/u1/notes/c-kiln',
+          {
+            deletedAt: 'REMOVED',
+            updatedAt: 'SERVER_TIME',
+            updatedBy: 'user',
+            deviceId: notes.deviceId(),
+          },
+          true,
+        ],
+      ]);
+      expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+    });
+
+    it('brings back one named while it waited on the device', () => {
+      const { notes, api, signIn, push, online } = setup();
+      signIn('u1');
+      online.set(false);
+      push([]);
+      notes.createConcept('Kiln');
+      expect(JSON.parse(localStorage.getItem(PENDING_CONCEPTS_KEY)!)).toEqual(['Kiln']);
+      push([kiln]);
+      online.set(true);
+      notes.makePendingConcepts();
+      expect(api.createIfAbsent).not.toHaveBeenCalled();
+      expect(restores(api)).toHaveLength(1);
+      expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+    });
+
+    it('keeps the name waiting when the server has it but this device has not seen it', async () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([]);
+      api.createIfAbsent.mockResolvedValueOnce(false);
+      notes.createConcept('Kiln');
+      await new Promise((r) => setTimeout(r));
+      // Not made, and not known here yet: it waits for the snapshot.
+      expect(JSON.parse(localStorage.getItem(PENDING_CONCEPTS_KEY)!)).toEqual(['Kiln']);
+      push([kiln]);
+      expect(restores(api)).toHaveLength(1);
+      expect(localStorage.getItem(PENDING_CONCEPTS_KEY)).toBeNull();
+      expect(api.createIfAbsent).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('keeps a name waiting when the server cannot be reached', async () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');
@@ -1129,6 +1203,75 @@ describe('NotesService', () => {
     notes.setTemplateMode('t1', 'entry');
     // Not a template on this device yet: nothing to change.
     expect(api.set).toHaveBeenCalledTimes(2);
+  });
+
+  describe('Trash (#217)', () => {
+    const at = (ms: number) => ({ toMillis: () => ms });
+    const glaze = { id: 'n1', data: { body: 'Glaze notes', archived: true } };
+
+    it('puts a note in Trash with the device’s clock, and takes it out, merged as Eric’s', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([glaze]);
+      notes.setDeleted('n1', true);
+      expect(api.set.mock.lastCall!.slice(1)).toEqual([
+        'users/u1/notes/n1',
+        {
+          deletedAt: { ms: CLOCK },
+          updatedAt: 'SERVER_TIME',
+          updatedBy: 'user',
+          deviceId: notes.deviceId(),
+        },
+        true,
+      ]);
+      // Not in Trash yet on this device: nothing to restore.
+      notes.setDeleted('n1', false);
+      expect(api.set).toHaveBeenCalledTimes(1);
+      push([{ id: 'n1', data: { ...glaze.data, deletedAt: at(CLOCK) } }]);
+      notes.setDeleted('n1', false);
+      expect(api.set.mock.lastCall![2]).toEqual({
+        deletedAt: 'REMOVED',
+        updatedAt: 'SERVER_TIME',
+        updatedBy: 'user',
+        deviceId: notes.deviceId(),
+      });
+      // Restore leaves the rest as it was: still archived.
+      expect(api.set.mock.lastCall![2]).not.toHaveProperty('archived');
+      // No note by that id: nothing written.
+      notes.setDeleted('gone', true);
+      expect(api.set).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps a deleted note out of the notes, in Trash the last deleted first', () => {
+      const { notes, signIn, push } = setup();
+      signIn('u1');
+      push([
+        { id: 'a', data: { body: 'Kiln log', title: 'Kiln log', archived: false } },
+        { id: 'b', data: { body: 'Old list', archived: false, deletedAt: at(CLOCK - 5_000) } },
+        { id: 'c', data: { body: 'Glaze', archived: true, deletedAt: at(CLOCK) } },
+      ]);
+      expect(notes.notes().map((n) => n.id)).toEqual(['a']);
+      expect(notes.trash().map((n) => n.id)).toEqual(['c', 'b']);
+      expect(notes.trashed('c')).toEqual(
+        expect.objectContaining({ deletedAt: CLOCK, archived: true }),
+      );
+      // Gone to links, lists and opening, as a note that is not there.
+      expect(notes.find('b')).toBeUndefined();
+      expect(notes.exists('b')).toBe(false);
+      expect(notes.names().has('kiln log')).toBe(true);
+      expect([...notes.names().values()]).not.toContain('b');
+    });
+
+    it('never writes a full document over a note in Trash, nor settles it', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([{ id: 'b', data: { body: 'Old list', archived: false, deletedAt: at(CLOCK) } }]);
+      notes.save('b', 'Old list, and eggs', { base: 'Old list' });
+      expect(api.set.mock.lastCall![3]).toBe(true);
+      expect(api.set.mock.lastCall![2]).not.toHaveProperty('kind');
+      notes.settle('b', { edited: true });
+      expect(api.set).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('archives a note and restores it, a merged field update stamped as Eric’s (#207)', () => {

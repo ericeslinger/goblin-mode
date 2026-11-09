@@ -89,9 +89,11 @@ function runFacts(id: string, d: Record<string, unknown>): RunFacts {
   };
 }
 
+/** A note as it stands, or undefined when it is not there or in Trash (#217): gone. */
 function noteFacts(snap: DocumentSnapshot): NoteFacts | undefined {
   if (!snap.exists) return undefined;
   const d = snap.data() ?? {};
+  if (d['deletedAt'] !== undefined) return undefined;
   return {
     id: snap.id,
     body: String(d['body'] ?? ''),
@@ -126,7 +128,7 @@ export async function putBack(
   // Names only, for the links of a text put back; read before the transaction.
   const named = await db
     .collection(paths.notes(uid))
-    .select('title', 'kind', 'synonyms', 'archived')
+    .select('title', 'kind', 'synonyms', 'archived', 'deletedAt')
     .get();
   const index = nameIndex(
     named.docs.map((d) => ({
@@ -134,7 +136,8 @@ export async function putBack(
       title: String(d.get('title') ?? ''),
       kind: typeof d.get('kind') === 'string' ? d.get('kind') : 'text',
       synonyms: Array.isArray(d.get('synonyms')) ? d.get('synonyms').map(String) : undefined,
-      archived: d.get('archived') === true,
+      // A note in Trash answers to no name (#217).
+      archived: d.get('archived') === true || d.get('deletedAt') !== undefined,
     })),
   );
   const activity = db.collection(paths.activity(uid));

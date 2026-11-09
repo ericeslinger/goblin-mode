@@ -1,4 +1,4 @@
-import { moodLine } from '@mossgoblin/schema';
+import { moodLine, trashDaysLeft } from '@mossgoblin/schema';
 import type { NoteRecord } from '../notes/notes.service';
 
 /** Ways to look at the garden (#31); each has its own URL, /browse/<id>. */
@@ -12,6 +12,7 @@ export const LENSES = [
   { id: 'journal', label: 'Journal' },
   { id: 'tags', label: 'Tags' },
   { id: 'archived', label: 'Archived' },
+  { id: 'trash', label: 'Trash' },
 ] as const;
 export type LensId = (typeof LENSES)[number]['id'];
 
@@ -19,7 +20,9 @@ export function lensId(value: string | null | undefined): LensId {
   return LENSES.find((l) => l.id === value)?.id ?? 'recent';
 }
 
-const live = (n: NoteRecord) => !n.archived;
+/** In Trash (#217): out of every lens but Trash. */
+const trashed = (n: NoteRecord) => n.deletedAt !== undefined;
+const live = (n: NoteRecord) => !n.archived && !trashed(n);
 /**
  * Templates are listed in Settings, not among the notes (#38); so is the
  * context note (#113).
@@ -52,8 +55,17 @@ export function inLens(lens: LensId, n: NoteRecord): boolean {
     case 'tags':
       return note(n) && (n.tags?.length ?? 0) > 0;
     case 'archived':
-      return !!n.archived;
+      return !!n.archived && !trashed(n);
+    case 'trash':
+      return trashed(n);
   }
+}
+
+/** What Trash says of a deleted note (#217): "Gone in 12 days". */
+export function goneIn(n: NoteRecord, now: number): string {
+  const days = n.deletedAt === undefined ? 0 : trashDaysLeft(n.deletedAt, now);
+  if (days === 0) return 'Gone today';
+  return days === 1 ? 'Gone in 1 day' : `Gone in ${days} days`;
 }
 
 /** Notes grouped by tag, tags in alphabetical order; a note can be in several. */

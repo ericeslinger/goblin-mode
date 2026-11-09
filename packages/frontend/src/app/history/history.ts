@@ -205,7 +205,10 @@ export class History {
   protected readonly noteId = signal('');
   protected readonly versions = signal<VersionRecord[]>([]);
   protected readonly openId = signal<string | null>(null);
-  protected readonly title = computed(() => this.notes.find(this.noteId())?.title ?? '');
+  /** A note in Trash keeps its History (#217). */
+  protected readonly title = computed(
+    () => (this.notes.find(this.noteId()) ?? this.notes.trashed(this.noteId()))?.title ?? '',
+  );
   protected readonly label = reasonLabel;
 
   constructor() {

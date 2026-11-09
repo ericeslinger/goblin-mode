@@ -17,6 +17,7 @@ interface NoteFields {
   kind?: unknown;
   body?: unknown;
   archived?: unknown;
+  deletedAt?: unknown;
   updatedBy?: unknown;
   sendState?: unknown;
   settledAt?: unknown;
@@ -40,6 +41,7 @@ export function arrives(
   return (
     after.kind === 'text' &&
     after.archived !== true &&
+    after.deletedAt === undefined &&
     after.updatedBy === 'user' &&
     typeof after.body === 'string' &&
     after.body.trim() !== '' &&
@@ -79,7 +81,8 @@ export async function requestRun(
       how === 'arrival' ? tx.get(usageRef) : undefined,
     ]);
     const note = noteDoc.data();
-    if (!note || note['archived'] === true) throw new HttpsError('not-found', 'No such note.');
+    if (!note || note['archived'] === true || note['deletedAt'] !== undefined)
+      throw new HttpsError('not-found', 'No such note.');
     let sentAt = note['sentAt'];
     let queue: Record<string, unknown> = {};
     if (how === 'arrival') {

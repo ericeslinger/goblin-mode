@@ -1,6 +1,6 @@
 import type { NoteRecord } from '../notes/notes.service';
 import { noteRecord } from '../testing/fakes';
-import { byTag, inLens, lensId, projectTree } from './lenses';
+import { byTag, goneIn, inLens, lensId, projectTree } from './lenses';
 
 const n = (id: string, over: Partial<NoteRecord> = {}): NoteRecord => ({
   ...noteRecord(id, 'some text'),
@@ -19,6 +19,8 @@ describe('lenses', () => {
     n('template', { kind: 'template', tags: ['home'] }),
     n('entry', { body: 'Feelings\nMoods: [[calm]]' }),
     n('feelings-template', { kind: 'template', body: 'Feelings\nMoods: ' }),
+    n('deleted', { deletedAt: 1, tags: ['home'] }),
+    n('deleted-archived', { archived: true, deletedAt: 2 }),
   ];
   const ids = (lens: Parameters<typeof inLens>[0]) =>
     notes.filter((x) => inLens(lens, x)).map((x) => x.id);
@@ -31,6 +33,24 @@ describe('lenses', () => {
     expect(ids('projects')).toEqual(['kiln']);
     expect(ids('tags')).toEqual(['tagged']);
     expect(ids('archived')).toEqual(['gone']);
+  });
+
+  it('keeps deleted notes out of every lens but Trash, archived or not (#217)', () => {
+    expect(ids('trash')).toEqual(['deleted', 'deleted-archived']);
+    for (const lens of ['recent', 'concepts', 'tags', 'journal', 'archived'] as const) {
+      expect(ids(lens)).not.toContain('deleted');
+      expect(ids(lens)).not.toContain('deleted-archived');
+    }
+    expect(lensId('trash')).toBe('trash');
+  });
+
+  it('says how long a deleted note has left in Trash (#217)', () => {
+    const day = 24 * 60 * 60_000;
+    const at = Date.parse('2026-11-09T12:00:00Z');
+    expect(goneIn(n('x', { deletedAt: at }), at)).toBe('Gone in 30 days');
+    expect(goneIn(n('x', { deletedAt: at }), at + 28.5 * day)).toBe('Gone in 2 days');
+    expect(goneIn(n('x', { deletedAt: at }), at + 29.5 * day)).toBe('Gone in 1 day');
+    expect(goneIn(n('x', { deletedAt: at }), at + 31 * day)).toBe('Gone today');
   });
 
   it('groups by tag, alphabetically', () => {

@@ -327,6 +327,60 @@ describe('NoteBack (#112)', () => {
     expect(notes.setArchived).toHaveBeenLastCalledWith('n1', false);
   });
 
+  it('deletes the note after a one-line confirm, and leaves it (#217)', async () => {
+    const { el, notes, fixture } = await render(noteRecord('n1', 'Glaze notes'), []);
+    let left = 0;
+    fixture.componentInstance.deleted.subscribe(() => left++);
+    button(el, 'Delete')!.click();
+    await fixture.whenStable();
+    const confirm = el.querySelector('.confirm')!;
+    expect(confirm.textContent).toContain('Delete this note? It stays in Trash for 30 days.');
+    expect(button(el, 'Delete')).toBeFalsy();
+    button(el, 'No')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('.confirm')).toBeNull();
+    expect(notes.setDeleted).not.toHaveBeenCalled();
+    button(el, 'Delete')!.click();
+    await fixture.whenStable();
+    const yes = button(el, 'Yes')!;
+    expect(yes.getAttribute('aria-describedby')).toBe('delete-note');
+    yes.click();
+    expect(notes.setDeleted).toHaveBeenCalledWith('n1', true);
+    expect(left).toBe(1);
+  });
+
+  it('offers no Delete on the pantry, a meal plan or the context note (#217)', async () => {
+    for (const kind of ['pantry', 'mealplan', 'context']) {
+      TestBed.resetTestingModule();
+      const { el } = await render({ ...noteRecord('k1', 'Kept'), kind }, []);
+      expect(button(el, 'Archive')).toBeTruthy();
+      expect(button(el, 'Delete')).toBeFalsy();
+    }
+  });
+
+  it('offers no Delete on the current grocery list, only on an older one (#217)', async () => {
+    const template: NoteRecord = {
+      ...noteRecord('t1', 'Shopping list'),
+      kind: 'template',
+      templateMode: 'living',
+    };
+    const list = (id: string, archived = false): NoteRecord => ({
+      ...noteRecord(id, '- [ ] limes\n'),
+      fromTemplate: 't1',
+      archived,
+    });
+    const current = await render(list('shopping-2026-11-09'), [], [template]);
+    expect(button(current.el, 'Archive')).toBeTruthy();
+    expect(button(current.el, 'Delete')).toBeFalsy();
+    TestBed.resetTestingModule();
+    const older = await render(
+      list('shopping-2026-11-02', true),
+      [],
+      [template, list('shopping-2026-11-09')],
+    );
+    expect(button(older.el, 'Delete')).toBeTruthy();
+  });
+
   it('says on a grocery list’s back which of the week’s dinners need each item (#207)', async () => {
     const template: NoteRecord = {
       ...noteRecord('t1', 'Shopping list'),

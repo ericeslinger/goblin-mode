@@ -62,6 +62,8 @@ export class FakeAuthService {
 /** A stand-in for NotesService: an in-memory list and recorded writes. */
 export class FakeNotes {
   readonly notes = signal<NoteRecord[]>([]);
+  /** Notes in Trash (#217), the last deleted first. */
+  readonly trash = signal<NoteRecord[]>([]);
   readonly loaded = signal(false);
   get ready(): boolean {
     return this.loaded();
@@ -101,6 +103,7 @@ export class FakeNotes {
   );
   setTemplateMode = vi.fn((_id: string, _mode: 'living' | 'entry') => undefined);
   setArchived = vi.fn((_id: string, _archived: boolean) => undefined);
+  setDeleted = vi.fn((_id: string, _deleted: boolean) => undefined);
   setWeek = vi.fn((_id: string, _start: string) => undefined);
   createRecipe = vi.fn((name: string) =>
     this.names().has(name.trim().toLowerCase()) ? undefined : `new${++this.n}`,
@@ -124,6 +127,7 @@ export class FakeNotes {
   deviceId = () => 'here';
   find = (id: string) => this.notes().find((x) => x.id === id);
   exists = (id: string) => this.written.has(id) || !!this.find(id);
+  trashed = (id: string) => this.trash().find((x) => x.id === id);
 
   signIn(list: NoteRecord[] = []): void {
     this.notes.set(list);

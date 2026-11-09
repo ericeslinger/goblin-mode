@@ -26,6 +26,7 @@ export function noteState(snap: DocumentSnapshot | undefined): NoteState | undef
     createdAt: millis(d['createdAt']),
     settledAt: millis(d['settledAt']),
     baseHash: typeof d['baseHash'] === 'string' ? d['baseHash'] : undefined,
+    ...(millis(d['deletedAt']) !== undefined ? { deletedAt: millis(d['deletedAt']) } : {}),
   };
 }
 

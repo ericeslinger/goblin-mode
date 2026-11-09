@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
+import { NOW } from '../platform/platform';
 import { FakeNotes, noteRecord } from '../testing/fakes';
 import { matches, NoteList, snippet } from './note-list';
 
@@ -25,19 +26,28 @@ describe('matches', () => {
 });
 
 describe('NoteList', () => {
+  const day = 24 * 60 * 60_000;
+  const now = Date.parse('2026-11-09T12:00:00Z');
+
   async function render(
     list = [noteRecord('n1', 'Groceries\neggs'), noteRecord('n2', 'Call Vikas')],
+    trash: NoteRecord[] = [],
   ) {
     const notes = new FakeNotes();
     notes.signIn([...list, { ...noteRecord('n3', 'gone'), archived: true }, noteRecord('n4', ' ')]);
+    notes.trash.set(trash);
     await TestBed.configureTestingModule({
       imports: [NoteList],
-      providers: [provideRouter([]), { provide: NotesService, useValue: notes }],
+      providers: [
+        provideRouter([]),
+        { provide: NotesService, useValue: notes },
+        { provide: NOW, useValue: () => now },
+      ],
     }).compileComponents();
     const fixture = TestBed.createComponent(NoteList);
     fixture.componentRef.setInput('current', 'n2');
     await fixture.whenStable();
-    return { fixture, el: fixture.nativeElement as HTMLElement };
+    return { fixture, notes, el: fixture.nativeElement as HTMLElement };
   }
 
   it('lists live, non-empty notes linking to /n/<id>', async () => {
@@ -89,6 +99,37 @@ describe('NoteList', () => {
     fixture.componentRef.setInput('lens', 'archived');
     await fixture.whenStable();
     expect(el.querySelector('ul')!.textContent).toContain('gone');
+  });
+
+  it('lists Trash, the last deleted first, with the days left and Restore (#217)', async () => {
+    const { el, fixture, notes } = await render(undefined, [
+      { ...noteRecord('t2', 'Kiln log'), deletedAt: now - day / 2 },
+      { ...noteRecord('t1', 'Old list'), archived: true, deletedAt: now - 29.5 * day },
+    ]);
+    // Out of Recent.
+    expect(el.textContent).not.toContain('Kiln log');
+    fixture.componentRef.setInput('lens', 'trash');
+    await fixture.whenStable();
+    const rows = [...el.querySelectorAll<HTMLLIElement>('ul[aria-label="Notes"] li')];
+    expect(rows.map((r) => r.querySelector('.title')!.textContent)).toEqual([
+      'Kiln log',
+      'Old list',
+    ]);
+    expect(rows[0].querySelector('.snippet')!.textContent).toBe('Gone in 30 days');
+    expect(rows[1].querySelector('.snippet')!.textContent).toBe('Gone in 1 day');
+    // A note in Trash opens nowhere until it is back.
+    expect(el.querySelectorAll('ul a').length).toBe(0);
+    const restore = rows[1].querySelector('button')!;
+    expect(restore.getAttribute('aria-label')).toBe('Restore: Old list');
+    restore.click();
+    expect(notes.setDeleted).toHaveBeenCalledWith('t1', false);
+  });
+
+  it('says Trash is empty, and for how long a note would stay (#217)', async () => {
+    const { el, fixture } = await render();
+    fixture.componentRef.setInput('lens', 'trash');
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Nothing in Trash. A deleted note stays here for 30 days.');
   });
 
   it('lists projects as a tree with kind and status, filtered by status (#41)', async () => {

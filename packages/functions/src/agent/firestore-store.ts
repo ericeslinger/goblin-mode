@@ -43,7 +43,8 @@ export function firestoreRunStore(db: Firestore): RunStore {
     },
     noteState: async (uid, noteId) => {
       const doc = await db.doc(paths.note(uid, noteId)).get();
-      if (!doc.exists) return undefined;
+      // A note in Trash (#217) is gone to a run, as one not there.
+      if (!doc.exists || doc.get('deletedAt') !== undefined) return undefined;
       const d = doc.data()!;
       return {
         title: String(d['title'] ?? ''),

@@ -109,6 +109,7 @@ interface Note {
   tags: string[];               // e.g. 'feelings'
   archived: boolean;            // merged away by Claude, kept for undo
   mergedInto?: string;
+  deletedAt?: Timestamp;        // in Trash since, device clock (#217)
   createdAt: Timestamp;
   updatedAt: Timestamp;
   updatedBy: 'user' | 'claude';
@@ -550,6 +551,31 @@ notes link to it), Tags (notes grouped under each tag) and Archived
 (archived notes, the only place they appear). The search box filters
 within the lens. The filters are pure (`browse/lenses.ts`). On a wide
 screen the launch screen's list pane stays on Recent.
+
+**Trash (#217, Eric, 2026-11-09).** Archive keeps a note out of the way
+(#207); Delete, beside it on the back, puts it in Trash, and 30 days
+later (`TRASH_DAYS`) it is gone for good. Delete asks first, in one
+line as Put back does: "Delete this note? It stays in Trash for 30
+days." Yes sets `deletedAt` (`NotesService.setDeleted`), a Timestamp
+on the device's clock, through the cache like any write, so it works
+offline: a tombstone, not a delete, and the page leaves the note for a
+fresh one. The pantry, the meal plans, the context note and the
+current grocery list are not offered Delete (they are archived, never
+emptied). `NotesService` keeps notes in Trash apart (`trash`, the last
+deleted first), so every list, lens, count, search, name and link in
+the app leaves them out as for a note that is not there; a link to one
+reads as waiting, read-only. History and Put back still reach it.
+Browse has a Trash lens (`/browse/trash`): each note with "Gone in N
+days" (rounded up, `trashDaysLeft`) and Restore, which clears
+`deletedAt`, so the note comes back where it was, archived or not.
+There is no Empty Trash in this step. Deleting a concept leaves the
+notes that link to it as they are (their text is Eric's), and
+deleting a template leaves its living note. Claude gets no delete
+tool (CLAUDE.md, Invariants): every MCP reader that leaves archived
+notes out leaves these out too, a note in Trash answers to no name,
+`get_note` and any write naming one say it is in Trash, and Put back
+names one as gone, as for a note not there. The sweep is under
+Server routes.
 
 **Neighborhood map (#32, 2026-10-07).** Map, beside History on a note,
 opens `/map/n/<id>` (a lazy chunk, so capture never pays for it): the
@@ -2150,6 +2176,30 @@ Other functions: `noteHistory`, `noteTitle` and `reminderScheduled`
 `sendDuePush` (hourly) and the app's callables, among them `revertRun`
 (Put back, #154).
 
+**The Trash sweep (#217, 2026-11-09).** `trashSweep` runs daily
+(`notes/trash.ts`): a collection-group query on `notes.deletedAt`
+(indexed in `firestore.indexes.json`) finds the notes in Trash 30 days
+or more, oldest first, at most 100 a run, and `recursiveDelete`
+removes each with everything under it (`history`, `replaced`). Each is
+read again first, so one restored since it was found stays. Rerunning
+finds only what is left, and the run logs its counts. A schedule, not
+the TTL policy the Reader's `expireAt` and `replaced` use: a TTL
+removes the document alone, never its subcollections, and would need
+an expiry field of its own beside `deletedAt`. `noteHistory` keeps no
+version of a note the sweep removes. Attachments and reminders that
+name the note by `noteId` stay, pointing at a note that is not there.
+Since review on #230 (2026-11-09) a note goes only when its
+server-set `updateTime` is 30 days old as well as `deletedAt`, read
+again just before the delete: the stamp is the device's clock, and a
+device set a month behind would otherwise empty Trash on the next
+run; a later write (a restore and a delete again) only puts it off.
+Since the same review, naming a deleted concept again brings it back
+rather than leaving its links unresolved for 30 days (its id is its
+name's): the app clears `deletedAt` when a link plants it (a pending
+name too, once its snapshot shows the tombstone), and `create_concept`
+on its id does the same, its text and filing kept, recorded as
+"Brought back <name> from Trash" and answered with `broughtBack`.
+
 ## MCP server
 
 claude.ai custom connectors speak MCP over Streamable HTTP and sign in
@@ -2169,7 +2219,9 @@ The owner uid is a function parameter (`OWNER_UID`, a GitHub
 variable; Deploy configuration); any other account is refused. Claude
 has full read-write access (2026-10-05); the rule that it keeps your
 paragraphs verbatim is in the tool descriptions, and merges archive
-originals instead of deleting.
+originals instead of deleting. No tool deletes, and a note Eric put in
+Trash is out of every tool's results; the instructions say so (#217,
+2026-11-09).
 
 **The tools (2026-10-09, #106).** One table lists every tool the
 server registers; the entries named in the last column hold the
@@ -2191,7 +2243,7 @@ it, one backticked tool name per row.
 | `list_notes` | Recent notes, newest first, optionally since a time or of one kind | Search paragraph below, Recipes (#127) |
 | `get_note` | One note in full with its links, backlinks and Drive files | Links and concepts (#28) |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
-| `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage | Organize tools (#34), Projects (#41), Stages and items |
+| `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage; a deleted concept's name brings it back from Trash (#217) | Organize tools (#34), Projects (#41), Stages and items |
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
 | `import_recipe` | Asks the server to import a link's recipe, as the app does (Claude never reads the page); returns the new recipe's id; Kitchen only | Importing a recipe (#128) |
 | `get_meal_plan` | A week's slots (day, date, meal, what is planned, made, ratio, notes under it) for a date; Kitchen only | Meal plan (#129) |

@@ -92,6 +92,36 @@ describe('Browse', () => {
     expect(el.querySelector('ul')!.textContent).not.toContain('Groceries');
   });
 
+  it('counts Trash, and leaves its notes out of the other lenses (#217)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n1', 'Groceries')]);
+    notes.trash.set([{ ...noteRecord('t1', 'Kiln log'), deletedAt: Date.now() }]);
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([
+          { path: 'browse', component: Browse },
+          { path: 'browse/:lens', component: Browse },
+        ]),
+        { provide: ReadingService, useValue: { unread: signal([]) } },
+        { provide: ItemsService, useValue: new FakeItems() },
+        { provide: ModulesService, useValue: new FakeModules() },
+        { provide: NotesService, useValue: notes },
+        { provide: ProposalsService, useValue: new FakeProposals() },
+      ],
+    });
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/browse/trash', Browse);
+    const el = harness.routeNativeElement as HTMLElement;
+    const lens = (name: string) =>
+      [...el.querySelectorAll('nav a')].find((a) => a.textContent?.startsWith(name))!;
+    expect(lens('Trash').getAttribute('href')).toBe('/browse/trash');
+    expect(lens('Trash').textContent).toContain('1');
+    expect(lens('Recent').textContent).toContain('1');
+    expect(lens('Trash').getAttribute('aria-current')).toBe('page');
+    expect(el.querySelector('ul')!.textContent).toContain('Kiln log');
+    expect(el.querySelector('ul')!.textContent).not.toContain('Groceries');
+  });
+
   it('drops the Projects lens while Projects is off (#126)', async () => {
     const modules = new FakeModules();
     modules.set('projects', false);
