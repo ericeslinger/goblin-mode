@@ -324,7 +324,9 @@ export class FakeSettingsApi implements SettingsApi {
       return this.stop;
     },
   );
-  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge?: boolean) =>
+    Promise.resolve(),
+  );
   now = () => 'SERVER_TIME';
 
   push(data: Record<string, unknown> | undefined, fromCache = false, local = false): void {
@@ -349,7 +351,9 @@ export class FakeItemsApi implements ItemsApi {
       return vi.fn();
     },
   );
-  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) => Promise.resolve());
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge?: boolean) =>
+    Promise.resolve(),
+  );
   setMany = vi.fn((_db: unknown, _writes: { path: string; data: Record<string, unknown> }[]) =>
     Promise.resolve(),
   );

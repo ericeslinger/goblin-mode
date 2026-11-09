@@ -20,7 +20,8 @@ export interface SettingsApi {
     next: (data: Record<string, unknown> | undefined, fromCache: boolean, local: boolean) => void,
     error: (err: unknown) => void,
   ): () => void;
-  set(db: Firestore, path: string, data: Record<string, unknown>): Promise<void>;
+  /** Writes the doc; with `merge`, only the fields given, keeping the rest. */
+  set(db: Firestore, path: string, data: Record<string, unknown>, merge?: boolean): Promise<void>;
   /** The server's time, as the write's updatedAt. */
   now(): unknown;
 }
@@ -42,7 +43,7 @@ export const SETTINGS_API = new InjectionToken<SettingsApi>('settings-api', {
           ),
         error,
       ),
-    set: (db, path, data) => setDoc(doc(db, path), data),
+    set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge: merge === true }),
     now: () => serverTimestamp(),
   }),
 });

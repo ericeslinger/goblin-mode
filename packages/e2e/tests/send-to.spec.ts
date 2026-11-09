@@ -110,8 +110,8 @@ test('an item ending in @goblin is researched and answered under itself', async 
 // Garden on arrival (#214, step 1 of #155): with the switch on and an
 // Anthropic key kept, a new note is sent once it first settles, with
 // no ask, and the garden's agent (the emulator's stand-in) finishes it.
-// Leave it alone (#229): a note held on its back, and a note made from
-// a template Settings skips, are not sent.
+// Leave it alone (#229): a note held on its back, a note made from a
+// template Settings skips, and a note with a tag it names, are not sent.
 test('a new note is gardened on arrival once it settles, and its back says so', async ({
   page,
 }) => {
@@ -198,7 +198,35 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await letItSave(page);
   await page.getByRole('button', { name: 'New' }).click();
 
-  // A plain note settled after both is sent: by then the two would be.
+  // A tag Settings names, typed with a # and a stray space, kept tidy
+  // across a reload; the assistant tags a note, and Eric's next line
+  // settles it unsent.
+  await page.goto('/settings');
+  const tags = page.getByRole('textbox', { name: 'Notes with these tags' });
+  await tags.fill('private, #journal ');
+  await tags.press('Tab');
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Notes with these tags' })).toHaveValue(
+    'private, journal',
+  );
+  const call = await connectClaude(page);
+  await page.goto('/');
+  await note.click();
+  await typeLines(page, ['Letter to Mum', 'Birthday plans']);
+  await letItSave(page);
+  const [mum] = (await call('search_notes', { query: 'Birthday' })) as { id: string }[];
+  await call('refile', { id: mum.id, addTags: ['private'] });
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(back.getByRole('list', { name: 'Tags' })).toContainText('private');
+  await page.getByRole('button', { name: 'Front', exact: true }).click();
+  await note.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await typeLines(page, ['', 'Cake on Sunday']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'New' }).click();
+
+  // A plain note settled after all three is sent: by then they would be.
   await note.click();
   await typeLines(page, ['Glaze order', 'Celadon and shino']);
   await letItSave(page);
@@ -212,7 +240,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await expect(back.getByText('Sent on arrival', { exact: false })).toBeVisible({
     timeout: 30_000,
   });
-  for (const title of [/Letter to Dad/, /Pottery journal/]) {
+  for (const title of [/Letter to Dad/, /Pottery journal/, /Letter to Mum/]) {
     await backOf(title);
     await expect(
       back.getByRole('heading', { level: 3, name: 'Send to an assistant' }),

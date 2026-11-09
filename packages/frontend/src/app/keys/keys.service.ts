@@ -142,7 +142,7 @@ export class KeysService {
   setOnArrival(on: boolean): void {
     if (!this.uid) return;
     this.onArrival.set(on);
-    this.writeAssistant();
+    this.writeAssistant({ gardenOnArrival: on });
   }
 
   /**
@@ -151,20 +151,26 @@ export class KeysService {
    */
   setArrivalSkip(skip: ArrivalSkip): void {
     if (!this.uid) return;
-    this.arrivalSkip.set({ templates: [...new Set(skip.templates)], tags: tagsOf(skip.tags) });
-    this.writeAssistant();
+    const kept = { templates: [...new Set(skip.templates)], tags: tagsOf(skip.tags) };
+    this.arrivalSkip.set(kept);
+    this.writeAssistant({ arrivalSkip: kept });
   }
 
-  /** The whole doc, since a settings write replaces it. */
-  private writeAssistant(): void {
+  /**
+   * A merge write of the fields given, so the switch and the skip list
+   * never overwrite each other: flipped offline, or before the doc's
+   * first snapshot, the switch's write would otherwise replace the doc
+   * with an empty skip list (review on #232).
+   */
+  private writeAssistant(fields: Record<string, unknown>): void {
     if (!this.uid) return;
-    const skip = this.arrivalSkip();
     this.settings
-      .set(this.fb.db, paths.assistant(this.uid), {
-        gardenOnArrival: this.onArrival(),
-        ...(skip.templates.length || skip.tags.length ? { arrivalSkip: skip } : {}),
-        updatedAt: this.settings.now(),
-      })
+      .set(
+        this.fb.db,
+        paths.assistant(this.uid),
+        { ...fields, updatedAt: this.settings.now() },
+        true,
+      )
       .catch((err) => console.error('assistant settings write', err));
   }
 

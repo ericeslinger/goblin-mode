@@ -519,9 +519,15 @@ export class NoteBack {
     const going = run && (run.status === 'working' || run.status === 'requested') && !this.stale();
     return !!this.keys.keys()?.anthropic && !going;
   });
-  /** Leave this note alone (#229): a plain text note, with an Anthropic key kept. */
+  /**
+   * Leave this note alone (#229): a plain text note, with an Anthropic
+   * key kept; a note already held shows it with no key too, so the hold
+   * can be seen and cleared (review on #232).
+   */
   protected readonly canHold = computed(
-    () => this.note().kind === 'text' && !!this.keys.keys()?.anthropic,
+    () =>
+      this.note().kind === 'text' &&
+      (!!this.keys.keys()?.anthropic || this.note().gardenHold === true),
   );
   /** Ticks while a run is watched, so a lost run reads as lost in time (review on #152). */
   private readonly tick = signal(Date.now());
