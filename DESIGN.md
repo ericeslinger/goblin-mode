@@ -2430,7 +2430,11 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   (`before` on the note's entry, null where it was absent), and Put
   back sets those back: tags, other names, type, parent, kind, status,
   stages, item tags and stage, or the queue mark, so a finished note
-  waits in the queue again as Eric sent it. `finish_queued` leaves who
+  waits in the queue again as Eric sent it. Filing as a project, which
+  adds the project sections, also keeps `body`: the `textHash` of the
+  text before, the key the replaced texts and History keep it by, so
+  the text comes back from the record, never from the summary's words
+  or the note's own latest `baseHash`. `finish_queued` leaves who
   last wrote the note as it was, so its note counts as the run's while
   it is still marked done. A record from before keeps nothing, and
   offers no Put back.

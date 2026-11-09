@@ -174,14 +174,18 @@ const touchedNew = (id: string, d: Data): Touched => ({ ...touched(id, d), made:
 /**
  * A note whose fields the run changed, with the value each had before,
  * null where it was absent, so putting the run back restores them
- * (#206). The text is left out: History keeps that.
+ * (#206). The text is History's; a run that rewrote it keeps only the
+ * hash History knows the text before by, as `body`.
  */
 const touchedFields = (id: string, d: Data, update: Data): Touched => ({
   ...touched(id, d),
   before: Object.fromEntries(
     Object.keys(update)
-      .filter((k) => k !== 'body' && k !== 'baseHash')
-      .map((k) => [k, (d[k] as FieldBefore | undefined) ?? null]),
+      .filter((k) => k !== 'baseHash')
+      .map((k) => [
+        k,
+        k === 'body' ? textHash(String(d['body'] ?? '')) : ((d[k] as FieldBefore) ?? null),
+      ]),
   ),
 });
 

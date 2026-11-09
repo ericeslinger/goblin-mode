@@ -1,6 +1,7 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { textHash } from '@mossgoblin/schema';
 import type { ImportedRecipe } from '../kitchen/recipe-import';
 import { termsOf } from '../reader/terms';
 import { NotesTools, ToolError } from './tools';
@@ -470,7 +471,14 @@ describe('organizing tools', () => {
     // Each record keeps what the fields it changed held before, absent as
     // null, and never the text (#206).
     expect((await runs()).map((r) => r['notes'])).toEqual([
-      [{ id: 'c-kiln', title: 'Kiln', before: { conceptType: null, synonyms: null } }],
+      // The text it rewrote by the hash History keeps it by.
+      [
+        {
+          id: 'c-kiln',
+          title: 'Kiln',
+          before: { conceptType: null, body: textHash(''), synonyms: null },
+        },
+      ],
       [{ id: 'a', title: 'Glaze recipes', before: { tags: ['clay'] } }],
     ]);
   });

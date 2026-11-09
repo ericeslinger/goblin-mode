@@ -168,7 +168,14 @@ export async function putBack(
     // the replaced texts first (every one, for two days), then History.
     const textBefore = new Map<string, string>();
     for (const t of run.notes) {
-      const hash = notes.get(t.id)?.baseHash;
+      // Filing keeps the hash of the text it rewrote in its record (#206);
+      // without one it wrote no text, whatever the note's baseHash says.
+      const recorded = t.before?.['body'];
+      const hash = t.before
+        ? typeof recorded === 'string'
+          ? recorded
+          : undefined
+        : notes.get(t.id)?.baseHash;
       if (!hash) continue;
       const replaced = await tx.get(db.doc(`${paths.replaced(uid, t.id)}/${hash}`));
       const body = replaced.get('body');

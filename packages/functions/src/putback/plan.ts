@@ -2,7 +2,7 @@
 // it started from, and the notes as they stand now, which writes put
 // them back (DESIGN.md, Trust, step 1). The text comes back verbatim
 // from what the run wrote over; nothing here composes text.
-import { type FieldBefore, firstWordsTitle } from '@mossgoblin/schema';
+import { type FieldBefore, firstWordsTitle, textHash } from '@mossgoblin/schema';
 
 /**
  * How far before its activity record a run's own note write can be
@@ -50,8 +50,8 @@ export type Did =
   | { kind: 'edited'; flip?: 'archived' | 'restored'; text: boolean }
   /**
    * Filing or a finished queue item (#206): fields its record kept the
-   * values before of, and the text too when filing as a project added
-   * the project sections.
+   * values before of, and the text too where the record keeps the hash
+   * of the text it rewrote (`before.body`, filing as a project).
    */
   | { kind: 'fields'; text: boolean };
 
@@ -79,7 +79,7 @@ export function didOf(base: RunFacts): Map<string, Did> {
       if (t.before)
         out.set(t.id, {
           kind: 'fields',
-          text: base.tool === 'refile' && /\badded the project sections\b/.test(base.summary),
+          text: typeof t.before['body'] === 'string',
         });
       return;
     }
@@ -140,7 +140,8 @@ export interface Plan {
  * wrote are written: one written since is left alone (Eric's edit after
  * the run stays; History has the rest), and one it never wrote (a
  * link's target) needs nothing. Text comes from `textBefore`, the text
- * the run's write replaced, found by the write's `baseHash`. Fields come
+ * the run's write replaced, found by the write's `baseHash` (for filing,
+ * by the hash its record kept, `before.body`). Fields come
  * from the run's own record (`before`, #206): at an even depth the
  * values `base` replaced, at an odd one the values its put back
  * replaced, which are what `base` wrote, so both directions are one
@@ -204,6 +205,7 @@ export function planPutBack(args: {
       const fields: Record<string, FieldBefore> = {};
       const before: Record<string, FieldBefore> = {};
       for (const [k, v] of Object.entries(t.before)) {
+        if (k === 'body') continue;
         const now = (note.fields?.[k] as FieldBefore | undefined) ?? null;
         if (JSON.stringify(now) === JSON.stringify(v)) continue;
         fields[k] = v;
@@ -222,6 +224,8 @@ export function planPutBack(args: {
           write.newTitle = firstWordsTitle(before);
           write.title = write.newTitle;
         }
+        // Its own record names the text it replaces, so its put back finds it.
+        if (what.kind === 'fields') write.before = { ...write.before, body: textHash(note.body) };
       }
     }
     if (

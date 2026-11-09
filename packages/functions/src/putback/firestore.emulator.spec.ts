@@ -244,6 +244,39 @@ describe('putBack', () => {
     });
   });
 
+  it('puts back filing as a project, its text by the hash its record kept (#206)', async () => {
+    await eric('c-kiln', 'Kiln\nCone 6.', { kind: 'concept', title: 'Kiln' });
+    await tools(T).refile({ id: 'c-kiln', type: 'project' });
+    const sectioned = String((await read('c-kiln'))['body']);
+    expect(sectioned).not.toBe('Kiln\nCone 6.');
+    const runId = await runOf('refile');
+    expect((await db.doc(`users/u1/activity/${runId}`).get()).get('notes')).toEqual([
+      {
+        id: 'c-kiln',
+        title: 'Kiln',
+        before: { conceptType: null, body: textHash('Kiln\nCone 6.') },
+      },
+    ]);
+    await remember('c-kiln', 'Kiln\nCone 6.');
+
+    await putBack(db, 'u1', runId, T + 1000);
+    const kiln = await read('c-kiln');
+    expect(kiln['body']).toBe('Kiln\nCone 6.');
+    expect(kiln['conceptType']).toBeUndefined();
+    expect((await db.doc(`users/u1/activity/putback-${runId}`).get()).get('notes')).toEqual([
+      {
+        id: 'c-kiln',
+        title: expect.any(String),
+        before: { conceptType: 'project', body: textHash(sectioned) },
+      },
+    ]);
+
+    // Putting back the put back files it as a project again, sections and all.
+    await remember('c-kiln', sectioned);
+    await putBack(db, 'u1', `putback-${runId}`, T + 2000);
+    expect(await read('c-kiln')).toMatchObject({ body: sectioned, conceptType: 'project' });
+  });
+
   it('puts back a finished queue item: queued again, as it was sent (#206)', async () => {
     const sentAt = Timestamp.fromMillis(T - 500);
     await eric('q', 'Kiln log\nCone 6.', { sendState: 'queued', sendAsk: 'File it', sentAt });

@@ -1,3 +1,4 @@
+import { textHash } from '@mossgoblin/schema';
 import { describe, expect, it } from 'vitest';
 import {
   type NoteFacts,
@@ -312,8 +313,11 @@ describe('planPutBack', () => {
 
     it('reads filing as fields only with what it replaced kept', () => {
       expect(didOf(filed())).toEqual(new Map([['a', { kind: 'fields', text: false }]]));
+      // The text only where the record kept the hash of the text it rewrote.
       expect(
-        didOf(filed({ summary: 'Refiled Kiln: filed as a project; added the project sections' })),
+        didOf(
+          filed({ notes: [{ id: 'a', title: 'Kiln', before: { conceptType: null, body: 'h' } }] }),
+        ),
       ).toEqual(new Map([['a', { kind: 'fields', text: true }]]));
       // A record from before #206 names the note only: nothing to put back.
       expect(didOf(filed({ notes: [{ id: 'a', title: 'Vase' }] }))).toEqual(new Map());
@@ -338,6 +342,48 @@ describe('planPutBack', () => {
         ],
         skipped: [],
       });
+    });
+
+    it('restores no text for a title that has the phrase in it', () => {
+      const r = filed({
+        summary: 'Refiled Notes: added the project sections: tagged gift',
+        notes: [{ id: 'a', title: 'Notes: added the project sections', before: { tags: [] } }],
+      });
+      const plan = planPutBack({
+        run: r,
+        base: r,
+        depth: 0,
+        notes: notes(note('a', { body: 'Eric now', fields: { tags: ['gift'] } })),
+        textBefore: new Map([['a', 'older text']]),
+      });
+      expect(plan.writes).toEqual([
+        { id: 'a', title: 'a', fields: { tags: [] }, before: { tags: ['gift'] } },
+      ]);
+    });
+
+    it('restores the text filing as a project rewrote, and records what it replaced', () => {
+      const r = filed({
+        summary: 'Refiled Kiln: filed as a project; added the project sections',
+        notes: [{ id: 'a', title: 'Kiln', before: { conceptType: null, body: 'h-before' } }],
+      });
+      const plan = planPutBack({
+        run: r,
+        base: r,
+        depth: 0,
+        notes: notes(
+          note('a', { body: 'Kiln\n\n## Overview', fields: { conceptType: 'project' } }),
+        ),
+        textBefore: new Map([['a', 'Kiln']]),
+      });
+      expect(plan.writes).toEqual([
+        {
+          id: 'a',
+          title: 'a',
+          body: 'Kiln',
+          fields: { conceptType: null },
+          before: { conceptType: 'project', body: textHash('Kiln\n\n## Overview') },
+        },
+      ]);
     });
 
     it('refuses a record without before, as before', () => {
