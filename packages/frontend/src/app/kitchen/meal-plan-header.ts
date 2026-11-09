@@ -312,7 +312,7 @@ export class MealPlanHeader {
     const after = slots.find((x) => x.day === s.day && x.meal === s.meal);
     // Dinners already made need nothing more from the shop.
     const others = slots.filter((x) => x !== after && !x.made);
-    const changed = this.grocery.replan(s, after, mealLabel(s.day, s.meal), others);
+    const changed = this.grocery.replan(this.start(), s, after, mealLabel(s.day, s.meal), others);
     this.refused.set(changed ? groceryNote(changed) : '');
   }
 
@@ -323,7 +323,7 @@ export class MealPlanHeader {
   }
 
   protected makeList(): void {
-    void this.router.navigate(['/n', this.grocery.makeList()]);
+    void this.router.navigate(['/n', this.grocery.makeList(this.start() || undefined)]);
   }
 
   /** A recipe by name: one that exists, or refused with a way to make it. */

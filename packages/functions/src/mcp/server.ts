@@ -43,7 +43,9 @@ export const INSTRUCTIONS = [
     'week, plan_meal sets a slot (a recipe link, delivery, out, or empty). A new week has a ' +
     '"Fish of the week" placeholder dinner; when Eric says what the fish is, plan its recipe ' +
     "there. plan_meal also feeds the grocery list, so do not add a planned recipe's " +
-    'ingredients to it yourself. Once a dinner is made (its box ticked), ask how it went, or ' +
+    'ingredients to it yourself. Its lines name only the item; the back of the list says ' +
+    'which dinner wants each. Each week has its own list: the first dinner planned into a ' +
+    'newer week starts one and archives the old. Once a dinner is made (its box ticked), ask how it went, or ' +
     'for a delivery what ' +
     'it was and from where, and save his answer with log_meal; he may say to ask later, ' +
     'then create_reminder to ask again.',
@@ -315,8 +317,10 @@ export function buildServer(
         'recipe that exists), optionally with a ratio ("[[Dal]] (half recipe)"), "delivery" ' +
         '(with anything after it), "out", or "" to clear it. Makes the week\'s plan if ' +
         'missing; a change unticks the slot. A planned recipe adds its ingredients to the ' +
-        'grocery list, naming the dinner and scaled by its ratio, skipping what is listed; ' +
-        "changing the slot takes the old dinner's untouched lines off. Kitchen only.",
+        'grocery list, each line only the item, scaled by its ratio, skipping what is listed ' +
+        "(the list's back says which dinner wants it); changing the slot takes the old " +
+        "dinner's untouched lines it wrote off. The first recipe planned into a week newer " +
+        "than the list's starts that week its own list, archiving the old one. Kitchen only.",
       inputSchema: { date, meal, slot: z.string() },
       annotations: write,
     },

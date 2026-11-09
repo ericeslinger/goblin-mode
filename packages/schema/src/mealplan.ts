@@ -31,6 +31,12 @@ export const KitchenConfig = z.object({
   groceryList: z.string().optional().catch(undefined),
   /** Where each item was last filed on the list, by item (#130). */
   sections: z.record(z.string(), z.string()).catch({}).default({}),
+  /**
+   * The lines each planned dinner put on the grocery list (#207), by slot
+   * ("2026-10-19/Mon/dinner", `slotKey`), exactly as written: unplanning
+   * takes off only these, so a line Eric wrote himself never goes.
+   */
+  wrote: z.record(z.string(), z.array(z.string())).catch({}).default({}),
 });
 export type KitchenConfig = z.infer<typeof KitchenConfig>;
 

@@ -1,5 +1,11 @@
 import { Injectable, Injector, computed, inject } from '@angular/core';
-import { FEELINGS_TEMPLATE, FEELINGS_TIMES, templateParts } from '@mossgoblin/schema';
+import {
+  FEELINGS_TEMPLATE,
+  FEELINGS_TIMES,
+  shoppingListBody,
+  shoppingListTitle,
+  templateParts,
+} from '@mossgoblin/schema';
 import { NotesService } from '../notes/notes.service';
 import { RemindersService } from '../reminders/reminders.service';
 
@@ -22,7 +28,7 @@ export const SHOPPING_LIST = [
   '',
   '## Instructions for Claude',
   '',
-  'Planned dinners add their ingredients themselves (plan_meal), each line naming its dinner,',
+  'Planned dinners add their ingredients themselves (plan_meal), each line only the item,',
   'under the section the item went in last time or under From recipes. When Eric asks for',
   'something else, add it with add_lines, one "- [ ] item" per line, under Produce, Butcher',
   'or Dry goods. Skip what is already on the list, ticked or not. Keep his items and words as',
@@ -89,16 +95,30 @@ export class TemplatesService {
    * The shopping list's living note (#130): of the template given, or
    * of a new Shopping list template, made here with it. Written at once,
    * without waiting for the new template to come back from the cache.
+   * Given its week (#207), it is that week's list, named for it, its
+   * text `body` when given (a new week's, with the dinner just planned).
    */
-  makeShoppingListNote(templateId?: string): string {
-    if (templateId) {
-      const used = this.use(templateId);
-      if (used) return used.id;
-    }
+  makeShoppingListNote(
+    templateId?: string,
+    week?: { start: string; id: string; body?: string },
+  ): string {
+    const found = templateId === undefined ? undefined : this.notes.find(templateId);
     const template = templateId ?? this.createShoppingList();
-    const id = this.notes.newId();
     // The text a use of it starts with, as `use` writes it.
-    this.notes.create(id, templateParts(SHOPPING_LIST).skeleton, { fromTemplate: template });
+    const body =
+      week?.body ??
+      (found?.kind === 'template'
+        ? shoppingListBody(found.body, found.instructions)
+        : shoppingListBody(SHOPPING_LIST));
+    const id = week?.id ?? this.notes.newId();
+    const named = week
+      ? {
+          periodStart: week.start,
+          title: shoppingListTitle(week.start),
+          titleSource: 'user' as const,
+        }
+      : {};
+    this.notes.create(id, body, { fromTemplate: template, ...named });
     return id;
   }
 

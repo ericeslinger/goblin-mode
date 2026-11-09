@@ -31,9 +31,13 @@ const agentRuns = {
   }),
 };
 
-async function render(note: NoteRecord, runs: { id: string; data: Record<string, unknown> }[]) {
+async function render(
+  note: NoteRecord,
+  runs: { id: string; data: Record<string, unknown> }[],
+  others: NoteRecord[] = [],
+) {
   const notes = new FakeNotes();
-  notes.signIn([note]);
+  notes.signIn([note, ...others]);
   const auth = new FakeAuthService();
   auth.user.set({ uid: 'u1' } as User);
   const activity: ActivityApi = {
@@ -286,5 +290,66 @@ describe('NoteBack (#112)', () => {
     TestBed.tick();
     expect(el.textContent).toContain('Could not do it now: the note was taken back');
     expect(button(el, 'Do it now')).toBeTruthy();
+  });
+
+  it('archives the note from its back, and restores it (#207)', async () => {
+    const { el, notes, fixture } = await render(noteRecord('n1', 'Glaze notes'), []);
+    button(el, 'Archive')!.click();
+    expect(notes.setArchived).toHaveBeenCalledWith('n1', true);
+    fixture.componentRef.setInput('note', { ...noteRecord('n1', 'Glaze notes'), archived: true });
+    await fixture.whenStable();
+    expect(el.querySelector('[role="status"]')!.textContent).toContain('Archived');
+    button(el, 'Restore')!.click();
+    expect(notes.setArchived).toHaveBeenLastCalledWith('n1', false);
+  });
+
+  it('says on a grocery list’s back which of the week’s dinners need each item (#207)', async () => {
+    const template: NoteRecord = {
+      ...noteRecord('t1', 'Shopping list'),
+      kind: 'template',
+      templateMode: 'living',
+    };
+    const list: NoteRecord = {
+      ...noteRecord(
+        'shopping-2026-10-19',
+        '## Produce\n\n- [ ] 2 onions, sliced\n- [ ] limes\n- [x] 400 g tomatoes\n',
+      ),
+      title: 'Shopping list, week of Oct 19',
+      fromTemplate: 't1',
+      periodStart: '2026-10-19',
+    };
+    const plan: NoteRecord = {
+      ...noteRecord(
+        'meals-2026-10-19',
+        '- [ ] Mon dinner: [[Shakshuka]]\n- [ ] Tue dinner: delivery\n- [ ] Thu dinner: [[Chili]]\n',
+      ),
+      kind: 'mealplan',
+      periodStart: '2026-10-19',
+    };
+    const recipe = (id: string, title: string, body: string): NoteRecord => ({
+      ...noteRecord(id, body),
+      kind: 'recipe',
+      title,
+    });
+    const { el } = await render(
+      list,
+      [],
+      [
+        template,
+        plan,
+        recipe('r1', 'Shakshuka', '## Ingredients\n\n- 2 onions\n- 400 g tomatoes\n'),
+        recipe('r2', 'Chili', '## Ingredients\n\n- onions\n- beans\n'),
+      ],
+    );
+    // Kitchen off, a list is a plain note.
+    expect(el.textContent).not.toContain('For the week of');
+    (TestBed.inject(ModulesService) as unknown as FakeModules).set('kitchen', true);
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect(el.querySelector('#list-for')!.textContent).toBe('For the week of Oct 19');
+    const items = [...el.querySelectorAll('[aria-labelledby="list-for"] li')].map((li) =>
+      li.textContent!.trim(),
+    );
+    // Limes, which no dinner needs, and the ticked tomatoes are left out.
+    expect(items).toEqual(['2 onions, sliced: Shakshuka (Mon), Chili (Thu)']);
   });
 });

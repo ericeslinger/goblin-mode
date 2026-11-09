@@ -43,14 +43,20 @@ describe('weeks (#129)', () => {
       meals: ['dinner'],
       fishDay: 'Thu',
       sections: {},
+      wrote: {},
     });
     expect(kitchenConfig({ weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'bad' })).toEqual(
-      { weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'Thu', sections: {} },
+      { weekStart: 'Sun', meals: ['lunch', 'dinner'], fishDay: 'Thu', sections: {}, wrote: {} },
     );
     expect(kitchenConfig({ groceryList: 'g1', sections: { onion: 'Produce' } })).toMatchObject({
       groceryList: 'g1',
       sections: { onion: 'Produce' },
     });
+    // What dinners wrote on the list (#207); anything malformed reads as none.
+    expect(kitchenConfig({ wrote: { '2026-10-19/Mon/dinner': ['- [ ] limes'] } }).wrote).toEqual({
+      '2026-10-19/Mon/dinner': ['- [ ] limes'],
+    });
+    expect(kitchenConfig({ wrote: 'bad' }).wrote).toEqual({});
   });
 });
 

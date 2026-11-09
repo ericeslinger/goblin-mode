@@ -74,6 +74,7 @@ describe('MealPlanHeader (#129)', () => {
     expect(edits.pop()).toContain('- [ ] Mon dinner: [[Dal]]');
     // The grocery list follows the plan (#130).
     expect(grocery.replan).toHaveBeenCalledWith(
+      '2026-10-19',
       expect.objectContaining({ day: 'Mon', kind: 'empty' }),
       expect.objectContaining({ day: 'Mon', recipe: 'Dal' }),
       'Mon',

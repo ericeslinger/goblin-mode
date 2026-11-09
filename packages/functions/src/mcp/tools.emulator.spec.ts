@@ -1122,24 +1122,111 @@ describe('the meal plan (#129)', () => {
       titleSource: 'user',
       templateMode: 'living',
     });
-    await eric('g1', 'Shopping list\n\n## Produce\n\n- [ ] limes\n', { fromTemplate: 't1' });
+    await eric('g1', 'Shopping list\n\n## Produce\n\n- [ ] limes\n', {
+      fromTemplate: 't1',
+      periodStart: '2026-10-19',
+    });
     await t.createRecipe({ name: 'Dal', ingredients: ['1 cup lentils', 'limes'], method: [] });
     const planned = await t.planMeal({ date: '2026-10-19', slot: '[[Dal]] (half recipe)' });
     expect(planned.grocery).toEqual({ list: 'g1', added: 1, removed: 0 });
+    // Only the item (#207): the list's back names the dinner.
     expect((await body('g1'))['body']).toBe(
-      'Shopping list\n\n## Produce\n\n- [ ] limes\n\n## From recipes\n\n- [ ] 0.5 cup lentils (Dal, Mon)\n',
+      'Shopping list\n\n## Produce\n\n- [ ] limes\n\n## From recipes\n\n- [ ] 0.5 cup lentils\n',
     );
-    // Where the list files things is kept in Kitchen's settings.
+    // Where the list files things is kept in Kitchen's settings, and the
+    // lines the dinner wrote (#207): not Eric's limes, which were there.
     expect((await db.doc('users/u1/settings/modules').get()).get('kitchen')).toMatchObject({
       enabled: true,
-      config: { sections: { limes: 'Produce' } },
+      config: {
+        sections: { limes: 'Produce' },
+        wrote: { '2026-10-19/Mon/dinner': ['- [ ] 0.5 cup lentils'] },
+      },
     });
     // Tuesday's Dal, already made, gets nothing back when Monday's comes off.
     await t.planMeal({ date: '2026-10-20', slot: '[[Dal]] (half recipe)' });
     await t.checkItem({ id: 'meals-2026-10-19', item: 'Tue dinner' });
     const cleared = await t.planMeal({ date: '2026-10-19', slot: 'out' });
+    // Only the lentils it wrote: Eric's limes, the very words Dal's would
+    // be, stay (#207), and the slot leaves the record.
     expect(cleared.grocery).toMatchObject({ added: 0, removed: 1 });
-    expect((await body('g1'))['body']).not.toContain('(Dal,');
+    expect((await body('g1'))['body']).not.toContain('lentils');
+    expect((await body('g1'))['body']).toContain('- [ ] limes');
+    expect((await db.doc('users/u1/settings/modules').get()).get('kitchen.config.wrote')).toEqual(
+      {},
+    );
+  });
+
+  it('takes an old list as the week’s, then starts a newer week’s own, archiving it (#207)', async () => {
+    await kitchenOn();
+    const t = ticking();
+    await eric(
+      't1',
+      'Shopping list\n\n## Meal plan\n\n## Produce\n\n## Dry goods\n\n## Instructions for Claude\n\nAdd.\n',
+      { kind: 'template', title: 'Shopping list', titleSource: 'user', templateMode: 'living' },
+    );
+    // A list from before #207: no week.
+    await eric(
+      'g1',
+      'Shopping list\n\n## Produce\n\n- [ ] limes\n\n## Dry goods\n\n- [x] rice ★\n',
+      {
+        fromTemplate: 't1',
+      },
+    );
+    await t.createRecipe({ name: 'Dal', ingredients: ['1 cup lentils'], method: [] });
+    // Reading a week, or clearing a slot, leaves the list be.
+    await t.getMealPlan({ date: '2026-11-02' });
+    await t.planMeal({ date: '2026-11-03', slot: 'out' });
+    expect(await body('g1')).not.toHaveProperty('periodStart');
+    // The first dinner planned takes it as its week's list.
+    const adopted = await t.planMeal({ date: '2026-10-26', slot: '[[Dal]]' });
+    expect(adopted.grocery).toMatchObject({ list: 'g1', added: 1 });
+    expect(await body('g1')).toMatchObject({ archived: false, periodStart: '2026-10-26' });
+
+    // A dinner in a newer week: that week's own list, the old archived.
+    const planned = await t.planMeal({ date: '2026-11-02', slot: '[[Dal]]' });
+    expect(planned.grocery).toEqual({ list: 'shopping-2026-11-02', added: 1, removed: 0 });
+    expect(await body('g1')).toMatchObject({
+      archived: true,
+      body: expect.stringContaining('limes'),
+    });
+    expect(await body('shopping-2026-11-02')).toMatchObject({
+      kind: 'text',
+      title: 'Shopping list, week of Nov 2',
+      titleSource: 'user',
+      fromTemplate: 't1',
+      periodStart: '2026-11-02',
+      archived: false,
+      body: 'Shopping list\n\n## Produce\n\n## Dry goods\n\n- [ ] rice ★\n\n## From recipes\n\n- [ ] 1 cup lentils\n',
+    });
+    const config = (await db.doc('users/u1/settings/modules').get()).get('kitchen.config');
+    expect(config).toMatchObject({ groceryList: 'shopping-2026-11-02' });
+    // Older weeks' records are dropped with the old list.
+    expect(Object.keys(config.wrote)).toEqual(['2026-11-02/Mon/dinner']);
+    expect((await runs()).map((r) => r['summary'])).toEqual(
+      expect.arrayContaining([
+        'Made Shopping list the list for the week of Oct 26',
+        'Started Shopping list, week of Nov 2 and archived Shopping list',
+      ]),
+    );
+    // The same week again, or an older one, leaves the list be.
+    await t.planMeal({ date: '2026-11-03', slot: '[[Dal]]' });
+    // A dinner in an older week feeds no list (2026-11-09): nothing on,
+    // nothing recorded, and clearing it takes nothing off.
+    const listed = await body('shopping-2026-11-02');
+    const recorded = async () =>
+      (await db.doc('users/u1/settings/modules').get()).get('kitchen.config.wrote');
+    const wroteBefore = await recorded();
+    const older = await t.planMeal({ date: '2026-10-19', slot: '[[Dal]]' });
+    expect(older.grocery).toEqual({ list: 'shopping-2026-11-02', added: 0, removed: 0 });
+    expect(await body('shopping-2026-11-02')).toMatchObject({
+      archived: false,
+      body: listed['body'],
+    });
+    expect(await recorded()).toEqual(wroteBefore);
+    const unplanned = await t.planMeal({ date: '2026-10-19', slot: '' });
+    expect(unplanned.grocery).toEqual({ list: 'shopping-2026-11-02', added: 0, removed: 0 });
+    expect((await body('shopping-2026-11-02'))['body']).toBe(listed['body']);
+    expect(await recorded()).toEqual(wroteBefore);
   });
 
   it('keeps what is on hand: Claude edits it, a dinner made uses it up, plans skip it (#131)', async () => {
@@ -1166,7 +1253,7 @@ describe('the meal plan (#129)', () => {
       titleSource: 'user',
       templateMode: 'living',
     });
-    await eric('g1', 'Shopping list\n', { fromTemplate: 't1' });
+    await eric('g1', 'Shopping list\n', { fromTemplate: 't1', periodStart: '2026-10-19' });
     await t.createRecipe({
       name: 'Dal',
       ingredients: ['1 cup lentils', '1 tbsp olive oil', '2 onions'],
@@ -1175,7 +1262,7 @@ describe('the meal plan (#129)', () => {
     // Only the onions are shopped for: the rest is on hand.
     const planned = await t.planMeal({ date: '2026-10-19', slot: '[[Dal]]' });
     expect(planned.grocery).toMatchObject({ added: 1 });
-    expect((await body('g1'))['body']).toContain('- [ ] 2 onions (Dal, Mon)');
+    expect((await body('g1'))['body']).toContain('- [ ] 2 onions');
 
     // Made: lentils used up, olive oil always there.
     const made = await t.checkItem({ id: 'meals-2026-10-19', item: 'Mon dinner' });

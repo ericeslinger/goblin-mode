@@ -22,7 +22,7 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
   await letItSave(page);
   await page.reload();
   await page.getByRole('button', { name: 'Make the grocery list' }).click();
-  await expect(page).toHaveURL(/\/n\/\w+$/);
+  await expect(page).toHaveURL(/\/n\/[\w-]+$/);
   const made = new URL(page.url()).pathname.split('/').pop();
   // Kept before the reload, as every journey that reloads does.
   await letItSave(page);

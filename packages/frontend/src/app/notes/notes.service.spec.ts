@@ -945,6 +945,36 @@ describe('NotesService', () => {
     expect(api.set).toHaveBeenCalledTimes(2);
   });
 
+  it('archives a note and restores it, a merged field update stamped as Eric’s (#207)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([{ id: 'n1', data: { body: 'Glaze notes', archived: false } }]);
+    notes.setArchived('n1', true);
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/notes/n1',
+      {
+        archived: true,
+        updatedAt: 'SERVER_TIME',
+        updatedBy: 'user',
+        deviceId: notes.deviceId(),
+      },
+      true,
+    ]);
+    notes.setArchived('n1', false);
+    expect(api.set.mock.lastCall![2]['archived']).toBe(false);
+    // No note by that id: nothing written.
+    notes.setArchived('gone', true);
+    expect(api.set).toHaveBeenCalledTimes(2);
+    // A list from before #207 taken as a week's: its week, stamped the same way.
+    notes.setWeek('n1', '2026-10-19');
+    expect(api.set.mock.lastCall![2]).toEqual({
+      periodStart: '2026-10-19',
+      updatedAt: 'SERVER_TIME',
+      updatedBy: 'user',
+      deviceId: notes.deviceId(),
+    });
+  });
+
   it('records the text a save was written over, or that it is not known', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');
