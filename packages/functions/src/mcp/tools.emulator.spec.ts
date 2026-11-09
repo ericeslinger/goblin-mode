@@ -132,6 +132,20 @@ describe('NotesTools', () => {
       updatedBy: 'user',
       deviceId: 'phone',
     });
+    // The record keeps the queue mark it replaced, for Put back (#206).
+    const finished = await db
+      .collection('users/u1/activity')
+      .where('tool', '==', 'finish_queued')
+      .get();
+    expect(finished.docs.map((d) => d.get('notes'))).toEqual([
+      [
+        {
+          id: 'early',
+          title: 'First thought',
+          before: { sendState: 'queued', sendOutcome: null },
+        },
+      ],
+    ]);
     await expect(t.finishQueued({ id: 'early', sentAt, outcome: 'Again' })).rejects.toThrow(
       /not waiting/,
     );
@@ -453,6 +467,12 @@ describe('organizing tools', () => {
       'Refiled Kiln: filed as a project; added the project sections; added another name: The kiln',
       'Refiled Glaze recipes: tagged pottery; untagged clay',
     ]);
+    // Each record keeps what the fields it changed held before, absent as
+    // null, and never the text (#206).
+    expect((await runs()).map((r) => r['notes'])).toEqual([
+      [{ id: 'c-kiln', title: 'Kiln', before: { conceptType: null, synonyms: null } }],
+      [{ id: 'a', title: 'Glaze recipes', before: { tags: ['clay'] } }],
+    ]);
   });
 
   it('files projects under projects with a kind and status, keeping text verbatim (#41)', async () => {
@@ -549,6 +569,10 @@ describe('organizing tools', () => {
       changed: ['no stage'],
     });
     expect((await body('c-lovers-vase'))['stage']).toBeUndefined();
+    // A stage the run took away is kept as it was (#206).
+    expect((await runs()).at(-1)?.['notes']).toEqual([
+      { id: 'c-lovers-vase', title: 'Lovers vase', before: { stage: 'glazed' } },
+    ]);
     const listed = await t.listConcepts({ type: 'project' });
     expect(listed.find((c) => c.id === 'c-pottery')).toMatchObject({
       stages: ['plan', 'thrown', 'bisque', 'glazed'],

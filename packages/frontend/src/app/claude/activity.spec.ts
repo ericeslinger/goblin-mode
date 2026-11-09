@@ -155,6 +155,16 @@ describe('Activity', () => {
         },
       },
       {
+        id: 'r4',
+        data: {
+          at: at(Date.parse('2026-10-07T02:15:00Z')),
+          tool: 'refile',
+          summary: 'Refiled Kiln: tagged pottery',
+          notes: [{ id: 'm1', title: 'Kiln', before: { tags: [] } }],
+          reminders: [],
+        },
+      },
+      {
         id: 'r1',
         data: {
           at: at(Date.parse('2026-10-07T02:00:00Z')),
@@ -173,9 +183,11 @@ describe('Activity', () => {
     // The merge it put back says so, with no button.
     expect(putBack(runs[1])?.querySelector('button')).toBeNull();
     expect(putBack(runs[1])?.textContent?.trim()).toBe('Put back');
-    // Filing and reminders are not History's to put back.
+    // Filing from before its record kept the fields it changed, and
+    // reminders, are not to put back; filing that kept them is (#206).
     expect(putBack(runs[2])).toBeNull();
-    expect(putBack(runs[3])).toBeNull();
+    expect(putBack(runs[3])?.querySelector('button')?.textContent).toContain('Put back');
+    expect(putBack(runs[4])).toBeNull();
   });
 
   it('stops listening when the owner signs out', async () => {

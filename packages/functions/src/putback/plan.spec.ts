@@ -298,6 +298,136 @@ describe('planPutBack', () => {
     expect(nothingToPutBack(plan)).toBe('Nothing it changed is left to put back.');
   });
 
+  describe('filing and a finished queue item (#206)', () => {
+    const filed = (over: Partial<RunFacts> = {}) =>
+      run({
+        tool: 'refile',
+        summary: 'Refiled Vase: tagged gift; stage glazed; filed under Pottery',
+        notes: [
+          { id: 'a', title: 'Vase', before: { tags: ['clay'], stage: null, parent: 'c-old' } },
+        ],
+        ...over,
+      });
+    const fields = { tags: ['clay', 'gift'], stage: 'glazed', parent: 'c-pottery' };
+
+    it('reads filing as fields only with what it replaced kept', () => {
+      expect(didOf(filed())).toEqual(new Map([['a', { kind: 'fields', text: false }]]));
+      expect(
+        didOf(filed({ summary: 'Refiled Kiln: filed as a project; added the project sections' })),
+      ).toEqual(new Map([['a', { kind: 'fields', text: true }]]));
+      // A record from before #206 names the note only: nothing to put back.
+      expect(didOf(filed({ notes: [{ id: 'a', title: 'Vase' }] }))).toEqual(new Map());
+    });
+
+    it('restores tags, parent and stage, deleting a field the run set from absent', () => {
+      const plan = planPutBack({
+        run: filed(),
+        base: filed(),
+        depth: 0,
+        notes: notes(note('a', { fields })),
+        textBefore: new Map(),
+      });
+      expect(plan).toEqual({
+        writes: [
+          {
+            id: 'a',
+            title: 'a',
+            fields: { tags: ['clay'], stage: null, parent: 'c-old' },
+            before: fields,
+          },
+        ],
+        skipped: [],
+      });
+    });
+
+    it('refuses a record without before, as before', () => {
+      const r = filed({ notes: [{ id: 'a', title: 'Vase' }] });
+      const plan = planPutBack({
+        run: r,
+        base: r,
+        depth: 0,
+        notes: notes(note('a', { fields })),
+        textBefore: new Map([['a', 'before']]),
+      });
+      expect(plan).toEqual({ writes: [], skipped: [] });
+    });
+
+    it('leaves a note filed and written since alone', () => {
+      const plan = planPutBack({
+        run: filed(),
+        base: filed(),
+        depth: 0,
+        notes: notes(note('a', { fields, updatedAt: T + 1, deviceId: 'phone' })),
+        textBefore: new Map(),
+      });
+      expect(plan).toEqual({ writes: [], skipped: [{ id: 'a', title: 'a', why: 'changed' }] });
+    });
+
+    it('puts back a put back of filing by filing it again', () => {
+      const back = run({
+        id: 'putback-r1',
+        tool: 'put_back',
+        summary: 'Put back “Refiled Vase”',
+        device: 'pb',
+        notes: [{ id: 'a', title: 'Vase', before: fields }],
+      });
+      const plan = planPutBack({
+        run: back,
+        base: filed({ at: T - DAY }),
+        depth: 1,
+        notes: notes(note('a', { deviceId: 'pb', fields: { tags: ['clay'], parent: 'c-old' } })),
+        textBefore: new Map(),
+      });
+      expect(plan.writes).toEqual([
+        {
+          id: 'a',
+          title: 'a',
+          fields,
+          before: { tags: ['clay'], stage: null, parent: 'c-old' },
+        },
+      ]);
+    });
+
+    // finish_queued leaves the note's stamp as it was: Eric's, from before.
+    const done = run({
+      tool: 'finish_queued',
+      summary: 'Did a note sent to it: Filed it',
+      notes: [{ id: 'a', title: 'Vase', before: { sendState: 'queued', sendOutcome: null } }],
+    });
+    const sent = { sendState: 'done', sendOutcome: 'Filed it', sentAt: 'then' };
+
+    it('queues a finished note again, its sentAt as it was', () => {
+      const plan = planPutBack({
+        run: done,
+        base: done,
+        depth: 0,
+        notes: notes(note('a', { updatedAt: T - DAY, deviceId: 'phone', fields: sent })),
+        textBefore: new Map(),
+      });
+      expect(plan.writes).toEqual([
+        {
+          id: 'a',
+          title: 'a',
+          fields: { sendState: 'queued', sendOutcome: null },
+          before: { sendState: 'done', sendOutcome: 'Filed it' },
+        },
+      ]);
+    });
+
+    it('leaves a finished note Eric sent again or cleared since alone', () => {
+      for (const fields of [{ sendState: 'queued', sentAt: 'now' }, {}]) {
+        const plan = planPutBack({
+          run: done,
+          base: done,
+          depth: 0,
+          notes: notes(note('a', { updatedAt: T - DAY, deviceId: 'phone', fields })),
+          textBefore: new Map(),
+        });
+        expect(plan).toEqual({ writes: [], skipped: [{ id: 'a', title: 'a', why: 'changed' }] });
+      }
+    });
+  });
+
   it('names a note gone since', () => {
     const plan = planPutBack({
       run: run(),

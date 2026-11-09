@@ -352,8 +352,18 @@ export const Touched = z.object({
    * from before.
    */
   made: z.boolean().optional(),
+  /**
+   * The value each field the run changed had before it, null where the
+   * field was absent, so putting the run back restores them (#206,
+   * 2026-11-09). Only filing (`refile`) and `finish_queued` keep it,
+   * since History keeps text, not these fields, and a put back of one
+   * keeps the values it replaced. Never the text: History has that.
+   */
+  before: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.null()])).optional(),
 });
 export type Touched = z.infer<typeof Touched>;
+/** A field's value before a run, as `Touched.before` keeps it (#206). */
+export type FieldBefore = NonNullable<Touched['before']>[string];
 
 /**
  * One Claude tool run that changed something, under `activity`

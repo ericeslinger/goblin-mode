@@ -13,6 +13,7 @@ import {
   Note,
   type ProjectKind,
   type ProjectStatus,
+  type FieldBefore,
   type Touched,
   type Recurrence,
   Reminder,
@@ -170,6 +171,19 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const touched = (id: string, d: Data): Touched => ({ id, title: String(d['title'] ?? '') });
 /** A note the run made, so putting the run back archives it (#211). */
 const touchedNew = (id: string, d: Data): Touched => ({ ...touched(id, d), made: true });
+/**
+ * A note whose fields the run changed, with the value each had before,
+ * null where it was absent, so putting the run back restores them
+ * (#206). The text is left out: History keeps that.
+ */
+const touchedFields = (id: string, d: Data, update: Data): Touched => ({
+  ...touched(id, d),
+  before: Object.fromEntries(
+    Object.keys(update)
+      .filter((k) => k !== 'body' && k !== 'baseHash')
+      .map((k) => [k, (d[k] as FieldBefore | undefined) ?? null]),
+  ),
+});
 
 /** A name that can sit inside `[[...]]` as it is. */
 const linkable = (name: string) => !/\[\[|\]\]|\||\n/.test(name) && name.trim() !== '';
@@ -1767,11 +1781,12 @@ export class NotesTools {
         }
       }
       if (said.length === 0) return { id: args.id, changed: [], refused };
+      const entry = touchedFields(args.id, current, update);
       Object.assign(update, this.stamp());
       Note.parse(withoutDeletes({ ...current, ...update }));
       tx.update(ref, update);
       const what = `Refiled ${String(current['title'] ?? '') || 'a note'}: ${said.join('; ')}`;
-      tx.set(...this.activity('refile', what, [touched(args.id, current)]));
+      tx.set(...this.activity('refile', what, [entry]));
       return { id: args.id, changed: said, refused };
     });
   }
@@ -1850,7 +1865,7 @@ export class NotesTools {
       tx.update(ref, update);
       tx.set(
         ...this.activity('finish_queued', `Did a note sent to it: ${outcome}`, [
-          touched(args.id, current),
+          touchedFields(args.id, current, update),
         ]),
       );
       return { id: args.id, done: true };
