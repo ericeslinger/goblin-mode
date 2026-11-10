@@ -1606,6 +1606,15 @@ describe('list_feed_items and Podcasts (#245)', () => {
     expect(((await tools().listFeedItems({ podcasts: true })) as Row[]).map((r) => r.id)).toEqual([
       'episode',
     ]);
+    // An episode whose notes were read is still new until heard; a
+    // heard one is left out unless asked for (review on #247).
+    await db.doc('users/u1/feedItems/episode').update({ read: true });
+    await at('heard', 'p-1', 3);
+    await db.doc('users/u1/feedItems/heard').update({ played: true });
+    const ids = async (args: object) =>
+      ((await tools().listFeedItems(args)) as Row[]).map((r) => r.id);
+    expect(await ids({ podcasts: true })).toEqual(['episode']);
+    expect(await ids({ podcasts: true, includeRead: true })).toEqual(['episode', 'heard']);
   });
 });
 

@@ -2046,7 +2046,10 @@ owner could already write (#179).
 `search_feed_items` say `podcast: true` on an item of a show in
 Podcasts, and `list_feed_items` takes `podcasts`: false lists only the
 Reader's own articles, true only the episodes, a filter over the
-newest thousand as `tag` is. The text stays labelled `fromWeb`.
+newest thousand as `tag` is. With `podcasts` true the default is the
+episodes not yet heard (`played`), not the unread ones, since reading
+an episode's notes does not make it heard; `includeRead` lists the
+heard too (review on #247). The text stays labelled `fromWeb`.
 
 **Journeys** (`podcasts.spec.ts`): Podcasts switched on alone, a
 podcast added by its address and its episodes in Latest, an episode

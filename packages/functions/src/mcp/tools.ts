@@ -2568,13 +2568,17 @@ export class NotesTools {
     }
     const limit = Math.min(Math.max(1, args.limit ?? 50), 200);
     const items = this.feedItems();
+    const kind = args.podcasts;
+    // Episodes alone: an episode is new until heard, whatever was read
+    // of its notes (#245), so the default leaves out the heard ones,
+    // not the ones whose notes were read (review on #247).
+    const unheard = kind === true && !args.saved && !args.includeRead;
     const q = args.saved
       ? items.where('saved', '==', true)
-      : args.includeRead
+      : args.includeRead || unheard
         ? items
         : items.where('read', '==', false);
     const tag = args.tag?.trim().toLowerCase();
-    const kind = args.podcasts;
     const snap = await q
       .orderBy('published', 'desc')
       .limit(only || tag || kind !== undefined ? 1000 : limit)
@@ -2582,6 +2586,7 @@ export class NotesTools {
     return snap.docs
       .filter((d) => !only || only.has(String(d.get('feedId'))))
       .filter((d) => kind === undefined || !!feeds.get(String(d.get('feedId')))?.podcast === kind)
+      .filter((d) => !unheard || d.get('played') !== true)
       .filter((d) => !tag || tagsOf(d.data()).some((t) => t.toLowerCase() === tag))
       .slice(0, limit)
       .map((d) => feedItemView(d.id, d.data(), feeds));
