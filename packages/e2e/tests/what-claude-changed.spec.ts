@@ -8,7 +8,9 @@ import { OWNER } from '../src/personas';
 // lists each change with the notes it touched and their History. Put back
 // (#154 step 1) undoes a change in one tap, as a run of its own, filing
 // included (#206). After a filing is put back, File it under… files the
-// note under the project Eric picks, as a change of his own (#235).
+// note under the project Eric picks, as a change of his own (#235). Each
+// correction leaves a line under Corrections in Context for Claude, which
+// the next run reads (#239).
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -176,6 +178,24 @@ test('after a filing is put back, File it under… files the note under another 
       .getByRole('region', { name: 'Linked from' })
       .getByRole('link', { name: 'Kiln log', exact: true }),
   ).toBeVisible({ timeout: 15_000 });
+
+  // Both corrections are noted in Context for Claude, under a heading of
+  // their own, for the next run to read (#239).
+  const day = /\(\d{4}-\d{2}-\d{2}\)\./;
+  const putBackLine = 'Put back: Linked Kiln log to Pottery';
+  const rerouteLine = 'Filed Kiln log under Garden, not Pottery';
+  await page.goto('/n/context');
+  await expect(note(page)).toContainText('Corrections', { timeout: 15_000 });
+  await expect(note(page)).toContainText(putBackLine);
+  await expect(note(page)).toContainText(rerouteLine);
+  const { text } = (await call('get_context', {})) as { text: string };
+  const lines = text.split('\n');
+  const heading = lines.indexOf('## Corrections');
+  expect(heading).toBeGreaterThanOrEqual(0);
+  expect(lines.slice(heading + 1, heading + 3)).toEqual([
+    expect.stringMatching(new RegExp(`^- ${putBackLine} ${day.source}$`)),
+    expect.stringMatching(new RegExp(`^- ${rerouteLine} ${day.source}$`)),
+  ]);
 });
 
 // The daily digest (#237, step 4 of #154): the top of What assistants

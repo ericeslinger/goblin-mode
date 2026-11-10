@@ -4,6 +4,8 @@
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   Activity,
+  CONTEXT_ID,
+  type CorrectionNote,
   type FieldBefore,
   GARDEN_AGENT,
   Note,
@@ -11,6 +13,7 @@ import {
   REROUTE_TOOL,
   agentOf,
   canPutBack,
+  correctionLine,
   moduleOn,
   nameIndex,
   paths,
@@ -20,12 +23,16 @@ import {
   rerouteNotes,
   resolveLinks,
   textHash,
+  withCorrection,
+  zonedDay,
 } from '@mossgoblin/schema';
 import {
+  type DocumentReference,
   type DocumentSnapshot,
   FieldValue,
   type Firestore,
   Timestamp,
+  type Transaction,
 } from 'firebase-admin/firestore';
 import {
   ToolError,
@@ -80,6 +87,93 @@ export function putBackDevice(recordId: string): string {
 /** The deviceId a reroute's note writes carry (#235): its own, as a put back's. */
 export function rerouteDevice(recordId: string): string {
   return `${agentDevice(GARDEN_AGENT)}~${recordId}`;
+}
+
+/** The day `now` falls on in `timeZone`, YYYY-MM-DD; UTC without one, or for a zone not known. */
+export function dayIn(now: number, timeZone?: string): string {
+  try {
+    return zonedDay(now, timeZone || 'UTC');
+  } catch {
+    return zonedDay(now, 'UTC');
+  }
+}
+
+/** Whether a note's title is a page's words (#239): a clipping, a recipe imported from a page. */
+function webOf(d: Record<string, unknown> | undefined): CorrectionNote['web'] {
+  if (!d) return undefined;
+  if (d['kind'] === 'clipping') return 'clipping';
+  const url = (d['source'] as { url?: unknown } | undefined)?.url;
+  if (d['kind'] === 'recipe' && typeof url === 'string' && url) return 'recipe';
+  return undefined;
+}
+
+/** A note as a correction names it: its title now, if it is there, else the record's. */
+function correctionNote(
+  t: { id: string; title: string },
+  d: Record<string, unknown> | undefined,
+): CorrectionNote {
+  const web = webOf(d);
+  return {
+    title: d && typeof d['title'] === 'string' ? d['title'] : t.title,
+    was: t.title,
+    ...(web ? { web } : {}),
+  };
+}
+
+type Stamp = {
+  updatedAt: Timestamp;
+  updatedBy: 'claude';
+  agent: string;
+  deviceId: string;
+};
+
+/**
+ * Writes `line` under Corrections in the context note (#239, step 3 of
+ * #154), in the put back's or reroute's own transaction, with its
+ * stamp: Eric's text stays byte for byte (`withCorrection`), the title
+ * as it is, and no record lists it, so it is no run of its own. Made
+ * as the app makes it when there is none; left alone when Eric
+ * archived it or put it in Trash.
+ */
+function writeCorrection(
+  tx: Transaction,
+  ref: DocumentReference,
+  snap: DocumentSnapshot,
+  line: string,
+  stamp: Stamp,
+  index: Map<string, string>,
+): void {
+  if (!snap.exists) {
+    const body = withCorrection('', line);
+    tx.create(
+      ref,
+      Note.parse({
+        kind: 'context',
+        body,
+        title: 'Context for Claude',
+        // Its name is fixed: a settle never retitles it.
+        titleSource: 'user',
+        links: resolveLinks(wikiLinkTargets(parseNote(body)), index),
+        tags: [],
+        archived: false,
+        createdAt: stamp.updatedAt,
+        ...stamp,
+      }),
+    );
+    return;
+  }
+  const current = snap.data()!;
+  if (current['archived'] === true || current['deletedAt'] !== undefined) return;
+  const before = String(current['body'] ?? '');
+  const body = withCorrection(before, line);
+  const update = {
+    ...stamp,
+    body,
+    baseHash: textHash(before),
+    links: resolveLinks(wikiLinkTargets(parseNote(body)), index),
+  };
+  Note.parse({ ...current, ...update });
+  tx.update(ref, update);
 }
 
 function runFacts(id: string, d: Record<string, unknown>): RunFacts {
@@ -154,13 +248,17 @@ function noteFacts(snap: DocumentSnapshot): NoteFacts | undefined {
  * note it made is archived (never deleted), and the fields a filing or
  * a finished queue item changed get the values its record kept (#206).
  * Recorded as a run of its own, id `putBackId(runId)`, so it shows in
- * What assistants changed and can be put back in turn.
+ * What assistants changed and can be put back in turn. A put back of
+ * an assistant's run also leaves a line under Corrections in Eric's
+ * Context for Claude (#239), dated in `timeZone` (UTC without one); a
+ * put back of a put back, or of Eric's own reroute, leaves none.
  */
 export async function putBack(
   db: Firestore,
   uid: string,
   runId: string,
   now: number = Date.now(),
+  timeZone?: string,
 ): Promise<PutBackResult> {
   if (!runId || runId.includes('/')) throw new PutBackRefused('invalid-argument', 'Which run?');
   const recordId = putBackId(runId);
@@ -168,11 +266,13 @@ export async function putBack(
   const index = await namesOf(db, uid);
   const activity = db.collection(paths.activity(uid));
   const usageRef = db.doc(paths.usage(uid, new Date(now).toISOString().slice(0, 10)));
+  const contextRef = db.doc(paths.note(uid, CONTEXT_ID));
   return db.runTransaction(async (tx) => {
-    const [runDoc, doneDoc, usage] = await tx.getAll(
+    const [runDoc, doneDoc, usage, contextDoc] = await tx.getAll(
       activity.doc(runId),
       activity.doc(recordId),
       usageRef,
+      contextRef,
     );
     if (!runDoc.exists) throw new PutBackRefused('not-found', 'No such change.');
     if (doneDoc.exists) return { status: 'already', id: recordId, notes: 0 };
@@ -232,6 +332,27 @@ export async function putBack(
       );
     }
 
+    // The correction, for the next run (#239): only of an assistant's
+    // own run, and not when the run being put back wrote the context
+    // note itself, which the put back is already writing.
+    let line: string | undefined;
+    if (depth === 0 && run.tool !== REROUTE_TOOL && !plan.writes.some((w) => w.id === CONTEXT_ID)) {
+      const filedUnder = run.tool === 'refile' ? plan.writes[0]?.before?.['parent'] : undefined;
+      const projectDoc =
+        typeof filedUnder === 'string' && filedUnder && !filedUnder.includes('/')
+          ? await tx.get(db.doc(paths.note(uid, filedUnder)))
+          : undefined;
+      const project = projectDoc?.exists ? String(projectDoc.get('title') ?? '') : undefined;
+      line = correctionLine({
+        kind: 'put-back',
+        tool: run.tool,
+        summary: run.summary,
+        notes: run.notes.map((t) => correctionNote(t, notes.get(t.id)?.fields)),
+        ...(project ? { project } : {}),
+        day: dayIn(now, timeZone),
+      });
+    }
+
     const stamp = {
       updatedAt: Timestamp.fromMillis(now),
       updatedBy: 'claude' as const,
@@ -285,6 +406,7 @@ export async function putBack(
       }),
     );
     tx.set(usageRef, { putBacks: used + 1 }, { merge: true });
+    if (line) writeCorrection(tx, contextRef, contextDoc, line, stamp, index);
     return { status: 'done', id: recordId, notes: plan.writes.length };
   });
 }
@@ -300,6 +422,9 @@ export async function putBack(
  * restored. Recorded as a run of its own, id `rerouteId(putBackRunId)`,
  * with each note's fields before, so it shows in What assistants
  * changed and can be put back. Counts toward the day's put backs.
+ * Leaves a line under Corrections in Eric's Context for Claude (#239),
+ * dated in `timeZone` (UTC without one), unless what the put back
+ * undid was a reroute of his own.
  */
 export async function reroute(
   db: Firestore,
@@ -307,6 +432,7 @@ export async function reroute(
   putBackRunId: string,
   projectId: string,
   now: number = Date.now(),
+  timeZone?: string,
 ): Promise<PutBackResult> {
   if (!putBackRunId || putBackRunId.includes('/'))
     throw new PutBackRefused('invalid-argument', 'Which put back?');
@@ -323,13 +449,15 @@ export async function reroute(
   const activity = db.collection(paths.activity(uid));
   const notesCol = db.collection(paths.notes(uid));
   const usageRef = db.doc(paths.usage(uid, new Date(now).toISOString().slice(0, 10)));
+  const contextRef = notesCol.doc(CONTEXT_ID);
   return db.runTransaction(async (tx) => {
-    const [putBackDoc, baseDoc, doneDoc, projectDoc, usage] = await tx.getAll(
+    const [putBackDoc, baseDoc, doneDoc, projectDoc, usage, contextDoc] = await tx.getAll(
       activity.doc(putBackRunId),
       activity.doc(baseId),
       activity.doc(recordId),
       notesCol.doc(projectId),
       usageRef,
+      contextRef,
     );
     if (doneDoc.exists) return { status: 'already', id: recordId, notes: 0 };
     if (!putBackDoc.exists || putBackDoc.get('tool') !== PUT_BACK_TOOL)
@@ -418,6 +546,41 @@ export async function reroute(
         `Today’s ${DAILY_PUT_BACKS} put backs are used up; try again tomorrow.`,
       );
     }
+    // The correction, for the next run (#239): where the assistant had
+    // filed them, read as the reroute reads what to file; none after a
+    // put back of Eric's own reroute.
+    let line: string | undefined;
+    if (base.tool !== REROUTE_TOOL && !writes.some((w) => w.id === CONTEXT_ID)) {
+      let from: string | undefined;
+      let mergedInto: CorrectionNote | undefined;
+      const dataOf = (id: string) => baseSnaps.find((s) => s.id === id)?.data();
+      if (base.tool === 'refile') {
+        const was = putBackRun.notes.find((t) => t.id === writes[0].id)?.before?.['parent'];
+        if (typeof was === 'string' && was && !was.includes('/')) {
+          const doc = await tx.get(notesCol.doc(was));
+          if (doc.exists) from = String(doc.get('title') ?? '') || undefined;
+        }
+      } else if (base.tool === 'link_notes') {
+        const target = base.notes.slice(1).find((t) => isProject(t.id));
+        if (target) from = correctionNote(target, dataOf(target.id)).title || undefined;
+      } else if (base.tool === 'merge_notes' && base.notes[0]) {
+        mergedInto = correctionNote(base.notes[0], dataOf(base.notes[0].id));
+      }
+      line = correctionLine({
+        kind: 'reroute',
+        notes: writes.map((w) =>
+          correctionNote(
+            { id: w.id, title: base.notes.find((t) => t.id === w.id)?.title ?? '' },
+            w.current,
+          ),
+        ),
+        to: projectTitle,
+        // Filed back where the assistant had it: no "not" to say.
+        ...(from && from !== projectTitle ? { from } : {}),
+        ...(mergedInto ? { mergedInto } : {}),
+        day: dayIn(now, timeZone),
+      });
+    }
     const touched = writes.map((w) => touchedFields(w.id, w.current, w.update));
     for (const w of writes) {
       const update = { ...w.update, ...stamp };
@@ -440,6 +603,7 @@ export async function reroute(
       }),
     );
     tx.set(usageRef, { putBacks: used + 1 }, { merge: true });
+    if (line) writeCorrection(tx, contextRef, contextDoc, line, stamp, index);
     return { status: 'done', id: recordId, notes: writes.length };
   });
 }

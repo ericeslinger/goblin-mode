@@ -498,3 +498,135 @@ describe('reroute (#235)', () => {
     );
   });
 });
+
+describe('learn from the correction (#239)', () => {
+  const context = async () => (await db.doc('users/u1/notes/context').get()).data();
+  const lines = (body: unknown) =>
+    String(body)
+      .split('\n')
+      .filter((l) => l.startsWith('- '));
+
+  it('notes a put back and a reroute under Corrections, making the note and the heading once', async () => {
+    await tools(T - 3000).createConcept({ name: 'Pottery', type: 'project' });
+    await tools(T - 3000).createConcept({ name: 'Garden', type: 'project' });
+    await tools(T - 1000).createConcept({ name: 'Glazes', type: 'project' });
+    await tools(T).refile({ id: 'c-glazes', parent: 'c-pottery' });
+    const runId = await runOf('refile');
+    expect(await context()).toBeUndefined();
+
+    await putBack(db, 'u1', runId, T + 1000);
+    const made = (await context())!;
+    expect(made).toMatchObject({
+      kind: 'context',
+      title: 'Context for Claude',
+      titleSource: 'user',
+      body: '## Corrections\n- Put back: Filed Glazes under Pottery (2026-11-08).',
+      archived: false,
+      updatedBy: 'claude',
+      agent: 'Mossgoblin',
+      deviceId: `agent:Mossgoblin~putback-${runId}`,
+    });
+    // No run of its own: the put back's record lists only what it put back.
+    const record = (await db.doc(`users/u1/activity/putback-${runId}`).get()).data()!;
+    expect(record['notes'].map((n: { id: string }) => n.id)).toEqual(['c-glazes']);
+
+    await reroute(db, 'u1', `putback-${runId}`, 'c-garden', T + 2000, 'Europe/London');
+    const after = (await context())!;
+    expect(after['body']).toBe(
+      '## Corrections\n- Put back: Filed Glazes under Pottery (2026-11-08).\n' +
+        '- Filed Glazes under Garden, not Pottery (2026-11-08).',
+    );
+    expect(after).toMatchObject({
+      title: 'Context for Claude',
+      deviceId: `agent:Mossgoblin~reroute-putback-${runId}`,
+      baseHash: textHash(String(made['body'])),
+    });
+    expect(
+      (await db.doc(`users/u1/activity/reroute-putback-${runId}`).get()).get('notes'),
+    ).toHaveLength(1);
+
+    // Putting back Eric's own reroute says nothing more.
+    await putBack(db, 'u1', `reroute-putback-${runId}`, T + 3000);
+    expect((await context())!['body']).toBe(after['body']);
+  });
+
+  it('says nothing for a put back of a put back', async () => {
+    await eric('x', 'Kiln log\nCone 6.');
+    await eric('y', 'Firing notes\nShelf 2.');
+    await tools(T).mergeNotes({ ids: ['x', 'y'] });
+    const runId = await runOf('merge_notes');
+    await putBack(db, 'u1', runId, T + 1000);
+    const once = (await context())!['body'];
+    expect(lines(once)).toEqual([
+      '- Put back: Merged Kiln log and Firing notes into Kiln log (2026-11-08).',
+    ]);
+    await putBack(db, 'u1', `putback-${runId}`, T + 2000);
+    expect((await context())!['body']).toBe(once);
+  });
+
+  it('adds under Eric’s own heading mid-note, dated on his clock, the rest byte for byte', async () => {
+    const body =
+      'Fish comes Wednesdays.  \n\n## Corrections\nMind these.\n- Old one (2026-11-01).\n\n' +
+      '## Garden\nRaised beds.\n';
+    await eric('context', body, {
+      kind: 'context',
+      title: 'Context for Claude',
+      titleSource: 'user',
+    });
+    await tools(T - 3000).createConcept({ name: 'Pottery', type: 'project' });
+    await eric('k', 'Kiln log\nCone 6.');
+    await tools(T).linkNotes({ from: 'k', to: ['c-pottery'] });
+    await remember('k', 'Kiln log\nCone 6.');
+    // 10:00 UTC is still the day before in Pago Pago.
+    await putBack(db, 'u1', await runOf('link_notes'), T + 1000, 'Pacific/Pago_Pago');
+    const note = (await context())!;
+    expect(note['body']).toBe(
+      'Fish comes Wednesdays.  \n\n## Corrections\nMind these.\n- Old one (2026-11-01).\n' +
+        '- Put back: Linked Kiln log to Pottery (2026-11-07).\n\n## Garden\nRaised beds.\n',
+    );
+    expect(note).toMatchObject({ title: 'Context for Claude', titleSource: 'user' });
+  });
+
+  it('keeps the last 20 lines, and a zone it does not know dates in UTC', async () => {
+    const old = Array.from({ length: 20 }, (_, i) => `- Old ${i + 1} (2026-11-01).`);
+    await eric('context', `About me.\n\n## Corrections\n${old.join('\n')}`, {
+      kind: 'context',
+      title: 'Context for Claude',
+      titleSource: 'user',
+    });
+    await eric('a', 'Kiln log\nCone 6.');
+    await tools(T).archiveNote({ id: 'a' });
+    await putBack(db, 'u1', await runOf('archive_note'), T + 1000, 'Not/AZone');
+    const got = lines((await context())!['body']);
+    expect(got).toHaveLength(20);
+    expect(got[0]).toBe('- Old 2 (2026-11-01).');
+    expect(got.at(-1)).toBe('- Put back: Archived Kiln log (2026-11-08).');
+  });
+
+  it('leaves a context note Eric archived alone', async () => {
+    await eric('context', 'About me.', {
+      kind: 'context',
+      title: 'Context for Claude',
+      titleSource: 'user',
+      archived: true,
+    });
+    await eric('a', 'Kiln log\nCone 6.');
+    await tools(T).archiveNote({ id: 'a' });
+    await putBack(db, 'u1', await runOf('archive_note'), T + 1000);
+    expect((await context())!['body']).toBe('About me.');
+  });
+
+  it('says a merge filed again as not merged', async () => {
+    await tools(T - 3000).createConcept({ name: 'Pottery', type: 'project' });
+    await eric('x', 'Cone 6\nHot.');
+    await eric('y', 'Cone 10\nHotter.');
+    const merged = await tools(T).mergeNotes({ ids: ['x', 'y'], title: 'Firing' });
+    const runId = await runOf('merge_notes');
+    await putBack(db, 'u1', runId, T + 1000);
+    await reroute(db, 'u1', `putback-${runId}`, 'c-pottery', T + 2000);
+    expect(lines((await context())!['body'])).toEqual([
+      `- Put back: Merged Cone 6 and Cone 10 into ${(await read(merged.id))['title']} (2026-11-08).`,
+      `- Filed Cone 6 and Cone 10 under Pottery, not merged into ${(await read(merged.id))['title']} (2026-11-08).`,
+    ]);
+  });
+});
