@@ -322,4 +322,61 @@ describe('PlayerService (#179)', () => {
     expect(audio.src).toBe('https://pod.test/e1.mp3');
     await vi.waitFor(() => expect(downloads.has('e1')).toBe(false));
   });
+
+  describe('playing through the queue (#249)', () => {
+    it('takes the ended one off the queue and starts the first up next, on the same element', () => {
+      const { items, player, api, audio, made } = setup();
+      const queued = [
+        episode('e1', { queue: 1 }),
+        episode('e2', { queue: 2, position: 40 }),
+        episode('e3', { queue: 3 }),
+      ];
+      api.push('unread', queued);
+      api.pushQueue(queued);
+      player.load(items.find('e1')!, { autoplay: true });
+      audio.meta(3);
+      audio.end();
+      expect(items.queue().map((i) => i.id)).toEqual(['e2', 'e3']);
+      const heard = api.set.mock.calls.find((c) => c[2]['played'] === true)!;
+      expect(heard[1]).toBe('users/u1/feedItems/e1');
+      expect(heard[2]).toMatchObject({ queue: 'CLEAR' });
+      // The next one, by the tap's own path: its kept place, playing.
+      expect(player.current()).toBe('e2');
+      expect(player.playing()).toBe(true);
+      expect(audio.src).toBe('https://pod.test/e2.mp3');
+      expect(audio.currentTime).toBe(40);
+      expect(made).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts the queue’s first after an episode that was not in it', () => {
+      const { items, player, api, audio } = setup();
+      api.push('unread', [episode('e1'), episode('e2', { queue: 5 })]);
+      api.pushQueue([episode('e2', { queue: 5 })]);
+      player.load(items.find('e1')!, { autoplay: true });
+      audio.meta(3);
+      audio.end();
+      expect(player.current()).toBe('e2');
+      expect(player.playing()).toBe(true);
+      expect(items.queue().map((i) => i.id)).toEqual(['e2']);
+    });
+
+    it('stays on the ended one when the queue is empty, and leaves the queue on close', () => {
+      const { items, player, api, audio } = setup();
+      api.push('unread', [episode('e1', { queue: 1 }), episode('e2')]);
+      api.pushQueue([episode('e1', { queue: 1 })]);
+      player.load(items.find('e1')!, { autoplay: true });
+      audio.meta(3);
+      audio.end();
+      expect(player.current()).toBe('e1');
+      expect(player.playing()).toBe(false);
+      expect(items.queue()).toEqual([]);
+      // Closing the player leaves the queue alone.
+      api.push('unread', [episode('e1', { played: true }), episode('e2', { queue: 1 })]);
+      api.pushQueue([episode('e2', { queue: 1 })]);
+      player.load(items.find('e2')!, { autoplay: true });
+      player.stop();
+      expect(items.queue().map((i) => i.id)).toEqual(['e2']);
+      expect(api.set.mock.calls.at(-1)![2]).not.toHaveProperty('queue');
+    });
+  });
 });

@@ -8,6 +8,7 @@ import { ReaderService } from '../reader/reader.service';
 import { EpisodeArt } from './episode-art';
 import { type EpisodeState, episodeState, lengthText, stateText } from './episodes';
 import { PodcastsBar } from './podcasts-bar';
+import { QueueButton } from './queue-button';
 
 /** Latest's filters (#245): New, Started, or every episode. */
 export type LatestFilter = 'new' | 'started' | 'all';
@@ -17,14 +18,15 @@ export type LatestFilter = 'new' | 'started' | 'all';
  * followed in Podcasts, at `/podcasts`; one show's are on its page
  * since #246 (`PodcastShow`). Each
  * row has its artwork (the episode's, else its show's initials on a
- * tinted square), title, state, show, age and length, and Play; the
+ * tinted square), title, state, show, age and length, Play, and Add to
+ * the queue (#249), pressed once it is in the queue; the
  * one playing has Pause and the time left. New, Started and All filter
  * them, with counts. New lasts until the episode is heard (Eric,
  * 2026-11-10): one whose notes were read says "New, notes read".
  */
 @Component({
   selector: 'app-podcasts-latest',
-  imports: [EpisodeArt, Icon, PodcastsBar, RouterLink],
+  imports: [EpisodeArt, Icon, PodcastsBar, QueueButton, RouterLink],
   template: `
     <main class="page">
       <app-podcasts-bar active="latest" />
@@ -74,6 +76,9 @@ export type LatestFilter = 'new' | 'started' | 'all';
               >
                 <app-icon [name]="playing(ep) ? 'pause' : 'play'" [size]="22" />
               </button>
+            }
+            @if (ep.enclosure) {
+              <app-queue-button [item]="ep" />
             }
           </li>
         }

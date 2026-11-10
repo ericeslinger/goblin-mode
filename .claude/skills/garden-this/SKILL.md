@@ -56,7 +56,10 @@ Follow them; they are not repeated here.
   finds them (#176). An episode of a show Eric follows in Podcasts
   (#245) comes through the same tools and says `podcast: true`;
   `list_feed_items` with `podcasts: false` leaves the episodes out,
-  and one is filed with `clip_feed_item` like an article.
+  and one is filed with `clip_feed_item` like an article. What is in
+  Eric's listening queue (#249) is `list_feed_items` with `queued:
+  true`, in order; an episode in it says `queued: true` and its
+  `queuePosition` (1 plays next). No tool changes the queue.
 - A note Eric sent from the app (Send to an assistant) waits in
   `list_queue`, not in the chat: it is worked through by the queue
   routine (`routines/send-to-queue.md`), and each is closed with

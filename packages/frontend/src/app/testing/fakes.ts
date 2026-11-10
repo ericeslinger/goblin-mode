@@ -429,6 +429,24 @@ export class FakeItemsApi implements ItemsApi {
     },
   );
 
+  /** The listening queue's listener (#249), once started. */
+  private queueNext?: (docs: { id: string; data: Record<string, unknown> }[]) => void;
+  listenQueue = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    ) => {
+      this.queueNext = next;
+      return vi.fn();
+    },
+  );
+
+  /** The queued items, for the `listenQueue` listener (#249). */
+  pushQueue(docs: { id: string; data: Record<string, unknown> }[]): void {
+    this.queueNext?.(docs);
+  }
+
   /** A show's newest episodes, for its `listenFeed` listener (#245). */
   pushFeed(feedId: string, docs: { id: string; data: Record<string, unknown> }[]): void {
     this.feeds.get(feedId)?.(docs);
@@ -659,6 +677,32 @@ export class FakeItems {
   mayHaveOlder = (feedId: string) => this.more()[feedId] ?? false;
   loadOlder = vi.fn(async (_feedId: string): Promise<number | string> => 0);
   setPlayedMany = vi.fn((ids: string[]) => ids.length);
+  /**
+   * The listening queue (#249): the episodes set in `episodes` with a
+   * `queue`, in order; the writes change `episodes` as the real one's
+   * local marks do.
+   */
+  readonly queue = computed(() =>
+    this.episodes()
+      .filter((e): e is ItemRecord & { queue: number } => typeof e.queue === 'number')
+      .sort((a, b) => a.queue - b.queue || (a.id < b.id ? -1 : 1)),
+  );
+  queued = (id: string) => this.queue().some((e) => e.id === id);
+  private place(id: string, queue: number | undefined): void {
+    this.episodes.update((l) => l.map((e) => (e.id === id ? { ...e, queue } : e)));
+  }
+  addToQueue = vi.fn((id: string) => {
+    if (!this.queued(id)) this.place(id, (this.queue().at(-1)?.queue ?? 0) + 1000);
+  });
+  playNext = vi.fn((id: string) =>
+    this.place(id, (this.queue().find((e) => e.id !== id)?.queue ?? 0) - 1000),
+  );
+  removeFromQueue = vi.fn((id: string) => this.place(id, undefined));
+  moveInQueue = vi.fn((_id: string, order: readonly string[]) => {
+    const by = new Map(this.queue().map((e) => [e.id, e.queue]));
+    const values = order.map((x) => by.get(x)!).sort((a, b) => a - b);
+    order.forEach((x, n) => this.place(x, values[n]));
+  });
 }
 
 /** A stand-in for ProposalsService: set `list`, watch accept and dismiss. */

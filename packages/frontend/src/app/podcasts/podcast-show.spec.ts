@@ -128,6 +128,16 @@ describe('A show’s page (#246)', () => {
     expect(reader.setAutoQueue).toHaveBeenCalledWith('p1', true);
     expect(sw.checked).toBe(true);
     expect(el.textContent).toContain('On: its new episodes go to the end of the queue');
+    // The queue is here now (#249): no note that it comes soon.
+    expect(el.textContent).not.toContain('comes soon');
+  });
+
+  it('adds an episode to the queue from its row (#249)', async () => {
+    const { button, items, stable } = await open();
+    button('Add Wood firing to the queue')!.click();
+    await stable();
+    expect(items.addToQueue).toHaveBeenCalledWith('e3');
+    expect(button('Wood firing is in the queue')?.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('filters Unheard and All, with counts, and sorts oldest first', async () => {

@@ -680,6 +680,31 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     );
   });
 
+  it('lets the owner set, change and clear an episode’s place in the queue (#249)', async () => {
+    const path = 'users/owner/feedItems/f-1-pod';
+    const ref = owner().doc(path);
+    const t = Date.parse('2026-11-10T12:00:00Z');
+    await seed(path, item());
+    await assertSucceeds(ref.set({ queue: t, updatedAt: now() }, { merge: true }));
+    // Play next and a drop between two: below the first, a midpoint.
+    await assertSucceeds(ref.set({ queue: t - 1000.5, updatedAt: now() }, { merge: true }));
+    await assertSucceeds(ref.set({ queue: -3, updatedAt: now() }, { merge: true }));
+    // Off the queue, with heard in the same write.
+    await assertSucceeds(
+      ref.set(
+        { queue: firebase.firestore.FieldValue.delete(), played: true, updatedAt: now() },
+        { merge: true },
+      ),
+    );
+    await assertFails(ref.set({ queue: '1', updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ queue: true, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ queue: Infinity, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ queue: 1e16, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ queue: t }, { merge: true }));
+    await assertFails(intruder().doc(path).set({ queue: t, updatedAt: now() }, { merge: true }));
+    await assertFails(anonymous().doc(path).set({ queue: t, updatedAt: now() }, { merge: true }));
+  });
+
   it('keeps the Reader’s settings to their shape', async () => {
     const ref = owner().doc('users/owner/settings/reader');
     await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));

@@ -233,14 +233,15 @@ service cloud.firestore {
 
       // Articles are the fetcher's. The gardener marks one read or
       // saved, ties it to the reading-queue record or the clipping the
-      // app made (#163), and keeps where an episode was left (#179),
-      // and nothing else: the text stays what the feed gave.
+      // app made (#163), keeps where an episode was left (#179) and
+      // its place in the listening queue (#249), and nothing else: the
+      // text stays what the feed gave.
       match /feedItems/{itemId} {
         allow read: if isOwner(uid);
         allow update: if isOwner(uid)
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['read', 'readAt', 'saved', 'attachmentId', 'noteId', 'expireAt',
-              'position', 'playedAt', 'played', 'updatedAt'])
+              'position', 'playedAt', 'played', 'queue', 'updatedAt'])
           // expireAt (#171) is the fetcher's; the owner may only clear it.
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['expireAt'])
             || !('expireAt' in request.resource.data))
@@ -269,6 +270,13 @@ service cloud.firestore {
             || !('playedAt' in request.resource.data)
             || request.resource.data.playedAt <= request.time + duration.value(60, 's'))
           && (!('played' in request.resource.data) || request.resource.data.played is bool)
+          // Its place in the listening queue (#249): a plain number,
+          // inside the bound the schema keeps (QUEUE_BOUND), so never
+          // NaN or an infinity; absent when not queued.
+          && (!('queue' in request.resource.data)
+            || (request.resource.data.queue is number
+              && request.resource.data.queue > -1000000000000000
+              && request.resource.data.queue < 1000000000000000))
           && request.resource.data.updatedAt is timestamp;
         allow create, delete: if false;
       }

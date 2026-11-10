@@ -8,7 +8,18 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { UNCATEGORIZED, clippingBody, isWebLink, paths } from '@mossgoblin/schema';
+import {
+  UNCATEGORIZED,
+  byQueue,
+  clippingBody,
+  isQueueOrder,
+  isWebLink,
+  orderAfter,
+  orderAt,
+  orderBefore,
+  paths,
+  renumber,
+} from '@mossgoblin/schema';
 import {
   type Firestore,
   Timestamp,
@@ -48,6 +59,8 @@ const OPENED_MAX = 20;
  * so one whose notes were read stays at hand until it is heard.
  */
 export const EPISODES_PER_SHOW = 100;
+/** The listening queue's episodes the app listens to at most (#249). */
+export const QUEUE_LIMIT = 500;
 
 /** A podcast episode's audio (#178), as the fetcher stored it. */
 export interface EnclosureRecord {
@@ -89,6 +102,8 @@ export interface ItemRecord {
   playedAt?: number;
   /** Heard to the end (#179). */
   played?: boolean;
+  /** Its place in the listening queue (#249), ascending; absent when not queued. */
+  queue?: number;
 }
 
 const isWeb = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v);
@@ -143,11 +158,23 @@ export interface ItemsApi {
     db: Firestore,
     path: string,
     feedId: string,
+    /** Published at or before this instant: the caller drops what it holds. */
     before: number,
     count: number,
   ): Promise<{ id: string; data: Record<string, unknown> }[]>;
   /** The fetchArticle callable (#163): the page's article kept on the item. */
   fetchArticle(itemId: string): Promise<{ state: string }>;
+  /**
+   * The listening queue (#249): every item with a `queue`, ascending
+   * (`orderBy('queue')` holds only the items that have one), whatever
+   * each show's newest hundred holds.
+   */
+  listenQueue(
+    db: Firestore,
+    path: string,
+    next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    error: (err: unknown) => void,
+  ): () => void;
   /** One article's document (#175), for one search found that no shelf holds; undefined when gone. */
   listenOne(
     db: Firestore,
@@ -216,12 +243,21 @@ function itemsApi(functions: Functions): ItemsApi {
           query(
             collection(db, path),
             where('feedId', '==', feedId),
-            where('published', '<', Timestamp.fromMillis(before)),
+            where('published', '<=', Timestamp.fromMillis(before)),
             orderBy('published', 'desc'),
             limit(count),
           ),
         )
       ).docs.map((d) => ({ id: d.id, data: d.data({ serverTimestamps: 'estimate' }) })),
+    listenQueue: (db, path, next, error) =>
+      onSnapshot(
+        query(collection(db, path), orderBy('queue'), limit(QUEUE_LIMIT)),
+        (snap) =>
+          next(
+            snap.docs.map((d) => ({ id: d.id, data: d.data({ serverTimestamps: 'estimate' }) })),
+          ),
+        error,
+      ),
     listenOne: (db, path, next, error) =>
       onSnapshot(
         doc(db, path),
@@ -274,6 +310,7 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
     ...(isNum(d['position']) && d['position'] >= 0 ? { position: d['position'] } : {}),
     ...(isNum(playedAt) ? { playedAt } : {}),
     ...(d['played'] === true ? { played: true } : {}),
+    ...(isQueueOrder(d['queue']) ? { queue: d['queue'] } : {}),
   };
 }
 
@@ -307,7 +344,10 @@ export class ItemsService {
     Record<
       string,
       Partial<
-        Pick<ItemRecord, 'read' | 'saved' | 'attachmentId' | 'noteId' | 'played' | 'position'>
+        Pick<
+          ItemRecord,
+          'read' | 'saved' | 'attachmentId' | 'noteId' | 'played' | 'position' | 'queue'
+        >
       >
     >
   >({});
@@ -322,6 +362,8 @@ export class ItemsService {
    * until signed out or the show leaves Podcasts.
    */
   private readonly olderDocs = signal<Record<string, { docs: ItemRecord[]; done: boolean }>>({});
+  /** The listening queue's episodes (#249), as its listener has them. */
+  private readonly queueDocs = signal<ItemRecord[]>([]);
 
   /**
    * The articles opened on one shelf in this sitting, by its
@@ -350,7 +392,12 @@ export class ItemsService {
   readonly items = computed(() => {
     const local = this.local();
     const byId = new Map<string, ItemRecord>();
+    // The queue's episodes (#249) are only the shows' in Podcasts: one
+    // of a show moved to the Reader keeps its place, unseen, until it
+    // is moved back.
+    const podcasts = this.podcastIds();
     for (const list of [
+      this.queueDocs().filter((i) => podcasts.has(i.feedId)),
       this.unreadDocs(),
       this.readDocs(),
       this.savedDocs(),
@@ -376,6 +423,18 @@ export class ItemsService {
     const podcasts = this.podcastIds();
     return this.items().filter((i) => podcasts.has(i.feedId));
   });
+
+  /**
+   * The listening queue (#249): the episodes of the shows in Podcasts
+   * that have a place in it, in its order (ascending, ties by id), local
+   * changes applied at once.
+   */
+  readonly queue = computed(() =>
+    this.episodes()
+      .filter((i): i is ItemRecord & { queue: number } => !!i.enclosure && isQueueOrder(i.queue))
+      .sort(byQueue),
+  );
+  private readonly queuedIds = computed(() => new Set(this.queue().map((i) => i.id)));
 
   /**
    * Continue listening (#179), in the Reader: its own items with audio
@@ -463,6 +522,7 @@ export class ItemsService {
       if (uid === this.uid) return;
       for (const stop of this.stops) stop();
       this.stops = [];
+      this.queueDocs.set([]);
       const was = this.uid;
       for (const stop of this.opened.values()) stop();
       this.opened.clear();
@@ -483,6 +543,23 @@ export class ItemsService {
         ['read', (l) => this.readDocs.set(l)],
         ['saved', (l) => this.savedDocs.set(l)],
       ];
+      // The listening queue (#249): its own listener, so the queue is
+      // whole whatever each show's newest hundred holds.
+      this.stops.push(
+        this.api.listenQueue(
+          this.fb.db,
+          path,
+          (docs) => {
+            this.queueDocs.set(docs.map((d) => toItem(d.id, d.data)));
+            this.local.update((l) => {
+              const next = { ...l };
+              for (const d of docs) delete next[d.id];
+              return next;
+            });
+          },
+          (err) => console.error('queue listener', err),
+        ),
+      );
       for (const [shelf, set] of shelves) {
         this.stops.push(
           this.api.listen(
@@ -650,27 +727,26 @@ export class ItemsService {
     const at = [...(this.episodeDocs()[feedId] ?? []), ...(this.olderDocs()[feedId]?.docs ?? [])];
     if (!at.length) return 0;
     const oldest = Math.min(...at.map((i) => i.published));
+    // Episodes can share an instant: the page starts at the oldest at
+    // hand, not before it, asks for that many more, and drops the ones
+    // already held, so a run of them is never cut (review on #250).
+    const held = new Set(at.map((i) => i.id));
+    const want = EPISODES_PER_SHOW + at.filter((i) => i.published === oldest).length;
     let docs;
     try {
-      docs = await this.api.pageFeed(
-        this.fb.db,
-        paths.feedItems(uid),
-        feedId,
-        oldest,
-        EPISODES_PER_SHOW,
-      );
+      docs = await this.api.pageFeed(this.fb.db, paths.feedItems(uid), feedId, oldest, want);
     } catch (err) {
       console.error('older episodes not read', err);
       return 'Could not load older episodes. Are you online?';
     }
     // Signed out, or the show gone, while the page was on its way.
     if (uid !== this.episodesUid || !this.episodeStops.has(feedId)) return 0;
-    const page = docs.map((d) => toItem(d.id, d.data));
+    const page = docs.map((d) => toItem(d.id, d.data)).filter((i) => !held.has(i.id));
     this.olderDocs.update((o) => ({
       ...o,
       [feedId]: {
         docs: [...(o[feedId]?.docs ?? []), ...page],
-        done: page.length < EPISODES_PER_SHOW,
+        done: docs.length < want,
       },
     }));
     return page.length;
@@ -752,12 +828,18 @@ export class ItemsService {
     const at = this.now();
     const path = paths.feedItem(uid, id);
     if (progress.played) {
-      this.local.update((l) => ({ ...l, [id]: { ...l[id], read: true } }));
+      // Heard to the end, it leaves the listening queue (#249).
+      const queued = this.queued(id);
+      this.local.update((l) => ({
+        ...l,
+        [id]: { ...l[id], read: true, ...(queued ? { queue: undefined } : {}) },
+      }));
       void this.api
         .set(this.fb.db, path, {
           played: true,
           read: true,
           readAt: this.api.serverTime(),
+          ...(queued ? { queue: this.api.clear() } : {}),
           updatedAt: this.api.serverTime(),
         })
         .catch((err) => console.error('played mark not saved', err));
@@ -776,19 +858,27 @@ export class ItemsService {
   /**
    * Mark as heard, or Mark as new (#245): heard is `played`; new
    * clears it and the place kept, so the episode is New again. Neither
-   * touches `read`, which is whether its notes were read.
+   * touches `read`, which is whether its notes were read. Heard also
+   * takes it off the listening queue (#249).
    */
   setPlayed(id: string, played: boolean): void {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
+    const leaves = played && this.queued(id);
     this.local.update((l) => ({
       ...l,
-      [id]: { ...l[id], played, ...(played ? {} : { position: undefined }) },
+      [id]: {
+        ...l[id],
+        played,
+        ...(played ? {} : { position: undefined }),
+        ...(leaves ? { queue: undefined } : {}),
+      },
     }));
     void this.api
       .set(this.fb.db, paths.feedItem(uid, id), {
         played,
         ...(played ? {} : { position: this.api.clear() }),
+        ...(leaves ? { queue: this.api.clear() } : {}),
         updatedAt: this.api.serverTime(),
       })
       .catch((err) => console.error('heard mark not saved', err));
@@ -797,14 +887,19 @@ export class ItemsService {
   /**
    * Mark all as heard (#246, a show's More): `played` on each of these
    * episodes in one batch through the persistent cache, never awaited,
-   * shown at once; returns how many. `read` and the place are left.
+   * shown at once; returns how many. `read` and the place are left;
+   * the queued ones leave the listening queue, as Mark as heard does
+   * (#249).
    */
   setPlayedMany(ids: string[]): number {
     const uid = this.auth.user()?.uid;
     if (!uid || !ids.length) return 0;
+    const queued = this.queuedIds();
     this.local.update((l) => {
       const next = { ...l };
-      for (const id of ids) next[id] = { ...next[id], played: true };
+      for (const id of ids) {
+        next[id] = { ...next[id], played: true, ...(queued.has(id) ? { queue: undefined } : {}) };
+      }
       return next;
     });
     void this.api
@@ -812,11 +907,105 @@ export class ItemsService {
         this.fb.db,
         ids.map((id) => ({
           path: paths.feedItem(uid, id),
-          data: { played: true, updatedAt: this.api.serverTime() },
+          data: {
+            played: true,
+            ...(queued.has(id) ? { queue: this.api.clear() } : {}),
+            updatedAt: this.api.serverTime(),
+          },
         })),
       )
       .catch((err) => console.error('heard marks not saved', err));
     return ids.length;
+  }
+
+  /** Whether an episode is in the listening queue (#249). */
+  queued(id: string): boolean {
+    return this.queuedIds().has(id);
+  }
+
+  /**
+   * Add to the queue (#249): at its end, a step after the last and never
+   * before now (`orderAfter`), so two devices appending offline keep
+   * the order they appended in. Through the cache, never awaited, shown
+   * at once. In the queue already, it stays where it is.
+   */
+  addToQueue(id: string): void {
+    if (this.queued(id)) return;
+    this.placeInQueue(id, orderAfter(this.queue().at(-1)?.queue, this.now()));
+  }
+
+  /** Play next (#249): a step before the first of the others, so it is next up. */
+  playNext(id: string): void {
+    const first = this.queue().find((i) => i.id !== id)?.queue;
+    this.placeInQueue(id, orderBefore(first, this.now()));
+  }
+
+  /** Remove from the queue (#249): its place cleared, nothing else. */
+  removeFromQueue(id: string): void {
+    if (!this.queued(id)) return;
+    this.placeInQueue(id, undefined);
+  }
+
+  /**
+   * A move in the queue (#249), by the drag, a grip's arrows or More:
+   * `order` is the list as shown after the move (Up next, which leaves
+   * out the one playing), so `id` takes the midpoint of its new
+   * neighbours there, or a step past the end it went to. When the
+   * neighbours are too close for a midpoint, the whole queue is
+   * renumbered in one batch, the moved one after its new neighbour.
+   */
+  moveInQueue(id: string, order: readonly string[]): void {
+    const queue = this.queue();
+    const by = new Map(queue.map((i) => [i.id, i.queue]));
+    if (!by.has(id)) return;
+    const shown = order.filter((x) => by.has(x));
+    const at = shown.indexOf(id);
+    if (at < 0) return;
+    const others = shown.filter((x) => x !== id).map((x) => by.get(x)!);
+    const value = orderAt(others, at, this.now());
+    if (value !== undefined) return this.placeInQueue(id, value);
+    const rest = queue.map((i) => i.id).filter((x) => x !== id);
+    const before = shown[at - 1];
+    rest.splice(
+      before === undefined ? rest.indexOf(shown[at + 1]) : rest.indexOf(before) + 1,
+      0,
+      id,
+    );
+    const values = renumber(rest.length, queue[0].queue);
+    this.renumberQueue(rest.map((x, n) => [x, values[n]]));
+  }
+
+  /** One episode's place in the queue written, or cleared with undefined. */
+  private placeInQueue(id: string, queue: number | undefined): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    this.local.update((l) => ({ ...l, [id]: { ...l[id], queue } }));
+    void this.api
+      .set(this.fb.db, paths.feedItem(uid, id), {
+        queue: queue === undefined ? this.api.clear() : queue,
+        updatedAt: this.api.serverTime(),
+      })
+      .catch((err) => console.error('queue place not saved', err));
+  }
+
+  /** The whole queue's new places, in one batch through the cache (#249). */
+  private renumberQueue(places: [string, number][]): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    this.local.update((l) => {
+      const next = { ...l };
+      for (const [id, queue] of places) next[id] = { ...next[id], queue };
+      return next;
+    });
+    void this.api
+      .setMany(
+        this.fb.db,
+        places.map(([id, queue]) => ({
+          path: paths.feedItem(uid, id),
+          data: { queue, updatedAt: this.api.serverTime() },
+        })),
+      )
+      .catch((err) => console.error('queue not renumbered', err));
   }
 
   /** "12:34", or "1:02:03" past the hour, for the player (#179). */

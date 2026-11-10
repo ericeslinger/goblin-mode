@@ -58,7 +58,8 @@ const RATE_KEY = 'goblin.player.rate';
  * persistent cache, every 15 seconds of play and on pause, seek, stop
  * and leaving the page; the episode in hand is remembered on the
  * device, so a reload finds it where it was. Heard to the end, it is
- * marked played and read.
+ * marked played and read, leaves the listening queue, and the queue's
+ * first starts (#249).
  *
  * Another device's position, newer than anything this one wrote, is
  * offered (`offer`), never jumped to: the newest playedAt wins, but
@@ -364,13 +365,29 @@ export class PlayerService {
     });
     audio.addEventListener('error', () => this.fallBack());
     audio.addEventListener('ended', () => {
+      const done = this.current();
       this.playing.set(false);
       this.position.set(this.duration() || audio.currentTime);
+      // Played, which also takes it off the listening queue (#249).
       this.save(true);
+      this.playOn(done);
     });
     this.setActionHandlers();
     this.audio = audio;
     return audio;
+  }
+
+  /**
+   * Playing through (#249): once an episode ends, the first in the
+   * listening queue starts, whether the one that ended was queued or
+   * not, by the same path as a tap (its download, its kept place), on
+   * the one audio element. Started from the element's own ended event,
+   * which browsers let play on without another tap. An empty queue
+   * leaves the player where it ended.
+   */
+  private playOn(done: string | undefined): void {
+    const next = this.items.queue().find((i) => i.id !== done && i.enclosure);
+    if (next) this.load(next, { autoplay: true });
   }
 
   // The Media Session (#179): the lock screen and headphone buttons.

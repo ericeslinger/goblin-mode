@@ -20,6 +20,7 @@ import { PlayerService } from '../reader/player.service';
 import { renamedFolder } from '../reader/reader-feeds';
 import { type FeedRecord, ReaderService, cleanFolder } from '../reader/reader.service';
 import { type EpisodeState, episodeState, lengthText, stateText } from './episodes';
+import { QueueButton } from './queue-button';
 import { ShowArt } from './show-art';
 
 /** A show's filters (#246): the episodes not heard yet, or every one at hand. */
@@ -33,7 +34,8 @@ type Step = 'menu' | 'folder' | 'unfollow';
  * interface to find back episodes in a given podcast"), at
  * `/podcasts/s/<feedId>` under Shows: its artwork, its name, how many
  * episodes are at hand and unheard, its folders; New episodes join the
- * queue (`autoQueue`, for step 3's queue) and how many to keep
+ * queue (`autoQueue`: the fetcher appends its new episodes to the
+ * listening queue, #249) and how many to keep
  * downloaded; then its episodes, Unheard or All, newest or oldest
  * first, searched by title and notes among those loaded. Show older
  * episodes reads the next hundred past the newest hundred the app
@@ -43,7 +45,7 @@ type Step = 'menu' | 'folder' | 'unfollow';
  */
 @Component({
   selector: 'app-podcast-show',
-  imports: [HomeLink, Icon, RouterLink, ShowArt],
+  imports: [HomeLink, Icon, QueueButton, RouterLink, ShowArt],
   template: `
     <main class="page">
       <header class="top">
@@ -106,7 +108,6 @@ type Step = 'menu' | 'folder' | 'unfollow';
               }}</span>
             </span>
           </label>
-          <p class="muted">The queue itself comes soon; the switch is kept on the show for it.</p>
           <label class="keep">
             Keep downloaded
             <select
@@ -186,6 +187,9 @@ type Step = 'menu' | 'folder' | 'unfollow';
                 >
                   <app-icon [name]="playing(ep) ? 'pause' : 'play'" [size]="22" />
                 </button>
+              }
+              @if (ep.enclosure) {
+                <app-queue-button [item]="ep" />
               }
             </li>
           }

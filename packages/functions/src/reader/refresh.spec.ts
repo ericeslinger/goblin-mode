@@ -24,7 +24,7 @@ const RSS = (items: string) =>
 const item = (guid: string, hoursAgo: number, html = '<p>Words</p>') =>
   `<item><title>${guid}</title><link>https://kottke.org/${guid}</link><guid>${guid}</guid><pubDate>${new Date(NOW - hoursAgo * H).toUTCString()}</pubDate><description><![CDATA[${html}]]></description></item>`;
 
-function store(knownIds: string[] = [], claimed = true) {
+function store(knownIds: string[] = [], claimed = true, queueEnd?: number) {
   const s = {
     due: vi.fn(async (): Promise<DueFeed[]> => []),
     claim: vi.fn(async (_uid: string, _id: string, _now: number) => claimed),
@@ -35,6 +35,7 @@ function store(knownIds: string[] = [], claimed = true) {
     updateFeed: vi.fn(async (_uid: string, _id: string, _update: FeedUpdate) => undefined),
     countFetch: vi.fn(async () => undefined),
     keepMonths: vi.fn(async (_uid: string): Promise<number | undefined> => undefined),
+    queueEnd: vi.fn(async (_uid: string): Promise<number | undefined> => queueEnd),
   } satisfies RefreshStore;
   return s;
 }
@@ -156,6 +157,67 @@ describe('refreshFeed (#161)', () => {
     expect(plain.updateFeed.mock.calls[0][2]).not.toHaveProperty('kind');
     expect(plain.writeItems.mock.calls[0][1][0]).not.toHaveProperty('enclosure');
     expect(plain.writeItems.mock.calls[0][1][0]).not.toHaveProperty('image');
+  });
+
+  describe('new episodes join the queue (#249)', () => {
+    const episode = (guid: string, hoursAgo: number) =>
+      `<item><title>${guid}</title><guid>${guid}</guid><pubDate>${new Date(NOW - hoursAgo * H).toUTCString()}</pubDate><enclosure url="https://cdn.example/${guid}.mp3" type="audio/mpeg" length="1000"/></item>`;
+    const pod = (items: string) =>
+      `<rss version="2.0"><channel><title>Pod</title>${items}</channel></rss>`;
+    const show: DueFeed = { ...feed, podcast: true, autoQueue: true, lastItemAt: NOW - 48 * H };
+    const queued = (s: ReturnType<typeof store>) =>
+      Object.fromEntries(s.writeItems.mock.calls[0][1].map((i) => [i.title, i.queue]));
+
+    it('appends each new episode after the last, oldest first, reading the end once', async () => {
+      const s = store([feedItemId('f-1', 'ep-1')], true, NOW + 5000);
+      const body = pod(episode('ep-3', 1) + episode('ep-2', 5) + episode('ep-1', 30));
+      await refreshFeed({ store: s, fetch: ok(body), now: () => NOW }, show);
+      expect(s.queueEnd).toHaveBeenCalledTimes(1);
+      expect(s.queueEnd).toHaveBeenCalledWith('u1');
+      // ep-2 came out first, so it plays first; ep-1 was stored before.
+      expect(queued(s)).toEqual({ 'ep-3': NOW + 7000, 'ep-2': NOW + 6000 });
+    });
+
+    it('starts an empty or old queue at now', async () => {
+      const s = store([], true, undefined);
+      await refreshFeed({ store: s, fetch: ok(pod(episode('ep-2', 1))), now: () => NOW }, show);
+      expect(queued(s)).toEqual({ 'ep-2': NOW });
+      const old = store([], true, 12);
+      await refreshFeed({ store: old, fetch: ok(pod(episode('ep-2', 1))), now: () => NOW }, show);
+      expect(queued(old)).toEqual({ 'ep-2': NOW });
+    });
+
+    it('never queues the backlog at a first look, nor with the switch off', async () => {
+      const first = store();
+      const body = pod(episode('ep-2', 1) + episode('ep-1', 30));
+      await refreshFeed(
+        { store: first, fetch: ok(body), now: () => NOW },
+        { ...show, lastItemAt: undefined },
+      );
+      expect(first.writeItems.mock.calls[0][1]).toHaveLength(2);
+      expect(queued(first)).toEqual({ 'ep-2': undefined, 'ep-1': undefined });
+      expect(first.queueEnd).not.toHaveBeenCalled();
+      for (const off of [
+        { ...show, autoQueue: false },
+        { ...show, podcast: false },
+      ]) {
+        const s = store();
+        await refreshFeed({ store: s, fetch: ok(body), now: () => NOW }, off);
+        expect(queued(s)).toEqual({ 'ep-2': undefined, 'ep-1': undefined });
+        expect(s.queueEnd).not.toHaveBeenCalled();
+      }
+    });
+
+    it('leaves an item with no audio out, and asks nothing when nothing is new', async () => {
+      const s = store([], true, NOW);
+      await refreshFeed({ store: s, fetch: ok(RSS(item('words', 1))), now: () => NOW }, show);
+      expect(queued(s)).toEqual({ words: undefined });
+      expect(s.queueEnd).not.toHaveBeenCalled();
+      const none = store([feedItemId('f-1', 'ep-1')]);
+      await refreshFeed({ store: none, fetch: ok(pod(episode('ep-1', 30))), now: () => NOW }, show);
+      expect(none.writeItems).not.toHaveBeenCalled();
+      expect(none.queueEnd).not.toHaveBeenCalled();
+    });
   });
 
   it('keeps the feed’s own artwork, and updates it when it changes (#246)', async () => {

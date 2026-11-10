@@ -606,7 +606,9 @@ export const Feed = z.object({
   kind: z.enum(['podcast']).optional(),
   /**
    * New episodes join the queue (#245, Eric 2026-11-10): the switch on
-   * Add a podcast, off by default; the queue (#244, step 3) acts on it.
+   * Add a podcast, off by default; since #249 the fetcher appends each
+   * new episode, first stored after the feed's first look, to the
+   * listening queue.
    */
   autoQueue: z.boolean().optional(),
   /**
@@ -691,6 +693,14 @@ export const FeedItem = z.object({
   position: z.number().nonnegative().optional(),
   playedAt: Timestamp.optional(),
   played: z.boolean().optional(),
+  /**
+   * Its place in the listening queue (#249): a finite number, the
+   * queue ascending, absent when not queued. Written by the owner
+   * (add, Play next, a move, heard) and by the fetcher, which appends
+   * a new episode of a show whose `autoQueue` is on
+   * (`listening-queue.ts` holds the arithmetic).
+   */
+  queue: z.number().gt(-1e15).lt(1e15).optional(),
   /**
    * The word index (#175): up to 200 distinct stemmed lowercase words
    * of the title and text (`termsOf` in the functions' reader), which

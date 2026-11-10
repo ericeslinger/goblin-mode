@@ -141,6 +141,48 @@ const GLAZE = `<?xml version="1.0"?>
 </channel>
 </rss>`;
 
+/**
+ * A third podcast (#249) that grows: its second look (the first one's
+ * ETag sent back) finds a new episode, so New episodes join the queue
+ * has something new to append; the look after is a 304 again.
+ */
+const wheel = (more: string) => `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Wheel talk (fixture)</title>
+  <link>https://pod.invalid/wheel/</link>
+  ${more}
+  <item>
+    <title>Centering</title>
+    <link>https://pod.invalid/wheel/2</link>
+    <guid>wheel-2</guid>
+    <pubDate>Wed, 04 Nov 2026 07:00:00 GMT</pubDate>
+    <description>Wet hands, braced elbows.</description>
+    <enclosure url="https://pod.invalid/wheel/2.mp3" type="audio/mpeg" length="20000000"/>
+    <itunes:duration>28:00</itunes:duration>
+  </item>
+  <item>
+    <title>Wedging for the wheel</title>
+    <link>https://pod.invalid/wheel/1</link>
+    <guid>wheel-1</guid>
+    <pubDate>Mon, 02 Nov 2026 07:00:00 GMT</pubDate>
+    <description>Air out, then on the wheel.</description>
+    <enclosure url="https://pod.invalid/wheel/1.mp3" type="audio/mpeg" length="20000000"/>
+    <itunes:duration>24:00</itunes:duration>
+  </item>
+</channel>
+</rss>`;
+const WHEEL = wheel('');
+const WHEEL_GROWN = wheel(`<item>
+    <title>Trimming feet</title>
+    <link>https://pod.invalid/wheel/3</link>
+    <guid>wheel-3</guid>
+    <pubDate>Mon, 09 Nov 2026 07:00:00 GMT</pubDate>
+    <description>Leather hard, and a sharp loop tool.</description>
+    <enclosure url="https://pod.invalid/wheel/3.mp3" type="audio/mpeg" length="20000000"/>
+    <itunes:duration>19:00</itunes:duration>
+  </item>`);
+
 const FIXTURES: Record<string, { body: string; contentType: string }> = {
   'design.xml': { body: DESIGN, contentType: 'application/rss+xml; charset=utf-8' },
   'games.atom': { body: GAMES, contentType: 'application/atom+xml' },
@@ -148,6 +190,7 @@ const FIXTURES: Record<string, { body: string; contentType: string }> = {
 
   'pod.xml': { body: POD, contentType: 'application/rss+xml' },
   'glaze.xml': { body: GLAZE, contentType: 'application/rss+xml' },
+  'wheel.xml': { body: WHEEL, contentType: 'application/rss+xml' },
   'page.html': { body: '<html><body>not a feed</body></html>', contentType: 'text/html' },
 };
 
@@ -166,8 +209,13 @@ export function standInFeedFetcher(env: NodeJS.ProcessEnv): FeedFetcher | undefi
     const fixture = FIXTURES[parsed.pathname.slice(1)];
     if (!fixture) return { status: 404, contentType: 'text/plain', text: '' };
     const etag = `"fixture-${parsed.pathname.slice(1)}"`;
-    if (seen.etag === etag)
-      return { status: 304, contentType: fixture.contentType, text: '', etag };
+    // Wheel talk's second look finds a new episode (#249), then a 304.
+    if (parsed.pathname === '/wheel.xml' && seen.etag === etag) {
+      const grown = `"fixture-wheel.xml-2"`;
+      return { status: 200, contentType: fixture.contentType, text: WHEEL_GROWN, etag: grown };
+    }
+    if (seen.etag === etag || seen.etag === `"fixture-wheel.xml-2"`)
+      return { status: 304, contentType: fixture.contentType, text: '', etag: seen.etag };
     return { status: 200, contentType: fixture.contentType, text: fixture.body, etag };
   };
 }

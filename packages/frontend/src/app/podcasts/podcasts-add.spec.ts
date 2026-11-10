@@ -70,6 +70,7 @@ describe('Add a podcast (#245)', () => {
     sw().click();
     fixture.detectChanges();
     expect(el.textContent).toContain('On: its new episodes go to the end of the queue');
+    expect(el.textContent).not.toContain('comes soon');
     type('feed, or its site', 'https://pod.test/feed.xml');
     fixture.detectChanges();
     button(/^\s*Follow\s*$/).click();

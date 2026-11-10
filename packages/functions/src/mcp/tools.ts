@@ -96,6 +96,8 @@ import {
   UNCATEGORIZED,
   clippingBody,
   isWebLink,
+  byQueue,
+  isQueueOrder,
   effectiveMode,
   modeBrief,
   takesInstructions,
@@ -299,7 +301,7 @@ export type FeedIndex = Map<string, { title: string; folders: string[]; podcast?
  * An article from a feed as an assistant sees it (#163): a page's
  * words throughout, so every view carries the label.
  */
-export function feedItemView(id: string, d: Data, feeds: FeedIndex) {
+export function feedItemView(id: string, d: Data, feeds: FeedIndex, queue?: QueueRanks) {
   const link = typeof d['link'] === 'string' && d['link'] ? d['link'] : '';
   const feedId = String(d['feedId'] ?? '');
   return {
@@ -322,7 +324,30 @@ export function feedItemView(id: string, d: Data, feeds: FeedIndex) {
     ...(tagsOf(d).length ? { tags: tagsOf(d) } : {}),
     hasReaderText: d['readerState'] === 'done',
     ...episodeView(d),
+    // In Eric's listening queue (#249): its place, 1 the next to play.
+    ...(queue?.has(id) ? { queued: true, queuePosition: queue.get(id)! } : {}),
   };
+}
+
+/** The listening queue (#249): each queued episode's place, 1-based, by id. */
+export type QueueRanks = Map<string, number>;
+
+/**
+ * The queue's places as the app shows them (#249): the episodes of
+ * shows in Podcasts that have a `queue` and audio, ascending, ties by
+ * id.
+ */
+export function queueRanks(docs: { id: string; data: Data }[], feeds: FeedIndex): QueueRanks {
+  const queued = docs
+    .filter(({ data }) => feeds.get(String(data['feedId'] ?? ''))?.podcast)
+    .filter(({ data }) => isQueueOrder(data['queue']))
+    .filter(({ data }) => {
+      const url = (data['enclosure'] as Data | undefined)?.['url'];
+      return typeof url === 'string' && /^https?:\/\//i.test(url);
+    })
+    .map(({ id, data }) => ({ id, queue: data['queue'] as number }))
+    .sort(byQueue);
+  return new Map(queued.map((q, n) => [q.id, n + 1]));
 }
 
 /** An article's tags (#176): the Feedly boards it was on, as the import kept them. */
@@ -2536,6 +2561,9 @@ export class NotesTools {
    * the newest thousand the query loads: a filter here, not an index.
    * `podcasts` (#245) keeps only the episodes of the feeds in Podcasts
    * (true) or only the Reader's own articles (false), the same way.
+   * `queued` (#249) lists the listening queue instead, in its order.
+   * Every episode in the queue says `queued: true` and its
+   * `queuePosition`, 1 the next to play.
    */
   async listFeedItems(args: {
     folder?: string;
@@ -2544,9 +2572,17 @@ export class NotesTools {
     includeRead?: boolean;
     tag?: string;
     podcasts?: boolean;
+    queued?: boolean;
     limit?: number;
   }) {
     const feeds = await this.feedIndex();
+    const queue = await this.queueRanks(feeds);
+    if (args.queued) {
+      const ids = [...queue.keys()].slice(0, Math.min(Math.max(1, args.limit ?? 50), 200));
+      if (!ids.length) return [];
+      const docs = await this.db.getAll(...ids.map((id) => this.feedItems().doc(id)));
+      return docs.filter((d) => d.exists).map((d) => feedItemView(d.id, d.data()!, feeds, queue));
+    }
     let only: Set<string> | undefined;
     if (args.feedId) {
       if (!feeds.has(args.feedId)) throw new ToolError(`no feed ${args.feedId}`);
@@ -2589,7 +2625,20 @@ export class NotesTools {
       .filter((d) => !unheard || d.get('played') !== true)
       .filter((d) => !tag || tagsOf(d.data()).some((t) => t.toLowerCase() === tag))
       .slice(0, limit)
-      .map((d) => feedItemView(d.id, d.data(), feeds));
+      .map((d) => feedItemView(d.id, d.data(), feeds, queue));
+  }
+
+  /** The listening queue's places (#249), read once: at most 500, as the app listens to. */
+  private async queueRanks(feeds: FeedIndex): Promise<QueueRanks> {
+    const snap = await this.feedItems()
+      .orderBy('queue')
+      .select('feedId', 'queue', 'enclosure')
+      .limit(500)
+      .get();
+    return queueRanks(
+      snap.docs.map((d) => ({ id: d.id, data: d.data() })),
+      feeds,
+    );
   }
 
   /** One article (#163): its text as the feed gave it, or the page's when reader mode fetched it, a stretch at a time. */
@@ -2601,8 +2650,9 @@ export class NotesTools {
     const offset = Math.max(0, args.offset ?? 0);
     const limit = Math.min(Math.max(1, args.limit ?? 20_000), 100_000);
     const end = Math.min(text.length, offset + limit);
+    const feeds = await this.feedIndex();
     return {
-      ...feedItemView(doc.id, d, await this.feedIndex()),
+      ...feedItemView(doc.id, d, feeds, await this.queueRanks(feeds)),
       text: text.slice(offset, end),
       offset,
       total: text.length,
