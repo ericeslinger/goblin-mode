@@ -114,7 +114,7 @@ export function size(bytes: number): string {
  * carries the item's id, feed, title and date in headers, so the
  * Downloads list needs nothing else.
  *
- * The cap (Settings, Reader) holds the total: a download by hand makes
+ * The cap (Settings, Downloads) holds the total: a download by hand makes
  * room by removing the oldest downloads, by date published, never the
  * episode in hand. A podcast set to keep its newest N gets them
  * downloaded as its episodes arrive, into the room under the cap only,

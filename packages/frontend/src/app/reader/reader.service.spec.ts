@@ -382,6 +382,67 @@ describe('ReaderService (#159)', () => {
     expect(await reader.sweep()).toBe('Removed 3 old unread articles.');
   });
 
+  it('follows a show for Podcasts with its kind and queue switch; the Reader’s follow sets neither (#245)', () => {
+    const { reader, api } = setup();
+    api.push([]);
+    const article = reader.addFeed('https://blog.example/feed', 'Design');
+    expect(api.set.mock.lastCall![2]).not.toHaveProperty('kind');
+    expect(api.set.mock.lastCall![2]).not.toHaveProperty('autoQueue');
+    const show = reader.addFeed('https://pod.example/rss', 'Making', 'Kiln talk', {
+      podcast: true,
+    });
+    expect(api.set.mock.lastCall![1]).toBe(`users/u1/feeds/${show}`);
+    expect(api.set.mock.lastCall![2]).toMatchObject({
+      url: 'https://pod.example/rss',
+      title: 'Kiln talk',
+      folders: ['Making'],
+      kind: 'podcast',
+      autoQueue: false,
+    });
+    reader.addFeed('https://queue.example/rss', undefined, 'Queued', {
+      podcast: true,
+      autoQueue: true,
+    });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ kind: 'podcast', autoQueue: true });
+    // The Reader's folders are its own feeds'; the shows are apart, by name.
+    expect(reader.folderNames()).toEqual(['Design']);
+    expect(reader.podcastFeeds().map((f) => f.title)).toEqual(['Kiln talk', 'Queued']);
+    expect(reader.podcastFolderNames()).toEqual(['Making']);
+    expect(reader.isPodcast(show!)).toBe(true);
+    expect(reader.isPodcast(article!)).toBe(false);
+  });
+
+  it('moves a feed to Podcasts and back to the Reader, through the cache (#245)', () => {
+    const { reader, api } = setup();
+    api.push([{ id: 'a', data: { url: 'https://a.test/f', title: 'Alpha', folders: ['Games'] } }]);
+    reader.setPodcast('a', true);
+    expect(api.set.mock.lastCall).toEqual([
+      {},
+      'users/u1/feeds/a',
+      { kind: 'podcast', updatedAt: 'SERVER_TIME' },
+      true,
+    ]);
+    expect(reader.isPodcast('a')).toBe(true);
+    expect(reader.folders()).toEqual([]);
+    reader.setPodcast('a', false);
+    expect(api.set.mock.lastCall![2]).toEqual({ kind: 'CLEAR', updatedAt: 'SERVER_TIME' });
+    expect(reader.feeds()[0]).not.toHaveProperty('kind');
+    expect(reader.folderNames()).toEqual(['Games']);
+  });
+
+  it('listens for Podcasts while the Reader is off (#245)', () => {
+    const { api, modules } = setup();
+    modules.set('reader', false);
+    modules.set('podcasts', true);
+    TestBed.tick();
+    expect(api.listen).toHaveBeenCalledTimes(1);
+    modules.set('podcasts', false);
+    TestBed.tick();
+    modules.set('podcasts', true);
+    TestBed.tick();
+    expect(api.listen).toHaveBeenCalledTimes(2);
+  });
+
   it('listens to nothing while the module is off', () => {
     const { api, modules } = setup();
     expect(api.listen).toHaveBeenCalledTimes(1);

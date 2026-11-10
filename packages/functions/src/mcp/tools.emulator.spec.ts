@@ -1568,6 +1568,56 @@ describe('search_feed_items (#175)', () => {
   });
 });
 
+describe('list_feed_items and Podcasts (#245)', () => {
+  it('tells an episode of a show in Podcasts apart, and lists either side alone', async () => {
+    await db
+      .doc('users/u1/feeds/f-1')
+      .set({ url: 'https://feeds.invalid/d.xml', title: 'Design notes', folders: [] });
+    await db.doc('users/u1/feeds/p-1').set({
+      url: 'https://feeds.invalid/pod.xml',
+      title: 'Kiln hour',
+      folders: [],
+      kind: 'podcast',
+    });
+    const at = (id: string, feedId: string, hoursAgo: number) =>
+      db.doc(`users/u1/feedItems/${id}`).set({
+        feedId,
+        title: id,
+        link: `https://x.invalid/${id}`,
+        published: Timestamp.fromMillis(T - hoursAgo * 3_600_000),
+        summary: '',
+        content: '',
+        read: false,
+        saved: false,
+        createdAt: Timestamp.fromMillis(T),
+        updatedAt: Timestamp.fromMillis(T),
+      });
+    await at('article', 'f-1', 1);
+    await at('episode', 'p-1', 2);
+    type Row = { id: string; podcast?: boolean };
+    const all = (await tools().listFeedItems({})) as Row[];
+    expect(all.map((r) => [r.id, r.podcast ?? false])).toEqual([
+      ['article', false],
+      ['episode', true],
+    ]);
+    expect(((await tools().listFeedItems({ podcasts: false })) as Row[]).map((r) => r.id)).toEqual([
+      'article',
+    ]);
+    expect(((await tools().listFeedItems({ podcasts: true })) as Row[]).map((r) => r.id)).toEqual([
+      'episode',
+    ]);
+    // An episode whose notes were read is still new until heard; a
+    // heard one is left out unless asked for (review on #247).
+    await db.doc('users/u1/feedItems/episode').update({ read: true });
+    await at('heard', 'p-1', 3);
+    await db.doc('users/u1/feedItems/heard').update({ played: true });
+    const ids = async (args: object) =>
+      ((await tools().listFeedItems(args)) as Row[]).map((r) => r.id);
+    expect(await ids({ podcasts: true })).toEqual(['episode']);
+    expect(await ids({ podcasts: true, includeRead: true })).toEqual(['episode', 'heard']);
+  });
+});
+
 describe('Trash (#217)', () => {
   const trashed = { deletedAt: Timestamp.fromMillis(T - 500) };
 

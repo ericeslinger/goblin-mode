@@ -117,14 +117,16 @@ describe('the MCP server', () => {
   });
 
   it('tells Claude which modules are on, and what an off one means (#126)', () => {
-    expect(instructionsWith('', ['projects', 'kitchen', 'reader'])).toBe(
-      `${INSTRUCTIONS}\n\nModules Eric has on: Projects, Kitchen, Reader.`,
+    expect(instructionsWith('', ['projects', 'kitchen', 'reader', 'podcasts'])).toBe(
+      `${INSTRUCTIONS}\n\nModules Eric has on: Projects, Kitchen, Reader, Podcasts.`,
     );
     expect(instructionsWith('', ['projects'])).toMatch(
-      /Modules Eric has on: Projects\. Switched off: Kitchen, Reader\./,
+      /Modules Eric has on: Projects\. Switched off: Kitchen, Reader, Podcasts\./,
     );
     const off = instructionsWith('Fish on Wednesdays.', []);
-    expect(off).toMatch(/Modules Eric has on: none\. Switched off: Projects, Kitchen, Reader\./);
+    expect(off).toMatch(
+      /Modules Eric has on: none\. Switched off: Projects, Kitchen, Reader, Podcasts\./,
+    );
     expect(off).toMatch(/switched off in Settings, Modules\.\n\nContext for Claude/);
   });
 

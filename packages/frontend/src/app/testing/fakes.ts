@@ -26,7 +26,12 @@ import type {
 } from '../reader/downloads.service';
 import type { FeedlyEntry } from '../reader/feedly';
 import type { AudioLike } from '../reader/player.service';
-import { READER_API, type ReaderApi, type SearchOutcome } from '../reader/reader.service';
+import {
+  type FeedRecord,
+  READER_API,
+  type ReaderApi,
+  type SearchOutcome,
+} from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
@@ -197,6 +202,7 @@ export class FakeModules {
   readonly projects = computed(() => this.on('projects'));
   readonly kitchen = computed(() => this.on('kitchen'));
   readonly reader = computed(() => this.on('reader'));
+  readonly podcasts = computed(() => this.on('podcasts'));
   readonly config = signal<Partial<KitchenConfig>>({});
   readonly kitchenConfig = computed(() => kitchenConfig(this.config()));
   readonly loaded = signal(true);
@@ -204,7 +210,10 @@ export class FakeModules {
     this.config.update((c) => ({ ...c, ...change })),
   );
   on(id: ModuleId): boolean {
-    return this.stored()[id] ?? moduleOn(undefined, id);
+    const stored = Object.fromEntries(
+      Object.entries(this.stored()).map(([m, enabled]) => [m, { enabled }]),
+    );
+    return moduleOn(stored, id);
   }
   set = vi.fn((id: ModuleId, enabled: boolean) =>
     this.stored.update((s) => ({ ...s, [id]: enabled })),
@@ -389,6 +398,31 @@ export class FakeItemsApi implements ItemsApi {
   fetchArticle = vi.fn(async (_itemId: string) => ({ state: 'done' }));
   private readonly ones = new Map<string, (data: Record<string, unknown> | undefined) => void>();
   readonly stopOne = vi.fn();
+  /** One show's episodes listener per feed (#245), and its stop. */
+  private readonly feeds = new Map<
+    string,
+    (docs: { id: string; data: Record<string, unknown> }[]) => void
+  >();
+  readonly stopFeed = vi.fn();
+  listenFeed = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      feedId: string,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    ) => {
+      this.feeds.set(feedId, next);
+      return () => {
+        this.feeds.delete(feedId);
+        this.stopFeed(feedId);
+      };
+    },
+  );
+
+  /** A show's newest episodes, for its `listenFeed` listener (#245). */
+  pushFeed(feedId: string, docs: { id: string; data: Record<string, unknown> }[]): void {
+    this.feeds.get(feedId)?.(docs);
+  }
   listenOne = vi.fn(
     (_db: unknown, path: string, next: (data: Record<string, unknown> | undefined) => void) => {
       this.ones.set(path, next);
@@ -539,7 +573,22 @@ export class FakeDownloads {
 
 /** A stand-in for ReaderService (#159): no feeds, images on. */
 export class FakeReader {
-  readonly feeds = signal<never[]>([]);
+  readonly feeds = signal<FeedRecord[]>([]);
+  /** The Reader's feeds and the shows in Podcasts (#245), as the service splits them. */
+  readonly readerFeeds = computed(() => this.feeds().filter((f) => f.kind !== 'podcast'));
+  readonly podcastFeeds = computed(() => this.feeds().filter((f) => f.kind === 'podcast'));
+  readonly podcastFolderNames = signal<string[]>([]);
+  isPodcast = (id: string) => this.podcastFeeds().some((f) => f.id === id);
+  setPodcast = vi.fn((id: string, podcast: boolean) =>
+    this.feeds.update((l) =>
+      l.map((f) => {
+        if (f.id !== id) return f;
+        const { kind: _, ...rest } = f;
+        return podcast ? { ...rest, kind: 'podcast' as const } : rest;
+      }),
+    ),
+  );
+  removeFeed = vi.fn((id: string) => this.feeds.update((l) => l.filter((f) => f.id !== id)));
   readonly loaded = signal(true);
   readonly folders = computed(() => [] as { name: string; feeds: never[] }[]);
   readonly folderNames = computed(() => [] as string[]);
@@ -569,6 +618,8 @@ export class FakeReader {
 export class FakeItems {
   readonly loaded = signal(true);
   readonly items = signal<never[]>([]);
+  readonly readerItems = signal<never[]>([]);
+  readonly episodes = signal<ItemRecord[]>([]);
   readonly unreadCounts = signal<Record<string, number>>({ all: 0, saved: 0 });
   readonly newSince = signal<{ folder: string; count: number }[]>([]);
   markSeen = vi.fn((_folder: string) => undefined);
@@ -582,6 +633,8 @@ export class FakeItems {
   readerMode = vi.fn(async () => undefined);
   open = vi.fn((_id: string) => undefined);
   age = () => 'just now';
+  duration = (seconds: number) => `${Math.max(1, Math.round(seconds / 60))} min`;
+  setPlayed = vi.fn();
 }
 
 /** A stand-in for ProposalsService: set `list`, watch accept and dismiss. */

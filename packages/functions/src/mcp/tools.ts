@@ -289,8 +289,11 @@ function attachmentView(id: string, d: Data) {
   };
 }
 
-/** The feeds by id, as the Reader's tools need them (#163). */
-export type FeedIndex = Map<string, { title: string; folders: string[] }>;
+/**
+ * The feeds by id, as the Reader's tools need them (#163), and whether
+ * each is in Podcasts (#245).
+ */
+export type FeedIndex = Map<string, { title: string; folders: string[]; podcast?: boolean }>;
 
 /**
  * An article from a feed as an assistant sees it (#163): a page's
@@ -306,6 +309,8 @@ export function feedItemView(id: string, d: Data, feeds: FeedIndex) {
     id,
     feedId,
     feed: feeds.get(feedId)?.title ?? 'an unfollowed feed',
+    // Its feed is followed in Podcasts, not the Reader (#245).
+    ...(feeds.get(feedId)?.podcast ? { podcast: true } : {}),
     title: String(d['title'] ?? ''),
     ...(link ? { link } : {}),
     ...(typeof d['author'] === 'string' && d['author'] ? { author: d['author'] } : {}),
@@ -2500,7 +2505,7 @@ export class NotesTools {
   }
 
   private async feedIndex(): Promise<FeedIndex> {
-    const snap = await this.feeds().select('title', 'folders').get();
+    const snap = await this.feeds().select('title', 'folders', 'kind').get();
     return new Map(
       snap.docs.map((d) => [
         d.id,
@@ -2509,6 +2514,7 @@ export class NotesTools {
           folders: Array.isArray(d.get('folders'))
             ? (d.get('folders') as unknown[]).filter((f): f is string => typeof f === 'string')
             : [],
+          ...(d.get('kind') === 'podcast' ? { podcast: true } : {}),
         },
       ]),
     );
@@ -2528,6 +2534,8 @@ export class NotesTools {
    * feed's, or what is saved; unread unless includeRead; newest first.
    * A tag (#176) narrows any of these, matched whatever its case, among
    * the newest thousand the query loads: a filter here, not an index.
+   * `podcasts` (#245) keeps only the episodes of the feeds in Podcasts
+   * (true) or only the Reader's own articles (false), the same way.
    */
   async listFeedItems(args: {
     folder?: string;
@@ -2535,6 +2543,7 @@ export class NotesTools {
     saved?: boolean;
     includeRead?: boolean;
     tag?: string;
+    podcasts?: boolean;
     limit?: number;
   }) {
     const feeds = await this.feedIndex();
@@ -2559,18 +2568,25 @@ export class NotesTools {
     }
     const limit = Math.min(Math.max(1, args.limit ?? 50), 200);
     const items = this.feedItems();
+    const kind = args.podcasts;
+    // Episodes alone: an episode is new until heard, whatever was read
+    // of its notes (#245), so the default leaves out the heard ones,
+    // not the ones whose notes were read (review on #247).
+    const unheard = kind === true && !args.saved && !args.includeRead;
     const q = args.saved
       ? items.where('saved', '==', true)
-      : args.includeRead
+      : args.includeRead || unheard
         ? items
         : items.where('read', '==', false);
     const tag = args.tag?.trim().toLowerCase();
     const snap = await q
       .orderBy('published', 'desc')
-      .limit(only || tag ? 1000 : limit)
+      .limit(only || tag || kind !== undefined ? 1000 : limit)
       .get();
     return snap.docs
       .filter((d) => !only || only.has(String(d.get('feedId'))))
+      .filter((d) => kind === undefined || !!feeds.get(String(d.get('feedId')))?.podcast === kind)
+      .filter((d) => !unheard || d.get('played') !== true)
       .filter((d) => !tag || tagsOf(d.data()).some((t) => t.toLowerCase() === tag))
       .slice(0, limit)
       .map((d) => feedItemView(d.id, d.data(), feeds));

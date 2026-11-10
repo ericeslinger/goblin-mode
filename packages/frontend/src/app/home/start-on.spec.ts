@@ -32,14 +32,17 @@ describe('Start on (#219)', () => {
   afterEach(() => localStorage.clear());
 
   it('maps each choice to its screen, a module that is off to Home', () => {
-    const on = { kitchen: true, reader: true };
+    const on = { kitchen: true, reader: true, podcasts: true };
     expect(startPath('note', on)).toBe('/');
     expect(startPath('home', on)).toBe('/home');
     expect(startPath('right-now', on)).toBe('/right-now');
     expect(startPath('kitchen', on)).toBe('/kitchen');
     expect(startPath('reader', on)).toBe('/reader');
-    expect(startPath('kitchen', { kitchen: false, reader: true })).toBe('/home');
-    expect(startPath('reader', { kitchen: true, reader: false })).toBe('/home');
+    expect(startPath('podcasts', on)).toBe('/podcasts');
+    expect(startPath('kitchen', { ...on, kitchen: false })).toBe('/home');
+    expect(startPath('reader', { ...on, reader: false })).toBe('/home');
+    // Podcasts (#245): off, Home too.
+    expect(startPath('podcasts', { ...on, podcasts: false })).toBe('/home');
   });
 
   it('opens on a new note until a choice is made, as before', async () => {
@@ -94,11 +97,12 @@ describe('Start on (#219)', () => {
     expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toEqual({ choice: 'right-now' });
     startOn.adopt('home');
     expect(startOn.chosen()).toBe(1);
-    startOn.remember({ kitchen: true, reader: false });
+    startOn.remember({ kitchen: true, reader: false, podcasts: true });
     expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toEqual({
       choice: 'home',
       kitchen: true,
       reader: false,
+      podcasts: true,
     });
   });
 });

@@ -352,9 +352,10 @@ export type ThemeMode = z.infer<typeof ThemeMode>;
 
 /**
  * The screen a cold open of `/` lands on (#219, 2026-11-09): Home, a
- * new note (as before, the default), Right Now, Kitchen or the Reader.
+ * new note (as before, the default), Right Now, Kitchen, the Reader,
+ * or since 2026-11-10 Podcasts (#245).
  */
-export const StartOn = z.enum(['home', 'note', 'right-now', 'kitchen', 'reader']);
+export const StartOn = z.enum(['home', 'note', 'right-now', 'kitchen', 'reader', 'podcasts']);
 export type StartOn = z.infer<typeof StartOn>;
 
 /** The gardener's settings, one doc (`settings/app`), shared by devices. */
@@ -393,6 +394,7 @@ export const ModuleSettings = z.object({
   projects: ModuleSetting.optional(),
   kitchen: ModuleSetting.optional(),
   reader: ModuleSetting.optional(),
+  podcasts: ModuleSetting.optional(),
   updatedAt: Timestamp,
 });
 export type ModuleSettings = z.infer<typeof ModuleSettings>;
@@ -564,8 +566,9 @@ export type Attachment = z.infer<typeof Attachment>;
 /**
  * A feed the gardener follows (#159, Reader module), under `feeds`.
  * Its id is derived from its URL (`feedId`), so an OPML import works
- * offline and importing twice is once. The app writes the first block;
- * the fetcher (a function) keeps the second, and the app leaves it be.
+ * offline and importing twice is once. The app writes the first block
+ * and `kind` and `autoQueue`; the fetcher (a function) keeps the rest,
+ * and the app leaves it be.
  */
 export const Feed = z.object({
   /** The feed itself (RSS, Atom or JSON Feed). */
@@ -592,10 +595,17 @@ export const Feed = z.object({
   lastItemAt: Timestamp.optional(),
   dead: z.boolean().optional(),
   /**
-   * Set by the fetcher once the feed's items carry audio (#178), and
-   * never unset: the Reader shows its episodes on the Podcasts shelf.
+   * The gardener's (#245, 2026-11-10): a podcast, followed in the
+   * Podcasts module, set where the feed was added (Add a podcast) or
+   * moved (Move to Podcasts), cleared by Move to the Reader. The
+   * fetcher set it from #178 until 2026-11-10 and never sets it now.
    */
   kind: z.enum(['podcast']).optional(),
+  /**
+   * New episodes join the queue (#245, Eric 2026-11-10): the switch on
+   * Add a podcast, off by default; the queue (#244, step 3) acts on it.
+   */
+  autoQueue: z.boolean().optional(),
 });
 export type Feed = z.infer<typeof Feed>;
 

@@ -24,7 +24,7 @@ const episode: ItemRecord = {
   enclosure: { url: 'https://pod.test/e1.mp3', type: 'audio/mpeg', seconds: 2530 },
 };
 
-function setup() {
+function setup(reader = new FakeReader()) {
   const player = {
     item: signal<ItemRecord | undefined>(undefined),
     playing: signal(false),
@@ -42,10 +42,11 @@ function setup() {
       provideRouter([
         { path: 'reader', component: Blank },
         { path: 'reader/a/:id', component: Blank },
+        { path: 'podcasts/e/:id', component: Blank },
       ]),
       { provide: PlayerService, useValue: player },
       { provide: ItemsService, useValue: { clock: (s: number) => `${Math.floor(s / 60)}m` } },
-      { provide: ReaderService, useValue: new FakeReader() },
+      { provide: ReaderService, useValue: reader },
     ],
   });
   const fixture = TestBed.createComponent(MiniPlayer);
@@ -89,12 +90,42 @@ describe('MiniPlayer (#179)', () => {
   it('yields on the episode’s own page, which has the full controls', async () => {
     const { fixture, player, root, bar, router } = setup();
     player.item.set(episode);
-    await router.navigateByUrl('/reader/a/e1?in=f:podcasts');
+    await router.navigateByUrl('/reader/a/e1?in=s:pod');
     await fixture.whenStable();
     expect(bar()).toBeNull();
     expect(root.style.getPropertyValue('--mini-player-height')).toBe('');
     await router.navigateByUrl('/reader');
     await fixture.whenStable();
     expect(bar()).not.toBeNull();
+  });
+
+  it('opens a show’s episode in Podcasts, and yields on its page there (#245)', async () => {
+    const reader = new FakeReader();
+    reader.feeds.set([
+      {
+        id: 'pod',
+        url: 'https://pod.test/f',
+        title: 'Pod',
+        folders: [],
+        dead: false,
+        kind: 'podcast',
+      },
+    ]);
+    const { fixture, player, bar, router } = setup(reader);
+    player.item.set(episode);
+    await fixture.whenStable();
+    expect(bar()!.querySelector('a.title')!.getAttribute('href')).toBe('/podcasts/e/e1');
+    await router.navigateByUrl('/podcasts/e/e1');
+    await fixture.whenStable();
+    expect(bar()).toBeNull();
+  });
+
+  it('opens a Reader feed’s episode on its article page, back to the feed', async () => {
+    const { fixture, player, bar } = setup();
+    player.item.set(episode);
+    await fixture.whenStable();
+    expect(bar()!.querySelector('a.title')!.getAttribute('href')).toMatch(
+      /^\/reader\/a\/e1\?in=s(:|%3A)pod$/,
+    );
   });
 });

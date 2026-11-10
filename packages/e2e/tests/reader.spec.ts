@@ -1,8 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { crc32 } from 'node:zlib';
-import { type Page, type Route, devices } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, prepPage, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The Reader (#159): the module switched on, an OPML file imported into
@@ -11,12 +11,14 @@ import { OWNER } from '../src/personas';
 // swipes, the article, next by keyboard, the caught-up page past a
 // shelf's last article, Saved, Mark all read (#162), marking read on
 // scroll with its Undo (#172), what is new in each folder, in Right
-// Now (#173), a podcast's episodes on their own shelf (#178), search
-// across every article and its index (#175), and last, feed discovery
-// from a site's address (#174), and a folder named for a special
-// shelf, renamed (#185). Feedly's full export, its saves and boards,
-// has a journey of its own (#176). Since #220 the Reader opens on All
-// under its tabs (All, Saved, Podcasts, Folders); Refresh and the
+// Now (#173), a feed with audio followed in the Reader staying there
+// (#245), search across every article and its index (#175), and last,
+// feed discovery from a site's address (#174), and a folder named for
+// a special shelf, renamed (#185). Feedly's full export, its saves and
+// boards, has a journey of its own (#176). Since #220 the Reader opens
+// on All under its tabs (All, Saved, Folders; the Podcasts tab left
+// for a module of its own, #245, whose journeys, the player's and the
+// downloads' among them, are podcasts.spec.ts); Refresh and the
 // folders are the Folders tab; Search, Downloads and Manage feeds are
 // the header's icons, and the article's controls are icons too (#221).
 
@@ -113,7 +115,8 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await page.getByRole('combobox', { name: 'Folder' }).fill('Games');
   await page.getByRole('button', { name: 'Follow' }).click();
   await expect(page.getByRole('status').last()).toContainText('Following');
-  // A podcast (#178), followed by its link: one more feed, two more articles below.
+  // A feed with audio (#178), followed here by its link: one more feed,
+  // two more articles below, and it stays the Reader's (#245).
   await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/pod.xml');
   await page.getByRole('combobox', { name: 'Folder' }).fill('Listening');
   await page.getByRole('button', { name: 'Follow' }).click();
@@ -201,24 +204,23 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await page.goto('/reader');
   await expect(tabs.getByRole('link', { name: /^All/ })).toContainText('7 unread');
 
-  // Podcasts (#178): the tab after Saved, episodes with their length; the feed marked.
-  const podcasts = tabs.getByRole('link', { name: /^Podcasts/ });
-  await expect(podcasts).toContainText('2 unread');
-  await podcasts.click();
-  await expect(page).toHaveURL(/\/reader\/f\/podcasts$/);
-  await expect(podcasts).toHaveAttribute('aria-current', 'page');
-  const episodes = page.getByRole('list', { name: 'Articles' }).getByRole('listitem');
-  await expect(episodes).toHaveCount(2);
-  await expect(episodes.first()).toContainText('Reduction firing');
-  await expect(episodes.first()).toContainText('42 min');
-  await expect(episodes.nth(1)).toContainText('1 h 05 min');
-  await expect(episodes.first().getByRole('img', { name: 'episode' })).toBeVisible();
-  await axe(page);
+  // A feed with audio followed in the Reader stays the Reader's (Eric,
+  // 2026-11-10: nothing moves by itself, #245): its episodes are on All
+  // with their length, and there is no Podcasts tab.
+  await expect(tabs.getByRole('link')).toHaveText([/^All/, 'Saved', 'Folders']);
+  const allRows = page.getByRole('list', { name: 'Articles' }).getByRole('listitem');
+  const firing = allRows.filter({ hasText: 'Reduction firing' });
+  await expect(firing).toContainText('42 min');
+  await expect(firing.getByRole('img', { name: 'episode' })).toBeVisible();
+  await expect(allRows.filter({ hasText: 'Wedging clay' })).toContainText('1 h 05 min');
   await page.getByRole('link', { name: 'Manage feeds' }).click();
   await folders.locator('summary', { hasText: 'Listening' }).click();
-  await expect(page.getByRole('list', { name: 'Feeds in Listening' })).toContainText(
-    'pod.invalid · podcast',
-  );
+  const listening = page.getByRole('list', { name: 'Feeds in Listening' });
+  await expect(listening).toContainText('pod.invalid · looked');
+  await expect(listening).not.toContainText('podcast');
+  await expect(
+    listening.getByRole('button', { name: 'Move to Podcasts: Kiln hour (fixture)' }),
+  ).toBeVisible();
   await page.getByRole('link', { name: 'Back' }).click();
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
 
@@ -368,7 +370,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(articles.getByRole('listitem')).toHaveCount(1);
   await expect(articles.getByRole('listitem').first()).toContainText('Celadon glazes');
   await page.goto('/browse');
-  // Games' two, and the podcast's two episodes (#178).
+  // Games' two, and the two episodes of the feed with audio (#178).
   await expect(page.getByRole('link', { name: /^Reader/ })).toContainText('4 unread');
   await page.goto('/reader/f/Games');
   await expect(articles.getByRole('listitem')).toHaveCount(2);
@@ -658,274 +660,4 @@ test('import Feedly’s full export: the feeds, the saves, boards as tags', asyn
     '0 feeds added, 4 already followed. Imported 0 saved articles (2 already here); boards became tags.',
     { timeout: 15_000 },
   );
-});
-
-/**
- * The fixture episode's audio (#179): six seconds of silence, 8 kHz
- * 8-bit mono PCM, so it plays in the browser and ends soon.
- */
-function silentWav(seconds = 6, rate = 8000): Buffer {
-  const samples = seconds * rate;
-  const wav = Buffer.alloc(44 + samples, 0x80);
-  wav.write('RIFF', 0);
-  wav.writeUInt32LE(36 + samples, 4);
-  wav.write('WAVE', 8);
-  wav.write('fmt ', 12);
-  wav.writeUInt32LE(16, 16);
-  wav.writeUInt16LE(1, 20);
-  wav.writeUInt16LE(1, 22);
-  wav.writeUInt32LE(rate, 24);
-  wav.writeUInt32LE(rate, 28);
-  wav.writeUInt16LE(1, 32);
-  wav.writeUInt16LE(8, 34);
-  wav.write('data', 36);
-  wav.writeUInt32LE(samples, 40);
-  return wav;
-}
-
-/**
- * The fixture feed's enclosures (pod.invalid) cannot be reached from
- * the browser: the episodes' audio is the silent file, served here,
- * a byte range when one is asked for; the artwork is refused. On the
- * context, not the page: the service worker's fetches are the context's.
- */
-async function serveEpisodes(page: Page): Promise<void> {
-  const wav = silentWav();
-  await page.context().route(/^https:\/\/pod\.invalid\//, (route) => {
-    if (!route.request().url().endsWith('.mp3')) return route.abort();
-    return answerWav(route, wav);
-  });
-}
-
-/** The silent file, or the byte range of it the request asks for. */
-function answerWav(route: Route, wav: Buffer): Promise<void> {
-  const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '');
-  if (!range) {
-    return route.fulfill({
-      status: 200,
-      contentType: 'audio/wav',
-      headers: { 'accept-ranges': 'bytes' },
-      body: wav,
-    });
-  }
-  const start = Number(range[1]);
-  const end = range[2] ? Math.min(Number(range[2]), wav.length - 1) : wav.length - 1;
-  return route.fulfill({
-    status: 206,
-    contentType: 'audio/wav',
-    headers: {
-      'accept-ranges': 'bytes',
-      'content-range': `bytes ${start}-${end}/${wav.length}`,
-    },
-    body: wav.subarray(start, end + 1),
-  });
-}
-
-/**
- * The Worker's episode proxy (#180) has no stand-in in the e2e suite:
- * the app is served by scripts/serve-static.mjs, not by the Worker, and
- * the Worker checks real Google-signed tokens. The journey answers
- * `/api/episode?url=…` here instead, as the proxy would for the fixture
- * episode, and records each request's Authorization header. On the
- * context, so the service worker's fetches on a cache miss reach it.
- */
-async function serveProxy(page: Page): Promise<string[]> {
-  const wav = silentWav();
-  const asked: string[] = [];
-  await page.context().route(/\/api\/episode\?/, async (route) => {
-    asked.push((await route.request().allHeaders())['authorization'] ?? '');
-    const link = new URL(route.request().url()).searchParams.get('url') ?? '';
-    if (!/^https:\/\/pod\.invalid\/.*\.mp3$/.test(link)) return route.fulfill({ status: 415 });
-    return answerWav(route, wav);
-  });
-  return asked;
-}
-
-// The player (#179): the podcast followed and looked at, its first
-// episode played and paused, the place kept across a reload and shown
-// on another device under Continue listening, then heard to the end,
-// which marks it played and read.
-test('play an episode, keep the place across a reload and on another device', async ({
-  page,
-  browser,
-}) => {
-  test.setTimeout(90_000);
-  await serveEpisodes(page);
-  await signInAs(page, OWNER);
-  await page.goto('/settings');
-  await page.getByRole('switch', { name: 'Reader' }).check();
-  await letItSave(page);
-  await page.goto('/reader/feeds');
-  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/pod.xml');
-  await page.getByRole('combobox', { name: 'Folder' }).fill('Listening');
-  await page.getByRole('button', { name: 'Follow' }).click();
-  await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
-  await letItSave(page);
-  await page.getByRole('link', { name: 'Back' }).click();
-  await readerTabs(page).getByRole('link', { name: 'Folders' }).click();
-  await page.getByRole('button', { name: 'Refresh' }).click();
-  await expect(page.getByRole('status')).toContainText('2 new articles', { timeout: 30_000 });
-  const podcasts = readerTabs(page).getByRole('link', { name: /^Podcasts/ });
-  await expect(podcasts).toContainText('2 unread');
-  await expect(page.getByRole('list', { name: 'Continue listening' })).toHaveCount(0);
-
-  // The episode's page: play, then pause past the first second.
-  await podcasts.click();
-  await page
-    .getByRole('list', { name: 'Articles' })
-    .getByRole('link', { name: /Reduction firing/ })
-    .click();
-  await expect(page.getByRole('heading', { name: 'Reduction firing', level: 1 })).toBeVisible();
-  const player = page.getByRole('region', { name: 'Player' });
-  const slider = player.getByRole('slider', { name: 'Position' });
-  await expect(slider).toHaveAttribute('aria-valuetext', '0:00 of 42:10');
-  await expect(page.getByRole('complementary', { name: 'Now playing' })).toHaveCount(0);
-  await axe(page);
-  await player.getByRole('button', { name: 'Play' }).click();
-  // The audio's own length replaces the feed's once it loads.
-  await expect(slider).toHaveAttribute('aria-valuetext', /^0:0[1-4] of 0:06$/, {
-    timeout: 10_000,
-  });
-  await player.getByRole('button', { name: 'Pause' }).click();
-  await expect(player.getByRole('button', { name: 'Play' })).toBeVisible();
-  const kept = (await slider.getAttribute('aria-valuetext'))!.split(' of ')[0];
-  expect(kept).not.toBe('0:00');
-  // Opening an episode reads nothing; only the end does.
-  await expect(page.getByRole('button', { name: 'Mark read' })).toBeVisible();
-  await letItSave(page);
-
-  // A reload finds it where it was, paused.
-  await page.reload();
-  await expect(slider).toHaveAttribute('aria-valuetext', `${kept} of 42:10`);
-  await expect(player.getByRole('button', { name: 'Play' })).toBeVisible();
-  await page.goto('/reader/folders');
-  const bar = page.getByRole('complementary', { name: 'Now playing' });
-  await expect(bar).toContainText('Reduction firing');
-  await expect(bar).toContainText(`${kept} / 42:10`);
-  const listening = page.getByRole('list', { name: 'Continue listening' });
-  await expect(listening.getByRole('listitem')).toHaveCount(1);
-  await expect(listening).toContainText('Reduction firing');
-  await expect(listening).toContainText(`${kept} of 42:10`);
-  await axe(page);
-
-  // Another device sees the place, and its episode page starts there.
-  const other = await browser.newContext({ ...devices['Pixel 7'] });
-  const second = await other.newPage();
-  await prepPage(second);
-  await serveEpisodes(second);
-  await signInAs(second, OWNER, { reset: false });
-  await second.goto('/reader/folders');
-  const elsewhere = second.getByRole('list', { name: 'Continue listening' });
-  await expect(elsewhere).toContainText('Reduction firing');
-  await expect(elsewhere).toContainText(`${kept} of 42:10`);
-  await elsewhere.getByRole('link', { name: /Reduction firing/ }).click();
-  await expect(
-    second.getByRole('region', { name: 'Player' }).getByRole('slider', { name: 'Position' }),
-  ).toHaveAttribute('aria-valuetext', `${kept} of 42:10`);
-
-  // Heard to the end from the mini-player: played and read, here and there.
-  await bar.getByRole('button', { name: 'Play', exact: true }).click();
-  await expect(bar.getByRole('button', { name: 'Pause' })).toBeVisible();
-  await expect(listening).toHaveCount(0, { timeout: 15_000 });
-  await expect(bar.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
-  await expect(podcasts).toContainText('1 unread');
-  await expect(second.getByRole('button', { name: 'Keep unread' })).toBeVisible();
-  await expect(second.getByRole('region', { name: 'Player' })).toContainText('Played to the end.');
-  await other.close();
-});
-
-// Downloads (#180): the fixture episode downloaded through the proxy's
-// stand-in into the episodes cache, listed with its size, then played
-// with the browser offline, the service worker answering the player's
-// ranges from the cache, then removed.
-test('download an episode, play it offline, remove it', async ({ page }) => {
-  test.setTimeout(120_000);
-  await serveEpisodes(page);
-  const asked = await serveProxy(page);
-  await signInAs(page, OWNER);
-  // The app registers its worker once settled (at most 30 s); a reload
-  // puts the page under it, as an installed app always is.
-  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
-  await page.reload();
-  await expect
-    .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 20_000 })
-    .toBe(true);
-  await page.goto('/settings');
-  await page.getByRole('switch', { name: 'Reader' }).check();
-  await letItSave(page);
-  await expect(
-    page.getByRole('combobox', { name: 'Downloaded episodes kept on this device, at most' }),
-  ).toHaveValue('500');
-  await expect(
-    page.getByRole('switch', { name: 'Download new episodes on their own only on Wi-Fi' }),
-  ).toBeChecked();
-  await page.goto('/reader/feeds');
-  await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/pod.xml');
-  await page.getByRole('combobox', { name: 'Folder' }).fill('Listening');
-  await page.getByRole('button', { name: 'Follow' }).click();
-  await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
-  await letItSave(page);
-  await page.getByRole('link', { name: 'Back' }).click();
-  await readerTabs(page).getByRole('link', { name: 'Folders' }).click();
-  await page.getByRole('button', { name: 'Refresh' }).click();
-  await expect(page.getByRole('status')).toContainText('2 new articles', { timeout: 30_000 });
-  // Nothing downloaded and no podcast keeping any: no Downloads link yet.
-  await expect(page.getByRole('link', { name: 'Downloads' })).toHaveCount(0);
-
-  // Download from the episode's page: through the proxy, with the ID token.
-  await readerTabs(page)
-    .getByRole('link', { name: /^Podcasts/ })
-    .click();
-  await page
-    .getByRole('list', { name: 'Articles' })
-    .getByRole('link', { name: /Reduction firing/ })
-    .click();
-  await expect(page.getByRole('heading', { name: 'Reduction firing', level: 1 })).toBeVisible();
-  const player = page.getByRole('region', { name: 'Player' });
-  // Download is the header's icon (#221); downloaded, the same place offers Remove download.
-  await page.getByRole('button', { name: 'Download', exact: true }).click();
-  await expect(player).toContainText('Downloaded, 47 KB', { timeout: 15_000 });
-  await expect(page.locator('article header .meta')).toContainText('Downloaded ·');
-  expect(asked).toHaveLength(1);
-  expect(asked[0]).toMatch(/^Bearer \S+$/);
-  await expect(page.getByRole('button', { name: 'Remove download' })).toBeVisible();
-  await axe(page);
-
-  // The Downloads list, from the shelf's header icon: its size, the total against the cap.
-  await page.getByRole('link', { name: 'Podcasts', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
-  await page.getByRole('link', { name: 'Downloads' }).click();
-  await expect(page.getByRole('heading', { name: 'Downloads', level: 1 })).toBeVisible();
-  const list = page.getByRole('list', { name: 'Downloads' });
-  await expect(list.getByRole('listitem')).toHaveCount(1);
-  await expect(list).toContainText('Reduction firing');
-  await expect(list).toContainText('Kiln hour (fixture) · 47 KB');
-  await expect(page.getByRole('status')).toHaveText('1 episode, 47 KB of 500 MB');
-  await axe(page);
-
-  // Offline: the page and the player go on, the file from the cache.
-  await page.context().setOffline(true);
-  await list.getByRole('link', { name: /Reduction firing/ }).click();
-  await expect(page.getByRole('heading', { name: 'Reduction firing', level: 1 })).toBeVisible();
-  const slider = player.getByRole('slider', { name: 'Position' });
-  await player.getByRole('button', { name: 'Play' }).click();
-  await expect(slider).toHaveAttribute('aria-valuetext', /^0:0[1-4] of 0:06$/, {
-    timeout: 10_000,
-  });
-  await player.getByRole('button', { name: 'Pause' }).click();
-  // Nothing reached the proxy's stand-in: the service worker answered
-  // the player's ranges from the cache.
-  expect(asked).toHaveLength(1);
-  await page.context().setOffline(false);
-
-  // Removed: gone from the list and the cache.
-  await page.goto('/reader/downloads');
-  await list.getByRole('button', { name: 'Remove download: Reduction firing' }).click();
-  await expect(list.getByRole('listitem')).toHaveCount(0);
-  await expect(page.getByText('Nothing downloaded yet.')).toBeVisible();
-  await expect(page.getByRole('status')).toHaveText('0 episodes, 0 MB of 500 MB');
-  const cached = await page.evaluate(async () =>
-    (await (await caches.open('mossgoblin-episodes')).keys()).map((r) => r.url),
-  );
-  expect(cached).toEqual([]);
 });

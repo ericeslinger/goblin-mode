@@ -14,6 +14,12 @@ const PATHS = {
   notes: ['M5 3h11a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z', 'M5 3v16', 'M9 8h5M9 12h5'],
   kitchen: ['M3 11h18', 'M4 11v3a8 8 0 0 0 16 0v-3', 'M8 11V8a4 4 0 0 1 8 0v3', 'M1 13h3M20 13h3'],
   reader: ['M4 11a9 9 0 0 1 9 9', 'M4 4a16 16 0 0 1 16 16'],
+  // Podcasts (#245): a pair of headphones, one stroke for the band.
+  podcasts: [
+    'M4 16v-4a8 8 0 0 1 16 0v4',
+    'M4 16a2 2 0 0 1 2-2h1v6H6a2 2 0 0 1-2-2z',
+    'M20 16a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z',
+  ],
   'right-now': [
     'M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z',
     'M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
@@ -49,6 +55,9 @@ const PATHS = {
     'M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5',
   ],
   play: ['M8 5v14l11-7z'],
+  pause: ['M9 5v14', 'M15 5v14'],
+  plus: ['M12 5v14', 'M5 12h14'],
+  more: ['M5 12h.01M12 12h.01M19 12h.01'],
   grip: ['M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01'],
 } as const;
 

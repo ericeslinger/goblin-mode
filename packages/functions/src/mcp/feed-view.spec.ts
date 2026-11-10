@@ -60,6 +60,15 @@ describe('feedItemView (#178)', () => {
     expect(odd).not.toHaveProperty('image');
   });
 
+  it('says when its feed is in Podcasts (#245), and nothing for the Reader’s', () => {
+    const both = new Map([
+      ['f-1', { title: 'Kiln hour', folders: [], podcast: true }],
+      ['f-2', { title: 'Design notes', folders: [] }],
+    ]);
+    expect(feedItemView('f-1-a', base, both)).toMatchObject({ podcast: true });
+    expect(feedItemView('f-2-a', { ...base, feedId: 'f-2' }, both)).not.toHaveProperty('podcast');
+  });
+
   it('carries the tags an import gave it (#176), and none when it has none', () => {
     expect(feedItemView('f-1-t', { ...base, tags: ['Pottery', 7] }, feeds)).toMatchObject({
       tags: ['Pottery'],

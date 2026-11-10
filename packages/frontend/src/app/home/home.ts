@@ -27,8 +27,8 @@ import { GroceryService } from '../kitchen/grocery.service';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
+import { episodeState } from '../podcasts/episodes';
 import { ItemsService } from '../reader/items.service';
-import { PODCASTS } from '../reader/shelves';
 import { ReadingService } from '../reading/reading.service';
 import { RemindersService } from '../reminders/reminders.service';
 import { SignIn } from '../sign-in/sign-in';
@@ -533,16 +533,25 @@ export class Home {
       });
     }
     if (this.modules.reader()) {
-      const counts = this.items.unreadCounts();
-      const episodes = counts[PODCASTS] ?? 0;
       tiles.push({
         id: 'reader',
         name: 'Reader',
         icon: 'reader',
         link: '/reader',
+        status: `${this.items.unreadCounts()['all'] ?? 0} unread`,
+      });
+    }
+    if (this.modules.podcasts()) {
+      const states = this.items.episodes().map(episodeState);
+      const started = states.filter((s) => s === 'started').length;
+      tiles.push({
+        id: 'podcasts',
+        name: 'Podcasts',
+        icon: 'podcasts',
+        link: '/podcasts',
         status: [
-          `${counts['all'] ?? 0} unread`,
-          ...(episodes ? [plural(episodes, 'episode', 'episodes')] : []),
+          `${states.filter((s) => s === 'new').length} new`,
+          ...(started ? [`${started} started`] : []),
         ].join(' · '),
       });
     }

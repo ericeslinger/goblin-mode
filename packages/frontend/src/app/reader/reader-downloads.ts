@@ -1,35 +1,38 @@
 import { Component, computed, inject } from '@angular/core';
+import { ModulesService } from '../modules/modules.service';
 import { RouterLink } from '@angular/router';
 import { DownloadPrefs } from './download-prefs';
 import { DownloadsService, size } from './downloads.service';
-import { PODCASTS } from './items.service';
 import { ReaderService } from './reader.service';
 
 /**
  * Downloads (#180): the episodes kept on this device to play offline,
  * newest first, each with its podcast, its size and Remove, and the
- * total against the cap set in Settings, Reader.
+ * total against the cap set in Settings, Downloads. Reached from the
+ * Reader's header and Podcasts' (#245); Back goes to Podcasts while it
+ * is on, the Reader otherwise, and an episode opens on its own module's
+ * page.
  */
 @Component({
   selector: 'app-reader-downloads',
   imports: [RouterLink],
   template: `
     <main class="page">
-      <a routerLink="/reader">Back</a>
+      <a [routerLink]="modules.podcasts() ? '/podcasts' : '/reader'">Back</a>
       <h1>Downloads</h1>
       <p class="total" role="status">{{ totalText() }}</p>
       @if (!downloads.available()) {
         <p class="muted">This browser cannot keep downloads.</p>
       } @else if (downloads.loaded() && downloads.list().length === 0) {
         <p class="muted">
-          Nothing downloaded yet. An episode's page has Download; a podcast in
-          <a routerLink="/reader/feeds">Manage feeds</a> can keep its newest downloaded.
+          Nothing downloaded yet. An episode's page has Download; a show in
+          <a routerLink="/podcasts/shows">Podcasts</a> can keep its newest downloaded.
         </p>
       }
       <ul aria-label="Downloads">
         @for (d of downloads.list(); track d.id) {
           <li>
-            <a class="open" [routerLink]="['/reader/a', d.id]" [queryParams]="{ in: shelf }">
+            <a class="open" [routerLink]="pageOf(d)" [queryParams]="queryOf(d)">
               <span class="title">{{ d.title }}</span>
               <span class="meta"
                 >{{ podcast(d.feedId) }} · {{ sizeOf(d.bytes)
@@ -48,7 +51,7 @@ import { ReaderService } from './reader.service';
       </ul>
       <p class="muted">
         Downloads stay on this device. The cap and Wi-Fi are in
-        <a routerLink="/settings" fragment="reader">Settings, Reader</a>.
+        <a routerLink="/settings" fragment="downloads">Settings, Downloads</a>.
       </p>
     </main>
   `,
@@ -92,7 +95,7 @@ export class ReaderDownloads {
   protected readonly downloads = inject(DownloadsService);
   private readonly prefs = inject(DownloadPrefs);
   private readonly reader = inject(ReaderService);
-  protected readonly shelf = `f:${PODCASTS}`;
+  protected readonly modules = inject(ModulesService);
   protected readonly sizeOf = size;
 
   /** "3 episodes, 120 MB of 500 MB". */
@@ -103,6 +106,15 @@ export class ReaderDownloads {
     const count = `${n} ${n === 1 ? 'episode' : 'episodes'}`;
     return `${count}, ${used} of ${cap}`;
   });
+
+  /** An episode's page: Podcasts' for a show followed there (#245), else the Reader's. */
+  protected pageOf(d: { id: string; feedId: string }): string[] {
+    return this.reader.isPodcast(d.feedId) ? ['/podcasts/e', d.id] : ['/reader/a', d.id];
+  }
+
+  protected queryOf(d: { feedId: string }): Record<string, string> | null {
+    return this.reader.isPodcast(d.feedId) ? null : { in: `s:${d.feedId}` };
+  }
 
   protected podcast(feedId: string): string {
     return (

@@ -17,19 +17,21 @@ import { ModulesService } from '../modules/modules.service';
 import { DownloadPrefs } from './download-prefs';
 import { DownloadsService } from './downloads.service';
 import { ItemsService } from './items.service';
-import { ALL, PODCASTS, SAVED } from './shelves';
+import { ALL, SAVED } from './shelves';
 import { ReaderService, type SearchHit } from './reader.service';
 
-export type ReaderTab = 'all' | 'saved' | 'podcasts' | 'folders';
+export type ReaderTab = 'all' | 'saved' | 'folders';
 
 /**
  * The Reader's header and tabs (#220, #221): the leaf, then Search
  * articles, Downloads and Manage feeds as icons with names; under them
- * the tabs All (`/reader`), Saved, Podcasts once a feed is one (#178),
- * and Folders (`/reader/folders`). Downloads shows once anything is
+ * the tabs All (`/reader`), Saved and Folders (`/reader/folders`); the
+ * Podcasts tab left with the shows for a module of their own (#245).
+ * Downloads shows once anything is
  * downloaded or a podcast keeps its newest downloaded (#180), with a
  * dot while anything is. Search articles opens the search under the
- * tabs: the server's word index over every article stored (#175).
+ * tabs: the server's word index over every article stored (#175), the
+ * shows in Podcasts left out of what it lists (#245).
  */
 @Component({
   selector: 'app-reader-bar',
@@ -104,7 +106,7 @@ export type ReaderTab = 'all' | 'saved' | 'podcasts' | 'folders';
         }
       }
     </div>
-    @if (reader.loaded() && reader.feeds().length === 0) {
+    @if (reader.loaded() && reader.readerFeeds().length === 0) {
       <p class="muted">
         No feeds yet. <a routerLink="/reader/feeds">Import a file from your reader</a>, or follow
         one there.
@@ -204,10 +206,6 @@ export class ReaderBar {
   private readonly injector = inject(Injector);
   private readonly box = viewChild<ElementRef<HTMLInputElement>>('q');
 
-  /** Whether any feed followed is a podcast, for the Podcasts tab (#178). */
-  private readonly hasPodcasts = computed(() =>
-    this.reader.feeds().some((f) => f.kind === 'podcast'),
-  );
   /** Whether to link Downloads (#180). */
   protected readonly showDownloads = computed(
     () => this.downloads.list().length > 0 || this.prefs.keepsAny(),
@@ -220,17 +218,6 @@ export class ReaderBar {
     return [
       { name: 'All', link: '/reader', count: count(ALL), counts: 'unread', current: at('all') },
       { name: 'Saved', link: ['/reader/f', SAVED], current: at('saved') },
-      ...(this.hasPodcasts()
-        ? [
-            {
-              name: 'Podcasts',
-              link: ['/reader/f', PODCASTS],
-              count: count(PODCASTS),
-              counts: 'unread',
-              current: at('podcasts'),
-            },
-          ]
-        : []),
       { name: 'Folders', link: '/reader/folders', current: at('folders') },
     ];
   });
@@ -262,12 +249,14 @@ export class ReaderBar {
     this.searching.set(true);
     this.searchSaid.set('');
     try {
-      const found = await this.reader.search(text);
+      let found = await this.reader.search(text);
       if (typeof found === 'string') {
         this.hits.set(undefined);
         this.truncated.set(false);
         this.searchSaid.set(found);
       } else {
+        // The Reader's own: an episode of a show in Podcasts is not one (#245).
+        found = { ...found, items: found.items.filter((h) => !this.reader.isPodcast(h.feedId)) };
         this.hits.set(found.items);
         this.truncated.set(found.truncated === true);
         if (!found.items.length) {

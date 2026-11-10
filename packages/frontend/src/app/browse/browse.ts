@@ -37,6 +37,9 @@ import { HomeLink } from '../home/home-link';
             }
           </a>
         }
+        @if (modules.podcasts()) {
+          <a routerLink="/podcasts">Podcasts</a>
+        }
         <a routerLink="/reading"
           >Reading queue
           @if (reading.unread().length) {

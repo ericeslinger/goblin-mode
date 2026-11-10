@@ -223,6 +223,15 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             @if (indexStatus()) {
               <p role="status">{{ indexStatus() }}</p>
             }
+            <p class="muted">
+              <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a>
+            </p>
+          </div>
+        }
+        @if (modules.reader() || modules.podcasts()) {
+          <!-- An episode's downloads (#180), the Reader's and Podcasts' alike (#245). -->
+          <h2 id="downloads">Downloads</h2>
+          <div class="kitchen">
             <label>
               Keep up to
               <select
@@ -249,11 +258,13 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             </label>
             <p class="muted">
               Where the browser says what the connection is; a tap on Download works on any
-              connection. These are this device's; a podcast's newest are kept downloaded from its
-              row in Manage feeds.
+              connection. These are this device's; a show's newest are kept downloaded from its page
+              in Podcasts.
             </p>
             <p class="muted">
-              <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a> ·
+              @if (modules.podcasts()) {
+                <a routerLink="/podcasts">Podcasts</a> ·
+              }
               <a routerLink="/reader/downloads">Downloads</a>
             </p>
           </div>
@@ -682,6 +693,7 @@ export class Settings {
     { value: 'right-now', label: 'Right Now', about: 'Reminders and what is new' },
     { value: 'kitchen', label: 'Kitchen', about: 'This week’s meals' },
     { value: 'reader', label: 'Reader', about: 'Unread articles' },
+    { value: 'podcasts', label: 'Podcasts', about: 'The newest episodes' },
   ];
 
   /** A module's choice while it is off: it opens Home instead. */
@@ -689,6 +701,8 @@ export class Settings {
     if (choice === 'kitchen' && !this.modules.kitchen())
       return 'Kitchen is off, so this opens Home';
     if (choice === 'reader' && !this.modules.reader()) return 'Reader is off, so this opens Home';
+    if (choice === 'podcasts' && !this.modules.podcasts())
+      return 'Podcasts is off, so this opens Home';
     return undefined;
   }
   private readonly router = inject(Router);

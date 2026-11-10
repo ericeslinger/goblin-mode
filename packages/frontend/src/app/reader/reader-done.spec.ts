@@ -47,13 +47,6 @@ describe('ReaderDone (Eric, 2026-11-07)', () => {
     expect(back.getAttribute('href')).toBe('/reader/s/feed1');
   });
 
-  it('names the Podcasts shelf as its list does (#178)', async () => {
-    const { el } = await open('/reader/done?in=f:podcasts');
-    expect(el.textContent).toContain('Nothing more in Podcasts.');
-    const back = [...el.querySelectorAll('a')].find((a) => a.textContent === 'Back')!;
-    expect(back.getAttribute('href')).toBe('/reader/f/podcasts');
-  });
-
   it('goes back to the last article on k, and to the list when opened directly', async () => {
     const { harness } = await open('/reader/done?in=f:all');
     const location = TestBed.inject(Location);
