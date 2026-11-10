@@ -110,12 +110,44 @@ const POD = `<?xml version="1.0"?>
 </channel>
 </rss>`;
 
+/**
+ * A second podcast (#246), newer than the first and with no artwork of
+ * its own anywhere, so the Shows grid has an order to keep and a
+ * tinted square to draw.
+ */
+const GLAZE = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Glaze lab (fixture)</title>
+  <link>https://pod.invalid/glaze/</link>
+  <item>
+    <title>Testing tiles</title>
+    <link>https://pod.invalid/glaze/2</link>
+    <guid>glaze-2</guid>
+    <pubDate>Sun, 08 Nov 2026 07:00:00 GMT</pubDate>
+    <description>A row of tiles for every glaze, fired together.</description>
+    <enclosure url="https://pod.invalid/glaze/2.mp3" type="audio/mpeg" length="20000000"/>
+    <itunes:duration>31:00</itunes:duration>
+  </item>
+  <item>
+    <title>Crawling and pinholes</title>
+    <link>https://pod.invalid/glaze/1</link>
+    <guid>glaze-1</guid>
+    <pubDate>Sat, 31 Oct 2026 07:00:00 GMT</pubDate>
+    <description>Two faults and their causes.</description>
+    <enclosure url="https://pod.invalid/glaze/1.mp3" type="audio/mpeg" length="25000000"/>
+    <itunes:duration>38:00</itunes:duration>
+  </item>
+</channel>
+</rss>`;
+
 const FIXTURES: Record<string, { body: string; contentType: string }> = {
   'design.xml': { body: DESIGN, contentType: 'application/rss+xml; charset=utf-8' },
   'games.atom': { body: GAMES, contentType: 'application/atom+xml' },
   'notes.json': { body: NOTES, contentType: 'application/feed+json' },
 
   'pod.xml': { body: POD, contentType: 'application/rss+xml' },
+  'glaze.xml': { body: GLAZE, contentType: 'application/rss+xml' },
   'page.html': { body: '<html><body>not a feed</body></html>', contentType: 'text/html' },
 };
 

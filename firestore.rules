@@ -136,7 +136,7 @@ service cloud.firestore {
 
     function isValidFeed(data) {
       return data.keys().hasAll(['url', 'title', 'folders', 'addedAt', 'updatedAt'])
-        && data.keys().hasOnly(['url', 'title', 'site', 'folders', 'addedAt', 'updatedAt', 'nextFetchAt', 'etag', 'lastModified', 'fetchedAt', 'claimedAt', 'interval', 'errorCount', 'error', 'lastItemAt', 'dead', 'kind', 'autoQueue'])
+        && data.keys().hasOnly(['url', 'title', 'site', 'folders', 'addedAt', 'updatedAt', 'nextFetchAt', 'etag', 'lastModified', 'fetchedAt', 'claimedAt', 'interval', 'errorCount', 'error', 'lastItemAt', 'dead', 'kind', 'autoQueue', 'image'])
         && data.url is string
         && data.title is string
         && (!('site' in data) || data.site is string)
@@ -154,7 +154,8 @@ service cloud.firestore {
         && (!('lastItemAt' in data) || data.lastItemAt is timestamp)
         && (!('dead' in data) || data.dead is bool)
         && (!('kind' in data) || (data.kind is string && data.kind in ['podcast']))
-        && (!('autoQueue' in data) || data.autoQueue is bool);
+        && (!('autoQueue' in data) || data.autoQueue is bool)
+        && (!('image' in data) || data.image is string);
     }
 
     function isValidReaderSettings(data) {
@@ -222,7 +223,12 @@ service cloud.firestore {
       // fields, which the shape allows and the app leaves alone.
       match /feeds/{feedId} {
         allow read, delete: if isOwner(uid);
-        allow create, update: if isOwner(uid) && isValidFeed(request.resource.data);
+        // The feed's artwork (#246) is the fetcher's, a web link: the
+        // validator checks only that it is a string, so the link is
+        // checked here, as the app shows it in an <img>.
+        allow create, update: if isOwner(uid) && isValidFeed(request.resource.data)
+          && (!('image' in request.resource.data)
+            || request.resource.data.image.matches('(?i)https?://.+'));
       }
 
       // Articles are the fetcher's. The gardener marks one read or

@@ -5,6 +5,7 @@ import { SAVES_FEED_ID, feedId, feedItemId } from '@mossgoblin/schema';
 import { importSaves } from './feedly';
 import {
   applyRetention,
+  firestoreRefreshStore,
   firestoreSavesStore,
   indexItems,
   markAllDue,
@@ -56,6 +57,37 @@ const expireOf = async (id: string) => {
   const v = (await db.doc(`users/u1/feedItems/${id}`).get()).data()?.['expireAt'];
   return v instanceof Timestamp ? v.toMillis() : undefined;
 };
+
+describe("the feed's artwork (#246)", () => {
+  it('reads the stored image with a due feed, writes a new one and clears it', async () => {
+    const store = firestoreRefreshStore(db);
+    const ref = db.doc('users/u1/feeds/f-1');
+    await ref.set({
+      url: 'https://kiln.test/feed.xml',
+      title: 'Kiln talk',
+      folders: [],
+      kind: 'podcast',
+      image: 'https://kiln.test/show.jpg',
+      nextFetchAt: Timestamp.fromMillis(NOW - DAY),
+    });
+    const [due] = await store.due(NOW, 10, 'u1');
+    expect(due).toMatchObject({ id: 'f-1', image: 'https://kiln.test/show.jpg' });
+    const look = {
+      fetchedAt: NOW,
+      nextFetchAt: NOW + DAY,
+      interval: 60,
+      errorCount: 0,
+      error: null,
+    };
+    await store.updateFeed('u1', 'f-1', { ...look, image: 'https://kiln.test/new.png' });
+    expect((await ref.get()).data()).toMatchObject({
+      image: 'https://kiln.test/new.png',
+      kind: 'podcast',
+    });
+    await store.updateFeed('u1', 'f-1', { ...look, image: null });
+    expect((await ref.get()).data()).not.toHaveProperty('image');
+  });
+});
 
 describe('retention (#171)', () => {
   it('applies the keep-for months to unsaved, unfiled articles, and clears them again', async () => {

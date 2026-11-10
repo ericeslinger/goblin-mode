@@ -255,6 +255,51 @@ describe('ItemsService (#162)', () => {
     });
   });
 
+  it('loads a show’s older episodes on demand, a page at a time, and marks many heard (#246)', async () => {
+    const { items, api, feeds } = setup();
+    feeds.push([
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
+    ]);
+    TestBed.tick();
+    // Fewer than a hundred: nothing older to look for.
+    api.pushFeed('p1', [item('e1', 'p1', 1)]);
+    expect(items.mayHaveOlder('p1')).toBe(false);
+    // A full hundred: there may be more, the next page asked for before the oldest.
+    const hundred = Array.from({ length: 100 }, (_, n) => item(`e${n}`, 'p1', n + 1));
+    api.pushFeed('p1', hundred);
+    expect(items.mayHaveOlder('p1')).toBe(true);
+    api.pageFeed.mockResolvedValueOnce([item('old1', 'p1', 200), item('old2', 'p1', 300)]);
+    expect(await items.loadOlder('p1')).toBe(2);
+    expect(api.pageFeed).toHaveBeenCalledWith(
+      expect.anything(),
+      'users/u1/feedItems',
+      'p1',
+      NOW_MS - 100 * H,
+      100,
+    );
+    expect(items.olderEpisodes('p1').map((e) => e.id)).toEqual(['old1', 'old2']);
+    // A short page: that was the last; the older ones open like any other.
+    expect(items.mayHaveOlder('p1')).toBe(false);
+    expect(items.find('old2')?.title).toBe('Article old2');
+    // Not in the listened episodes, so the counts stay the newest hundred's.
+    expect(items.episodes()).toHaveLength(100);
+    // Mark all as heard: one batch, shown at once, older ones included.
+    expect(items.setPlayedMany(['e0', 'old1'])).toBe(2);
+    expect(items.find('old1')?.played).toBe(true);
+    expect(api.setMany).toHaveBeenLastCalledWith(expect.anything(), [
+      { path: 'users/u1/feedItems/e0', data: { played: true, updatedAt: 'SERVER_TIME' } },
+      { path: 'users/u1/feedItems/old1', data: { played: true, updatedAt: 'SERVER_TIME' } },
+    ]);
+    // Offline with nothing cached: said, and nothing lost.
+    api.pageFeed.mockRejectedValueOnce(new Error('unavailable'));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(await items.loadOlder('p1')).toMatch(/Could not load older episodes/);
+    // The show moved to the Reader: its older pages go.
+    feeds.push([{ id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [] } }]);
+    TestBed.tick();
+    expect(items.olderEpisodes('p1')).toEqual([]);
+  });
+
   it('keeps where an episode was left, lists the ones part-way, and marks one heard (#179)', () => {
     const { items, api } = setup();
     const audio = { url: 'https://pod.test/1.mp3', type: 'audio/mpeg', seconds: 2530 };

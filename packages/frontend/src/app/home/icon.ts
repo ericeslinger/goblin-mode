@@ -59,6 +59,15 @@ const PATHS = {
   plus: ['M12 5v14', 'M5 12h14'],
   more: ['M5 12h.01M12 12h.01M19 12h.01'],
   grip: ['M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01'],
+  // Podcasts' Shows (#246): by folder, as one grid, and the sort.
+  folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
+  grid: [
+    'M5 4h4.5a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+    'M14.5 4H19a1 1 0 0 1 1 1v4.5a1 1 0 0 1-1 1h-4.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+    'M5 13.5h4.5a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4.5a1 1 0 0 1 1-1z',
+    'M14.5 13.5H19a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1h-4.5a1 1 0 0 1-1-1v-4.5a1 1 0 0 1 1-1z',
+  ],
+  sort: ['M7 4v16M3 16l4 4 4-4', 'M13 6h8M13 12h6M13 18h4'],
 } as const;
 
 export type IconName = keyof typeof PATHS;

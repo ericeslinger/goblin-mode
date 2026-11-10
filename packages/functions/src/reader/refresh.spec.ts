@@ -158,6 +158,43 @@ describe('refreshFeed (#161)', () => {
     expect(plain.writeItems.mock.calls[0][1][0]).not.toHaveProperty('image');
   });
 
+  it('keeps the feed’s own artwork, and updates it when it changes (#246)', async () => {
+    const art = (href: string) =>
+      `<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Kottke</title>${href}${item('a', 1)}</channel></rss>`;
+    const first = store();
+    await refreshFeed(
+      { store: first, fetch: ok(art('<itunes:image href="/show.jpg"/>')), now: () => NOW },
+      feed,
+    );
+    expect(first.updateFeed.mock.calls[0][2].image).toBe('https://kottke.org/show.jpg');
+    // The same image: nothing to write.
+    const same = store([feedItemId('f-1', 'a')]);
+    const kept = { ...feed, image: 'https://kottke.org/show.jpg' };
+    await refreshFeed(
+      { store: same, fetch: ok(art('<itunes:image href="/show.jpg"/>')), now: () => NOW },
+      kept,
+    );
+    expect(same.updateFeed.mock.calls[0][2]).not.toHaveProperty('image');
+    // A new one replaces it; none at all clears it.
+    const changed = store([feedItemId('f-1', 'a')]);
+    await refreshFeed(
+      {
+        store: changed,
+        fetch: ok(art('<image><url>https://cdn.kottke.org/new.png</url></image>')),
+        now: () => NOW,
+      },
+      kept,
+    );
+    expect(changed.updateFeed.mock.calls[0][2].image).toBe('https://cdn.kottke.org/new.png');
+    const gone = store([feedItemId('f-1', 'a')]);
+    await refreshFeed({ store: gone, fetch: ok(art('')), now: () => NOW }, kept);
+    expect(gone.updateFeed.mock.calls[0][2].image).toBeNull();
+    // Never had one, still none: nothing written.
+    const none = store([feedItemId('f-1', 'a')]);
+    await refreshFeed({ store: none, fetch: ok(art('')), now: () => NOW }, feed);
+    expect(none.updateFeed.mock.calls[0][2]).not.toHaveProperty('image');
+  });
+
   it('keeps a gardener’s own name for a feed, and an item’s date never in the far future', async () => {
     const s = store();
     const named = { ...feed, title: 'My Kottke', site: 'https://mine.example/' };

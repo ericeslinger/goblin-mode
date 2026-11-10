@@ -73,7 +73,8 @@ users/{uid}
   runs/{runId}                the garden's own agent runs (#144 step 3)
   feeds/{feedId}              feeds followed, id from the URL (#159);
                               kind (Podcasts) and autoQueue are the
-                              gardener's (#245)
+                              gardener's (#245); image, the feed's
+                              artwork, is the fetcher's (#246)
   feedItems/{itemId}          their articles, fetcher-written (#159)
   usage/{day}                 a day's metered calls, server-only;
                               usage/digest the last digest pushed (#237)
@@ -2058,6 +2059,114 @@ Started, the show moved to the Reader and back, and the Reader with
 no Podcasts shelf; the player across a reload and another device; and
 downloads played offline. `reader.spec.ts` checks that a feed with
 audio followed in the Reader stays there.
+
+**Step 2: Shows as a grid, folders, and one show's page (#246,
+2026-11-10).** Eric, 2026-11-10: "A squares view for listing
+podcasts", "A folder view like the text feed for if I get a _lot_ of
+podcasts", by-show browsing as a "good interface to find back
+episodes in a given podcast", and "I think most feeds have a square
+logo we could use as the podcast UI."
+
+*The feed's artwork.* The fetcher keeps the channel's own image on the
+feed as `Feed.image` (`WebUrl`, optional, the fetcher's like `site`):
+`itunes:image` then RSS `<image><url>`, RSS 1.0's `<image>` beside
+the channel, Atom `itunes:image` then `logo` then `icon`, JSON Feed
+`icon` then `favicon`, resolved against the feed and kept only when
+it is an http(s) link. A look writes it when it differs from the
+stored one and clears it when the feed names none any more; a 304
+leaves it. The validators are regenerated; since the generator does
+not check a regex, the feeds rule checks by hand that `image`, when
+present, matches `https?://`, and a rules test covers a link, a
+non-link, `javascript:`, `data:` and `ftp:`. The app reads it only as
+a web link too. It is content from the web: the app shows it in an
+`<img>` and nothing fetches it for a model. There is no Content
+Security Policy in the app or the Worker today, so it loads straight
+from the feed's host as episode art already did (#178), with
+`referrerpolicy="no-referrer"`. A show's square (`app-show-art`) is
+the feed's image, else its newest episode's that has one, else
+step 1's square tinted by its id; in a fixed square box, `loading=
+"lazy"`, `alt=""` (the link around it carries the name), and the
+tinted square again when the image fails to load. Episode art falls
+back to its show's image the same way, and with images off both are
+squares. MCP is unchanged: no tool returns the feed's image yet.
+
+*Shows, the grid* (`/podcasts/shows`, replacing step 1's list): three
+squares across, each the artwork alone, the show's name drawn on the
+tinted square when there is none; the link's accessible name is the
+show's ("Kiln talk, 9 unheard"), and a badge counts its unheard
+episodes (not `played`: New and Started). Newest episode first, by
+the newest at hand, else the fetcher's `lastItemAt`. Above it, folder
+chips (All with the count, then each folder, then Not in a folder
+when there are folders) filter the grid, kept in the address
+(`?folder=`), and a button opens the shows by folder; a line says "12
+shows, newest episode first". Refresh stays. A show's More moved to
+its page: in a grid a long list of menus is not wanted.
+
+*Shows by folder* (`/podcasts/folders`, under the Shows tab): "12
+shows in 3 folders", New folder, and a button back to the grid; one
+section per folder, its heading "Making, 4 shows · 9 unheard" opening
+the grid filtered to it, then a strip of smaller squares that
+scrolls sideways when long; Not in a folder last. The mockup's "9
+new" reads "9 unheard" here, to match the badge and the show's page:
+New is one episode state, and the count takes Started in too. Folders
+are the Reader's model, a feed's `folders` (#159), named by its rules
+(`cleanFolder`, #185: All, Saved and Podcasts become "<name>
+(folder)"). A folder is only a name its shows carry, so there is no
+empty folder: New folder takes a name and the shows to put in it,
+each keeping its other folders.
+
+*One show's page* (`/podcasts/s/<id>`, replacing step 1's filtered
+Latest): Home, back to Shows, Search this show and More in its own
+header; the artwork, the name as `h1`, "112 episodes · 9 unheard"
+("100+" while older ones may exist) and its folders ("In Making",
+"Not in a folder"). The cadence line of the mockup is left out. Two
+settings: New episodes join the queue (`autoQueue`, written through
+the cache by `ReaderService.setAutoQueue`; the queue is step 3, so
+step 1's note that it comes soon stays) and Keep downloaded, step
+1's choice. Then its episodes, rows as in Latest without the artwork,
+Unheard and All with counts, Newest first or Oldest first, and the
+search: every word in the title or the notes (summary and content),
+on the episodes loaded on the device, which the field says; nothing
+asks the server. More is a modal `<dialog>` (focus stays inside,
+Escape or the backdrop closes it, each step focuses its first
+control): Move to a folder (one folder, or none when empty, replacing
+the show's folders), Move to the Reader, Mark all as heard, and
+Unfollow, which asks first ("Unfollow Kiln talk? Its episodes go with
+it, but for any saved or filed in the garden.", as `feedRemoved`
+does, #161; Unfollow or Keep following). The Reader's Remove has no
+confirm, so this one is new (2026-11-10).
+
+*What is counted and searched.* Each show's listener holds its
+newest hundred episodes (#245); the grid's badges, the folder lines
+and the show's counts come from those, plus on the show's page any
+older pages loaded, never from the feed's whole archive. Show older
+episodes, at the end of the show's list while the newest hundred came
+back full, reads the next hundred before the oldest at hand, once
+(`ItemsService.loadOlder`: `feedId ==`, `published <`, `published
+desc`, the index step 1 added), through the cache, so offline it
+reads what the device holds. The pages are kept while the app is
+open, until sign-out or the show leaves Podcasts, are not listened
+to, and open like any episode; they count on the show's page but not
+in the grid, Latest or the tile. A page that comes back short is the
+last.
+
+*Mark all as heard* writes `played` on every unheard episode loaded
+for the show, the newest hundred and any older pages, in one batch
+through the cache (`setPlayedMany`), never awaited, shown at once;
+`read` and the place are left as they are. Episodes not loaded are
+left unheard, and the status says so while older ones may exist;
+Show older episodes and Mark all again reach them. The feedItems
+rule already let the owner write `played` (#179).
+
+*Journeys* (`podcasts.spec.ts`): a second fixture show, Glaze lab, in
+no folder and with no artwork, and Kiln hour's channel image served
+as a pixel; the grid with both, newest first, with their counts and
+Kiln hour's image; the Listening chip; the folder view with its
+strip; Kiln hour's page, its queue switch kept across a reload,
+oldest first, a search by its notes, the sheet closed by Escape, and
+Mark all as heard clearing its count in the grid; axe on the grid,
+the folder view, the show's page and the sheet. Step 1's journeys
+open Move to the Reader from the show's page.
 
 ## Themes (#23, 2026-10-06)
 

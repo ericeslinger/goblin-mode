@@ -1,28 +1,77 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { map } from 'rxjs';
 import { Icon } from '../home/icon';
 import { ItemsService } from '../reader/items.service';
-import { type FeedRecord, ReaderService } from '../reader/reader.service';
-import { EpisodeArt } from './episode-art';
-import { episodeState } from './episodes';
+import { ReaderService } from '../reader/reader.service';
 import { PodcastsBar } from './podcasts-bar';
+import { ShowArt } from './show-art';
+import {
+  NO_FOLDER,
+  type ShowSummary,
+  folderName,
+  inFolder,
+  showFolders,
+  showSummaries,
+} from './shows';
 
 /**
- * Shows (#245, step 1 of #244): the shows followed in Podcasts by name,
- * each opening its episodes (`/podcasts/s/<feedId>`), with how many are
- * new. A stand-in until step 2 makes it a grid of artwork. More on a
- * show has Move to the Reader, for a feed that is mostly writing (Eric,
- * 2026-11-10: nothing moves by itself, so a misfiled one is sent across
- * by hand), and Unfollow. Refresh asks the server to look at every
- * feed now, as the Reader's Folders tab does.
+ * Shows (#246, step 2 of #244; Eric 2026-11-10: "A squares view for
+ * listing podcasts"): a grid of squares three across, each show's
+ * artwork alone (its name drawn on the tinted square when it has
+ * none), its name the link's, opening its page (`/podcasts/s/<id>`),
+ * with how many of its episodes at hand are unheard; newest episode
+ * first. Folder chips above filter it (`?folder=`, so the folder view
+ * can open one), and a button switches to the shows by folder. A
+ * show's More is on its page: a long list of menus is not wanted here.
+ * Refresh asks the server to look at every feed now.
  */
 @Component({
   selector: 'app-podcasts-shows',
-  imports: [EpisodeArt, Icon, PodcastsBar, RouterLink],
+  imports: [Icon, PodcastsBar, RouterLink, ShowArt],
   template: `
     <main class="page">
       <app-podcasts-bar active="shows" />
       <h2 class="visually-hidden">Shows</h2>
+      @if (shows().length) {
+        <div class="chips">
+          <div class="choices" role="group" aria-label="Folders">
+            <button
+              type="button"
+              [attr.aria-pressed]="folder() === undefined ? 'true' : 'false'"
+              (click)="choose(undefined)"
+            >
+              All <span class="count">{{ shows().length }}</span>
+            </button>
+            @for (f of chips(); track f) {
+              <button
+                type="button"
+                [attr.aria-pressed]="folder() === f ? 'true' : 'false'"
+                (click)="choose(f)"
+              >
+                {{ name(f) }}
+              </button>
+            }
+          </div>
+          <a class="icon" routerLink="/podcasts/folders" aria-label="Shows by folder">
+            <app-icon name="folder" [size]="22" />
+          </a>
+        </div>
+        <p class="line">{{ line() }}</p>
+      }
+      <ul class="grid" aria-label="Shows">
+        @for (s of shown(); track s.feed.id) {
+          <li>
+            <a [routerLink]="['/podcasts/s', s.feed.id]" [attr.aria-label]="label(s)">
+              <app-show-art [id]="s.feed.id" [title]="s.feed.title" [src]="s.art" [named]="true" />
+            </a>
+            @if (s.unheard) {
+              <span class="badge" aria-hidden="true">{{ s.unheard }}</span>
+            }
+          </li>
+        }
+      </ul>
       <p class="refresh">
         <button
           type="button"
@@ -36,77 +85,103 @@ import { PodcastsBar } from './podcasts-bar';
       @if (refreshed()) {
         <p class="status" role="status">{{ refreshed() }}</p>
       }
-      <ul aria-label="Shows">
-        @for (s of shows(); track s.feed.id) {
-          <li>
-            <div class="row">
-              <app-episode-art [item]="{ feedId: s.feed.id }" [show]="s.feed.title" [size]="40" />
-              <a class="open" [routerLink]="['/podcasts/s', s.feed.id]">
-                <span class="name">{{ s.feed.title }}</span>
-                <span class="meta">{{ s.line }}</span>
-              </a>
-              <button
-                type="button"
-                class="more"
-                [attr.aria-label]="'More for ' + s.feed.title"
-                [attr.aria-expanded]="open() === s.feed.id"
-                (click)="open.set(open() === s.feed.id ? undefined : s.feed.id)"
-              >
-                <app-icon name="more" [size]="22" />
-              </button>
-            </div>
-            @if (open() === s.feed.id) {
-              <div class="menu" role="group" [attr.aria-label]="s.feed.title">
-                <button type="button" (click)="toReader(s.feed)">
-                  Move to the Reader
-                  <span class="hint">For a feed that is mostly writing</span>
-                </button>
-                <button type="button" (click)="unfollow(s.feed)">Unfollow</button>
-              </div>
-            }
-          </li>
-        }
-      </ul>
-      @if (said()) {
-        <p class="status" role="status">{{ said() }}</p>
+      @if (shows().length) {
+        <p class="hint">Unheard counts each show's newest hundred episodes on this device.</p>
       }
     </main>
   `,
   styles: `
-    ul {
-      list-style: none;
-      margin: var(--space-2) 0 0;
-      padding: 0;
-      border-top: 1px solid var(--rule);
-    }
-    li {
-      border-bottom: 1px solid var(--rule);
-    }
-    .row {
+    .chips {
       display: flex;
       align-items: center;
       gap: var(--space-2);
-      padding: 8px 0;
+      margin-top: var(--space-3);
     }
-    .open {
+    .choices {
       flex: 1;
       min-width: 0;
-      display: grid;
-      gap: 2px;
-      padding: 2px 4px;
-      color: var(--ink);
-      text-decoration: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
     }
-    .name {
-      font-weight: 600;
+    .choices button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 44px;
+      padding: 0 14px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--surface);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      cursor: pointer;
       overflow-wrap: anywhere;
     }
-    .meta,
+    .choices button[aria-pressed='true'] {
+      font-weight: 600;
+      background: var(--chip-bg);
+      border-color: var(--ink);
+    }
+    .count {
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    .icon {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-control);
+    }
+    .line,
     .status,
     .hint {
       color: var(--quiet);
       font-size: 14px;
       font-weight: 400;
+    }
+    .line {
+      margin: var(--space-2) 0;
+    }
+    .grid {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .grid li {
+      position: relative;
+      min-width: 0;
+    }
+    .grid a {
+      display: block;
+      border-radius: var(--radius-control);
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .badge {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--ink);
+      color: var(--surface);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      pointer-events: none;
     }
     .refresh {
       display: flex;
@@ -115,51 +190,70 @@ import { PodcastsBar } from './podcasts-bar';
       align-items: center;
       margin-top: var(--space-3);
     }
-    .more {
-      flex: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 44px;
-      height: 44px;
-      padding: 0;
-      border: 0;
-      border-radius: var(--radius-control);
-      background: transparent;
-      cursor: pointer;
-    }
-    .more[aria-expanded='true'] {
-      background: var(--chip-bg);
-    }
-    .menu {
-      display: grid;
-      gap: 4px;
-      padding: 0 0 var(--space-2) 48px;
-    }
-    .menu button {
-      display: grid;
-      justify-items: start;
-      gap: 2px;
-      min-height: 44px;
-      padding: 6px 12px;
-      font: inherit;
-      text-align: left;
-      color: var(--ink);
-      background: var(--surface);
-      border: var(--border) solid var(--rule);
-      border-radius: var(--radius-control);
-      cursor: pointer;
-    }
   `,
 })
 export class PodcastsShows {
   protected readonly reader = inject(ReaderService);
   private readonly items = inject(ItemsService);
-  /** The show whose More is open. */
-  protected readonly open = signal<string | undefined>(undefined);
-  protected readonly said = signal('');
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   protected readonly refreshing = signal(false);
   protected readonly refreshed = signal('');
+  private readonly asked = toSignal(
+    this.route.queryParamMap.pipe(map((p) => p.get('folder') ?? undefined)),
+    { initialValue: undefined },
+  );
+
+  /** Every show, newest episode first, with its counts and artwork. */
+  protected readonly shows = computed(() =>
+    showSummaries(this.reader.podcastFeeds(), this.items.episodes()),
+  );
+  private readonly folders = computed(() => showFolders(this.shows()));
+  /**
+   * The folder chips: each folder by name, then the shows in none, when
+   * there are folders at all.
+   */
+  protected readonly chips = computed(() => {
+    const names = this.folders().map((f) => f.name);
+    return names.some((n) => n !== NO_FOLDER) ? names : [];
+  });
+  /** The folder chosen, while it still holds shows. */
+  protected readonly folder = computed(() => {
+    const asked = this.asked();
+    return asked !== undefined && this.chips().includes(asked) ? asked : undefined;
+  });
+  protected readonly shown = computed(() => {
+    const folder = this.folder();
+    return folder === undefined ? this.shows() : this.shows().filter((s) => inFolder(s, folder));
+  });
+  protected readonly line = computed(() => {
+    const n = this.shown().length;
+    const folder = this.folder();
+    const where = folder === undefined ? '' : ` in ${this.name(folder)}`;
+    return `${n} ${n === 1 ? 'show' : 'shows'}${where}, newest episode first`;
+  });
+
+  protected name(folder: string): string {
+    return folderName(folder);
+  }
+
+  /** The square's name: the show's, how many unheard, and whether its last look failed. */
+  protected label(s: ShowSummary): string {
+    const parts = [s.feed.title];
+    if (s.unheard) parts.push(`${s.unheard} unheard`);
+    if (s.feed.dead) parts.push('not answering');
+    else if (s.feed.error) parts.push('last look failed');
+    return parts.join(', ');
+  }
+
+  /** A folder chip: the grid filtered, kept in the address so Back and the folder view agree. */
+  protected choose(folder: string | undefined): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { folder: folder ?? null },
+      replaceUrl: true,
+    });
+  }
 
   protected async refresh(): Promise<void> {
     this.refreshing.set(true);
@@ -169,34 +263,5 @@ export class PodcastsShows {
     } finally {
       this.refreshing.set(false);
     }
-  }
-
-  protected readonly shows = computed(() => {
-    const episodes = this.items.episodes();
-    return this.reader.podcastFeeds().map((feed) => {
-      const own = episodes.filter((e) => e.feedId === feed.id);
-      const fresh = own.filter((e) => episodeState(e) === 'new').length;
-      const line = feed.dead
-        ? 'Not answering, given up'
-        : feed.error
-          ? `Last look failed: ${feed.error}`
-          : feed.fetchedAt === undefined
-            ? 'Not looked at yet'
-            : `${own.length} ${own.length === 1 ? 'episode' : 'episodes'} · ${fresh} new`;
-      return { feed, line };
-    });
-  });
-
-  /** Move to the Reader (#245): the feed's kind cleared; its articles are the Reader's now. */
-  protected toReader(feed: FeedRecord): void {
-    this.reader.setPodcast(feed.id, false);
-    this.open.set(undefined);
-    this.said.set(`${feed.title} is in the Reader now.`);
-  }
-
-  protected unfollow(feed: FeedRecord): void {
-    this.reader.removeFeed(feed.id);
-    this.open.set(undefined);
-    this.said.set(`Unfollowed ${feed.title}.`);
   }
 }

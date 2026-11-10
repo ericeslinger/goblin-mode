@@ -36,6 +36,7 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
           url,
           title: String(d['title'] ?? ''),
           ...(str(d['site']) ? { site: str(d['site']) } : {}),
+          ...(str(d['image']) ? { image: str(d['image']) } : {}),
           ...(str(d['etag']) ? { etag: str(d['etag']) } : {}),
           ...(str(d['lastModified']) ? { lastModified: str(d['lastModified']) } : {}),
           ...(num(d['interval']) === undefined ? {} : { interval: num(d['interval']) }),

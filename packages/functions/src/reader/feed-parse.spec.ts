@@ -305,4 +305,76 @@ describe('parseFeed (#161)', () => {
       expect(durationSeconds(-1)).toBeUndefined();
     });
   });
+
+  describe("the feed's artwork (#246)", () => {
+    const rss = (channel: string) =>
+      `<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>T</title>${channel}<item><title>a</title><guid>1</guid></item></channel></rss>`;
+
+    it('reads RSS itunes:image first, then the channel <image><url>', () => {
+      const base = 'https://kiln.example/feed.xml';
+      expect(
+        parseFeed(
+          rss(
+            '<image><url>https://kiln.example/rss.png</url><title>T</title></image><itunes:image href="/itunes.jpg"/>',
+          ),
+          base,
+        )!.image,
+      ).toBe('https://kiln.example/itunes.jpg');
+      expect(
+        parseFeed(
+          rss('<image><url>/rss.png</url><link>https://kiln.example/</link></image>'),
+          base,
+        )!.image,
+      ).toBe('https://kiln.example/rss.png');
+      // A link that is not a web one is no artwork; none at all is none.
+      expect(
+        parseFeed(rss('<itunes:image href="javascript:alert(1)"/>'), base)!,
+      ).not.toHaveProperty('image');
+      expect(parseFeed(rss(''), base)!).not.toHaveProperty('image');
+    });
+
+    it('reads RSS 1.0 <image> beside the channel', () => {
+      const rdf = `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+  <channel rdf:about="https://rdf.example/"><title>R</title><image rdf:resource="https://rdf.example/logo.gif"/></channel>
+  <image rdf:about="https://rdf.example/logo.gif"><url>https://rdf.example/logo.gif</url></image>
+  <item rdf:about="https://rdf.example/1"><title>One</title></item>
+</rdf:RDF>`;
+      expect(parseFeed(rdf, 'https://rdf.example/feed.rdf')!.image).toBe(
+        'https://rdf.example/logo.gif',
+      );
+    });
+
+    it('reads Atom logo, then icon', () => {
+      const atom = (head: string) =>
+        `<feed xmlns="http://www.w3.org/2005/Atom"><title>A</title>${head}<entry><title>One</title><id>1</id></entry></feed>`;
+      const base = 'https://atom.example/feed';
+      expect(parseFeed(atom('<icon>/icon.png</icon><logo>/logo.png</logo>'), base)!.image).toBe(
+        'https://atom.example/logo.png',
+      );
+      expect(parseFeed(atom('<icon>https://cdn.atom.example/i.png</icon>'), base)!.image).toBe(
+        'https://cdn.atom.example/i.png',
+      );
+      expect(parseFeed(atom(''), base)!).not.toHaveProperty('image');
+    });
+
+    it('reads JSON Feed icon, then favicon', () => {
+      const json = (head: object) =>
+        JSON.stringify({
+          version: 'https://jsonfeed.org/version/1.1',
+          title: 'J',
+          ...head,
+          items: [{ id: '1', title: 'One' }],
+        });
+      const base = 'https://json.example/feed.json';
+      expect(parseFeed(json({ icon: '/big.png', favicon: '/small.png' }), base)!.image).toBe(
+        'https://json.example/big.png',
+      );
+      expect(parseFeed(json({ favicon: '/small.png' }), base)!.image).toBe(
+        'https://json.example/small.png',
+      );
+      expect(parseFeed(json({ icon: 'data:image/png;base64,AAAA' }), base)!).not.toHaveProperty(
+        'image',
+      );
+    });
+  });
 });

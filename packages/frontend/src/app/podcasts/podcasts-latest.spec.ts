@@ -64,10 +64,7 @@ async function open(url = '/podcasts') {
   modules.set('podcasts', true);
   TestBed.configureTestingModule({
     providers: [
-      provideRouter([
-        { path: 'podcasts', component: PodcastsLatest },
-        { path: 'podcasts/s/:feedId', component: PodcastsLatest },
-      ]),
+      provideRouter([{ path: 'podcasts', component: PodcastsLatest }]),
       { provide: ItemsService, useValue: items },
       { provide: ReaderService, useValue: reader },
       { provide: PlayerService, useValue: player },
@@ -147,15 +144,18 @@ describe('Latest (#245)', () => {
     expect(player.toggle).toHaveBeenCalled();
   });
 
-  it('shows one show’s episodes under Shows, its episodes opening with the way back', async () => {
-    const { el, rows } = await open('/podcasts/s/p2');
-    expect(el.querySelector('h2')?.textContent).toBe('Dice and paper');
-    expect(rows()).toEqual(['Episode e2 New, notes read · just now · 42 min']);
-    const tabs = el.querySelector('nav[aria-label="Podcasts screens"]')!;
-    expect(tabs.querySelector('a[aria-current="true"]')?.textContent).toContain('Shows');
-    expect(el.querySelector('ul a')?.getAttribute('href')).toBe('/podcasts/e/e2?show=p2');
-    expect(
-      el.querySelector('select[aria-label="Episodes of Dice and paper kept downloaded"]'),
-    ).not.toBeNull();
+  it('draws an episode with no artwork of its own with its show’s, the square when it fails (#246)', async () => {
+    const { harness, el } = await open();
+    const reader = TestBed.inject(ReaderService) as unknown as FakeReader;
+    reader.feeds.update((l) =>
+      l.map((f) => (f.id === 'p1' ? { ...f, image: 'https://kiln.test/show.jpg' } : f)),
+    );
+    await harness.fixture.whenStable();
+    const first = el.querySelector('ul[aria-label="Episodes"] > li')!;
+    expect(first.querySelector('img')?.getAttribute('src')).toBe('https://kiln.test/show.jpg');
+    first.querySelector('img')!.dispatchEvent(new Event('error'));
+    await harness.fixture.whenStable();
+    expect(first.querySelector('img')).toBeNull();
+    expect(first.querySelector('.square')?.textContent?.trim()).toBe('KT');
   });
 });

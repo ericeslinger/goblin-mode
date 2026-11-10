@@ -563,6 +563,9 @@ export const Attachment = z.object({
 });
 export type Attachment = z.infer<typeof Attachment>;
 
+/** A web link, http or https only (#178), for what a feed points at. */
+const WebUrl = z.string().regex(/^https?:\/\//i);
+
 /**
  * A feed the gardener follows (#159, Reader module), under `feeds`.
  * Its id is derived from its URL (`feedId`), so an OPML import works
@@ -606,11 +609,16 @@ export const Feed = z.object({
    * Add a podcast, off by default; the queue (#244, step 3) acts on it.
    */
   autoQueue: z.boolean().optional(),
+  /**
+   * The feed's own artwork (#246, 2026-11-10), the fetcher's: the
+   * channel's image as the feed names it (`itunes:image`, RSS
+   * `<image>`, Atom `logo` or `icon`, JSON Feed `icon` or `favicon`),
+   * a web link only, updated when it changes. Content from the web:
+   * the app shows it, nothing fetches it for a model.
+   */
+  image: WebUrl.optional(),
 });
 export type Feed = z.infer<typeof Feed>;
-
-/** A web link, http or https only (#178), for what a feed points at. */
-const WebUrl = z.string().regex(/^https?:\/\//i);
 
 /**
  * An item's audio (#178): a podcast episode's file, as the feed gave

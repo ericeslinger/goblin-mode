@@ -1,12 +1,13 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import type { ItemRecord } from '../reader/items.service';
 import { ReaderService } from '../reader/reader.service';
 import { initials, tint } from './episodes';
 
 /**
- * An episode's artwork (#245): its own image, when it has one and
- * images are on, else its show's initials on a square tinted with the
- * theme's second colour. Decoration: the row names the episode.
+ * An episode's artwork (#245): its own image, else its show's (#246),
+ * when images are on, else its show's initials on a square tinted with
+ * the theme's second colour, which also stands in when the image fails
+ * to load (#246). Decoration: the row names the episode.
  */
 @Component({
   selector: 'app-episode-art',
@@ -19,6 +20,7 @@ import { initials, tint } from './episodes';
         [attr.height]="size()"
         loading="lazy"
         referrerpolicy="no-referrer"
+        (error)="failed.set(url)"
       />
     } @else {
       <span
@@ -61,7 +63,14 @@ export class EpisodeArt {
   readonly show = input.required<string>();
   readonly size = input(48);
   private readonly reader = inject(ReaderService);
-  protected readonly src = computed(() => (this.reader.images() ? this.item().image : undefined));
+  /** The link that failed to load, so the square stands in for it. */
+  protected readonly failed = signal<string | undefined>(undefined);
+  protected readonly src = computed(() => {
+    if (!this.reader.images()) return undefined;
+    const item = this.item();
+    const src = item.image ?? this.reader.feeds().find((f) => f.id === item.feedId)?.image;
+    return src && src !== this.failed() ? src : undefined;
+  });
   protected readonly letters = computed(() => initials(this.show()));
   protected readonly background = computed(
     () => `color-mix(in srgb, var(--second) ${tint(this.item().feedId)}%, var(--surface))`,
