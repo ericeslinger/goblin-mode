@@ -503,6 +503,25 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     );
   });
 
+  it('lets a feed carry its artwork, a web link only (#246)', async () => {
+    const path = 'users/owner/feeds/f-1';
+    const ref = owner().doc(path);
+    await assertSucceeds(ref.set({ ...feed(), image: 'https://kiln.example/show.jpg' }));
+    await assertSucceeds(ref.set({ ...feed(), image: 'HTTP://kiln.example/show.png' }));
+    // The fetcher's image rides along when the app moves the feed.
+    await seed(path, { ...feed(), kind: 'podcast', image: 'https://kiln.example/show.jpg' });
+    await assertSucceeds(ref.set({ folders: ['Making'], updatedAt: now() }, { merge: true }));
+    // Not a link, or not a web one: refused.
+    await assertFails(ref.set({ ...feed(), image: 7 }));
+    await assertFails(ref.set({ ...feed(), image: 'show.jpg' }));
+    await assertFails(ref.set({ ...feed(), image: 'javascript:alert(1)' }));
+    await assertFails(ref.set({ ...feed(), image: 'data:image/png;base64,AAAA' }));
+    await assertFails(
+      ref.set({ image: 'ftp://kiln.example/a.jpg', updatedAt: now() }, { merge: true }),
+    );
+    await assertFails(intruder().doc(path).get());
+  });
+
   it('lets the owner mark an article read or saved, and nothing else', async () => {
     const path = 'users/owner/feedItems/f-1-abc';
     const ref = owner().doc(path);

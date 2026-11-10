@@ -57,6 +57,10 @@ export interface FeedRecord {
   kind?: 'podcast';
   /** New episodes join the queue (#245), off unless switched on at Add a podcast. */
   autoQueue?: boolean;
+  /** The feed's own artwork (#246), the fetcher's, a web link only. */
+  image?: string;
+  /** The newest item's date as the fetcher saw it, milliseconds (#246: the Shows grid's order). */
+  lastItemAt?: number;
 }
 
 /** What an import did. */
@@ -272,6 +276,8 @@ function readerApi(functions: Functions): ReaderApi {
 
 function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
   const at = (d['fetchedAt'] as { toMillis?: () => number } | undefined)?.toMillis?.();
+  const last = (d['lastItemAt'] as { toMillis?: () => number } | undefined)?.toMillis?.();
+  const image = d['image'];
   return {
     id,
     url: String(d['url'] ?? ''),
@@ -283,6 +289,9 @@ function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
     ...(at === undefined ? {} : { fetchedAt: at }),
     ...(d['kind'] === 'podcast' ? { kind: 'podcast' as const } : {}),
     ...(typeof d['autoQueue'] === 'boolean' ? { autoQueue: d['autoQueue'] } : {}),
+    // Only a web link is shown (#246): the feed is content from the web.
+    ...(typeof image === 'string' && /^https?:\/\//i.test(image) ? { image } : {}),
+    ...(typeof last === 'number' ? { lastItemAt: last } : {}),
   };
 }
 
@@ -642,6 +651,24 @@ export class ReaderService {
         true,
       )
       .catch((err) => console.error('feed not moved', err));
+  }
+
+  /**
+   * New episodes join the queue, or not (#246, on the show's page):
+   * the show's `autoQueue`, through the persistent cache, never awaited.
+   */
+  setAutoQueue(id: string, on: boolean): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    this.list.update((l) => l.map((f) => (f.id === id ? { ...f, autoQueue: on } : f)));
+    void this.api
+      .set(
+        this.fb.db,
+        paths.feed(uid, id),
+        { autoQueue: on, updatedAt: this.api.serverTime() },
+        true,
+      )
+      .catch((err) => console.error('queue switch not saved', err));
   }
 
   /** The feed already followed at this link, if any. */

@@ -404,6 +404,16 @@ export class FakeItemsApi implements ItemsApi {
     (docs: { id: string; data: Record<string, unknown> }[]) => void
   >();
   readonly stopFeed = vi.fn();
+  /** Show older episodes (#246): the page answered, by default none. */
+  pageFeed = vi.fn(
+    async (
+      _db: unknown,
+      _path: string,
+      _feedId: string,
+      _before: number,
+      _count: number,
+    ): Promise<{ id: string; data: Record<string, unknown> }[]> => [],
+  );
   listenFeed = vi.fn(
     (
       _db: unknown,
@@ -589,6 +599,13 @@ export class FakeReader {
     ),
   );
   removeFeed = vi.fn((id: string) => this.feeds.update((l) => l.filter((f) => f.id !== id)));
+  setFolders = vi.fn((id: string, folders: string[]) =>
+    this.feeds.update((l) => l.map((f) => (f.id === id ? { ...f, folders } : f))),
+  );
+  setAutoQueue = vi.fn((id: string, on: boolean) =>
+    this.feeds.update((l) => l.map((f) => (f.id === id ? { ...f, autoQueue: on } : f))),
+  );
+  retry = vi.fn();
   readonly loaded = signal(true);
   readonly folders = computed(() => [] as { name: string; feeds: never[] }[]);
   readonly folderNames = computed(() => [] as string[]);
@@ -635,6 +652,13 @@ export class FakeItems {
   age = () => 'just now';
   duration = (seconds: number) => `${Math.max(1, Math.round(seconds / 60))} min`;
   setPlayed = vi.fn();
+  /** A show's older pages (#246), by feed id, and whether more may come. */
+  readonly older = signal<Record<string, ItemRecord[]>>({});
+  readonly more = signal<Record<string, boolean>>({});
+  olderEpisodes = (feedId: string) => this.older()[feedId] ?? [];
+  mayHaveOlder = (feedId: string) => this.more()[feedId] ?? false;
+  loadOlder = vi.fn(async (_feedId: string): Promise<number | string> => 0);
+  setPlayedMany = vi.fn((ids: string[]) => ids.length);
 }
 
 /** A stand-in for ProposalsService: set `list`, watch accept and dismiss. */

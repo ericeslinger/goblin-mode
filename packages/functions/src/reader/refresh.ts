@@ -51,6 +51,8 @@ export interface DueFeed {
   url: string;
   title: string;
   site?: string;
+  /** The feed's artwork as last stored (#246). */
+  image?: string;
   etag?: string;
   lastModified?: string;
   interval?: number;
@@ -84,6 +86,8 @@ export interface NewItem {
 export interface FeedUpdate {
   title?: string;
   site?: string;
+  /** The feed's own artwork (#246), when it changed; null when the feed no longer names one. */
+  image?: string | null;
   etag?: string | null;
   lastModified?: string | null;
   fetchedAt: number;
@@ -257,6 +261,8 @@ export async function refreshFeed(
   await store.updateFeed(feed.uid, feed.id, {
     ...(unnamed && parsed.title ? { title: parsed.title.slice(0, 200) } : {}),
     ...(!feed.site && parsed.site ? { site: parsed.site } : {}),
+    // The feed's own artwork (#246), kept as the feed names it now.
+    ...((parsed.image ?? undefined) !== feed.image ? { image: parsed.image ?? null } : {}),
     etag: res.etag ?? null,
     lastModified: res.lastModified ?? null,
     fetchedAt: now,

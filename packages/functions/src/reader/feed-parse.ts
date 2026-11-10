@@ -5,7 +5,9 @@
 // so the refresher never sees it. Podcasts (#178): an item's audio
 // enclosure, its duration, artwork and episode number, read from RSS
 // `<enclosure>` and the itunes: tags, Atom `rel="enclosure"` links and
-// JSON Feed attachments.
+// JSON Feed attachments. The feed's own artwork (#246): the channel's
+// image, `itunes:image` then RSS `<image><url>`, Atom `logo` then
+// `icon`, JSON Feed `icon` then `favicon`, a web link only.
 import { XMLParser } from 'fast-xml-parser';
 import { decode } from '../attachments/import';
 
@@ -39,6 +41,8 @@ export interface Enclosure {
 export interface ParsedFeed {
   title: string;
   site?: string;
+  /** The feed's own artwork (#246), an http(s) link, when it names one. */
+  image?: string;
   items: ParsedItem[];
 }
 
@@ -182,6 +186,14 @@ function itunesImage(node: Record<string, unknown>, base: string): string {
   return typeof href === 'string' ? absolute(href, base) : '';
 }
 
+/** An RSS `<image><url>`, the channel's picture, as an http(s) link (#246). */
+function rssImage(node: Record<string, unknown>, base: string): string {
+  return absolute(first(list(node['image'])[0] ?? {}, 'url'), base);
+}
+
+/** The first of several links that is a web link, or nothing. */
+const firstLink = (...links: string[]) => links.find(Boolean) ?? '';
+
 /** The podcast fields of an item, only those it has. */
 function podcast(
   enclosure: Enclosure | undefined,
@@ -211,9 +223,11 @@ function atomLink(entry: Record<string, unknown>, base: string): string {
 function fromRss(channel: Record<string, unknown>, base: string): ParsedFeed {
   const site = first(channel, 'link');
   const show = itunesImage(channel, base);
+  const image = firstLink(show, rssImage(channel, base));
   return {
     title: plain(first(channel, 'title')),
     ...(site ? { site: absolute(site, base) } : {}),
+    ...(image ? { image } : {}),
     items: list(channel['item']).map((item) => {
       const link = absolute(first(item, 'link'), base);
       const rawTitle = first(item, 'title');
@@ -251,9 +265,12 @@ function fromRss(channel: Record<string, unknown>, base: string): ParsedFeed {
 function fromRdf(root: Record<string, unknown>, base: string): ParsedFeed {
   const channel = list(root['channel'])[0] ?? {};
   const site = first(channel, 'link');
+  // RSS 1.0 puts the image beside the channel, the channel naming it.
+  const image = firstLink(rssImage(root, base), rssImage(channel, base));
   return {
     title: plain(first(channel, 'title')),
     ...(site ? { site: absolute(site, base) } : {}),
+    ...(image ? { image } : {}),
     // RSS 1.0 lists items beside the channel, not inside it.
     items: list(root['item']).map((item) => {
       const link = absolute(first(item, 'link') || String(item['@rdf:about'] ?? ''), base);
@@ -276,9 +293,15 @@ function fromRdf(root: Record<string, unknown>, base: string): ParsedFeed {
 function fromAtom(feed: Record<string, unknown>, base: string): ParsedFeed {
   const site = atomLink(feed, base);
   const show = itunesImage(feed, base);
+  const image = firstLink(
+    show,
+    absolute(first(feed, 'logo'), base),
+    absolute(first(feed, 'icon'), base),
+  );
   return {
     title: plain(first(feed, 'title')),
     ...(site ? { site } : {}),
+    ...(image ? { image } : {}),
     items: list(feed['entry']).map((entry) => {
       const link = atomLink(entry, base);
       const rawTitle = first(entry, 'title');
@@ -323,9 +346,11 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
   const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const site = str(feed['home_page_url']);
   const show = absolute(str(feed['icon']), base);
+  const image = firstLink(show, absolute(str(feed['favicon']), base));
   return {
     title: plain(str(feed['title'])),
     ...(site ? { site: absolute(site, base) } : {}),
+    ...(image ? { image } : {}),
     items: list(feed['items']).map((item) => {
       const link = absolute(str(item['url']) || str(item['external_url']), base);
       const rawTitle = str(item['title']);

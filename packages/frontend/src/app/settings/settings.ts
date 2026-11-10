@@ -513,7 +513,9 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
       flex: 1;
       min-width: 8em;
     }
-    .prompt {
+    /* A snippet wraps: unwrapped, the Gemini setting made the whole
+       page wider than a phone (#246). */
+    pre {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }

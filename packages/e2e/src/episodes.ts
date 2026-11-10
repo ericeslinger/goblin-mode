@@ -27,15 +27,30 @@ export function silentWav(seconds = 6, rate = 8000): Buffer {
 }
 
 /**
+ * The fixture show's own artwork (#246), `itunes:image` on its channel:
+ * a one-pixel PNG, so the Shows grid draws a real image for it.
+ */
+export const SHOW_ART = 'https://pod.invalid/show.jpg';
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/**
  * The fixture feed's enclosures (pod.invalid) cannot be reached from
  * the browser: the episodes' audio is the silent file, served here,
- * a byte range when one is asked for; the artwork is refused. On the
- * context, not the page: the service worker's fetches are the context's.
+ * a byte range when one is asked for; the show's artwork is the pixel
+ * (#246), and an episode's own artwork is refused, so its square
+ * stands in. On the context, not the page: the service worker's
+ * fetches are the context's.
  */
 export async function serveEpisodes(page: Page): Promise<void> {
   const wav = silentWav();
   await page.context().route(/^https:\/\/pod\.invalid\//, (route) => {
-    if (!route.request().url().endsWith('.mp3')) return route.abort();
+    const url = route.request().url();
+    if (url === SHOW_ART)
+      return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL });
+    if (!url.endsWith('.mp3')) return route.abort();
     return answerWav(route, wav);
   });
 }

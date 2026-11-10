@@ -15,6 +15,7 @@ import {
   collection,
   deleteField,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -133,6 +134,18 @@ export interface ItemsApi {
     next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
     error: (err: unknown) => void,
   ): () => void;
+  /**
+   * One show's episodes older than `before` (millis), newest first, at
+   * most `count` (#246, Show older episodes): a one-time read through
+   * the cache, by the index the listener uses.
+   */
+  pageFeed(
+    db: Firestore,
+    path: string,
+    feedId: string,
+    before: number,
+    count: number,
+  ): Promise<{ id: string; data: Record<string, unknown> }[]>;
   /** The fetchArticle callable (#163): the page's article kept on the item. */
   fetchArticle(itemId: string): Promise<{ state: string }>;
   /** One article's document (#175), for one search found that no shelf holds; undefined when gone. */
@@ -197,6 +210,18 @@ function itemsApi(functions: Functions): ItemsApi {
           ),
         error,
       ),
+    pageFeed: async (db, path, feedId, before, count) =>
+      (
+        await getDocs(
+          query(
+            collection(db, path),
+            where('feedId', '==', feedId),
+            where('published', '<', Timestamp.fromMillis(before)),
+            orderBy('published', 'desc'),
+            limit(count),
+          ),
+        )
+      ).docs.map((d) => ({ id: d.id, data: d.data({ serverTimestamps: 'estimate' }) })),
     listenOne: (db, path, next, error) =>
       onSnapshot(
         doc(db, path),
@@ -290,6 +315,13 @@ export class ItemsService {
   private readonly episodeDocs = signal<Record<string, ItemRecord[]>>({});
   private episodeStops = new Map<string, () => void>();
   private episodesUid?: string;
+  /**
+   * A show's older episodes (#246), the pages Show older episodes
+   * loaded past its newest hundred, by feed id, newest first; `done`
+   * once a page came back short. Read once, not listened to, and kept
+   * until signed out or the show leaves Podcasts.
+   */
+  private readonly olderDocs = signal<Record<string, { docs: ItemRecord[]; done: boolean }>>({});
 
   /**
    * The articles opened on one shelf in this sitting, by its
@@ -483,6 +515,7 @@ export class ItemsService {
       for (const stop of this.episodeStops.values()) stop();
       this.episodeStops.clear();
       this.episodeDocs.set({});
+      this.olderDocs.set({});
       this.episodesUid = uid;
     }
     if (!uid) return;
@@ -492,6 +525,7 @@ export class ItemsService {
       stop();
       this.episodeStops.delete(id);
       this.episodeDocs.update(({ [id]: _, ...rest }) => rest);
+      this.olderDocs.update(({ [id]: _, ...rest }) => rest);
     }
     for (const id of ids) {
       if (this.episodeStops.has(id)) continue;
@@ -584,9 +618,71 @@ export class ItemsService {
     return v.shelf === shelfParam(shelf) ? v.ids : NONE;
   }
 
+  /**
+   * A show's older episodes loaded on its page (#246), past the newest
+   * hundred its listener holds, newest first, local marks applied.
+   */
+  olderEpisodes(feedId: string): ItemRecord[] {
+    const local = this.local();
+    const held = new Set((this.episodeDocs()[feedId] ?? []).map((i) => i.id));
+    return (this.olderDocs()[feedId]?.docs ?? [])
+      .filter((i) => !held.has(i.id))
+      .map((i) => ({ ...i, ...local[i.id] }));
+  }
+
+  /**
+   * Whether a show may have episodes older than those at hand (#246):
+   * its listener came back full, and no older page has come back short.
+   */
+  mayHaveOlder(feedId: string): boolean {
+    const listened = this.episodeDocs()[feedId]?.length ?? 0;
+    return listened >= EPISODES_PER_SHOW && !this.olderDocs()[feedId]?.done;
+  }
+
+  /**
+   * Show older episodes (#246): the next hundred of a show's episodes
+   * before the oldest at hand, read once by its feed and date. How
+   * many came, or a message saying why none could be read.
+   */
+  async loadOlder(feedId: string): Promise<number | string> {
+    const uid = this.episodesUid;
+    if (!uid) return 'Sign in first.';
+    const at = [...(this.episodeDocs()[feedId] ?? []), ...(this.olderDocs()[feedId]?.docs ?? [])];
+    if (!at.length) return 0;
+    const oldest = Math.min(...at.map((i) => i.published));
+    let docs;
+    try {
+      docs = await this.api.pageFeed(
+        this.fb.db,
+        paths.feedItems(uid),
+        feedId,
+        oldest,
+        EPISODES_PER_SHOW,
+      );
+    } catch (err) {
+      console.error('older episodes not read', err);
+      return 'Could not load older episodes. Are you online?';
+    }
+    // Signed out, or the show gone, while the page was on its way.
+    if (uid !== this.episodesUid || !this.episodeStops.has(feedId)) return 0;
+    const page = docs.map((d) => toItem(d.id, d.data));
+    this.olderDocs.update((o) => ({
+      ...o,
+      [feedId]: {
+        docs: [...(o[feedId]?.docs ?? []), ...page],
+        done: page.length < EPISODES_PER_SHOW,
+      },
+    }));
+    return page.length;
+  }
+
   find(id: string): ItemRecord | undefined {
     const shelved = this.items().find((i) => i.id === id);
     if (shelved) return shelved;
+    for (const { docs } of Object.values(this.olderDocs())) {
+      const older = docs.find((i) => i.id === id);
+      if (older) return { ...older, ...this.local()[id] };
+    }
     const opened = this.openedDocs()[id];
     return opened && { ...opened, ...this.local()[id] };
   }
@@ -696,6 +792,31 @@ export class ItemsService {
         updatedAt: this.api.serverTime(),
       })
       .catch((err) => console.error('heard mark not saved', err));
+  }
+
+  /**
+   * Mark all as heard (#246, a show's More): `played` on each of these
+   * episodes in one batch through the persistent cache, never awaited,
+   * shown at once; returns how many. `read` and the place are left.
+   */
+  setPlayedMany(ids: string[]): number {
+    const uid = this.auth.user()?.uid;
+    if (!uid || !ids.length) return 0;
+    this.local.update((l) => {
+      const next = { ...l };
+      for (const id of ids) next[id] = { ...next[id], played: true };
+      return next;
+    });
+    void this.api
+      .setMany(
+        this.fb.db,
+        ids.map((id) => ({
+          path: paths.feedItem(uid, id),
+          data: { played: true, updatedAt: this.api.serverTime() },
+        })),
+      )
+      .catch((err) => console.error('heard marks not saved', err));
+    return ids.length;
   }
 
   /** "12:34", or "1:02:03" past the hour, for the player (#179). */

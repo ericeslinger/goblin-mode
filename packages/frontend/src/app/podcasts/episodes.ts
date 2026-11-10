@@ -41,3 +41,27 @@ export function tint(feedId: string): number {
   for (const c of feedId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return 14 + (h % 5) * 4.5;
 }
+
+/** What a row needs of the app's player to say how long is left (#245). */
+export interface PlayerClock {
+  current(): string | undefined;
+  position(): number;
+  duration(): number;
+}
+
+/**
+ * An episode row's length (#245): the time left once a place is kept
+ * or it is playing ("22 min left"), else how long it is; nothing when
+ * unknown. Shared by Latest and a show's page (#246).
+ */
+export function lengthText(
+  ep: Pick<ItemRecord, 'id' | 'enclosure' | 'played' | 'position'>,
+  player: PlayerClock,
+  duration: (seconds: number) => string,
+): string | undefined {
+  const current = player.current() === ep.id;
+  const total = current ? player.duration() : ep.enclosure?.seconds;
+  if (!total) return undefined;
+  const at = current ? player.position() : ep.played ? 0 : (ep.position ?? 0);
+  return at > 0 ? `${duration(Math.max(0, total - at))} left` : duration(total);
+}

@@ -110,8 +110,8 @@ export const routes: Routes = [
     path: 'reader/done',
     loadComponent: () => import('./reader/reader-done').then((m) => m.ReaderDone),
   },
-  // Podcasts (#245), a module of its own: Latest, Shows, a show's
-  // episodes, an episode, and Add a podcast.
+  // Podcasts (#245), a module of its own: Latest, Shows (a grid, #246),
+  // the shows by folder, a show's page, an episode, and Add a podcast.
   {
     path: 'podcasts',
     loadComponent: () => import('./podcasts/podcasts-latest').then((m) => m.PodcastsLatest),
@@ -121,12 +121,16 @@ export const routes: Routes = [
     loadComponent: () => import('./podcasts/podcasts-shows').then((m) => m.PodcastsShows),
   },
   {
+    path: 'podcasts/folders',
+    loadComponent: () => import('./podcasts/podcasts-folders').then((m) => m.PodcastsFolders),
+  },
+  {
     path: 'podcasts/add',
     loadComponent: () => import('./podcasts/podcasts-add').then((m) => m.PodcastsAdd),
   },
   {
     path: 'podcasts/s/:feedId',
-    loadComponent: () => import('./podcasts/podcasts-latest').then((m) => m.PodcastsLatest),
+    loadComponent: () => import('./podcasts/podcast-show').then((m) => m.PodcastShow),
   },
   {
     path: 'podcasts/e/:id',

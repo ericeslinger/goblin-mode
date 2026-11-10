@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { serveEpisodes, serveProxy } from '../src/episodes';
+import { SHOW_ART, serveEpisodes, serveProxy } from '../src/episodes';
 import { expect, letItSave, prepPage, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
@@ -11,10 +11,16 @@ import { OWNER } from '../src/personas';
 // episode's page that reads its notes and nothing else, the player
 // (#179) and the place synced across devices, downloads for offline
 // playback (#180), and a show moved to the Reader and back. The
-// player's and the downloads' journeys came from reader.spec.ts.
+// player's and the downloads' journeys came from reader.spec.ts. Step 2
+// (#246): the Shows grid with the feeds' artwork, its folder chips, the
+// shows by folder, and one show's page with its filters, sort, search
+// and More.
 
 const FEED = 'https://feeds.invalid/pod.xml';
 const SHOW = 'Kiln hour (fixture)';
+/** A second show (#246), newer than the first, in no folder, with no artwork. */
+const FEED2 = 'https://feeds.invalid/glaze.xml';
+const SHOW2 = 'Glaze lab (fixture)';
 
 const axe = async (page: Page) => {
   const { violations } = await new AxeBuilder({ page })
@@ -26,30 +32,48 @@ const axe = async (page: Page) => {
 
 const tabs = (page: Page) => page.getByRole('navigation', { name: 'Podcasts screens' });
 const episodes = (page: Page) => page.getByRole('list', { name: 'Episodes' }).getByRole('listitem');
+/** The Shows grid (#246): a square per show, each a link named for it. */
+const grid = (page: Page) => page.getByRole('list', { name: 'Shows' });
 
-/** Podcasts on in Settings, then the fixture podcast added by its address and looked at. */
-async function addThePodcast(page: Page, { podcastsOnly = false } = {}): Promise<void> {
+/** A show followed from Add a podcast by its feed's address, in a folder when given. */
+async function follow(page: Page, feed: string, show: string, folder?: string): Promise<void> {
+  await page.goto('/podcasts/add');
+  await page.getByRole('textbox', { name: "The show's feed, or its site" }).fill(feed);
+  // The button waits for the feeds to be read, as the Reader's does.
+  await expect(page.getByRole('button', { name: 'Find the feed' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Find the feed' }).click();
+  const found = page.getByRole('radiogroup', { name: 'Feeds found' });
+  await expect(found).toContainText(show, { timeout: 15_000 });
+  await expect(found).toContainText('Found its feed · 2 episodes');
+  if (folder) await page.getByRole('combobox', { name: 'Folder' }).fill(folder);
+  await page.getByRole('button', { name: `Follow ${show}` }).click();
+  await expect(page.getByRole('status')).toContainText(`Following ${show}.`);
+  await letItSave(page);
+}
+
+/**
+ * Podcasts on in Settings, then the fixture podcast added by its
+ * address in Listening (and the second show, in no folder, with
+ * `second`), and looked at.
+ */
+async function addThePodcast(
+  page: Page,
+  { podcastsOnly = false, second = false } = {},
+): Promise<void> {
   await page.goto('/settings');
   // Podcasts alone was switched on by the journey already: only wait
   // for Settings to read it (a click before then would switch it off).
   if (!podcastsOnly) await page.getByRole('switch', { name: 'Reader' }).check();
   await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
   await letItSave(page);
-  await page.goto('/podcasts/add');
-  await page.getByRole('textbox', { name: "The show's feed, or its site" }).fill(FEED);
-  // The button waits for the feeds to be read, as the Reader's does.
-  await expect(page.getByRole('button', { name: 'Find the feed' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Find the feed' }).click();
-  const found = page.getByRole('radiogroup', { name: 'Feeds found' });
-  await expect(found).toContainText(SHOW, { timeout: 15_000 });
-  await expect(found).toContainText('Found its feed · 2 episodes');
-  await page.getByRole('combobox', { name: 'Folder' }).fill('Listening');
-  await page.getByRole('button', { name: `Follow ${SHOW}` }).click();
-  await expect(page.getByRole('status')).toContainText(`Following ${SHOW}.`);
-  await letItSave(page);
+  await follow(page, FEED, SHOW, 'Listening');
+  if (second) await follow(page, FEED2, SHOW2);
   await page.goto('/podcasts/shows');
+  await expect(page.getByRole('button', { name: 'Refresh' })).toBeEnabled();
   await page.getByRole('button', { name: 'Refresh' }).click();
-  await expect(page.getByRole('status')).toContainText('2 new articles', { timeout: 30_000 });
+  await expect(page.getByRole('status')).toContainText(`${second ? 4 : 2} new articles`, {
+    timeout: 30_000,
+  });
 }
 
 test('add a podcast, its episodes in Latest, new until heard; move it to the Reader and back', async ({
@@ -87,10 +111,9 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   await expect(page.getByRole('switch', { name: /New episodes join the queue/ })).not.toBeChecked();
   await axe(page);
   await addThePodcast(page, { podcastsOnly: true });
-  const shows = page.getByRole('list', { name: 'Shows' });
+  const shows = grid(page);
   await expect(shows.getByRole('listitem')).toHaveCount(1);
-  await expect(shows).toContainText(SHOW);
-  await expect(shows).toContainText('2 episodes · 2 new');
+  await expect(shows.getByRole('link')).toHaveAccessibleName(`${SHOW}, 2 unheard`);
   await axe(page);
   // The assistant tells its episodes apart (#245).
   const listed = (await call('list_feed_items', { podcasts: true })) as {
@@ -150,15 +173,23 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   await expect(episodes(page).first()).toContainText('Wedging clay');
   await axe(page);
 
-  // Misfiled: More on the show moves it to the Reader, where its items are articles.
+  // Misfiled: More on the show's page (#246) moves it to the Reader,
+  // where its items are articles.
   await tabs(page).getByRole('link', { name: 'Shows' }).click();
+  await shows.getByRole('link', { name: SHOW }).click();
+  await expect(page.getByRole('heading', { name: SHOW, level: 1 })).toBeVisible();
   await page.getByRole('button', { name: `More for ${SHOW}` }).click();
-  await page.getByRole('button', { name: /Move to the Reader/ }).click();
+  await page
+    .getByRole('dialog', { name: `More for ${SHOW}` })
+    .getByRole('button', { name: /Move to the Reader/ })
+    .click();
   await expect(
     page.getByRole('status').filter({ hasText: `${SHOW} is in the Reader now.` }),
   ).toBeVisible();
-  await expect(shows.getByRole('listitem')).toHaveCount(0);
   await letItSave(page);
+  await page.goto('/podcasts/shows');
+  await expect(page.getByText('No shows yet.')).toBeVisible();
+  await expect(shows.getByRole('listitem')).toHaveCount(0);
   expect(await call('list_feed_items', { podcasts: true, includeRead: true })).toEqual([]);
   await page.goto('/settings');
   await page.getByRole('switch', { name: 'Reader' }).check();
@@ -186,6 +217,123 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   await expect(shows.getByRole('listitem')).toHaveCount(1);
   await page.goto('/podcasts');
   await expect(episodes(page).first()).toContainText('Wedging clay');
+});
+
+// Shows (#246, step 2 of #244): two shows, newest episode first, each
+// a square with its unheard count, Kiln hour's the feed's own artwork
+// and Glaze lab's name on a tinted square; Listening's chip filters the
+// grid; the folder view lists Listening with its strip; Kiln hour's
+// page keeps its queue switch, sorts oldest first, finds an episode by
+// its notes, and Mark all as heard clears its count in the grid.
+test('the Shows grid, by folder, and one show’s page', async ({ page }) => {
+  test.setTimeout(120_000);
+  await serveEpisodes(page);
+  await signInAs(page, OWNER);
+  await addThePodcast(page, { second: true });
+
+  // The grid: Glaze lab's newest episode is newer, so it comes first.
+  const squares = grid(page).getByRole('link');
+  await expect(squares).toHaveCount(2);
+  await expect(squares.nth(0)).toHaveAccessibleName(`${SHOW2}, 2 unheard`);
+  await expect(squares.nth(1)).toHaveAccessibleName(`${SHOW}, 2 unheard`);
+  await expect(page.getByText('2 shows, newest episode first')).toBeVisible();
+  // Kiln hour's own artwork, served; Glaze lab has none, so its name is drawn.
+  await expect(squares.nth(1).locator('img')).toHaveAttribute('src', SHOW_ART);
+  await expect(squares.nth(1).locator('img')).toHaveJSProperty('naturalWidth', 1);
+  await expect(squares.nth(0).locator('img')).toHaveCount(0);
+  await expect(squares.nth(0)).toContainText(SHOW2);
+  await axe(page);
+
+  // A folder chip filters it, and All brings both back.
+  const chips = page.getByRole('group', { name: 'Folders' });
+  await expect(chips.getByRole('button', { name: 'All 2' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await chips.getByRole('button', { name: 'Listening', exact: true }).click();
+  await expect(chips.getByRole('button', { name: 'Listening', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(squares).toHaveCount(1);
+  await expect(squares.first()).toHaveAccessibleName(`${SHOW}, 2 unheard`);
+  await expect(page).toHaveURL(/\/podcasts\/shows\?folder=Listening$/);
+  await chips.getByRole('button', { name: 'All 2' }).click();
+  await expect(squares).toHaveCount(2);
+
+  // Shows by folder: Listening with its strip, the other show in none, last.
+  await page.getByRole('link', { name: 'Shows by folder' }).click();
+  await expect(page).toHaveURL(/\/podcasts\/folders$/);
+  await expect(page.getByText('2 shows in 1 folder')).toBeVisible();
+  const listening = page.getByRole('region', { name: 'Listening' });
+  await expect(listening).toContainText('1 show · 2 unheard');
+  await expect(
+    listening.getByRole('list', { name: 'Shows in Listening' }).getByRole('link'),
+  ).toHaveAccessibleName(SHOW);
+  const none = page.getByRole('region', { name: 'Not in a folder' });
+  await expect(none.getByRole('list', { name: 'Shows in Not in a folder' })).toBeVisible();
+  await expect(none.getByRole('link', { name: SHOW2, exact: true })).toBeVisible();
+  await axe(page);
+  // Its heading opens the grid filtered to it.
+  await listening.getByRole('link', { name: /^Listening/ }).click();
+  await expect(page).toHaveURL(/\/podcasts\/shows\?folder=Listening$/);
+  await expect(squares).toHaveCount(1);
+
+  // One show's page: its name, counts, folder and episodes, newest first.
+  await squares.first().click();
+  await expect(page.getByRole('heading', { name: SHOW, level: 1 })).toBeVisible();
+  await expect(page.getByText('2 episodes · 2 unheard')).toBeVisible();
+  await expect(page.getByText('In Listening')).toBeVisible();
+  await expect(episodes(page)).toHaveCount(2);
+  await expect(episodes(page).first()).toContainText('Reduction firing');
+  await axe(page);
+
+  // Its queue switch is stored: off from Add, switched on, on after a reload.
+  const queue = page.getByRole('switch', { name: /New episodes join the queue/ });
+  await expect(queue).not.toBeChecked();
+  await queue.check();
+  await expect(queue).toBeChecked();
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: SHOW, level: 1 })).toBeVisible();
+  await expect(queue).toBeChecked();
+
+  // Oldest first, then search within the show, by its notes.
+  await page.getByRole('button', { name: 'Newest first' }).click();
+  await expect(page.getByRole('button', { name: 'Oldest first' })).toBeVisible();
+  await expect(episodes(page).first()).toContainText('Wedging clay');
+  await page.getByRole('button', { name: 'Search this show' }).click();
+  await page.getByRole('searchbox', { name: `Search ${SHOW}` }).fill('flame orange');
+  await expect(episodes(page)).toHaveCount(1);
+  await expect(episodes(page).first()).toContainText('Reduction firing');
+  await page.getByRole('button', { name: 'Search this show' }).click();
+  await expect(episodes(page)).toHaveCount(2);
+
+  // More is a sheet: Escape closes it.
+  const more = page.getByRole('button', { name: `More for ${SHOW}` });
+  const sheet = page.getByRole('dialog', { name: `More for ${SHOW}` });
+  await more.click();
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Move to a folder' })).toBeVisible();
+  await axe(page);
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+
+  // Mark all as heard: nothing unheard here, and its count gone from the grid.
+  await more.click();
+  await sheet.getByRole('button', { name: 'Mark all as heard' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Marked 2 episodes heard.' }),
+  ).toBeVisible();
+  await expect(page.getByText('2 episodes · 0 unheard')).toBeVisible();
+  await expect(episodes(page)).toHaveCount(0);
+  await letItSave(page);
+  await page.getByRole('link', { name: 'Shows', exact: true }).click();
+  await expect(page).toHaveURL(/\/podcasts\/shows$/);
+  await expect(squares).toHaveCount(2);
+  await expect(squares.nth(1)).toHaveAccessibleName(SHOW);
+  await expect(squares.nth(0)).toHaveAccessibleName(`${SHOW2}, 2 unheard`);
 });
 
 // The player (#179): the podcast added and looked at, its first

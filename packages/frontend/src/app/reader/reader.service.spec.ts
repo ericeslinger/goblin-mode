@@ -430,6 +430,38 @@ describe('ReaderService (#159)', () => {
     expect(reader.folderNames()).toEqual(['Games']);
   });
 
+  it('reads a feed’s artwork, web links only, and writes a show’s queue switch (#246)', () => {
+    const { reader, api } = setup();
+    const at = { toMillis: () => 1700 };
+    api.push([
+      {
+        id: 'p',
+        data: {
+          url: 'https://p.test/f',
+          title: 'Pod',
+          folders: [],
+          kind: 'podcast',
+          image: 'https://p.test/show.jpg',
+          lastItemAt: at,
+        },
+      },
+      {
+        id: 'q',
+        data: { url: 'https://q.test/f', title: 'Q', folders: [], image: 'javascript:x' },
+      },
+    ]);
+    expect(reader.feeds()[0]).toMatchObject({ image: 'https://p.test/show.jpg', lastItemAt: 1700 });
+    expect(reader.feeds()[1]).not.toHaveProperty('image');
+    reader.setAutoQueue('p', true);
+    expect(api.set.mock.lastCall).toEqual([
+      {},
+      'users/u1/feeds/p',
+      { autoQueue: true, updatedAt: 'SERVER_TIME' },
+      true,
+    ]);
+    expect(reader.feeds()[0].autoQueue).toBe(true);
+  });
+
   it('listens for Podcasts while the Reader is off (#245)', () => {
     const { api, modules } = setup();
     modules.set('reader', false);
