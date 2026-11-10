@@ -1,7 +1,7 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { FeedItem, SAVES_FEED_ID, feedId, feedItemId } from '@mossgoblin/schema';
+import { FeedItem, QUEUE_MAX, SAVES_FEED_ID, feedId, feedItemId } from '@mossgoblin/schema';
 import { importSaves } from './feedly';
 import {
   applyRetention,
@@ -101,7 +101,7 @@ describe('new episodes join the queue (#249)', () => {
 
   it('reads the switch with a due feed and appends the new episodes after the last place', async () => {
     const store = firestoreRefreshStore(db);
-    expect(await store.queueEnd('u1')).toBeUndefined();
+    expect(await store.queueState('u1')).toEqual({ count: 0 });
     await db.doc('users/u1/feeds/f-1').set({
       url: 'https://kiln.test/feed.xml',
       title: 'Kiln talk',
@@ -115,14 +115,14 @@ describe('new episodes join the queue (#249)', () => {
     await article(feedItemId('f-1', 'ep-1'), 2);
     await article('other', 1, { feedId: 'f-2', queue: NOW + 60_000 });
     await article('earlier', 1, { feedId: 'f-2', queue: NOW - 60_000 });
-    expect(await store.queueEnd('u1')).toBe(NOW + 60_000);
+    expect(await store.queueState('u1')).toEqual({ last: NOW + 60_000, count: 2 });
     const [due] = await store.due(NOW, 10, 'u1');
     expect(due).toMatchObject({ id: 'f-1', podcast: true, autoQueue: true });
     await refreshFeed({ store, fetch: look, now: () => NOW }, due);
     expect(await queueOf('ep-2')).toBe(NOW + 61_000);
     expect(await queueOf('ep-3')).toBe(NOW + 62_000);
     expect(await queueOf('ep-1')).toBeUndefined();
-    expect(await store.queueEnd('u1')).toBe(NOW + 62_000);
+    expect(await store.queueState('u1')).toEqual({ last: NOW + 62_000, count: 4 });
     // The stored episode keeps the shape the schema holds.
     const stored = (await db.doc(`users/u1/feedItems/${feedItemId('f-1', 'ep-3')}`).get()).data();
     expect(FeedItem.safeParse(stored).success).toBe(true);
@@ -141,7 +141,35 @@ describe('new episodes join the queue (#249)', () => {
     const [due] = await store.due(NOW, 10, 'u1');
     await refreshFeed({ store, fetch: look, now: () => NOW }, due);
     for (const guid of ['ep-1', 'ep-2', 'ep-3']) expect(await queueOf(guid)).toBeUndefined();
-    expect(await store.queueEnd('u1')).toBeUndefined();
+    expect(await store.queueState('u1')).toEqual({ count: 0 });
+  });
+
+  it('gives a queued episode no expiry with keep-for set, and stops at the cap (review on #252)', async () => {
+    const store = firestoreRefreshStore(db);
+    await db.doc('users/u1/settings/reader').set({ folderOrder: [], images: true, keepMonths: 3 });
+    await db.doc('users/u1/feeds/f-1').set({
+      url: 'https://kiln.test/feed.xml',
+      title: 'Kiln talk',
+      folders: [],
+      kind: 'podcast',
+      autoQueue: true,
+      lastItemAt: Timestamp.fromMillis(NOW - 3 * DAY),
+      nextFetchAt: Timestamp.fromMillis(NOW - DAY),
+    });
+    // Room for one: the oldest new episode joins, the other is stored to expire.
+    const batch = db.batch();
+    for (let n = 0; n < QUEUE_MAX - 1; n++) {
+      batch.set(db.doc(`users/u1/feedItems/q-${n}`), { feedId: 'f-2', queue: n * 1000 });
+    }
+    await batch.commit();
+    expect((await store.queueState('u1')).count).toBe(QUEUE_MAX - 1);
+    const [due] = await store.due(NOW, 10, 'u1');
+    await refreshFeed({ store, fetch: look, now: () => NOW }, due);
+    expect(await queueOf('ep-1')).toBe(NOW);
+    expect(await expireOf(feedItemId('f-1', 'ep-1'))).toBeUndefined();
+    expect(await queueOf('ep-2')).toBeUndefined();
+    expect(await expireOf(feedItemId('f-1', 'ep-2'))).toBe(monthsAfter(NOW - 7_200_000, 3));
+    expect((await store.queueState('u1')).count).toBe(QUEUE_MAX);
   });
 });
 
@@ -150,10 +178,18 @@ describe('retention (#171)', () => {
     await article('a', 10);
     await article('saved', 10, { saved: true });
     await article('filed', 10, { noteId: 'n1' });
-    expect(await applyRetention(db, 'u1', 3, 2)).toBe(1);
+    // Queued (review on #252): spared, and an expiry from before is cleared.
+    await article('queued', 10, { queue: 1000 });
+    await article('queued-old', 10, {
+      queue: 2000,
+      expireAt: Timestamp.fromMillis(monthsAfter(NOW - 10 * DAY, 3)),
+    });
+    expect(await applyRetention(db, 'u1', 3, 2)).toBe(2);
     expect(await expireOf('a')).toBe(monthsAfter(NOW - 10 * DAY, 3));
     expect(await expireOf('saved')).toBeUndefined();
     expect(await expireOf('filed')).toBeUndefined();
+    expect(await expireOf('queued')).toBeUndefined();
+    expect(await expireOf('queued-old')).toBeUndefined();
     // The same months again touch nothing; no limit clears it.
     expect(await applyRetention(db, 'u1', 3)).toBe(0);
     expect(await applyRetention(db, 'u1', undefined)).toBe(1);
@@ -167,11 +203,13 @@ describe('retention (#171)', () => {
     await article('old-read', 120, { read: true });
     await article('old-saved', 120, { saved: true });
     await article('old-filed', 120, { noteId: 'n1' });
+    // An unheard episode in the queue stays (review on #252).
+    await article('old-queued', 120, { queue: 1000 });
     await article('recent', 5);
     // Two a page: the kept ones fill the first page, the cursor reaches past them.
     expect(await sweepOld(db, 'u1', NOW - 90 * DAY, 2)).toBe(2);
     const left = (await db.collection('users/u1/feedItems').get()).docs.map((d) => d.id).sort();
-    expect(left).toEqual(['old-filed', 'old-read', 'old-saved', 'recent']);
+    expect(left).toEqual(['old-filed', 'old-queued', 'old-read', 'old-saved', 'recent']);
     expect(left).not.toContain('older');
     expect(await sweepOld(db, 'u1', NOW - 90 * DAY)).toBe(0);
   });

@@ -16,6 +16,7 @@ import {
   normalizeFeedUrl,
   parseOpml,
   paths,
+  toOpml,
   UNCATEGORIZED,
 } from '@mossgoblin/schema';
 import {
@@ -68,6 +69,12 @@ export interface ImportOutcome {
   added: number;
   /** Already followed; new folders from the file were added to them. */
   known: number;
+  /**
+   * Already followed in the other module (#251): a Reader feed in a
+   * Podcasts import, a show in a Reader import. Left where it is, its
+   * folders too: nothing moves by itself (Eric, 2026-11-10).
+   */
+  elsewhere: number;
   /** Past the cap, left out. */
   refused: number;
 }
@@ -185,6 +192,19 @@ export const SAVES_QUEUED = 50;
 /** An OPML import's outcome in words (#160). */
 export function opmlMessage(out: ImportOutcome): string {
   const parts = [`${out.added} ${out.added === 1 ? 'feed' : 'feeds'} added`];
+  if (out.elsewhere) parts.push(`${out.elsewhere} already in Podcasts`);
+  if (out.known) parts.push(`${out.known} already followed`);
+  if (out.refused) parts.push(`${out.refused} left out past the ${FEED_CAP} cap`);
+  return `${parts.join(', ')}.`;
+}
+
+/**
+ * A Podcasts OPML import's outcome in words (#251): "3 added, 1
+ * already in the Reader, 2 already followed."
+ */
+export function podcastOpmlMessage(out: ImportOutcome): string {
+  const parts = [`${out.added} added`];
+  if (out.elsewhere) parts.push(`${out.elsewhere} already in the Reader`);
   if (out.known) parts.push(`${out.known} already followed`);
   if (out.refused) parts.push(`${out.refused} left out past the ${FEED_CAP} cap`);
   return `${parts.join(', ')}.`;
@@ -430,22 +450,30 @@ export class ReaderService {
   /**
    * Imports an OPML file's feeds: new ones are added in their folders,
    * known ones gain the file's folders, and past the cap the rest are
-   * refused. Undefined when the text holds no feeds.
+   * refused. Undefined when the text holds no feeds. The Reader's
+   * import never makes a podcast; Podcasts' (`as.podcast`, #251)
+   * always does, with New episodes join the queue off for every one.
+   * Either leaves a feed the other module follows where it is, its
+   * folders untouched, and counts it (Eric, 2026-11-10: "two imports
+   * with no auto moving").
    */
-  importOpml(text: string): ImportOutcome | undefined {
+  importOpml(text: string, as: FollowAs = {}): ImportOutcome | undefined {
     const uid = this.auth.user()?.uid;
     const feeds = parseOpml(text);
     // Before the list is read every feed would look new, and a create
     // replaces a feed's doc, folders and fetch state with it (review on
     // #165): the page keeps Import and Follow off until `loaded`.
     if (!uid || !this.read() || feeds.length === 0) return undefined;
-    const outcome: ImportOutcome = { added: 0, known: 0, refused: 0 };
+    const podcast = as.podcast === true;
+    const outcome: ImportOutcome = { added: 0, known: 0, elsewhere: 0, refused: 0 };
     let count = this.list().length;
     for (const parsed of feeds) {
       const feed = { ...parsed, folders: cleanFolders(parsed.folders) };
       const id = feedId(feed.url);
       const known = this.list().find((f) => f.id === id);
-      if (known) {
+      if (known && (known.kind === 'podcast') !== podcast) {
+        outcome.elsewhere++;
+      } else if (known) {
         outcome.known++;
         const folders = [
           ...known.folders,
@@ -457,10 +485,18 @@ export class ReaderService {
       } else {
         count++;
         outcome.added++;
-        this.create(uid, id, feed);
+        this.create(uid, id, feed, podcast ? { podcast: true, autoQueue: false } : {});
       }
     }
     return outcome;
+  }
+
+  /**
+   * The shows followed in Podcasts as an OPML file (#251, Export as
+   * OPML), their folders as outlines; the Reader has no export.
+   */
+  podcastsOpml(): string {
+    return toOpml(this.podcastFeeds(), 'Podcasts from Mossgoblin');
   }
 
   /**
@@ -634,8 +670,26 @@ export class ReaderService {
    * across by hand), through the persistent cache, never awaited.
    */
   setPodcast(id: string, podcast: boolean): void {
+    const write = this.kindWrite(id, podcast);
+    if (!write) return;
+    void this.api
+      .set(this.fb.db, write.path, write.data, true)
+      .catch((err) => console.error('feed not moved', err));
+  }
+
+  /**
+   * A Move shown at once, its write handed back unsent (#251), so the
+   * caller can send it in one batch with other writes: Move to the
+   * Reader takes the show's episodes off the queue with it. A merge,
+   * with the sentinels of the items' writes (`deleteField`,
+   * `serverTimestamp`). Undefined when signed out.
+   */
+  kindWrite(
+    id: string,
+    podcast: boolean,
+  ): { path: string; data: Record<string, unknown> } | undefined {
     const uid = this.auth.user()?.uid;
-    if (!uid) return;
+    if (!uid) return undefined;
     this.list.update((l) =>
       l.map((f) => {
         if (f.id !== id) return f;
@@ -643,14 +697,10 @@ export class ReaderService {
         return podcast ? { ...rest, kind: 'podcast' as const } : rest;
       }),
     );
-    void this.api
-      .set(
-        this.fb.db,
-        paths.feed(uid, id),
-        { kind: podcast ? 'podcast' : this.api.clear(), updatedAt: this.api.serverTime() },
-        true,
-      )
-      .catch((err) => console.error('feed not moved', err));
+    return {
+      path: paths.feed(uid, id),
+      data: { kind: podcast ? 'podcast' : this.api.clear(), updatedAt: this.api.serverTime() },
+    };
   }
 
   /**

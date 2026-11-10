@@ -120,14 +120,15 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
         ? months
         : undefined;
     },
-    queueEnd: async (uid) => {
-      // Only the items with a place: orderBy leaves out those without one.
-      const snap = await db
-        .collection(paths.feedItems(uid))
-        .orderBy('queue', 'desc')
-        .limit(1)
-        .get();
-      return isQueueOrder(snap.docs[0]?.get('queue')) ? snap.docs[0].get('queue') : undefined;
+    queueState: async (uid) => {
+      // Only the items with a place: orderBy leaves out those without
+      // one. The last place is one document; the count is an aggregate,
+      // billed as one read per thousand entries (review on #252), and
+      // both are asked once a look, only when episodes would join.
+      const queued = db.collection(paths.feedItems(uid)).orderBy('queue', 'desc');
+      const [end, count] = await Promise.all([queued.limit(1).get(), queued.count().get()]);
+      const last = end.docs[0]?.get('queue');
+      return { ...(isQueueOrder(last) ? { last } : {}), count: count.data().count };
     },
     countFetch: async (uid, day) => {
       await db
@@ -185,7 +186,10 @@ export async function markAllDue(db: Firestore, uid: string, now: number): Promi
 /**
  * Applies the keep-for months (#171) to the articles already stored:
  * `expireAt` set from `published` on each unsaved, unfiled one, or
- * cleared when there is no limit. Returns how many were touched.
+ * cleared when there is no limit. An episode in the listening queue is
+ * spared as a saved one is (review on #252): never given an
+ * `expireAt`, and one it carries from before is cleared. Returns how
+ * many were touched.
  */
 export async function applyRetention(
   db: Firestore,
@@ -210,8 +214,11 @@ export async function applyRetention(
       const data = d.data();
       if (typeof data['noteId'] === 'string') continue;
       const published = data['published'] instanceof Timestamp ? data['published'].toMillis() : 0;
+      const queued = isQueueOrder(data['queue']);
       const want =
-        months && published ? Timestamp.fromMillis(monthsAfter(published, months)) : undefined;
+        months && published && !queued
+          ? Timestamp.fromMillis(monthsAfter(published, months))
+          : undefined;
       const have = data['expireAt'] instanceof Timestamp ? data['expireAt'] : undefined;
       if (want ? have?.isEqual(want) : have === undefined) continue;
       batch.update(d.ref, { expireAt: want ?? FieldValue.delete() });
@@ -226,8 +233,9 @@ export async function applyRetention(
 
 /**
  * Removes the articles that are unread, unsaved and unfiled and older
- * than `cutoff` (#171): the backlog a first import brought in. Returns
- * how many went.
+ * than `cutoff` (#171): the backlog a first import brought in. An
+ * episode in the listening queue stays (review on #252). Returns how
+ * many went.
  */
 export async function sweepOld(
   db: Firestore,
@@ -250,7 +258,10 @@ export async function sweepOld(
     const snap = await query.get();
     if (snap.empty) return removed;
     const docs = snap.docs.filter(
-      (d) => d.data()['saved'] !== true && typeof d.data()['noteId'] !== 'string',
+      (d) =>
+        d.data()['saved'] !== true &&
+        typeof d.data()['noteId'] !== 'string' &&
+        !isQueueOrder(d.data()['queue']),
     );
     if (docs.length) {
       const batch = db.batch();

@@ -127,6 +127,60 @@ export function parseOpml(text: string): OpmlFeed[] {
   return [...byUrl.values()];
 }
 
+/** Text as an XML attribute's value: the five characters XML gives meaning to, escaped. */
+function attr(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+}
+
+/**
+ * An OPML file of these feeds (#251, Podcasts' Export as OPML), one
+ * `parseOpml` and other readers take back: a folder is an outline
+ * holding its feeds, a feed in several folders is listed in each (as
+ * Feedly writes it), and one in none sits at the top. Only http(s)
+ * links are written, the feed's and its site's; folders and feeds are
+ * sorted by name so the same feeds give the same file.
+ */
+export function toOpml(
+  feeds: readonly Pick<OpmlFeed, 'url' | 'title' | 'site' | 'folders'>[],
+  title: string,
+): string {
+  const compare = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+  const web = feeds
+    .map((f) => ({ ...f, url: normalizeFeedUrl(f.url) }))
+    .filter((f): f is typeof f & { url: string } => !!f.url)
+    .sort((a, b) => compare(a.title, b.title));
+  const line = (f: (typeof web)[number], indent: string) => {
+    const site = f.site && isWebLink(f.site) ? ` htmlUrl="${attr(f.site)}"` : '';
+    const name = attr(f.title || f.url);
+    return `${indent}<outline type="rss" text="${name}" title="${name}" xmlUrl="${attr(f.url)}"${site}/>`;
+  };
+  const folders = [...new Set(web.flatMap((f) => f.folders.filter(Boolean)))].sort(compare);
+  const body = [
+    ...folders.flatMap((folder) => [
+      `    <outline text="${attr(folder)}" title="${attr(folder)}">`,
+      ...web.filter((f) => f.folders.includes(folder)).map((f) => line(f, '      ')),
+      '    </outline>',
+    ]),
+    ...web.filter((f) => !f.folders.some(Boolean)).map((f) => line(f, '    ')),
+  ];
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<opml version="2.0">',
+    `  <head><title>${attr(title)}</title></head>`,
+    '  <body>',
+    ...body,
+    '  </body>',
+    '</opml>',
+    '',
+  ].join('\n');
+}
+
 /** A feed as the folder list needs it. */
 export interface FolderFeed {
   id: string;

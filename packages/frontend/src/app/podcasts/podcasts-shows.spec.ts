@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { ModulesService } from '../modules/modules.service';
+import { SAVE_FILE } from '../platform/platform';
 import { DownloadsService } from '../reader/downloads.service';
 import { type ItemRecord, ItemsService } from '../reader/items.service';
 import { type FeedRecord, ReaderService } from '../reader/reader.service';
@@ -50,9 +51,12 @@ async function open(url = '/podcasts/shows') {
   ]);
   const modules = new FakeModules();
   modules.set('podcasts', true);
+  const save = vi.fn((_name: string, _type: string, _text: string) => undefined);
+  Object.assign(reader, { podcastsOpml: () => '<opml>the shows</opml>' });
   TestBed.configureTestingModule({
     providers: [
       provideRouter([{ path: 'podcasts/shows', component: PodcastsShows }]),
+      { provide: SAVE_FILE, useValue: save },
       { provide: ReaderService, useValue: reader },
       { provide: ItemsService, useValue: items },
       { provide: DownloadsService, useValue: new FakeDownloads() },
@@ -69,7 +73,7 @@ async function open(url = '/podcasts/shows') {
     [...el.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Folders"] button')].find(
       (b) => b.textContent!.replace(/\s+/g, ' ').trim() === name,
     )!;
-  return { harness, el, reader, items, squares, chip };
+  return { harness, el, reader, items, squares, chip, save };
 }
 
 describe('Shows, the grid (#246)', () => {
@@ -146,5 +150,20 @@ describe('Shows, the grid (#246)', () => {
     await harness.fixture.whenStable();
     expect(reader.refresh).toHaveBeenCalled();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Looked at 0 feeds');
+  });
+
+  it('exports the shows as an OPML file (#251)', async () => {
+    const { el, save, harness } = await open();
+    const button = [...el.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => b.textContent!.trim() === 'Export as OPML',
+    )!;
+    button.click();
+    await harness.fixture.whenStable();
+    expect(save).toHaveBeenCalledWith(
+      'mossgoblin-podcasts.opml',
+      'text/x-opml',
+      '<opml>the shows</opml>',
+    );
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Exported 3 shows as OPML.');
   });
 });

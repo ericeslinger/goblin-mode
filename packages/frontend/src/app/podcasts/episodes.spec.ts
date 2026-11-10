@@ -1,4 +1,4 @@
-import { episodeState, initials, stateText, tint } from './episodes';
+import { episodeState, initials, stateText, tint, totalText } from './episodes';
 
 describe('an episode’s state (#245)', () => {
   it('is New until heard, Started once a place is kept, Heard once played', () => {
@@ -29,5 +29,15 @@ describe('an episode’s state (#245)', () => {
       expect(tint(id)).toBeGreaterThanOrEqual(14);
       expect(tint(id)).toBeLessThanOrEqual(32);
     }
+  });
+});
+
+describe('a total of listening time (#251)', () => {
+  it('reads as words, with no leading zero on the minutes', () => {
+    expect(totalText(4 * 3600 + 7 * 60)).toBe('4 h 7 min');
+    expect(totalText(4 * 3600 + 17 * 60)).toBe('4 h 17 min');
+    expect(totalText(2 * 3600)).toBe('2 h');
+    expect(totalText(42 * 60)).toBe('42 min');
+    expect(totalText(10)).toBe('1 min');
   });
 });

@@ -1987,7 +1987,8 @@ the functions' alike). So whoever had podcasts in the Reader keeps
 them, nobody else gets a module they never asked for, and once
 switched in Settings, Modules it is its own. The feeds' and articles'
 listeners run while either module is on. It has a Home tile (a pair
-of headphones in `app-icon`, "N new · M started"), arrangeable like
+of headphones in `app-icon`, "N new · M started" until step 4 gave it
+a live line, #251), arrangeable like
 the others (`podcasts` in `TILE_IDS`, after the Reader), a Start on
 choice (`podcasts`, falling back to Home while off), a link in
 Browse, and its switch in Settings, Modules. The
@@ -2030,8 +2031,8 @@ the feed with `kind: 'podcast'` and `autoQueue`, offline too; without
 a look the link is followed as typed, named by its host until the
 server looks. A feed already followed is not moved: Add says it is in
 the Reader and where to move it from. The Reader's own Follow and
-import never set `kind`. "Import a list of podcasts (OPML)" waits for
-step 4.
+import never set `kind`. "Import a list of podcasts (OPML)" waited
+for step 4, which built it (#251).
 
 **Episodes at hand.** The Reader's listeners hold the newest thousand
 unread, two hundred read and the saved, so an episode whose notes
@@ -2214,14 +2215,15 @@ feedItems (which holds only the items that have the field; a
 single-field index, so no composite one), at most 500, so the queue
 is whole whatever each show's newest hundred holds. Its items join
 the app's at hand only for a show in Podcasts: a show moved to the
-Reader keeps its episodes' places, unseen, until it comes back.
+Reader kept its episodes' places, unseen, until it came back, which
+step 4 changed (#251: Move to the Reader takes them off the queue).
 `ItemsService.queue()` is the ordered list and `queued(id)` says
 whether one is in it; the episodes need audio to count.
 
 *The Queue tab* (`/podcasts/queue`, a third tab with how many are in
 it): Now playing, the player's episode with its artwork, show, time
 left and a thin progress bar, then Up next, "4 episodes · 4 h 07 min"
-(what is left of each, its length less its kept place, where known),
+("4 h 7 min" since step 4, #251; what is left of each, its length less its kept place, where known),
 and the queue in order without the one playing. Each row: a grip, the
 artwork, the title (to the episode's page), its show and length, and
 More. An empty queue says how to fill it.
@@ -2296,6 +2298,181 @@ the day's refresh limit as admin between the two Refreshes. axe on
 the Queue tab with the menu open and closed. The assistant's
 `list_feed_items` with `queued` is checked along the way. Step 1's
 tabs check gains Queue.
+
+**Step 4: OPML for podcasts, the Home tile's line, and the loose ends
+(#251, 2026-11-10).** The last step of #244. Eric's rule for it,
+2026-11-10: "We should mostly just have two imports with no auto
+moving." The Reader's import never makes a podcast; Podcasts' always
+does.
+
+*Import a list of podcasts (OPML)*, on Add a podcast below Follow, as
+the design shows: a file chosen on the device, at most 5 MB, read by
+the Reader's own parser and import (`parseOpml` and
+`ReaderService.importOpml` with `{ podcast: true }`, not a second
+parser), so the file's markup is never shown or run and only an
+outline's http(s) `xmlUrl` is a feed. Each new feed is written as a
+show (`kind: 'podcast'`) with `autoQueue` off, in the file's folders
+(the outlines around it, named by `cleanFolder`, #185), through the
+cache like every feed write; importing twice is once, since a feed's
+id is derived from its URL. A feed already followed in the other
+module is left where it is, its folders untouched, and counted: "3
+added, 1 already in the Reader, 2 already followed." The Reader's
+import does the same the other way ("1 already in Podcasts"): before
+this a show listed in a Reader import gained the file's folders,
+which are the Reader's, so that changed too (2026-11-10). A show
+already in Podcasts gains the file's folders, as a Reader feed does
+in the Reader's import.
+
+*Export as OPML* is on Shows, beside Refresh, while any show is
+followed: the shows in their folders as outlines (a show in two
+folders is listed in each, a show in none at the top), sorted by
+name, only http(s) links written, by `toOpml` in the schema, which
+`parseOpml` reads back as the same feeds. The Reader has no export,
+so there is none to mirror and this is the only one. Nor had the app
+a file download of its own making (a note's attached document's Save
+is a link with `download` to a stored file); the export follows that
+shape on the device: a Blob's object URL on a link with `download`,
+clicked and let go (`SAVE_FILE` in `platform.ts`, a seam for specs),
+named `mossgoblin-podcasts.opml`. No network.
+
+*Keep downloaded on Add a podcast.* The design's switch "Download new
+episodes" is the show's page's Keep downloaded (#180), so Add offers
+the same select, the same choices (by hand only, the newest, the
+newest 2, 3, 5 or 10) and the same default (by hand only), kept the
+same way, on this device (`DownloadPrefs.setKeep` with the new show's
+id), so the two read alike; `keepText` in `download-prefs.ts` words
+both.
+
+*The Home tile's line.* While a show's episode plays, what it is and
+its time left ("Playing: Reduction firing · 22 min left"); else "N
+new · M in the queue", a zero part left out (New is the state: not
+heard, no place kept; the queue as the Queue tab counts it); else "N
+shows"; else "Shows and the queue", in the way Map's tile says "The
+whole garden". Started left the line (step 1's "N new · M started"):
+the queue says more about what is next. Home's Right Now row adds "N
+new in Podcasts" after "N new in the Reader".
+
+*Right Now's "new in Podcasts"* (`app-podcasts-new`, after the
+Reader's lines, on the launch screen's panel and the full screen):
+"4 new in Podcasts", to Latest, while the module is on and the count
+is above zero. It counts the episodes at hand that are New and were
+published after the last visit to Latest; before any visit, every
+New one, as a folder never opened counts in the Reader (#173). The
+mark is the device's (`goblin.podcasts.latestSeen` in local storage,
+millis by account, `PodcastsSeen`), not a stored field, so the schema
+does not change; the cost is that a visit on the phone does not
+clear the laptop's line. Latest sets it while open, to now or its
+newest episode if a feed's clock puts that later, and writes nothing
+while nothing is newer, so episodes arriving while it is open count
+as seen. The Reader's line still leaves every episode out (#245).
+
+*A clipping from an episode* links back to the episode's page in
+Podcasts (`/podcasts/e/<id>`) when its feed is a show there, the
+header saying "In Podcasts"; a Reader feed's says "In the Reader" as
+before. The feed is read from the clipping's `feedItemId` (an item's
+id begins with its feed's, `f-` and sixteen hex digits), so no field
+is added, and a feed moved later is linked to where it is now.
+
+*Move to the Reader takes the show off the queue.* Step 3 left a
+moved show's queued episodes unseen with their places, to come back
+on a move back; now the move clears `kind` and takes the show's
+queued episodes off the queue in one batch through the cache
+(`ItemsService.moveToReader`, the feed write handed over by
+`ReaderService.kindWrite`; a queue past 400 would take a second
+batch, as every `setMany` does), never awaited, and the status says
+so when any were queued: "Kiln hour is in the Reader now. 2 episodes
+left the queue." Unfollow already removed the episodes (#161, but
+for any saved or filed); the queue's listener keeps one only while
+its feed is a show in Podcasts, so a saved, queued episode whose
+feed is gone is left out, and a spec says so.
+
+*The queue's total* reads "4 h 7 min" (`totalText`); a row's length
+keeps "1 h 05 min" and the player its clock.
+
+*The Reader's unread listener (#248): nothing built, and why.* The
+Reader's listener reads the newest thousand unread items and drops a
+show's episodes on the device, so unheard episodes whose notes were
+never opened take places in that window. Weighed, 2026-11-10:
+
+- (a) A listener per Reader feed, as Podcasts has per show: no
+  schema change, but up to 500 listeners (the feed cap), each with
+  its own limit, so the Reader's "newest thousand" would become "the
+  newest N of each feed", a different shelf, and every first load 500
+  queries. Not sound at that scale.
+- (b) The fetcher stamps `podcast` on each item and Move rewrites it
+  on the feed's items: the query `where('podcast', '==', false)` then
+  needs the field on every item, so a backfill of everything stored,
+  a server-side rewrite on every Move (a trigger on `kind`, since the
+  owner's rules never let the app write an item's server fields), the
+  Feedly import stamping too, a new composite index and a schema
+  change for Eric to read. Sound, but a step of its own.
+- (c) One listener with its window raised by the unheard, unread
+  episodes the shows' listeners know: they hold only each show's
+  newest hundred, so a show's older unread episodes still crowd the
+  window, and every change of the limit is a new query target, which
+  re-reads the whole window from the server. Not sound as it stands.
+
+None is clearly sound within this step, and the window is short only
+past a thousand unread items in all, so #248 stays open. The sound
+way is (b), as its own change with Eric's review; until then the
+Reader's shelves can hold fewer than a thousand of its own articles
+while that many episodes are unread.
+
+*Keep-for spares the queue (review on #252, 2026-11-10).* Saving and
+filing cleared `expireAt` so the TTL policy (#171) never removed
+those, but queuing did not: with Keep articles for set, an unheard
+episode in the queue was deleted at its expiry and left the queue
+silently, and applying the months again re-set it. Now all three
+places spare it. The app's Add to the queue, Play next, a move and a
+renumber clear `expireAt` in the same write as the place, as save and
+file do (the feedItems rule already lets the owner clear it, never
+set it; a rules test covers a place and the clear in one write, and a
+set refused). The fetcher's `joinQueue` stores an episode it queues
+with no `expireAt`; it writes only items it had not stored, so it
+never puts one back on a queued item. `applyRetention` gives a queued
+item none and clears one it carries from before, and `sweepOld`
+leaves a queued item, as it leaves saved and filed ones. Taken off
+the queue, an episode stays without an expiry, as an unsaved article
+does today (unsave writes nothing to `expireAt`), until the keep-for
+months are next applied, which give it one again.
+
+*One cap for the queue (review on #252, 2026-11-10).* The app's
+listener and the assistant's `queueRanks` read 500, but nothing kept
+writes under that, so a 501st episode would be queued and never
+shown. `QUEUE_MAX` (500, `listening-queue.ts`) is now the one number:
+the listener's limit, the assistant's read, and the cap. Add to the
+queue and Play next refuse a new episode at it, writing nothing, and
+say "The queue is full: 500 episodes. Take some off to add more."
+where the page says what the queue did (the episode's page, Latest's
+status line, a show's page's, the Queue tab's live region); Play next
+still moves one already in the queue. The app counts what its
+listener holds or what it shows with this device's changes, whichever
+is more. The fetcher's `joinQueue` reads the queue once a look, and
+only when episodes would join, as before, now as its last place and
+its count (`queueState`: the one-document read beside a `count()`
+aggregate, billed as one read per thousand entries), and appends only
+while there is room, oldest first; the rest are stored unqueued, with
+their expiry. The assistant sees nothing new, so the tool docs are
+unchanged.
+
+*No schema, rules or MCP change.* No stored field was added (the
+Right Now mark is the device's), so the validators and rules are as
+they were, and no tool's name or input changed. The review on #252
+added a rules test, not a rule.
+
+*Journeys* (`podcasts.spec.ts`): Wheel talk followed in the Reader,
+then an OPML list of Kiln hour (in Listening), Glaze lab and Wheel
+talk imported on Add a podcast: "2 added, 1 already in the Reader."
+The same file again: "0 added, 1 already in the Reader, 2 already
+followed." The grid with the two shows, each once, and Listening's
+chip; Export as OPML downloaded and read (Kiln hour inside Listening,
+Glaze lab, not Wheel talk, no `javascript:` link). Refresh, then
+Right Now's "4 new in Podcasts" to Latest, and gone after the visit
+while the Reader's line stays. The Home tile through "4 new", "4 new
+· 2 in the queue", "Playing: Reduction firing · N min left" and on
+into the next queued episode, and Kiln hour moved to the Reader with
+"1 episode left the queue." and the Queue tab at 0. axe on Add a
+podcast, Shows and Right Now.
 
 ## Themes (#23, 2026-10-06)
 

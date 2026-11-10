@@ -12,6 +12,7 @@ import {
   folderList,
   normalizeFeedUrl,
   parseOpml,
+  toOpml,
 } from './reader';
 
 const FEEDLY = `<?xml version="1.0" encoding="UTF-8"?>
@@ -179,5 +180,47 @@ describe('cleanTags (#176)', () => {
       'x'.repeat(60),
     ]);
     expect(cleanTags(Array.from({ length: 30 }, (_, i) => `t${i}`))).toHaveLength(20);
+  });
+});
+
+describe('toOpml (#251)', () => {
+  it('writes folders as outlines, a feed in two folders in each, and reads back the same', () => {
+    const feeds = [
+      {
+        url: 'https://kiln.test/rss',
+        title: 'Kiln & "talk"',
+        site: 'https://kiln.test/',
+        folders: ['Making'],
+      },
+      { url: 'https://glaze.test/rss', title: 'Glaze <lab>', folders: [] },
+      { url: 'https://both.test/rss', title: 'Both', folders: ['Making', 'Art'] },
+    ];
+    const text = toOpml(feeds, 'Podcasts from Mossgoblin');
+    expect(text).toContain('<outline text="Making" title="Making">');
+    expect(text).toContain('text="Kiln &amp; &quot;talk&quot;"');
+    expect(text).toContain('text="Glaze &lt;lab&gt;"');
+    expect(text.indexOf('text="Art"')).toBeLessThan(text.indexOf('text="Making"'));
+    expect(parseOpml(text)).toEqual([
+      { url: 'https://both.test/rss', title: 'Both', folders: ['Art', 'Making'] },
+      {
+        url: 'https://kiln.test/rss',
+        title: 'Kiln & "talk"',
+        site: 'https://kiln.test/',
+        folders: ['Making'],
+      },
+      { url: 'https://glaze.test/rss', title: 'Glaze <lab>', folders: [] },
+    ]);
+  });
+
+  it('writes only web links, the feed’s and its site’s', () => {
+    const text = toOpml(
+      [
+        { url: 'javascript:alert(1)', title: 'Bad', folders: [] },
+        { url: 'https://ok.test/rss', title: 'Ok', site: 'javascript:alert(1)', folders: [] },
+      ],
+      'Podcasts',
+    );
+    expect(text).not.toContain('javascript');
+    expect(parseOpml(text)).toEqual([{ url: 'https://ok.test/rss', title: 'Ok', folders: [] }]);
   });
 });

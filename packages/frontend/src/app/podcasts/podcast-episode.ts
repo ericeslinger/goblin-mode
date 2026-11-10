@@ -310,15 +310,14 @@ export class PodcastEpisode {
       this.items.removeFromQueue(it.id);
       this.said.set('Taken off the queue.');
     } else {
-      this.items.addToQueue(it.id);
-      this.said.set('Added to the end of the queue.');
+      // Refused at the cap (review on #252), which is said instead.
+      this.said.set(this.items.addToQueue(it.id) ?? 'Added to the end of the queue.');
     }
   }
 
   /** Play next (#249): first in Up next, after the one playing. */
   protected playNext(it: ItemRecord): void {
-    this.items.playNext(it.id);
-    this.said.set('Next up in the queue.');
+    this.said.set(this.items.playNext(it.id) ?? 'Next up in the queue.');
   }
 
   /** Download (#180): kept on the device, or the reason it was not, said. */

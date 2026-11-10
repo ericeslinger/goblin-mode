@@ -13,7 +13,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
-import { DownloadPrefs, KEEP_CHOICES } from '../reader/download-prefs';
+import { DownloadPrefs, KEEP_CHOICES, keepText } from '../reader/download-prefs';
 import { DownloadsService } from '../reader/downloads.service';
 import { type ItemRecord, ItemsService } from '../reader/items.service';
 import { PlayerService } from '../reader/player.service';
@@ -189,7 +189,7 @@ type Step = 'menu' | 'folder' | 'unfollow';
                 </button>
               }
               @if (ep.enclosure) {
-                <app-queue-button [item]="ep" />
+                <app-queue-button [item]="ep" (said)="said.set($event)" />
               }
             </li>
           }
@@ -593,7 +593,7 @@ export class PodcastShow {
   }
 
   protected keepText(n: number): string {
-    return n === 0 ? 'by hand only' : n === 1 ? 'the newest' : `the newest ${n}`;
+    return keepText(n);
   }
 
   /** Search this show: opens the field, focused; closing it shows every episode again. */
@@ -658,11 +658,16 @@ export class PodcastShow {
     this.closeMore();
   }
 
-  /** Move to the Reader (#245): the feed's kind cleared; its articles are the Reader's now. */
+  /**
+   * Move to the Reader (#245): the feed's kind cleared; its articles are
+   * the Reader's now. Its queued episodes leave the queue in the same
+   * batch (#251), and the status says how many.
+   */
   protected toReader(feed: FeedRecord): void {
     this.closeMore();
-    this.reader.setPodcast(feed.id, false);
-    this.said.set(`${feed.title} is in the Reader now.`);
+    const left = this.items.moveToReader(feed.id);
+    const queue = left ? ` ${left} ${left === 1 ? 'episode' : 'episodes'} left the queue.` : '';
+    this.said.set(`${feed.title} is in the Reader now.${queue}`);
   }
 
   /**

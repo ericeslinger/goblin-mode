@@ -9,6 +9,13 @@
 export const QUEUE_STEP = 1000;
 /** Below this gap a midpoint is not worth writing; the queue is renumbered. */
 export const QUEUE_MIN_GAP = 1e-3;
+/**
+ * The most episodes the queue holds (review on #252, 2026-11-10): the
+ * app listens to this many and the assistant reads this many, so
+ * neither the app nor the fetcher queues one past it, or it would be
+ * queued and never shown.
+ */
+export const QUEUE_MAX = 500;
 /** The rules keep `queue` inside this, so it is always a plain finite number. */
 export const QUEUE_BOUND = 1e15;
 

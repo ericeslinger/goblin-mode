@@ -1,8 +1,14 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { ModulesService } from '../modules/modules.service';
+import { DownloadPrefs } from '../reader/download-prefs';
 import { ItemsService } from '../reader/items.service';
-import { type DiscoveredFeed, type FeedRecord, ReaderService } from '../reader/reader.service';
+import {
+  type DiscoveredFeed,
+  type FeedRecord,
+  type ImportOutcome,
+  ReaderService,
+} from '../reader/reader.service';
 import { FakeItems, FakeModules, FakeReader } from '../testing/fakes';
 import { PodcastsAdd } from './podcasts-add';
 
@@ -11,7 +17,14 @@ function setup(found: DiscoveredFeed[] | string = []) {
     addFeed: vi.fn((_url: string, _folder?: string, _title?: string, _as?: object) => 'p9'),
     followed: vi.fn((_url: string): FeedRecord | undefined => undefined),
     discover: vi.fn(async (_url: string) => found),
+    importOpml: vi.fn((_text: string, _as?: object): ImportOutcome | undefined => ({
+      added: 3,
+      known: 2,
+      elsewhere: 1,
+      refused: 0,
+    })),
   });
+  const prefs = { setKeep: vi.fn() };
   const modules = new FakeModules();
   modules.set('podcasts', true);
   TestBed.configureTestingModule({
@@ -21,6 +34,7 @@ function setup(found: DiscoveredFeed[] | string = []) {
       { provide: ReaderService, useValue: reader },
       { provide: ItemsService, useValue: new FakeItems() },
       { provide: ModulesService, useValue: modules },
+      { provide: DownloadPrefs, useValue: prefs },
     ],
   });
   const fixture = TestBed.createComponent(PodcastsAdd);
@@ -36,7 +50,20 @@ function setup(found: DiscoveredFeed[] | string = []) {
   const button = (text: RegExp) =>
     [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => text.test(b.textContent!))!;
   const sw = () => el.querySelector<HTMLInputElement>('input[role="switch"]')!;
-  return { fixture, el, reader, type, button, sw };
+  /** A file chosen in Import a list of podcasts (OPML). */
+  const choose = async (text: string, size = text.length) => {
+    const input = [...el.querySelectorAll('label')]
+      .find((l) => l.textContent?.includes('Import a list of podcasts (OPML)'))!
+      .querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [{ name: 'podcasts.opml', size, text: async () => text }],
+    });
+    input.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+  };
+  return { fixture, el, reader, type, button, sw, prefs, choose };
 }
 
 describe('Add a podcast (#245)', () => {
@@ -97,5 +124,51 @@ describe('Add a podcast (#245)', () => {
     expect(el.querySelector('[role="status"]')?.textContent).toContain(
       'A blog is in the Reader; Manage feeds there can move it to Podcasts.',
     );
+  });
+
+  it('offers Keep downloaded as the show’s page does, kept the same way (#251)', () => {
+    const { fixture, el, type, button, prefs } = setup();
+    const select = [...el.querySelectorAll('label')]
+      .find((l) => l.textContent?.includes('Keep downloaded'))!
+      .querySelector('select')!;
+    expect([...select.options].map((o) => o.textContent!.trim())).toEqual([
+      'by hand only',
+      'the newest',
+      'the newest 2',
+      'the newest 3',
+      'the newest 5',
+      'the newest 10',
+    ]);
+    expect(select.value).toBe('0');
+    type('feed, or its site', 'https://pod.test/feed.xml');
+    fixture.detectChanges();
+    button(/^\s*Follow\s*$/).click();
+    expect(prefs.setKeep).not.toHaveBeenCalled();
+    select.value = '3';
+    select.dispatchEvent(new Event('change'));
+    type('feed, or its site', 'https://pod.test/other.xml');
+    fixture.detectChanges();
+    button(/^\s*Follow\s*$/).click();
+    expect(prefs.setKeep).toHaveBeenCalledWith('p9', 3);
+  });
+
+  it('imports a list of podcasts from OPML as shows, and says what came of it (#251)', async () => {
+    const { el, reader, choose } = setup();
+    await choose('<opml><body><outline xmlUrl="https://kiln.test/rss" text="Kiln"/></body></opml>');
+    expect(reader.importOpml).toHaveBeenCalledWith(expect.stringContaining('kiln.test'), {
+      podcast: true,
+    });
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+      '3 added, 1 already in the Reader, 2 already followed. Their episodes arrive once the server has looked.',
+    );
+    reader.importOpml.mockReturnValueOnce(undefined);
+    await choose('<html>not a list</html>');
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+      'No feeds found in that file.',
+    );
+    reader.importOpml.mockClear();
+    await choose('<opml/>', 6 * 1024 * 1024);
+    expect(reader.importOpml).not.toHaveBeenCalled();
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('too large');
   });
 });

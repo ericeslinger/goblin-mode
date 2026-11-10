@@ -65,3 +65,16 @@ export function lengthText(
   const at = current ? player.position() : ep.played ? 0 : (ep.position ?? 0);
   return at > 0 ? `${duration(Math.max(0, total - at))} left` : duration(total);
 }
+
+/**
+ * A total of listening time (#251, the Queue tab's Up next): "4 h 7
+ * min", "4 h", "42 min", never "0 min". A row's length keeps its
+ * "1 h 05 min", the player its clock; a total reads as words.
+ */
+export function totalText(seconds: number): string {
+  const min = Math.max(1, Math.round((Number.isFinite(seconds) ? seconds : 0) / 60));
+  const h = Math.floor(min / 60);
+  const rest = min % 60;
+  if (!h) return `${min} min`;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}

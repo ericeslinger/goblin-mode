@@ -9,6 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import {
+  QUEUE_MAX,
   UNCATEGORIZED,
   byQueue,
   clippingBody,
@@ -59,8 +60,14 @@ const OPENED_MAX = 20;
  * so one whose notes were read stays at hand until it is heard.
  */
 export const EPISODES_PER_SHOW = 100;
-/** The listening queue's episodes the app listens to at most (#249). */
-export const QUEUE_LIMIT = 500;
+/**
+ * The listening queue's episodes the app listens to at most (#249):
+ * the queue's cap, shared with the fetcher and the assistant (review on
+ * #252), so nothing is queued that the app would not show.
+ */
+export const QUEUE_LIMIT = QUEUE_MAX;
+/** What Add to the queue and Play next say when the queue is at its cap (review on #252). */
+export const QUEUE_FULL = `The queue is full: ${QUEUE_MAX} episodes. Take some off to add more.`;
 
 /** A podcast episode's audio (#178), as the fetcher stored it. */
 export interface EnclosureRecord {
@@ -927,17 +934,36 @@ export class ItemsService {
    * Add to the queue (#249): at its end, a step after the last and never
    * before now (`orderAfter`), so two devices appending offline keep
    * the order they appended in. Through the cache, never awaited, shown
-   * at once. In the queue already, it stays where it is.
+   * at once. In the queue already, it stays where it is. At the cap
+   * (`QUEUE_MAX`, review on #252) nothing is written and the words to
+   * show come back; otherwise undefined.
    */
-  addToQueue(id: string): void {
-    if (this.queued(id)) return;
+  addToQueue(id: string): string | undefined {
+    if (this.queued(id)) return undefined;
+    if (this.queueFull()) return QUEUE_FULL;
     this.placeInQueue(id, orderAfter(this.queue().at(-1)?.queue, this.now()));
+    return undefined;
   }
 
-  /** Play next (#249): a step before the first of the others, so it is next up. */
-  playNext(id: string): void {
+  /**
+   * Play next (#249): a step before the first of the others, so it is
+   * next up. One in the queue already is moved, cap or not; a new one
+   * is refused at the cap, as Add to the queue is.
+   */
+  playNext(id: string): string | undefined {
+    if (!this.queued(id) && this.queueFull()) return QUEUE_FULL;
     const first = this.queue().find((i) => i.id !== id)?.queue;
     this.placeInQueue(id, orderBefore(first, this.now()));
+    return undefined;
+  }
+
+  /**
+   * Whether the queue holds its cap: what the listener holds (every
+   * item with a place, a moved show's too, at most `QUEUE_MAX`) or what
+   * is shown with this device's changes, whichever is more.
+   */
+  private queueFull(): boolean {
+    return Math.max(this.queueDocs().length, this.queue().length) >= QUEUE_MAX;
   }
 
   /** Remove from the queue (#249): its place cleared, nothing else. */
@@ -975,7 +1001,44 @@ export class ItemsService {
     this.renumberQueue(rest.map((x, n) => [x, values[n]]));
   }
 
-  /** One episode's place in the queue written, or cleared with undefined. */
+  /**
+   * Move to the Reader (#251, a show's More): the show's kind cleared
+   * and its episodes taken off the listening queue, in one batch
+   * through the persistent cache, never awaited, shown at once. Left
+   * queued, they would sit there unseen and come back on a move back.
+   * Returns how many left the queue.
+   */
+  moveToReader(feedId: string): number {
+    const queued = this.queue()
+      .filter((i) => i.feedId === feedId)
+      .map((i) => i.id);
+    const uid = this.auth.user()?.uid;
+    const feed = this.feeds.kindWrite(feedId, false);
+    if (!uid || !feed) return 0;
+    this.local.update((l) => {
+      const next = { ...l };
+      for (const id of queued) next[id] = { ...next[id], queue: undefined };
+      return next;
+    });
+    void this.api
+      .setMany(this.fb.db, [
+        feed,
+        ...queued.map((id) => ({
+          path: paths.feedItem(uid, id),
+          data: { queue: this.api.clear(), updatedAt: this.api.serverTime() },
+        })),
+      ])
+      .catch((err) => console.error('show not moved', err));
+    return queued.length;
+  }
+
+  /**
+   * One episode's place in the queue written, or cleared with undefined.
+   * A place also clears `expireAt` in the same write (review on #252),
+   * as saving and filing do (#171), so keep-for never takes a queued
+   * episode; taken off, it stays without one, as an unsaved article
+   * does, until the keep-for months are next applied.
+   */
   private placeInQueue(id: string, queue: number | undefined): void {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
@@ -983,6 +1046,7 @@ export class ItemsService {
     void this.api
       .set(this.fb.db, paths.feedItem(uid, id), {
         queue: queue === undefined ? this.api.clear() : queue,
+        ...(queue === undefined ? {} : { expireAt: this.api.clear() }),
         updatedAt: this.api.serverTime(),
       })
       .catch((err) => console.error('queue place not saved', err));
@@ -1002,7 +1066,7 @@ export class ItemsService {
         this.fb.db,
         places.map(([id, queue]) => ({
           path: paths.feedItem(uid, id),
-          data: { queue, updatedAt: this.api.serverTime() },
+          data: { queue, expireAt: this.api.clear(), updatedAt: this.api.serverTime() },
         })),
       )
       .catch((err) => console.error('queue not renumbered', err));

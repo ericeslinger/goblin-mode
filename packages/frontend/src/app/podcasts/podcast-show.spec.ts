@@ -238,7 +238,7 @@ describe('A show’s page (#246)', () => {
   });
 
   it('moves the show to a folder, or to the Reader', async () => {
-    const { el, button, stable, reader } = await open();
+    const { el, button, stable, reader, items } = await open();
     button('More for Kiln talk')!.click();
     await stable();
     button('Move to a folder')!.click();
@@ -253,14 +253,35 @@ describe('A show’s page (#246)', () => {
       'Kiln talk is in Kitchen now.',
     );
     expect(el.querySelectorAll('.head .meta')[1].textContent).toContain('In Kitchen');
+    items.moved = (id) => reader.setPodcast(id, false);
     button('More for Kiln talk')!.click();
     await stable();
     button('Move to the Reader For a feed that is mostly writing')!.click();
     await stable();
+    expect(items.moveToReader).toHaveBeenCalledWith('p1');
     expect(reader.setPodcast).toHaveBeenCalledWith('p1', false);
     expect(el.querySelector('h1')).toBeNull();
-    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+    expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe(
       'Kiln talk is in the Reader now.',
+    );
+  });
+
+  it('takes a show’s queued episodes off the queue as it moves to the Reader (#251)', async () => {
+    const { el, button, stable, items, reader } = await open();
+    items.moved = (id) => reader.setPodcast(id, false);
+    items.episodes.update((l) =>
+      l.map((e) =>
+        e.id === 'e3' ? { ...e, queue: 1000 } : e.id === 'e2' ? { ...e, queue: 2000 } : e,
+      ),
+    );
+    await stable();
+    button('More for Kiln talk')!.click();
+    await stable();
+    button('Move to the Reader For a feed that is mostly writing')!.click();
+    await stable();
+    expect(items.queue()).toEqual([]);
+    expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe(
+      'Kiln talk is in the Reader now. 2 episodes left the queue.',
     );
   });
 

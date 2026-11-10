@@ -2,6 +2,7 @@ import { reminderDoc } from '../testing/fakes';
 import { RightNowPanel } from './right-now-panel';
 import { TestBed } from '@angular/core/testing';
 import { ModulesService } from '../modules/modules.service';
+import { PodcastsSeen } from '../podcasts/podcasts-seen';
 import { ITEMS_API } from '../reader/items.service';
 import { READER_API } from '../reader/reader.service';
 import { READING_API } from '../reading/reading.service';
@@ -146,5 +147,57 @@ describe('RightNowPanel', () => {
     });
     await fixture.whenStable();
     expect(el.querySelector('app-reader-new ul')).toBeNull();
+  });
+
+  it('says what is new in Podcasts since Latest was seen (#251), and the Reader’s line leaves it out', async () => {
+    localStorage.clear();
+    const { el, fixture } = await renderWithReminders(RightNowPanel);
+    const modules = TestBed.inject(ModulesService) as unknown as FakeModules;
+    const feeds = TestBed.inject(READER_API) as unknown as FakeReaderApi;
+    const items = TestBed.inject(ITEMS_API) as unknown as FakeItemsApi;
+    const episode = (id: string, hoursAgo: number, more: Record<string, unknown> = {}) => ({
+      id,
+      data: {
+        feedId: 'p1',
+        title: id,
+        link: '',
+        published: { toMillis: () => NOW - hoursAgo * HOUR },
+        read: false,
+        saved: false,
+        enclosure: { url: 'https://p.test/a.mp3', type: 'audio/mpeg' },
+        ...more,
+      },
+    });
+    const line = () => el.querySelector<HTMLAnchorElement>('app-podcasts-new a');
+    modules.set('podcasts', true);
+    modules.set('reader', true);
+    await fixture.whenStable();
+    feeds.push([
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
+    ]);
+    await fixture.whenStable();
+    items.pushFeed('p1', [
+      episode('e1', 1),
+      episode('e2', 2, { read: true }),
+      episode('e3', 3, { position: 90 }),
+      episode('e4', 4, { played: true }),
+    ]);
+    items.push('unread', [episode('e1', 1), episode('e2', 2)]);
+    await fixture.whenStable();
+    // New is not heard and no place kept: notes read is still new.
+    expect(line()?.textContent?.trim()).toBe('2 new in Podcasts');
+    expect(line()?.getAttribute('href')).toBe('/podcasts');
+    expect(el.querySelector('[aria-label="New in the Reader"]')).toBeNull();
+    // Latest seen: nothing, until a newer episode comes out.
+    TestBed.inject(PodcastsSeen).markSeen();
+    await fixture.whenStable();
+    expect(line()).toBeNull();
+    items.pushFeed('p1', [episode('e5', -1), episode('e1', 1)]);
+    await fixture.whenStable();
+    expect(line()?.textContent?.trim()).toBe('1 new in Podcasts');
+    // The module off: nothing.
+    modules.set('podcasts', false);
+    await fixture.whenStable();
+    expect(line()).toBeNull();
   });
 });

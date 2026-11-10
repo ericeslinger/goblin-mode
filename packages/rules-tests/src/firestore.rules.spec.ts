@@ -705,6 +705,27 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     await assertFails(anonymous().doc(path).set({ queue: t, updatedAt: now() }, { merge: true }));
   });
 
+  it('lets a place in the queue clear the keep-for expiry in the same write, never set one (review on #252)', async () => {
+    const path = 'users/owner/feedItems/f-1-kept';
+    const ref = owner().doc(path);
+    const t = Date.parse('2026-11-10T12:00:00Z');
+    await seed(path, { ...item(), expireAt: now() });
+    await assertSucceeds(
+      ref.set(
+        { queue: t, expireAt: firebase.firestore.FieldValue.delete(), updatedAt: now() },
+        { merge: true },
+      ),
+    );
+    // Clearing one that is not there, as a renumber does, is no change to it.
+    await assertSucceeds(
+      ref.set(
+        { queue: t + 1000, expireAt: firebase.firestore.FieldValue.delete(), updatedAt: now() },
+        { merge: true },
+      ),
+    );
+    await assertFails(ref.set({ queue: t, expireAt: now(), updatedAt: now() }, { merge: true }));
+  });
+
   it('keeps the Reader’s settings to their shape', async () => {
     const ref = owner().doc('users/owner/settings/reader');
     await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));
