@@ -38,6 +38,8 @@ function fakeKeys() {
     setOnArrival: vi.fn(),
     arrivalSkip: signal<{ templates: string[]; tags: string[] }>({ templates: [], tags: [] }),
     setArrivalSkip: vi.fn(),
+    digest: signal({ push: false, hour: 8 }),
+    setDigest: vi.fn(),
   };
 }
 const keys = fakeKeys();
@@ -216,6 +218,36 @@ describe('Settings', () => {
       tags: ['private', 'journal'],
     });
     keys.arrivalSkip.set({ templates: [], tags: [] });
+  });
+
+  it('turns the daily digest push on and picks its hour, with no key needed (#237)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    keys.keys.set({});
+    keys.setDigest.mockClear();
+    const el = await render(auth);
+    expect(el.textContent).toContain('Daily digest');
+    const toggle = [...el.querySelectorAll<HTMLInputElement>('input[role="switch"]')].find((i) =>
+      i.parentElement?.textContent?.includes('A daily digest by push'),
+    )!;
+    const hour = el.querySelector<HTMLSelectElement>(
+      'select[aria-label="Hour of the daily digest"]',
+    )!;
+    expect(toggle.checked).toBe(false);
+    expect(hour.options).toHaveLength(24);
+    expect(hour.selectedIndex).toBe(8);
+    toggle.click();
+    expect(keys.setDigest).toHaveBeenLastCalledWith({ push: true, hour: 8 });
+    keys.digest.set({ push: true, hour: 8 });
+    TestBed.tick();
+    hour.value = '21';
+    hour.dispatchEvent(new Event('change'));
+    expect(keys.setDigest).toHaveBeenLastCalledWith({ push: true, hour: 21 });
+    keys.digest.set({ push: true, hour: 21 });
+    TestBed.tick();
+    expect(toggle.checked).toBe(true);
+    expect(hour.selectedIndex).toBe(21);
+    keys.digest.set({ push: false, hour: 8 });
   });
 
   it('shows the connector URL and disconnects Claude', async () => {

@@ -3,6 +3,7 @@ import { type KeyMeta, type KeySettings, type Provider, paths } from '@mossgobli
 import { httpsCallable } from 'firebase/functions';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { TIME_ZONE } from '../platform/platform';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 
 /** The calls to the keys functions (onCall), as a seam for unit specs. */
@@ -63,6 +64,24 @@ export interface ArrivalSkip {
 
 const NO_SKIP: ArrivalSkip = { templates: [], tags: [] };
 
+/** The daily digest by push (#237): on or off, and the hour on the device's clock. */
+export interface DigestPush {
+  push: boolean;
+  hour: number;
+}
+
+/** Off, and 8 in the morning once turned on. */
+export const NO_DIGEST: DigestPush = { push: false, hour: 8 };
+
+const isHour = (v: unknown): v is number =>
+  Number.isInteger(v) && Number(v) >= 0 && Number(v) <= 23;
+
+function digestOf(v: unknown): DigestPush {
+  if (typeof v !== 'object' || v === null) return NO_DIGEST;
+  const o = v as Record<string, unknown>;
+  return { push: o['push'] === true, hour: isHour(o['hour']) ? o['hour'] : NO_DIGEST.hour };
+}
+
 const strings = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 
@@ -89,6 +108,7 @@ export class KeysService {
   private readonly api = inject(KEYS_API);
   private readonly settings = inject(SETTINGS_API);
   private readonly auth = inject(AuthService);
+  private readonly timeZone = inject(TIME_ZONE);
   private uid?: string;
   private stop?: () => void;
 
@@ -98,6 +118,8 @@ export class KeysService {
   readonly onArrival = signal(false);
   /** Never gardened on arrival (#229): template ids and tags, from `settings/assistant`. */
   readonly arrivalSkip = signal<ArrivalSkip>(NO_SKIP);
+  /** The daily digest by push (#237), from `settings/assistant`; off until read. */
+  readonly digest = signal<DigestPush>(NO_DIGEST);
   private stopAssistant?: () => void;
 
   constructor() {
@@ -111,6 +133,7 @@ export class KeysService {
       this.keys.set(undefined);
       this.onArrival.set(false);
       this.arrivalSkip.set(NO_SKIP);
+      this.digest.set(NO_DIGEST);
       if (!uid) return;
       this.stop = this.settings.listen(
         this.fb.db,
@@ -124,6 +147,7 @@ export class KeysService {
         (data) => {
           this.onArrival.set(data?.['gardenOnArrival'] === true);
           this.arrivalSkip.set(skipOf(data?.['arrivalSkip']));
+          this.digest.set(digestOf(data?.['digest']));
         },
         (err) => console.error('assistant settings listener', err),
       );
@@ -154,6 +178,18 @@ export class KeysService {
     const kept = { templates: [...new Set(skip.templates)], tags: tagsOf(skip.tags) };
     this.arrivalSkip.set(kept);
     this.writeAssistant({ arrivalSkip: kept });
+  }
+
+  /**
+   * The daily digest by push (#237): on or off, at `hour` on this
+   * device's clock, its time zone kept beside it for the scheduled
+   * push to read. Written as the switch is.
+   */
+  setDigest(digest: DigestPush): void {
+    if (!this.uid || !isHour(digest.hour)) return;
+    const kept = { push: digest.push, hour: digest.hour };
+    this.digest.set(kept);
+    this.writeAssistant({ digest: { ...kept, timeZone: this.timeZone } });
   }
 
   /**

@@ -412,6 +412,37 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             />
           </label>
         }
+        <h3 id="digest-push">Daily digest</h3>
+        <p class="muted">
+          What assistants changed starts with yesterday in one line. It can come by push too, once a
+          day at the hour you pick, only when something changed; it needs notifications on.
+        </p>
+        <div class="digest-push">
+          <label>
+            <input
+              type="checkbox"
+              role="switch"
+              [checked]="keys.digest().push"
+              (change)="
+                keys.setDigest({ push: $any($event.target).checked, hour: keys.digest().hour })
+              "
+            />
+            A daily digest by push
+          </label>
+          <label>
+            at
+            <select
+              aria-label="Hour of the daily digest"
+              (change)="
+                keys.setDigest({ push: keys.digest().push, hour: +$any($event.target).value })
+              "
+            >
+              @for (h of hours; track h) {
+                <option [value]="h" [selected]="h === keys.digest().hour">{{ hourName(h) }}</option>
+              }
+            </select>
+          </label>
+        </div>
         <p><a routerLink="/activity">What assistants changed</a></p>
         <button type="button" (click)="disconnect()">Disconnect all assistants</button>
         @if (claudeStatus()) {
@@ -520,6 +551,18 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
     .skip-templates {
       list-style: none;
       padding: 0;
+    }
+    .digest-push {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .digest-push label {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      min-height: 44px;
     }
     .skip-tags {
       display: grid;
@@ -726,6 +769,14 @@ export class Settings {
   /** The gardener's own provider keys (#144). */
   protected readonly keys = inject(KeysService);
   protected readonly providers = PROVIDERS;
+  /** The hours the daily digest can come at (#237). */
+  protected readonly hours = Array.from({ length: 24 }, (_, h) => h);
+  private readonly hourFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric' });
+
+  /** An hour on this device's clock, as it writes them: "8 AM", or "08". */
+  protected hourName(h: number): string {
+    return this.hourFormat.format(new Date(2026, 0, 1, h));
+  }
   protected readonly providerName = Object.fromEntries(
     PROVIDERS.map((p) => [p, PROVIDER_INFO[p].name]),
   ) as Record<Provider, string>;

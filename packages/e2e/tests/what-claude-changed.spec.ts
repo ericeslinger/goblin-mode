@@ -177,3 +177,41 @@ test('after a filing is put back, File it under… files the note under another 
       .getByRole('link', { name: 'Kiln log', exact: true }),
   ).toBeVisible({ timeout: 15_000 });
 });
+
+// The daily digest (#237, step 4 of #154): the top of What assistants
+// changed says yesterday in one line. A journey's records are all
+// today's, and the line says today so far when yesterday had nothing,
+// so that is what it checks; the push's switch and hour are kept in
+// Settings.
+test('the day in one line tops What assistants changed, and the digest push is kept', async ({
+  page,
+}) => {
+  await signInAs(page, OWNER);
+  await typeLines(page, ['Kiln log', 'Cone 6, slow cool.']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'New' }).click();
+
+  const call = await connectClaude(page);
+  const [kiln] = (await call('search_notes', { query: 'kiln' })) as { id: string }[];
+  await call('add_lines', { id: kiln.id, lines: ['Cone 6 again.', 'Shelf 3 held.'] });
+  await call('create_note', { title: 'Gift ideas', body: 'A kiln shelf for Sam.' });
+
+  await page.goto('/activity');
+  const digest = page.getByRole('region', { name: 'The day in one line' });
+  await expect(digest).toContainText('Today so far: 2 lines added to Kiln log, Gift ideas made.');
+  await expect(page.getByRole('list', { name: 'Changes' })).toContainText(
+    'Added 2 lines to Kiln log',
+  );
+
+  await page.goto('/settings');
+  const toggle = page.getByRole('switch', { name: 'A daily digest by push' });
+  const hour = page.getByRole('combobox', { name: 'Hour of the daily digest' });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await hour.selectOption('21');
+  await expect(toggle).toBeChecked();
+  await letItSave(page);
+  await page.reload();
+  await expect(toggle).toBeChecked();
+  await expect(hour).toHaveValue('21');
+});

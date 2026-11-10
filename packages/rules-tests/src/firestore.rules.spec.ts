@@ -390,6 +390,35 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     );
   });
 
+  it('keeps the daily digest switch in settings/assistant, a map only, the owner’s (#237)', async () => {
+    const ref = owner().doc('users/owner/settings/assistant');
+    const assistant = valid['users/owner/settings/assistant'];
+    const digest = { push: true, hour: 8, timeZone: 'America/New_York' };
+    await assertSucceeds(ref.set({ ...assistant(), digest }));
+    // A merge write beside the other switches, as the app makes it.
+    await assertSucceeds(
+      ref.set({ digest: { push: false, hour: 21 }, updatedAt: now() }, { merge: true }),
+    );
+    await assertSucceeds(
+      ref.set(
+        { digest: firebase.firestore.FieldValue.delete(), updatedAt: now() },
+        { merge: true },
+      ),
+    );
+    await assertFails(ref.set({ ...assistant(), digest: true }));
+    await assertFails(ref.set({ ...assistant(), digest: 8 }));
+    await assertFails(ref.set({ ...assistant(), digest: ['push'] }));
+    await assertFails(ref.set({ ...assistant(), digestSentFor: '2026-11-09' }));
+    await assertFails(
+      intruder()
+        .doc('users/owner/settings/assistant')
+        .set({ ...assistant(), digest }),
+    );
+    await seed('users/owner/settings/assistant', { ...assistant(), digest });
+    await assertFails(intruder().doc('users/owner/settings/assistant').get());
+    await assertFails(owner().doc('users/owner/usage/digest').set({ sentFor: '2026-11-09' }));
+  });
+
   it('lets the owner set and clear how a note takes new material, a known mode only (#231)', async () => {
     const note = valid['users/owner/notes/n1'];
     const ref = owner().doc('users/owner/notes/n1');

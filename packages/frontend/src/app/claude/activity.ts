@@ -8,7 +8,14 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { agentOf, canPutBack, paths, putBackId } from '@mossgoblin/schema';
+import {
+  agentOf,
+  canPutBack,
+  digestSentence,
+  paths,
+  putBackId,
+  yesterdayIn,
+} from '@mossgoblin/schema';
 import { type Firestore, collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
@@ -16,6 +23,7 @@ import { NotesService } from '../notes/notes.service';
 import { ProposalsService } from './proposals.service';
 import { PutBack } from './put-back';
 import { HomeLink } from '../home/home-link';
+import { NOW, TIME_ZONE } from '../platform/platform';
 
 /** A run as What assistants changed lists it; times in milliseconds. */
 export interface RunRecord {
@@ -26,8 +34,11 @@ export interface RunRecord {
   /** The tool, e.g. 'merge_notes'; 'put_back' for a put back (#154). */
   tool: string;
   summary: string;
-  /** `before`: the record kept the fields the run changed (#206), so it can be put back. */
-  notes: { id: string; title: string; before?: unknown }[];
+  /**
+   * `before`: the record kept the fields the run changed (#206), so it
+   * can be put back; `made`: the run made the note (#211).
+   */
+  notes: { id: string; title: string; made?: boolean; before?: unknown }[];
   reminders: { id: string; title: string }[];
 }
 
@@ -61,9 +72,10 @@ const millis = (v: unknown) => (v as { toMillis?: () => number } | undefined)?.t
 
 const touched = (v: unknown) =>
   Array.isArray(v)
-    ? v.map((t: { id?: unknown; title?: unknown; before?: unknown }) => ({
+    ? v.map((t: { id?: unknown; title?: unknown; made?: unknown; before?: unknown }) => ({
         id: String(t.id ?? ''),
         title: String(t.title ?? ''),
+        ...(t.made === true ? { made: true } : {}),
         ...(t.before && typeof t.before === 'object' ? { before: t.before } : {}),
       }))
     : [];
@@ -91,12 +103,31 @@ export function putBackState(runs: RunRecord[]): (run: RunRecord) => 'offer' | '
 }
 
 /**
+ * The digest line (#237, step 4 of #154): yesterday's gardening on the
+ * device's own clock, from the runs loaded; when yesterday had none,
+ * today's so far instead, labelled so; nothing when neither had any.
+ */
+export function digestLine(
+  runs: RunRecord[],
+  now: number,
+  timeZone: string,
+  isProject: (id: string) => boolean,
+): string | undefined {
+  const day = yesterdayIn(now, timeZone);
+  return (
+    digestSentence(runs, { from: day.from, to: day.to, isProject }) ??
+    digestSentence(runs, { from: day.to, to: now + 1, label: 'Today so far', isProject })
+  );
+}
+
+/**
  * What assistants changed (#34, renamed in #142): every run of a tool
  * by an assistant that wrote
  * something, newest first, each linking the notes it touched and their
  * History, so any change can be read and put back, and Put back to undo
  * a run in one tap (#154 step 1). Above it, the nightly run's
- * suggestions (#35), to accept or dismiss.
+ * suggestions (#35), to accept or dismiss, and above those the day in
+ * one line (#237).
  */
 @Component({
   selector: 'app-activity',
@@ -105,6 +136,12 @@ export function putBackState(runs: RunRecord[]): (run: RunRecord) => 'offer' | '
     <main class="page">
       <app-home-link />
       <h1>What assistants changed</h1>
+      @if (digest(); as line) {
+        <section aria-labelledby="digest" class="digest">
+          <h2 id="digest" class="visually-hidden">The day in one line</h2>
+          <p>{{ line }}</p>
+        </section>
+      }
       @if (proposals.shown().length) {
         <section aria-labelledby="suggestions">
           <h2 id="suggestions">Suggestions</h2>
@@ -259,6 +296,10 @@ export function putBackState(runs: RunRecord[]): (run: RunRecord) => 'offer' | '
       color: var(--on-accent);
       background: var(--accent);
     }
+    .digest p {
+      margin: 0 0 var(--space-2);
+      color: var(--quiet);
+    }
     .runs > li {
       padding: var(--space-2) 0;
       border-bottom: var(--border) solid var(--rule);
@@ -295,6 +336,17 @@ export class Activity {
   protected readonly runs = signal<RunRecord[]>([]);
   protected readonly loaded = signal(false);
   protected readonly putBack = computed(() => putBackState(this.runs()));
+  private readonly now = inject(NOW);
+  private readonly timeZone = inject(TIME_ZONE);
+  /** Yesterday in one line (#237), or today's so far; read when the runs change. */
+  protected readonly digest = computed(() =>
+    digestLine(
+      this.runs(),
+      this.now(),
+      this.timeZone,
+      (id) => this.notes.find(id)?.conceptType === 'project',
+    ),
+  );
 
   constructor() {
     let stop: (() => void) | undefined;

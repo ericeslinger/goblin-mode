@@ -735,6 +735,19 @@ export const AssistantSettings = z.object({
       tags: z.array(z.string()),
     })
     .optional(),
+  /**
+   * The daily digest by push (#237, step 4 of #154, 2026-11-09):
+   * yesterday's line from What assistants changed, pushed at `hour`
+   * (0 to 23) on the clock in `timeZone`, the device's IANA zone when
+   * the switch was set (UTC when absent). Off when absent.
+   */
+  digest: z
+    .object({
+      push: z.boolean(),
+      hour: z.number().int().min(0).max(23),
+      timeZone: z.string().min(1).optional(),
+    })
+    .optional(),
   updatedAt: Timestamp,
 });
 export type AssistantSettings = z.infer<typeof AssistantSettings>;

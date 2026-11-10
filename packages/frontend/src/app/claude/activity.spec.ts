@@ -5,6 +5,7 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
+import { NOW, TIME_ZONE } from '../platform/platform';
 import {
   FakeAuthService,
   FakeModules,
@@ -13,12 +14,15 @@ import {
   fakeFirebase,
   noteRecord,
 } from '../testing/fakes';
-import { ACTIVITY_API, Activity, type ActivityApi } from './activity';
+import { ACTIVITY_API, Activity, type ActivityApi, digestLine, toRun } from './activity';
 import { type ProposalRecord, ProposalsService } from './proposals.service';
 
 const at = (ms: number) => ({ toMillis: () => ms });
 
-async function render(suggestions: ProposalRecord[] = []) {
+// Long after the runs below, so no digest shows unless a spec asks.
+const LATER = Date.parse('2026-12-01T15:00:00Z');
+
+async function render(suggestions: ProposalRecord[] = [], now = LATER) {
   let push: Parameters<ActivityApi['listen']>[2] = () => undefined;
   const api = {
     listen: vi.fn((_db, _path, next) => {
@@ -32,6 +36,7 @@ async function render(suggestions: ProposalRecord[] = []) {
   notes.signIn([
     { ...noteRecord('m1', 'Kiln log, merged'), title: 'Kiln log' },
     { ...noteRecord('a', 'Firing notes'), archived: true },
+    { ...noteRecord('p', 'Pottery'), kind: 'concept', conceptType: 'project' },
   ]);
   const proposals = new FakeProposals();
   proposals.list.set(suggestions);
@@ -45,6 +50,8 @@ async function render(suggestions: ProposalRecord[] = []) {
       { provide: NotesService, useValue: notes },
       { provide: ModulesService, useValue: new FakeModules() },
       { provide: ProposalsService, useValue: proposals },
+      { provide: NOW, useValue: () => now },
+      { provide: TIME_ZONE, useValue: 'America/New_York' },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Activity);
@@ -254,6 +261,65 @@ describe('Activity', () => {
     expect(proposals.accept).toHaveBeenCalledWith('p1');
     expect(proposals.dismiss).toHaveBeenCalledWith('p1');
     expect(items[1].querySelector('button')).toBeNull();
+  });
+
+  it("says yesterday's gardening in one line above the changes, not today's (#237)", async () => {
+    // 2026-11-09 09:00 in New York.
+    const { el, push } = await render([], Date.parse('2026-11-09T14:00:00Z'));
+    const run = (id: string, iso: string, tool: string, summary: string, notes: object[]) => ({
+      id,
+      data: { at: at(Date.parse(iso)), tool, summary, notes, reminders: [] },
+    });
+    await push([
+      // Today, on New York's clock: not in yesterday's line.
+      run('t1', '2026-11-09T06:00:00Z', 'create_note', 'Wrote a new note', [
+        { id: 'n', title: 'Today', made: true },
+      ]),
+      run('y3', '2026-11-09T04:00:00Z', 'link_notes', 'Linked a note to 1 other', [
+        { id: 'g', title: 'Glazes' },
+        { id: 'p', title: 'Pottery' },
+      ]),
+      run('y2', '2026-11-08T15:00:00Z', 'add_lines', 'Added 2 lines to Kiln log', [
+        { id: 'm1', title: 'Kiln log' },
+      ]),
+      run('y1', '2026-11-08T06:00:00Z', 'create_note', 'Wrote a new note', [
+        { id: 'x', title: 'Gift ideas', made: true },
+      ]),
+      // The day before yesterday.
+      run('old', '2026-11-08T04:00:00Z', 'create_note', 'Wrote a new note', [
+        { id: 'o', title: 'Older', made: true },
+      ]),
+    ]);
+    const digest = el.querySelector('section.digest')!;
+    expect(digest.getAttribute('aria-labelledby')).toBe('digest');
+    expect(digest.querySelector('h2')?.textContent).toBe('The day in one line');
+    expect(digest.querySelector('p')?.textContent?.trim()).toBe(
+      'Yesterday: 1 note filed under Pottery, 2 lines added to Kiln log, Gift ideas made.',
+    );
+    // Above the list.
+    expect(
+      digest.compareDocumentPosition(el.querySelector('.runs')!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('says today so far when yesterday had nothing, and nothing when neither had', async () => {
+    const now = Date.parse('2026-11-09T14:00:00Z');
+    const runs = [
+      toRun('t1', {
+        at: at(Date.parse('2026-11-09T13:00:00Z')),
+        tool: 'put_back',
+        summary: 'Put back “x”',
+        notes: [{ id: 'a', title: 'A' }],
+      }),
+    ];
+    const no = () => false;
+    expect(digestLine(runs, now, 'America/New_York', no)).toBe(
+      'Today so far: you put back 1 change.',
+    );
+    expect(digestLine([], now, 'America/New_York', no)).toBeUndefined();
+    const { el, push } = await render([], now);
+    await push([]);
+    expect(el.querySelector('section.digest')).toBeNull();
   });
 
   it('shows no Suggestions heading when there are none', async () => {
