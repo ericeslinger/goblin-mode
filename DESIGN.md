@@ -2884,6 +2884,59 @@ at an hour Eric picks.
 - **Rules.** `digest` is checked as a map, as other maps are; the
   push's state lives in `usage`, which no client may write.
 
+**Diff view (#241, step 5 of #154, 2026-11-10).** Under a run in What
+assistants changed, each note whose text the run wrote offers Show
+changes: a disclosure (a button with `aria-expanded`, the panel a
+region named "Changes to" the note's title) holding the text before
+the run and after it, the changed lines marked. It only reads; Put
+back stays the way to undo.
+
+- **Which notes.** Those the run wrote text to (`changesText`, in
+  `claude/run-changes.ts`), read from the record as Put back reads it:
+  a merge's merged note, not its originals; a link's note, not its
+  targets; a filing or a finished queue item only where its record
+  kept the hash of the text it rewrote (`before.body`, #206); no
+  archive, nor an `update_note` whose summary says no text; a note the
+  run made always.
+- **Before.** Nothing for a note the run made (`made`, #211): the view
+  says "New in this run." and shows its text as added. Otherwise the
+  version History kept whose `textHash` is the one the run named: its
+  record's `before.body` where it has one, else the note's own
+  `baseHash` while the run's write is still the note's last. Without a
+  hash, or with one History no longer holds, the latest version
+  written before the run that is not the run's own (an assistant's
+  write, by the run's agent, within the 5 seconds Put back allows,
+  `RUN_SLACK_MS`); when a hash was named and missed, the view says the
+  version is the one kept just before, not the exact text. With no
+  version at all and the note made at the run's time, it reads as
+  made; otherwise the view says History has no version from before
+  the run, and shows the after unmarked.
+- **After.** The note as it is now, while nothing has written it
+  since the run (its `updatedAt` no later than the run's, give or take
+  that slack). Otherwise the run's own text, if History kept it when a
+  later write replaced it; else the next version it kept after the
+  run, or the note now, each said so, since either can hold later
+  edits. A note gone with nothing kept says so.
+- **Where it reads.** History through the `HISTORY_API` listener the
+  History screen uses (its latest 50 versions, from the persistent
+  cache when offline), started when the panel opens and stopped when
+  it closes; the note from `NotesService`, which now keeps the stored
+  `baseHash`. History's rules already let the owner read it. Versions
+  are never pruned (2026-10-06), but past the 50 read the view says to
+  open History for more.
+- **The diff.** `lineDiff` (schema, `diff.ts`): the lines both texts
+  share at the start and end, then an LCS on the rest, a changed line
+  reading as removed then added. A middle over a million cells
+  (`MAX_DIFF_CELLS`) is shown whole, removed then added, and the view
+  says so. Identical texts say "The text did not change."
+- **The view.** Before and After side by side from 600px wide, one
+  above the other below (CSS grid). Removed lines are `del` on the
+  before side, added lines `ins` on the after side, each tinted and
+  with a "−" or "+" mark and a visually hidden "Removed:" or "Added:",
+  so colour is never the only cue. The panel fades in over `--motion`,
+  and not at all under `prefers-reduced-motion`. No stored schema or
+  rules changed.
+
 **Nightly suggestions (#35, 2026-10-07; a Claude routine, Eric,
 2026-10-07).** A Claude routine on Eric's subscription, not a
 scheduled function calling the API: billing comes from his plan. The

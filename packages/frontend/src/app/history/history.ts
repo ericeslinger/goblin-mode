@@ -57,7 +57,7 @@ export const HISTORY_API = new InjectionToken<HistoryApi>('history-api', {
 
 const millis = (v: unknown) => (v as { toMillis?: () => number } | undefined)?.toMillis?.();
 
-function toVersion(id: string, data: Record<string, unknown>): VersionRecord {
+export function toVersion(id: string, data: Record<string, unknown>): VersionRecord {
   return {
     id,
     body: String(data['body'] ?? ''),

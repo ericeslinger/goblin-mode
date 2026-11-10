@@ -10,7 +10,8 @@ import { OWNER } from '../src/personas';
 // included (#206). After a filing is put back, File it under… files the
 // note under the project Eric picks, as a change of his own (#235). Each
 // correction leaves a line under Corrections in Context for Claude, which
-// the next run reads (#239).
+// the next run reads (#239). Show changes opens the text before a change
+// and after it, the changed lines marked (#241).
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -234,4 +235,63 @@ test('the day in one line tops What assistants changed, and the digest push is k
   await page.reload();
   await expect(toggle).toBeChecked();
   await expect(hour).toHaveValue('21');
+});
+
+test('Show changes opens the before and after of a note a change wrote, added lines marked', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signInAs(page, OWNER);
+  await typeLines(page, ['Glaze tests', 'Celadon on porcelain.']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'New' }).click();
+
+  const call = await connectClaude(page);
+  const [glaze] = (await call('search_notes', { query: 'celadon' })) as { id: string }[];
+  await call('add_lines', { id: glaze.id, lines: ['- tenmoku next', '- shino after'] });
+  // noteHistory runs in the emulator: wait until it kept the text it replaced.
+  await page.goto(`/history?note=${glaze.id}`);
+  await expect(
+    page.getByRole('list', { name: 'Earlier versions' }).getByRole('button', { name: /Celadon/ }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  await page.goto('/activity');
+  const changes = page.getByRole('list', { name: 'Changes' });
+  const show = changes.getByRole('button', { name: 'Show changes: Glaze tests' });
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await show.click();
+  await expect(show).toHaveAttribute('aria-expanded', 'true');
+  const panel = page.getByRole('region', { name: 'Changes to Glaze tests' });
+  const before = panel.getByRole('group', { name: 'Before' });
+  const after = panel.getByRole('group', { name: 'After' });
+  // The added lines are marked added, in words as well as colour; his
+  // line is kept on both sides.
+  await expect(after.locator('ins')).toHaveText([
+    '+Added: - tenmoku next',
+    '+Added: - shino after',
+  ]);
+  await expect(after).toContainText('The note now');
+  await expect(after).toContainText('Celadon on porcelain.');
+  await expect(before).toContainText('Kept in History');
+  await expect(before).toContainText('Celadon on porcelain.');
+  await expect(before).not.toContainText('tenmoku');
+  await expect(panel.locator('del')).toHaveCount(0);
+
+  // On a phone the two sides stack, before above after.
+  const top = await before.boundingBox();
+  const below = await after.boundingBox();
+  expect(top && below && below.y >= top.y + top.height).toBe(true);
+
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+  expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+
+  // It only reads: closing it changes nothing.
+  await show.click();
+  await expect(panel).toHaveCount(0);
+  await page.goto(`/n/${glaze.id}`);
+  // The live preview draws the list marker as a bullet.
+  await expect(note(page)).toContainText('shino after');
 });

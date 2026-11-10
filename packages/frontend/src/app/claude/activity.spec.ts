@@ -126,6 +126,12 @@ describe('Activity', () => {
       ['History of Firing notes', '/history?note=a'],
     ]);
     expect(runs[0].textContent).toContain('archived');
+    // Show changes (#241) for the note the merge wrote, not its original.
+    expect(
+      [...runs[0].querySelectorAll('app-run-changes button')].map((b) =>
+        b.getAttribute('aria-label'),
+      ),
+    ).toEqual(['Show changes: Kiln log']);
     expect(runs[1].querySelector('a')?.getAttribute('href')).toBe('/right-now');
     expect(runs[1].textContent).toContain('Water seeds');
   });

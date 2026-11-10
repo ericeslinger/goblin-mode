@@ -22,6 +22,7 @@ import { FIREBASE } from '../firebase';
 import { NotesService } from '../notes/notes.service';
 import { ProposalsService } from './proposals.service';
 import { PutBack } from './put-back';
+import { RunChanges, changesText } from './run-changes';
 import { HomeLink } from '../home/home-link';
 import { NOW, TIME_ZONE } from '../platform/platform';
 
@@ -125,13 +126,14 @@ export function digestLine(
  * by an assistant that wrote
  * something, newest first, each linking the notes it touched and their
  * History, so any change can be read and put back, and Put back to undo
- * a run in one tap (#154 step 1). Above it, the nightly run's
+ * a run in one tap (#154 step 1). Each note whose text a run wrote can
+ * show its changes, before and after (#241). Above it, the nightly run's
  * suggestions (#35), to accept or dismiss, and above those the day in
  * one line (#237).
  */
 @Component({
   selector: 'app-activity',
-  imports: [HomeLink, RouterLink, PutBack],
+  imports: [HomeLink, RouterLink, PutBack, RunChanges],
   template: `
     <main class="page">
       <app-home-link />
@@ -236,7 +238,7 @@ export function digestLine(
               }
               @if (run.notes.length) {
                 <ul class="touched" [attr.aria-label]="'Notes: ' + run.summary">
-                  @for (n of run.notes; track n.id) {
+                  @for (n of run.notes; track n.id; let i = $index) {
                     <li>
                       <a [routerLink]="['/n', n.id]">{{ title(n) }}</a>
                       @if (archived(n.id)) {
@@ -245,6 +247,9 @@ export function digestLine(
                       <a routerLink="/history" [queryParams]="{ note: n.id }" class="muted"
                         >History<span class="visually-hidden"> of {{ title(n) }}</span></a
                       >
+                      @if (changesText(run, i)) {
+                        <app-run-changes [run]="run" [note]="n" [title]="title(n)" />
+                      }
                     </li>
                   }
                 </ul>
@@ -374,6 +379,8 @@ export class Activity {
   protected title(n: { id: string; title: string }): string {
     return this.notes.find(n.id)?.title || n.title || 'Untitled';
   }
+
+  protected readonly changesText = changesText;
 
   protected archived(id: string): boolean {
     return this.notes.find(id)?.archived === true;

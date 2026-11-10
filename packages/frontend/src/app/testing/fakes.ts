@@ -33,6 +33,7 @@ import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
 import type { ProposalRecord } from '../claude/proposals.service';
 import type { NoteRecord, NotesService } from '../notes/notes.service';
 import type { Transcription } from '../attachments/attachments.service';
+import type { HistoryApi } from '../history/history';
 
 export function fakeFirebase(usingEmulators: boolean): FirebaseHandles {
   return {
@@ -215,6 +216,30 @@ export class FakeKeys {
   readonly keys = signal<Record<string, { masked: string; broken: boolean }> | undefined>({});
   save = vi.fn(async (_provider: string, _key: string) => ({ masked: 'sk-ant-…0123' }));
   remove = vi.fn(async (_provider: string) => undefined);
+}
+
+/**
+ * A stand-in HistoryApi (#241): each note's kept versions by path,
+ * answered when a listener starts; `fail` makes the next start error.
+ */
+export class FakeHistoryApi implements HistoryApi {
+  readonly versions = new Map<string, { id: string; data: Record<string, unknown> }[]>();
+  fail: Error | undefined;
+  readonly stops: ReturnType<typeof vi.fn>[] = [];
+  listen = vi.fn(
+    (
+      _db: unknown,
+      path: string,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+      error: (err: unknown) => void,
+    ) => {
+      if (this.fail) error(this.fail);
+      else next(this.versions.get(path) ?? []);
+      const stop = vi.fn();
+      this.stops.push(stop);
+      return stop;
+    },
+  );
 }
 
 /** A stand-in RunsService: starts nothing, watches nothing (#144 step 3). */
