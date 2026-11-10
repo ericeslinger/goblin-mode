@@ -37,6 +37,8 @@ export class ModulesService {
   readonly kitchen = computed(() => moduleOn(this.stored(), 'kitchen'));
   /** Reader: feeds in folders, read in the app (#159). */
   readonly reader = computed(() => moduleOn(this.stored(), 'reader'));
+  /** Podcasts: shows, their newest episodes, the player (#245); follows the Reader until set. */
+  readonly podcasts = computed(() => moduleOn(this.stored(), 'podcasts'));
   /** Kitchen's configuration (#129): week start, meals, the fish's day. */
   readonly kitchenConfig = computed(() => kitchenConfig(this.stored()?.kitchen?.config));
   /** Whether the stored settings have been read, so a plan is made to them. */

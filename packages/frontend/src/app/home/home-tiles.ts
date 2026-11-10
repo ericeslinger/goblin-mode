@@ -10,7 +10,15 @@ import { LocalStore } from '../platform/local-store';
 export const HOME_TILES_KEY = 'goblin.homeTiles';
 
 /** Every tile, in the fixed default order a missing one joins in. */
-export const TILE_IDS = ['notes', 'kitchen', 'reader', 'reading', 'assistants', 'map'] as const;
+export const TILE_IDS = [
+  'notes',
+  'kitchen',
+  'reader',
+  'podcasts',
+  'reading',
+  'assistants',
+  'map',
+] as const;
 
 export interface Arrangement {
   /** Tile ids in the order chosen; a tile not in it joins at the end. */

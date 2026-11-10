@@ -93,8 +93,6 @@ export interface FeedUpdate {
   error: string | null;
   lastItemAt?: number;
   dead?: boolean;
-  /** Set once the feed's items carry audio (#178); never cleared. */
-  kind?: 'podcast';
 }
 
 export interface RefreshStore {
@@ -267,9 +265,8 @@ export async function refreshFeed(
     errorCount: 0,
     error: null,
     ...(newest ? { lastItemAt: newest } : {}),
-    // A feed whose stored items carry audio is a podcast (#178); one
-    // that stops is still one, so this is never cleared.
-    ...(items.some((i) => i.enclosure) ? { kind: 'podcast' as const } : {}),
+    // No kind: whether a feed is a podcast is the gardener's, by where
+    // it was added or moved (#245, Eric 2026-11-10), never the audio's.
   });
   return { outcome: fresh.length ? 'new' : 'unchanged', added: fresh.length };
 }

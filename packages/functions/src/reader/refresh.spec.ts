@@ -124,7 +124,7 @@ describe('refreshFeed (#161)', () => {
     );
   });
 
-  it('writes an episode’s audio, artwork and number, and marks the feed a podcast (#178)', async () => {
+  it('writes an episode’s audio, artwork and number, and leaves the feed’s kind alone (#178, #245)', async () => {
     const s = store([feedItemId('f-1', 'ep-1')]);
     const episode = (guid: string, hoursAgo: number, n: number) =>
       `<item><title>${guid}</title><guid>${guid}</guid><pubDate>${new Date(NOW - hoursAgo * H).toUTCString()}</pubDate><enclosure url="https://cdn.example/${guid}.mp3" type="audio/mpeg" length="1000"/><itunes:duration>42:00</itunes:duration><itunes:image href="https://cdn.example/${guid}.jpg"/><itunes:episode>${n}</itunes:episode></item>`;
@@ -143,13 +143,14 @@ describe('refreshFeed (#161)', () => {
       image: 'https://cdn.example/ep-2.jpg',
       episode: 2,
     });
-    expect(s.updateFeed.mock.calls[0][2]).toMatchObject({ kind: 'podcast' });
-    // Nothing new, still a podcast: the stored episodes say so.
+    // Whether it is a podcast is the gardener's, by where it was added
+    // (#245, 2026-11-10): the fetcher never says, audio or not.
+    expect(s.updateFeed.mock.calls[0][2]).not.toHaveProperty('kind');
     const again = store([feedItemId('f-1', 'ep-1'), feedItemId('f-1', 'ep-2')]);
     await refreshFeed({ store: again, fetch: ok(pod), now: () => NOW }, feed);
     expect(again.writeItems).not.toHaveBeenCalled();
-    expect(again.updateFeed.mock.calls[0][2]).toMatchObject({ kind: 'podcast' });
-    // An article feed is no podcast, and its items carry none of the fields.
+    expect(again.updateFeed.mock.calls[0][2]).not.toHaveProperty('kind');
+    // An article feed's items carry none of the fields.
     const plain = store();
     await refreshFeed({ store: plain, fetch: ok(RSS(item('a', 1))), now: () => NOW }, feed);
     expect(plain.updateFeed.mock.calls[0][2]).not.toHaveProperty('kind');

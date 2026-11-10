@@ -71,7 +71,9 @@ users/{uid}
                               digest { push, hour, timeZone } (#237)
   activity/{runId}            "What Claude changed" records
   runs/{runId}                the garden's own agent runs (#144 step 3)
-  feeds/{feedId}              feeds followed, id from the URL (#159)
+  feeds/{feedId}              feeds followed, id from the URL (#159);
+                              kind (Podcasts) and autoQueue are the
+                              gardener's (#245)
   feedItems/{itemId}          their articles, fetcher-written (#159)
   usage/{day}                 a day's metered calls, server-only;
                               usage/digest the last digest pushed (#237)
@@ -930,7 +932,8 @@ the Reader, linking to `/right-now`) and a two-column grid of tiles,
 each an icon, a name and a line on how it stands: Notes (what Browse's
 Recent counts, and how many were written in today), Kitchen (tonight's
 dinner from this week's plan, what the grocery list has open), Reader
-(unread, and unread episodes), Reading queue, Assistants (open
+(unread, and unread episodes; since #245 unread only, with Podcasts a
+tile of its own), Reading queue, Assistants (open
 suggestions, runs today) and Map. A module that is off has no tile;
 the order is fixed until step 2 makes it arrangeable. The box does not
 fork the editor: it is a link to `/`, so the capture flow, the pending
@@ -1005,7 +1008,9 @@ times, last <date>" from the plans' made history) and On hand
 note page draws the tabs over a week's plan, the pantry and a grocery
 list. The Reader's: All (`/reader`, which now opens on All; unread
 count), Saved (`/reader/f/saved`), Podcasts (`/reader/f/podcasts`,
-unread episodes, once a feed is one) and Folders (`/reader/folders`,
+unread episodes, once a feed is one; gone since 2026-11-10, #245, for
+the Podcasts module's own Latest and Shows) and Folders
+(`/reader/folders`,
 the old front: Refresh, Continue listening and the folders). A
 folder's or a feed's shelf (`/reader/f/<folder>`, `/reader/s/<id>`)
 keeps Folders as the current tab, with a link back to Folders and the
@@ -1040,7 +1045,10 @@ notes stay notes, their text and links untouched. Claude is told which
 modules are on when a connection initializes, and the tools refuse a
 write that belongs to one switched off (`create_concept` or `refile`
 on a project, `capture`, a task's stage or tags), saying it is off in
-Settings, Modules.
+Settings, Modules. The modules are Projects, Kitchen (#125), the
+Reader (#159) and, since 2026-11-10, Podcasts (#245), which follows
+the Reader's switch until it is switched itself (Podcasts, a module
+of its own, below).
 
 **Recipes (#127, Eric, 2026-10-18; epic #125, Kitchen module).** A
 recipe is a note of kind `recipe`, its name Eric's own (`titleSource:
@@ -1734,7 +1742,10 @@ glyph, and Manage feeds says "podcast" in a podcast's meta line.
 step 2 is the player, the mini-player and the listening position on
 the item, synced across devices (a rules change); step 3 is offline
 downloads through the Worker; the play glyph is decorative until step
-2 (#177).
+2 (#177). **Changed 2026-11-10 (#245, Eric's decision):** the fetcher
+no longer sets `kind`, and the Podcasts shelf is gone; a feed is a
+podcast by where it was added or moved. See Podcasts, a module of its
+own, below.
 
 **Podcasts, step 2: the player, and the place synced (#179, epic
 #177, 2026-11-07).** `PlayerService` keeps one `<audio>` for the whole
@@ -1900,7 +1911,150 @@ and the Worker wants Google-signed tokens, so the journey answers
 ranges included, and checks that a Bearer token was sent. The proxy's
 token check, address checks, redirects and header shaping are covered
 by `episode.spec.ts` (keys made in the spec, a fake fetch), not by a
-journey; automatic downloads and the cap are unit specs.
+journey; automatic downloads and the cap are unit specs. Since #245
+the player's and the downloads' journeys are `podcasts.spec.ts`, and
+reach the episode through `/podcasts`.
+
+### Podcasts, a module of its own (#244, step 1 #245, 2026-11-10)
+
+Eric, 2026-11-10: "The podcast interface is good (I love that the
+player is present when I'm on other screens), but mixing podcasts
+with the rest of the feed doesn't quite work - text feed is read once
+and mark read, only look at unread. Podcast feed is both newest (but
+you might read the text from the feed and want the entry to remain in
+new until you listen to it) and frequently by feed." So podcasts left
+the Reader for a module of their own, built in steps: the module,
+Add a podcast, Move and Latest (#245); the Shows grid with the feeds'
+artwork (step 2); the queue (step 3); an OPML import of podcasts
+(step 4). The approved design is a set of phone mockups (Latest, an
+episode, Add, a show's More, and Shows, Folders, a show and the
+Queue for the later steps).
+
+**His decisions (2026-11-10).**
+
+- **Two imports, nothing moves by itself.** "We should mostly just
+  have two imports with no auto moving." A feed is a podcast because
+  it was added in Podcasts or moved there, never because its items
+  carry audio: a mostly-text feed with some audio stays in the Reader,
+  where its episodes keep their player on the article page as before.
+  "User should be able to send a feed from the reader to the podcast
+  list (or vice versa) if they misfile something": Move to the Reader
+  on a show's More, Move to Podcasts on each feed in the Reader's
+  Manage feeds.
+- **New until heard.** An episode is New until it is heard: Started
+  once a place past the start is kept (`position` above 0, not
+  `played`), Heard once `played`. Only listening changes them. `read`
+  on an episode now means its notes were read, and changes none of
+  the three: such a row reads "New, notes read". Opening an episode's
+  page in Podcasts marks its notes read and nothing else, which
+  reverses #179's rule that opening an episode reads nothing (there,
+  read meant heard); the Reader's article page keeps #179's rule for
+  a Reader feed's episodes.
+- **The queue switch is on Add, off by default.** "New episodes join
+  the queue setting should be on the add feed UI (when adding the
+  atom/rss to follow the show), default off." It is stored on the
+  feed as `autoQueue`; the queue itself is step 3, which acts on it.
+
+**What changed from #178.** #178 had the fetcher set `Feed.kind:
+'podcast'` once a look found audio among the feed's items, never
+unset, and the Reader showed those feeds' episodes on a Podcasts
+shelf. Since 2026-11-10 the fetcher never writes `kind` (by Eric's
+decision above, reversing #178's rule): `kind` is the gardener's,
+written by Add a podcast and by the two Moves, through the persistent
+cache like every feed write, and the fetcher's `update` merges, so it
+never clears it. Feeds already `podcast` stay so, with no migration:
+for Eric they are the shows he follows, now in Podcasts. The Reader
+drops the Podcasts shelf and tab and lists no podcast feed's items
+anywhere: not on All, Saved, a folder or a feed's shelf, in no unread
+count, not in Continue listening (now the Reader's own items with
+audio), not in the Reader's search results (filtered on the device,
+so a search can show fewer than its twenty), and not in Right Now's
+"new in the Reader" line. Its folders and Manage feeds are the
+Reader's feeds only. The folder name Podcasts stays reserved (#185),
+so a Reader folder never reads as the module. A Reader feed's Home
+tile says only how many are unread.
+
+**The module.** `podcasts` in `MODULES`. Its default cannot be "on
+when a podcast feed is followed" without reading the feeds, so it
+follows the Reader: until switched itself, Podcasts is on exactly when
+the Reader is (`follows: 'reader'`, read by `moduleOn`, the app's and
+the functions' alike). So whoever had podcasts in the Reader keeps
+them, nobody else gets a module they never asked for, and once
+switched in Settings, Modules it is its own. The feeds' and articles'
+listeners run while either module is on. It has a Home tile (a pair
+of headphones in `app-icon`, "N new · M started"), arrangeable like
+the others (`podcasts` in `TILE_IDS`, after the Reader), a Start on
+choice (`podcasts`, falling back to Home while off), a link in
+Browse, and its switch in Settings, Modules. The
+download settings moved from Settings, Reader to a Downloads section
+of their own, shown while either module is on.
+
+**Screens.** `/podcasts` is Latest under the module's tabs
+(`app-podcasts-bar`: the leaf, Downloads and Add a podcast as named
+icons, then the tabs Latest, with how many are new, and Shows). Queue
+has no tab until step 3 builds it. Latest lists the newest episodes
+of every show, each with its artwork (the episode's `image`, else its
+show's initials on a square tinted with `--second` by its id, and the
+initials when images are off), title, state, show, age and length,
+and Play on the app's one player; the one playing shows Pause and the
+time left, as does one with a place kept. New, Started and All filter
+it, with counts. Shows (`/podcasts/shows`) is, until step 2's grid,
+the shows by name, each with its episodes and how many are new,
+opening that show's episodes in the same list (`/podcasts/s/<id>`,
+under the Shows tab, where its Keep downloaded choice now lives, moved
+from Manage feeds), with Refresh, and a More on each: Move to the
+Reader ("for a feed that is mostly writing") and Unfollow. An
+episode's page (`/podcasts/e/<id>`) has its artwork, show, title and
+state, the player's full controls (`app-episode-player`, shared with
+the Reader's article page), Mark as heard or Mark as new (`played`;
+new also clears the place), Download, File in the garden (the
+clipping, #163) and Open the page, and the show notes, the item's
+content rendered and sanitized as an article is, under "From <show>'s
+feed". The mini-player and Downloads open an episode in Podcasts for a
+show and in the Reader for a feed of its own, and the mini-player
+yields on either page. Downloads stays at `/reader/downloads`, linked
+from both headers.
+
+**Add a podcast** (`/podcasts/add`): the show's feed or its site, Find
+the feed (the Reader's discovery, #174, whose answer now also carries
+`episodes`, how many of a feed's items carry audio), the feeds found
+with their names and episode counts, a folder (free text, the shows'
+folders offered), and New episodes join the queue, off. Follow writes
+the feed with `kind: 'podcast'` and `autoQueue`, offline too; without
+a look the link is followed as typed, named by its host until the
+server looks. A feed already followed is not moved: Add says it is in
+the Reader and where to move it from. The Reader's own Follow and
+import never set `kind`. "Import a list of podcasts (OPML)" waits for
+step 4.
+
+**Episodes at hand.** The Reader's listeners hold the newest thousand
+unread, two hundred read and the saved, so an episode whose notes
+were read could fall out of reach before it is heard. Each show in
+Podcasts gets a listener of its own on its newest 100 episodes, read
+or not (`feedId ==`, `published desc`; a composite index), started
+and stopped as shows are followed, moved and unfollowed.
+
+**Schema and rules.** `Feed.autoQueue` (boolean, optional), and
+`kind`'s comment says it is the gardener's; `ModuleSettings.podcasts`
+and the Start on choice `podcasts`. The validators are regenerated;
+the rules tests cover setting and clearing `kind`, `autoQueue` on and
+off, wrong types and an intruder. The feedItems rules need no change:
+Mark as heard and Mark as new write `played` and `position`, which the
+owner could already write (#179).
+
+**The assistant's side.** `list_feed_items`, `get_feed_item` and
+`search_feed_items` say `podcast: true` on an item of a show in
+Podcasts, and `list_feed_items` takes `podcasts`: false lists only the
+Reader's own articles, true only the episodes, a filter over the
+newest thousand as `tag` is. The text stays labelled `fromWeb`.
+
+**Journeys** (`podcasts.spec.ts`): Podcasts switched on alone, a
+podcast added by its address and its episodes in Latest, an episode
+opened and back to "New, notes read", one played from its row to
+Started, the show moved to the Reader and back, and the Reader with
+no Podcasts shelf; the player across a reload and another device; and
+downloads played offline. `reader.spec.ts` checks that a feed with
+audio followed in the Reader stays there.
 
 ## Themes (#23, 2026-10-06)
 
@@ -2355,9 +2509,9 @@ it, one backticked tool name per row.
 | `capture` | Files chat words under a project, verbatim ("garden this"): an idea or question as its own note, a decision as a dated line | Garden this (#42, #119) |
 | `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
-| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a `tag` (a Feedly board, #176) narrows any of these, and an article carries its `tags`; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179) | The Reader, step 4 (#163), Feedly's export (#176) |
-| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179) | The Reader, step 4 (#163) |
-| `search_feed_items` | Articles holding every word of a query, with snippets (and an episode's `enclosure`, #178): across every article by the word index, the last `days` only when asked (#175; a query of only stop words, or one the index finds nothing for, scans the last 30 days; `{ items, truncated: true }` when older ones were not all searched, review on #197) | The Reader, step 4 (#163); the index (#175) |
+| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a `tag` (a Feedly board, #176) narrows any of these, and an article carries its `tags`; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179); `podcast: true` on an item of a show in Podcasts, and `podcasts` false for the Reader's own articles only, true for the episodes only (#245) | The Reader, step 4 (#163), Feedly's export (#176), Podcasts (#245) |
+| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179), and `podcast: true` for a show in Podcasts (#245) | The Reader, step 4 (#163) |
+| `search_feed_items` | Articles holding every word of a query, with snippets (and an episode's `enclosure`, #178, and `podcast: true` for a show in Podcasts, #245): across every article by the word index, the last `days` only when asked (#175; a query of only stop words, or one the index finds nothing for, scans the last 30 days; `{ items, truncated: true }` when older ones were not all searched, review on #197) | The Reader, step 4 (#163); the index (#175) |
 | `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |
 | `search_attachments` | Full-text search across every PDF and saved page | Attachment text, server half (#45) |

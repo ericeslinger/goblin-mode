@@ -119,7 +119,7 @@ function setup(readOnScroll: boolean, folder?: string) {
     window.dispatchEvent(new Event('touchmove'));
     window.dispatchEvent(new Event('scroll'));
   };
-  return { fixture, el, items, api, settings, leave, back, look, move, status };
+  return { fixture, el, items, api, feeds, settings, leave, back, look, move, status };
 }
 
 describe('ReaderList, mark read on scroll (#172)', () => {
@@ -278,7 +278,7 @@ describe('ReaderList, a folder seen (#173)', () => {
   });
 
   it('notes nothing for a shelf that is no folder of the feeds', () => {
-    const { settings } = setup(false, 'podcasts');
+    const { settings } = setup(false, 'Listening');
     expect(settings.set).not.toHaveBeenCalled();
   });
 });
@@ -289,9 +289,34 @@ describe('ReaderList, under the Reader tabs (#220)', () => {
   it('names the tab each shelf is, or is under', () => {
     expect(tabOf({ kind: 'folder', name: 'all' })).toBe('all');
     expect(tabOf({ kind: 'folder', name: 'saved' })).toBe('saved');
-    expect(tabOf({ kind: 'folder', name: 'podcasts' })).toBe('podcasts');
+    // The Podcasts shelf left for a module of its own (#245).
+    expect(tabOf({ kind: 'folder', name: 'podcasts' })).toBe('folders');
     expect(tabOf({ kind: 'folder', name: 'Design' })).toBe('folders');
     expect(tabOf({ kind: 'feed', id: 'f1' })).toBe('folders');
+  });
+
+  it('lists no episode of a show in Podcasts, and has no Podcasts tab (#245)', () => {
+    const { el, api, feeds, fixture } = setup(false);
+    feeds.push([
+      { id: 'f1', data: { url: 'https://a.test/f', title: 'Blog', folders: ['Design'] } },
+      {
+        id: 'p1',
+        data: { url: 'https://p.test/f', title: 'Kiln talk', folders: ['Design'], kind: 'podcast' },
+      },
+    ]);
+    api.push('unread', [
+      item('a', 1),
+      { id: 'e1', data: { ...item('e1', 2).data, feedId: 'p1', title: 'An episode' } },
+    ]);
+    fixture.detectChanges();
+    const tabs = el.querySelector('nav[aria-label="Reader screens"]')!;
+    expect(
+      [...tabs.querySelectorAll('a')].map((a) => a.textContent!.trim().split(/\s/)[0]),
+    ).toEqual(['All', 'Saved', 'Folders']);
+    expect(tabs.querySelector('a')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('All 1 unread');
+    expect(el.querySelector('li[data-id="a"]')).not.toBeNull();
+    expect(el.querySelector('li[data-id="e1"]')).toBeNull();
+    expect(el.textContent).not.toContain('An episode');
   });
 
   it('opens on All, its tab the page, with the unread count in it', () => {

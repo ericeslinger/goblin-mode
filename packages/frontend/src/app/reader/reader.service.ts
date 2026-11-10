@@ -16,6 +16,7 @@ import {
   normalizeFeedUrl,
   parseOpml,
   paths,
+  UNCATEGORIZED,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -49,8 +50,13 @@ export interface FeedRecord {
   dead: boolean;
   /** Milliseconds, once the fetcher has looked. */
   fetchedAt?: number;
-  /** Set by the fetcher once its items carry audio (#178). */
+  /**
+   * A show followed in Podcasts (#245): set where it was added or
+   * moved, by the gardener; the Reader's feeds have none.
+   */
   kind?: 'podcast';
+  /** New episodes join the queue (#245), off unless switched on at Add a podcast. */
+  autoQueue?: boolean;
 }
 
 /** What an import did. */
@@ -182,10 +188,11 @@ export function opmlMessage(out: ImportOutcome): string {
 
 const count = (n: number) => n.toLocaleString('en-US');
 
-/** A feed discovery found (#174). */
+/** A feed discovery found (#174), and its episodes when it has any (#245). */
 export interface DiscoveredFeed {
   url: string;
   title: string;
+  episodes?: number;
 }
 
 /**
@@ -275,7 +282,14 @@ function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
     dead: d['dead'] === true,
     ...(at === undefined ? {} : { fetchedAt: at }),
     ...(d['kind'] === 'podcast' ? { kind: 'podcast' as const } : {}),
+    ...(typeof d['autoQueue'] === 'boolean' ? { autoQueue: d['autoQueue'] } : {}),
   };
+}
+
+/** How a feed is followed (#245): Podcasts sets the kind and the queue switch; the Reader neither. */
+export interface FollowAs {
+  podcast?: boolean;
+  autoQueue?: boolean;
 }
 
 /**
@@ -329,22 +343,46 @@ export class ReaderService {
   readonly settingsLoaded = computed(() => this.settingsRead());
   private readonly settingsRead = signal(false);
   private readonly read = signal(false);
+  /** Every feed followed, the Reader's and the shows in Podcasts (#245). */
   readonly feeds = computed(() => this.list());
+  /** The Reader's own feeds: every one not in Podcasts (#245). */
+  readonly readerFeeds = computed(() => this.list().filter((f) => f.kind !== 'podcast'));
+  /** The shows followed in Podcasts (#245), by name. */
+  readonly podcastFeeds = computed(() =>
+    this.list()
+      .filter((f) => f.kind === 'podcast')
+      .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })),
+  );
+  private readonly podcastIds = computed(() => new Set(this.podcastFeeds().map((f) => f.id)));
   /** Whether the feeds have been read, so an empty list means none. */
   readonly loaded = computed(() => this.read());
-  /** Folders with their feeds, the gardener's order first, then sorted, Uncategorized last. */
-  readonly folders = computed(() => folderList(this.list(), this.settings()?.folderOrder ?? []));
-  /** Folder names, for choosing one. */
+  /**
+   * The Reader's folders with their feeds, the gardener's order first,
+   * then sorted, Uncategorized last; the shows in Podcasts are not in
+   * them (#245).
+   */
+  readonly folders = computed(() =>
+    folderList(this.readerFeeds(), this.settings()?.folderOrder ?? []),
+  );
+  /** The Reader's folder names, for choosing one. */
   readonly folderNames = computed(() => this.folders().map((f) => f.name));
+  /** The folders the shows in Podcasts are in (#245), for choosing one at Add a podcast. */
+  readonly podcastFolderNames = computed(() =>
+    folderList(this.podcastFeeds(), [])
+      .map((f) => f.name)
+      .filter((name) => name !== UNCATEGORIZED),
+  );
 
   private uid?: string;
   private stop?: () => void;
 
   constructor() {
     effect(() => {
-      // Nothing is listened to while the module is off (Browse and
-      // Settings inject this without needing it then).
-      const uid = this.modules.reader() ? this.auth.user()?.uid : undefined;
+      // Nothing is listened to while both modules are off (Browse and
+      // Settings inject this without needing it then); the feeds are
+      // the Reader's and the shows in Podcasts alike (#245).
+      const on = this.modules.reader() || this.modules.podcasts();
+      const uid = on ? this.auth.user()?.uid : undefined;
       if (uid === this.uid) return;
       this.stop?.();
       this.stop = undefined;
@@ -553,9 +591,11 @@ export class ReaderService {
    * if given (a discovered feed's, #174) or its host until the server
    * looks; returns its id, or undefined when it is no link or the cap
    * is reached. A feed already followed is moved into the folder
-   * instead, its name left as it is.
+   * instead, its name left as it is. Podcasts follows a show with
+   * `podcast` and its queue switch (#245); the Reader's Follow never
+   * sets either, and neither moves a feed already followed.
    */
-  addFeed(text: string, folder?: string, title?: string): string | undefined {
+  addFeed(text: string, folder?: string, title?: string, as: FollowAs = {}): string | undefined {
     const uid = this.auth.user()?.uid;
     const url = normalizeFeedUrl(text);
     if (!uid || !this.read() || !url) return undefined;
@@ -570,8 +610,38 @@ export class ReaderService {
     }
     if (this.list().length >= FEED_CAP) return undefined;
     const name = title?.replace(/\s+/g, ' ').trim().slice(0, 200) || new URL(url).hostname;
-    this.create(uid, id, { url, title: name, folders });
+    this.create(uid, id, { url, title: name, folders }, as);
     return id;
+  }
+
+  /** Whether a feed is a show followed in Podcasts (#245). */
+  isPodcast(id: string): boolean {
+    return this.podcastIds().has(id);
+  }
+
+  /**
+   * Moves a feed to Podcasts or back to the Reader (#245, Eric
+   * 2026-11-10: nothing moves by itself, so a misfiled feed is sent
+   * across by hand), through the persistent cache, never awaited.
+   */
+  setPodcast(id: string, podcast: boolean): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    this.list.update((l) =>
+      l.map((f) => {
+        if (f.id !== id) return f;
+        const { kind: _, ...rest } = f;
+        return podcast ? { ...rest, kind: 'podcast' as const } : rest;
+      }),
+    );
+    void this.api
+      .set(
+        this.fb.db,
+        paths.feed(uid, id),
+        { kind: podcast ? 'podcast' : this.api.clear(), updatedAt: this.api.serverTime() },
+        true,
+      )
+      .catch((err) => console.error('feed not moved', err));
   }
 
   /** The feed already followed at this link, if any. */
@@ -767,11 +837,14 @@ export class ReaderService {
       .catch((err) => console.error('feed not removed', err));
   }
 
-  private create(uid: string, id: string, feed: OpmlFeed): void {
+  private create(uid: string, id: string, feed: OpmlFeed, as: FollowAs = {}): void {
     const now = this.api.serverTime();
+    const kind = as.podcast
+      ? { kind: 'podcast' as const, autoQueue: as.autoQueue === true }
+      : ({} as const);
     // Shown at once, before the listener echoes it, so a second import
     // in the same breath sees it as known.
-    this.list.update((l) => [...l, { id, ...feed, dead: false }]);
+    this.list.update((l) => [...l, { id, ...feed, dead: false, ...kind }]);
     const write = this.api
       .set(
         this.fb.db,
@@ -781,6 +854,7 @@ export class ReaderService {
           title: feed.title,
           ...(feed.site ? { site: feed.site } : {}),
           folders: feed.folders,
+          ...kind,
           addedAt: now,
           updatedAt: now,
           // Due at once: the fetcher looks on its next tick.

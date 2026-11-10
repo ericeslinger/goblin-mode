@@ -30,6 +30,14 @@ export interface AlternateLink {
 export interface DiscoveredFeed {
   url: string;
   title: string;
+  /** How many of its items carry audio, when any do (#245): Add a podcast says so. */
+  episodes?: number;
+}
+
+/** A parsed feed's episodes, as a found feed carries them: none said when it has none. */
+function episodesOf(feed: { items: { enclosure?: unknown }[] }): { episodes?: number } {
+  const n = feed.items.filter((i) => i.enclosure).length;
+  return n ? { episodes: n } : {};
 }
 
 /** A tag's attributes, names lowercased, values decoded. */
@@ -105,7 +113,8 @@ export async function discoverFeeds(
   // The address itself first, whatever its content type: some sites
   // serve their feed as text/html (review on #183).
   const itself = parseFeed(text, url);
-  if (itself) return { feeds: [{ url, title: plain(itself.title) || hostOf(url) }] };
+  if (itself)
+    return { feeds: [{ url, title: plain(itself.title) || hostOf(url), ...episodesOf(itself) }] };
   if (!isHtml(page.contentType)) return { feeds: [] };
   const named = alternateLinks(text, url);
   const candidates: AlternateLink[] = named.length
@@ -118,7 +127,11 @@ export async function discoverFeeds(
         if (res.status < 200 || res.status >= 300) return undefined;
         const feed = parseFeed(res.text, c.url);
         if (!feed) return undefined;
-        return { url: c.url, title: plain(feed.title) || c.title || hostOf(c.url) };
+        return {
+          url: c.url,
+          title: plain(feed.title) || c.title || hostOf(c.url),
+          ...episodesOf(feed),
+        };
       } catch {
         return undefined;
       }

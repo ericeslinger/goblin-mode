@@ -16,7 +16,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { DownloadsService } from './downloads.service';
 import { type ItemRecord, ItemsService } from './items.service';
-import { ALL, PODCASTS, SAVED, type Shelf2, shelfParam } from './shelves';
+import { ALL, SAVED, type Shelf2, shelfParam } from './shelves';
 import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 import { Icon } from '../home/icon';
@@ -59,14 +59,12 @@ export function shelfLink(shelf: Shelf2): string[] {
 export function tabOf(shelf: Shelf2): ReaderTab {
   if (shelf.kind === 'feed') return 'folders';
   if (shelf.name === ALL) return 'all';
-  if (shelf.name === SAVED) return 'saved';
-  return shelf.name === PODCASTS ? 'podcasts' : 'folders';
+  return shelf.name === SAVED ? 'saved' : 'folders';
 }
 
 /** A shelf's name as its list's heading shows it. */
 export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string {
   if (shelf.kind === 'feed') return feeds.find((f) => f.id === shelf.id)?.title ?? 'Feed';
-  if (shelf.name === PODCASTS) return 'Podcasts';
   return shelf.name === ALL ? 'All' : shelf.name === SAVED ? 'Saved' : shelf.name;
 }
 
@@ -90,7 +88,7 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
  * counts only the articles newer than that.
  *
  * Under the Reader's header and tabs (#220): All at `/reader`, Saved
- * and Podcasts their own tabs, any other folder or a feed under
+ * its own tab, any other folder or a feed under
  * Folders, with a link back to them and its name.
  */
 @Component({
@@ -380,7 +378,7 @@ export class ReaderList {
   });
   protected readonly unreadCount = computed(() => this.list().filter((i) => !i.read).length);
   protected readonly title = computed(() => shelfTitle(this.shelf(), this.reader.feeds()));
-  /** The Reader's tab this shelf is (#220): All, Saved or Podcasts, else under Folders. */
+  /** The Reader's tab this shelf is (#220): All or Saved, else under Folders. */
   protected readonly tab = computed<ReaderTab>(() => tabOf(this.shelf()));
   /** One feed's site, when the list is that feed's. */
   protected readonly feedLink = computed(() => {
@@ -427,8 +425,8 @@ export class ReaderList {
       const shelf = this.shelf();
       if (shelf.kind !== 'folder' || shelf.name === ALL || shelf.name === SAVED) return;
       if (!this.items.loaded() || !this.reader.loaded() || !this.reader.settingsLoaded()) return;
-      // Only a folder the feeds are in: a shelf of the app's own, such
-      // as Podcasts, is never a line in Right Now, so it is not noted.
+      // Only a folder the feeds are in: a name no feed is filed under
+      // is never a line in Right Now, so it is not noted.
       if (!this.reader.folderNames().includes(shelf.name)) return;
       if (this.seenShelf === shelf) return;
       this.seenShelf = shelf;

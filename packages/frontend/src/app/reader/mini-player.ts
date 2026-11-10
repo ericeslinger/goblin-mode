@@ -3,7 +3,7 @@ import { Component, computed, effect, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
-import { ItemsService, PODCASTS } from './items.service';
+import { type ItemRecord, ItemsService } from './items.service';
 import { PlayerService } from './player.service';
 import { ReaderService } from './reader.service';
 
@@ -13,7 +13,8 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
 /**
  * The mini-player (#179): a bar fixed at the foot of every screen while
  * an episode is in hand, except that episode's own page, which holds
- * the full controls. Artwork when images are on, the title (a tap opens
+ * the full controls: in Podcasts for a show followed there, in the
+ * Reader for a feed of its own (#245). Artwork when images are on, the title (a tap opens
  * the episode), elapsed and total, back 15, play or pause, on 30, and
  * close. Another device's newer place shows as "Continue from 12:34".
  *
@@ -34,8 +35,8 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
         <span class="info">
           <a
             class="title"
-            [routerLink]="['/reader/a', it.id]"
-            [queryParams]="{ in: shelf }"
+            [routerLink]="pageOf(it)"
+            [queryParams]="queryOf(it)"
             [attr.aria-label]="'Open the episode: ' + it.title"
             >{{ it.title }}</a
           >
@@ -128,7 +129,6 @@ export class MiniPlayer {
   protected readonly player = inject(PlayerService);
   protected readonly items = inject(ItemsService);
   protected readonly reader = inject(ReaderService);
-  protected readonly shelf = `f:${PODCASTS}`;
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -138,12 +138,23 @@ export class MiniPlayer {
     { initialValue: this.router.url },
   );
 
-  /** The episode in hand, unless this is its own page. */
+  /** The episode's page: Podcasts' for a show followed there (#245), else the Reader's. */
+  protected pageOf(it: ItemRecord): string[] {
+    return this.reader.isPodcast(it.feedId) ? ['/podcasts/e', it.id] : ['/reader/a', it.id];
+  }
+
+  /** The Reader's article page goes back to the feed's shelf. */
+  protected queryOf(it: ItemRecord): Record<string, string> | null {
+    return this.reader.isPodcast(it.feedId) ? null : { in: `s:${it.feedId}` };
+  }
+
+  /** The episode in hand, unless this is its own page, in either module. */
   protected readonly shown = computed(() => {
     const it = this.player.item();
     if (!it) return undefined;
     const path = this.url().split(/[?#]/)[0];
-    return path === `/reader/a/${encodeURIComponent(it.id)}` ? undefined : it;
+    const id = encodeURIComponent(it.id);
+    return path === `/reader/a/${id}` || path === `/podcasts/e/${id}` ? undefined : it;
   });
 
   constructor() {

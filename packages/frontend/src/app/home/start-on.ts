@@ -8,7 +8,8 @@ import { LocalStore } from '../platform/local-store';
  * Start on (#219), kept on this device so a cold open lands before auth
  * and offline, as the theme is; the gardener's `settings/app` doc is
  * the source of truth once signed in (ThemeSync carries it). With it,
- * whether Kitchen and the Reader were on when last known, so a choice
+ * whether Kitchen, the Reader and Podcasts (#245) were on when last
+ * known, so a choice
  * of a module that is off falls back to Home without waiting for the
  * modules doc.
  */
@@ -18,10 +19,18 @@ interface Stored {
   choice?: string;
   kitchen?: boolean;
   reader?: boolean;
+  podcasts?: boolean;
+}
+
+/** Which of the modules Start on can open are on. */
+export interface StartModules {
+  kitchen: boolean;
+  reader: boolean;
+  podcasts: boolean;
 }
 
 /** Where a cold open of `/` goes, for a choice and the modules on. */
-export function startPath(choice: StartOn, on: { kitchen: boolean; reader: boolean }): string {
+export function startPath(choice: StartOn, on: StartModules): string {
   switch (choice) {
     case 'note':
       return '/';
@@ -33,6 +42,8 @@ export function startPath(choice: StartOn, on: { kitchen: boolean; reader: boole
       return on.kitchen ? '/kitchen' : '/home';
     case 'reader':
       return on.reader ? '/reader' : '/home';
+    case 'podcasts':
+      return on.podcasts ? '/podcasts' : '/home';
   }
 }
 
@@ -64,16 +75,21 @@ export class StartOnService {
   }
 
   /** The modules as last read, for the next cold open. */
-  remember(on: { kitchen: boolean; reader: boolean }): void {
-    if (on.kitchen === this.stored.kitchen && on.reader === this.stored.reader) return;
+  remember(on: StartModules): void {
+    const s = this.stored;
+    if (on.kitchen === s.kitchen && on.reader === s.reader && on.podcasts === s.podcasts) return;
     this.keep(on);
   }
 
   /** Where a cold open goes: the modules as read, else as last known. */
   path(modules: ModulesService): string {
     const on = modules.loaded()
-      ? { kitchen: modules.kitchen(), reader: modules.reader() }
-      : { kitchen: !!this.stored.kitchen, reader: !!this.stored.reader };
+      ? { kitchen: modules.kitchen(), reader: modules.reader(), podcasts: modules.podcasts() }
+      : {
+          kitchen: !!this.stored.kitchen,
+          reader: !!this.stored.reader,
+          podcasts: !!this.stored.podcasts,
+        };
     return startPath(this.choice(), on);
   }
 
@@ -92,7 +108,11 @@ export function rememberModules(): void {
   const modules = inject(ModulesService);
   effect(() => {
     if (modules.loaded())
-      startOn.remember({ kitchen: modules.kitchen(), reader: modules.reader() });
+      startOn.remember({
+        kitchen: modules.kitchen(),
+        reader: modules.reader(),
+        podcasts: modules.podcasts(),
+      });
   });
 }
 

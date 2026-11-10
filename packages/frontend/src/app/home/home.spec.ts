@@ -10,7 +10,7 @@ import { GroceryService } from '../kitchen/grocery.service';
 import { ModulesService } from '../modules/modules.service';
 import { type NoteRecord, NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
-import { ItemsService } from '../reader/items.service';
+import { type ItemRecord, ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
 import { RemindersService } from '../reminders/reminders.service';
 import {
@@ -49,7 +49,25 @@ async function render(setup: Setup = {}) {
   if (setup.kitchen) modules.set('kitchen', true);
   if (setup.reader) modules.set('reader', true);
   const items = new FakeItems();
-  items.unreadCounts.set({ all: 14, saved: 0, podcasts: 2 });
+  items.unreadCounts.set({ all: 14, saved: 0 });
+  const ep = (id: string, more: Partial<ItemRecord> = {}): ItemRecord => ({
+    id,
+    feedId: 'p1',
+    title: id,
+    link: '',
+    published: 0,
+    summary: '',
+    content: '',
+    read: false,
+    saved: false,
+    ...more,
+  });
+  items.episodes.set([
+    ep('e1'),
+    ep('e2', { read: true }),
+    ep('e3', { position: 120 }),
+    ep('e4', { played: true, read: true }),
+  ]);
   items.newSince.set([
     { folder: 'Design', count: 3 },
     { folder: 'Clay', count: 2 },
@@ -130,11 +148,24 @@ describe('Home (#219)', () => {
     expect(tile(el, 'Map')?.getAttribute('href')).toBe('/map');
   });
 
-  it('shows Kitchen and the Reader once they are on', async () => {
+  it('shows Kitchen, the Reader and Podcasts once they are on', async () => {
     const el = await render({ kitchen: true, reader: true });
-    expect(names(el)).toEqual(['Notes', 'Kitchen', 'Reader', 'Reading queue', 'Assistants', 'Map']);
+    // Podcasts follows the Reader until switched itself (#245).
+    expect(names(el)).toEqual([
+      'Notes',
+      'Kitchen',
+      'Reader',
+      'Podcasts',
+      'Reading queue',
+      'Assistants',
+      'Map',
+    ]);
     expect(tile(el, 'Kitchen')?.getAttribute('href')).toBe('/kitchen');
-    expect(tile(el, 'Reader')?.textContent).toContain('14 unread · 2 episodes');
+    // The Reader counts its articles only; the episodes are Podcasts' (#245).
+    expect(tile(el, 'Reader')?.textContent?.trim()).toMatch(/14 unread$/);
+    expect(tile(el, 'Podcasts')?.getAttribute('href')).toBe('/podcasts');
+    // New until heard: notes read is still new.
+    expect(tile(el, 'Podcasts')?.textContent).toContain('2 new · 1 started');
   });
 
   it('counts the live notes and those written in today', async () => {
@@ -231,7 +262,14 @@ describe('Arrange Home (#222)', () => {
       reader: true,
       arrangement: { order: ['assistants', 'notes', 'unknown'], hidden: ['map'] },
     });
-    expect(names(el)).toEqual(['Assistants', 'Notes', 'Kitchen', 'Reader', 'Reading queue']);
+    expect(names(el)).toEqual([
+      'Assistants',
+      'Notes',
+      'Kitchen',
+      'Reader',
+      'Podcasts',
+      'Reading queue',
+    ]);
   });
 
   it('opens from its button, with a grip per tile, and Done goes back', async () => {

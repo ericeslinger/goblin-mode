@@ -352,9 +352,11 @@ describe('Settings', () => {
     const el = await render(auth);
     const radio = (value: string) =>
       el.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)!;
-    expect(el.querySelectorAll('[role="radiogroup"] input[type="radio"]')).toHaveLength(5);
+    expect(el.querySelectorAll('[role="radiogroup"] input[type="radio"]')).toHaveLength(6);
     expect(radio('note').checked).toBe(true);
     expect(el.textContent).toContain('Kitchen is off, so this opens Home');
+    // Podcasts (#245), off with the Reader until switched on.
+    expect(el.textContent).toContain('Podcasts is off, so this opens Home');
     radio('home').click();
     expect(TestBed.inject(StartOnService).choice()).toBe('home');
     expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toMatchObject({ choice: 'home' });

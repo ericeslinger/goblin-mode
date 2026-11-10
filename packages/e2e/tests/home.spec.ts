@@ -30,9 +30,10 @@ test('Home shows the places, its box writes a note, and Start on lands there', a
   for (const name of [/^Notes/, /^Reading queue/, /^Assistants/, /^Map/]) {
     await expect(tiles(page).getByRole('link', { name })).toBeVisible();
   }
-  // Kitchen and the Reader start off: no tile.
+  // Kitchen, the Reader and Podcasts (with the Reader, #245) start off: no tile.
   await expect(tiles(page).getByRole('link', { name: /^Kitchen/ })).toHaveCount(0);
   await expect(tiles(page).getByRole('link', { name: /^Reader/ })).toHaveCount(0);
+  await expect(tiles(page).getByRole('link', { name: /^Podcasts/ })).toHaveCount(0);
   await expectNoSeriousViolations(page);
 
   // The box opens the editor with the cursor in it.

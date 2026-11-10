@@ -16,7 +16,7 @@ import {
   fakeFirebase,
 } from '../testing/fakes';
 import { SETTINGS_API } from '../theme/theme-sync.service';
-import { ALL, ITEMS_API, ItemsService, PODCASTS, SAVED, VISITED_KEY } from './items.service';
+import { ALL, ITEMS_API, ItemsService, SAVED, VISITED_KEY } from './items.service';
 import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
@@ -105,7 +105,6 @@ describe('ItemsService (#162)', () => {
     expect(items.unreadCounts()).toEqual({
       [ALL]: 3,
       [SAVED]: 0,
-      [PODCASTS]: 0,
       Design: 2,
       Games: 1,
       Uncategorized: 1,
@@ -156,13 +155,18 @@ describe('ItemsService (#162)', () => {
     expect(items.find('r')?.read).toBe(true);
   });
 
-  it('keeps a podcast’s episodes on the Podcasts shelf, with their audio (#178)', () => {
+  it('keeps a show in Podcasts out of every shelf, count and line of the Reader’s (#245)', () => {
     const { items, api, feeds } = setup();
     feeds.push([
       { id: 'f1', data: { url: 'https://a.test/f', title: 'Design blog', folders: ['Design'] } },
       {
         id: 'p1',
-        data: { url: 'https://pod.test/f', title: 'Kiln hour', folders: [], kind: 'podcast' },
+        data: {
+          url: 'https://pod.test/f',
+          title: 'Kiln hour',
+          folders: ['Design'],
+          kind: 'podcast',
+        },
       },
       { id: 'p2', data: { url: 'https://odd.test/f', title: 'Odd', folders: [], kind: 'video' } },
     ]);
@@ -173,15 +177,20 @@ describe('ItemsService (#162)', () => {
       item('e1', 'p1', 50, { enclosure: { url: 'javascript:x', type: 'audio/mpeg' } }),
       item('o', 'p2', 3),
     ]);
-    api.push('read', [item('e0', 'p1', 90, { read: true })]);
+    api.push('read', [item('e0', 'p1', 90, { read: true, saved: true })]);
     const ids = (list: { id: string }[]) => list.map((i) => i.id);
-    expect(ids(items.inShelf({ kind: 'folder', name: PODCASTS }, false))).toEqual(['e2', 'e1']);
-    expect(ids(items.inShelf({ kind: 'folder', name: PODCASTS }, true))).toEqual([
-      'e2',
-      'e1',
-      'e0',
+    // No shelf of the Reader's holds an episode, Saved and a show's own shelf included.
+    expect(ids(items.inShelf({ kind: 'folder', name: ALL }, true))).toEqual(['a', 'o']);
+    expect(ids(items.inShelf({ kind: 'folder', name: 'Design' }, true))).toEqual(['a']);
+    expect(ids(items.inShelf({ kind: 'folder', name: SAVED }, true))).toEqual([]);
+    expect(ids(items.inShelf({ kind: 'feed', id: 'p1' }, true))).toEqual([]);
+    expect(items.unreadCounts()).toEqual({ [ALL]: 2, [SAVED]: 0, Design: 1, Uncategorized: 1 });
+    expect(items.newSince()).toEqual([
+      { folder: 'Design', count: 1 },
+      { folder: 'Uncategorized', count: 1 },
     ]);
-    expect(items.unreadCounts()[PODCASTS]).toBe(2);
+    // Podcasts has them, newest first, read or not.
+    expect(ids(items.episodes())).toEqual(['e2', 'e1', 'e0']);
     expect(items.find('e2')).toMatchObject({
       enclosure: audio,
       image: 'https://pod.test/1.jpg',
@@ -190,6 +199,60 @@ describe('ItemsService (#162)', () => {
     // What is no web link is no audio; an article has none.
     expect(items.find('e1')).not.toHaveProperty('enclosure');
     expect(items.find('a')).not.toHaveProperty('enclosure');
+  });
+
+  it('listens to each show’s newest episodes, read or not, as shows come and go (#245)', () => {
+    const { items, api, feeds } = setup();
+    const pod = (id: string) => ({
+      id,
+      data: { url: `https://${id}.test/f`, title: id, folders: [], kind: 'podcast' },
+    });
+    feeds.push([pod('p1'), pod('p2')]);
+    TestBed.tick();
+    expect(api.listenFeed.mock.calls.map((c) => c[2])).toEqual(['p1', 'p2']);
+    expect(api.listenFeed.mock.calls[0][1]).toBe('users/u1/feedItems');
+    // An episode whose notes were read long ago, past the two hundred read at hand.
+    api.pushFeed('p1', [item('old', 'p1', 900, { read: true })]);
+    expect(items.episodes().map((e) => e.id)).toEqual(['old']);
+    // The same list again starts nothing; a show moved to the Reader is let go.
+    feeds.push([pod('p1'), pod('p2')]);
+    TestBed.tick();
+    expect(api.listenFeed).toHaveBeenCalledTimes(2);
+    feeds.push([
+      pod('p1'),
+      { id: 'p2', data: { url: 'https://p2.test/f', title: 'p2', folders: [] } },
+    ]);
+    TestBed.tick();
+    expect(api.stopFeed).toHaveBeenCalledWith('p2');
+    expect(api.listenFeed).toHaveBeenCalledTimes(2);
+    // Signed out: every one stops, and nothing is kept.
+    TestBed.inject(AuthService).user.set(null);
+    TestBed.tick();
+    expect(api.stopFeed).toHaveBeenCalledWith('p1');
+    expect(items.episodes()).toEqual([]);
+  });
+
+  it('marks an episode heard, or new again, and leaves its notes read as they are (#245)', () => {
+    const { items, api, feeds } = setup();
+    feeds.push([
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
+    ]);
+    TestBed.tick();
+    api.pushFeed('p1', [item('e1', 'p1', 1, { read: true, position: 300 })]);
+    items.setPlayed('e1', true);
+    expect(items.find('e1')).toMatchObject({ played: true, read: true });
+    expect(api.set).toHaveBeenLastCalledWith(expect.anything(), 'users/u1/feedItems/e1', {
+      played: true,
+      updatedAt: 'SERVER_TIME',
+    });
+    items.setPlayed('e1', false);
+    expect(items.find('e1')?.played).toBe(false);
+    expect(items.find('e1')?.position).toBeUndefined();
+    expect(api.set).toHaveBeenLastCalledWith(expect.anything(), 'users/u1/feedItems/e1', {
+      played: false,
+      position: 'CLEAR',
+      updatedAt: 'SERVER_TIME',
+    });
   });
 
   it('keeps where an episode was left, lists the ones part-way, and marks one heard (#179)', () => {

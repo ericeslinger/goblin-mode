@@ -18,6 +18,7 @@ describe('ReaderFeeds’ status lines (review on #194)', () => {
     const reader = {
       loaded: signal(true),
       feeds: signal([feed]),
+      readerFeeds: signal([feed]),
       folders: signal([{ name: 'Uncategorized', feeds: [feed] }]),
       folderNames: signal(['Uncategorized']),
       setFolders: vi.fn(),
@@ -41,5 +42,45 @@ describe('ReaderFeeds’ status lines (review on #194)', () => {
     const input = (value: string) => Object.assign(document.createElement('input'), { value });
     page.follow(new Event('submit'), input('https://b.test/f'), input(''));
     expect(page.moved()).toBe('');
+  });
+
+  it('moves a feed to Podcasts, and the Reader’s Follow never makes one (#245)', () => {
+    const feed: FeedRecord = {
+      id: 'f1',
+      url: 'https://a.test/f',
+      title: 'A',
+      folders: [],
+      dead: false,
+    };
+    const reader = {
+      loaded: signal(true),
+      feeds: signal([feed]),
+      readerFeeds: signal([feed]),
+      folders: signal([{ name: 'Uncategorized', feeds: [feed] }]),
+      folderNames: signal(['Uncategorized']),
+      setPodcast: vi.fn(),
+      addFeed: vi.fn((..._args: unknown[]) => 'f2'),
+      followed: vi.fn(() => undefined),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: ReaderService, useValue: reader },
+        { provide: ModulesService, useValue: new FakeModules() },
+      ],
+    });
+    const fixture = TestBed.createComponent(ReaderFeeds);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    el.querySelector<HTMLButtonElement>('button[aria-label="Move to Podcasts: A"]')!.click();
+    fixture.detectChanges();
+    expect(reader.setPodcast).toHaveBeenCalledWith('f1', true);
+    expect(el.textContent).toContain('A is in Podcasts now.');
+    const page = fixture.componentInstance as unknown as {
+      follow(event: Event, url: HTMLInputElement, folder: HTMLInputElement): void;
+    };
+    const input = (value: string) => Object.assign(document.createElement('input'), { value });
+    page.follow(new Event('submit'), input('https://b.test/f'), input('Games'));
+    expect(reader.addFeed).toHaveBeenCalledWith('https://b.test/f', 'Games');
   });
 });

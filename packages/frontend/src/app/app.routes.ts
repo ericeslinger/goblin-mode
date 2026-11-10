@@ -110,6 +110,28 @@ export const routes: Routes = [
     path: 'reader/done',
     loadComponent: () => import('./reader/reader-done').then((m) => m.ReaderDone),
   },
+  // Podcasts (#245), a module of its own: Latest, Shows, a show's
+  // episodes, an episode, and Add a podcast.
+  {
+    path: 'podcasts',
+    loadComponent: () => import('./podcasts/podcasts-latest').then((m) => m.PodcastsLatest),
+  },
+  {
+    path: 'podcasts/shows',
+    loadComponent: () => import('./podcasts/podcasts-shows').then((m) => m.PodcastsShows),
+  },
+  {
+    path: 'podcasts/add',
+    loadComponent: () => import('./podcasts/podcasts-add').then((m) => m.PodcastsAdd),
+  },
+  {
+    path: 'podcasts/s/:feedId',
+    loadComponent: () => import('./podcasts/podcasts-latest').then((m) => m.PodcastsLatest),
+  },
+  {
+    path: 'podcasts/e/:id',
+    loadComponent: () => import('./podcasts/podcast-episode').then((m) => m.PodcastEpisode),
+  },
   {
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),

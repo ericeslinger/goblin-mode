@@ -318,9 +318,10 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     const ref = owner().doc('users/owner/settings/app');
     await assertFails(ref.set({ ...settings(), theme: 'neon' }));
     await assertFails(ref.set({ ...settings(), mode: 'auto' }));
-    // Start on (#219): one of the five screens, or absent.
+    // Start on (#219): one of the screens, Podcasts since #245, or absent.
     await assertSucceeds(ref.set({ ...settings(), startOn: 'home' }));
     await assertFails(ref.set({ ...settings(), startOn: 'garden' }));
+    await assertSucceeds(ref.set({ ...settings(), startOn: 'podcasts' }));
     // Home's order and the tiles taken off it (#222): lists, or absent.
     await assertSucceeds(
       ref.set({ ...settings(), homeTiles: ['map', 'notes'], homeHidden: ['reader'] }),
@@ -341,6 +342,9 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...modules(), projects: true }));
     // Kitchen (#127); a module the app does not know is refused.
     await assertSucceeds(ref.set({ ...modules(), kitchen: { enabled: true } }));
+    // Podcasts (#245), a map like the rest.
+    await assertSucceeds(ref.set({ ...modules(), podcasts: { enabled: false } }));
+    await assertFails(ref.set({ ...modules(), podcasts: true }));
     await assertFails(ref.set({ ...modules(), garden: { enabled: true } }));
     // Each doc keeps its own shape.
     await assertFails(ref.set(valid['users/owner/settings/app']()));
@@ -468,10 +472,35 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     );
     await assertSucceeds(ref.set({ folders: ['Games'], updatedAt: now() }, { merge: true }));
     await assertFails(ref.set({ ...feed(), guessed: true }));
-    // A podcast (#178): the fetcher marks the feed; no other kind is one.
+    // A podcast (#178): no other kind is one.
     await assertSucceeds(ref.set({ ...feed(), kind: 'podcast' }));
     await assertFails(ref.set({ ...feed(), kind: 'video' }));
     await assertFails(ref.set({ ...feed(), kind: true }));
+  });
+
+  it('lets the owner move a feed between the Reader and Podcasts, and set its queue switch (#245)', async () => {
+    const path = 'users/owner/feeds/f-1';
+    const ref = owner().doc(path);
+    await assertSucceeds(ref.set(feed()));
+    // Move to Podcasts, and back to the Reader: kind set, then cleared.
+    await assertSucceeds(ref.set({ kind: 'podcast', updatedAt: now() }, { merge: true }));
+    await assertSucceeds(
+      ref.set({ kind: firebase.firestore.FieldValue.delete(), updatedAt: now() }, { merge: true }),
+    );
+    // Add a podcast writes both, the switch off by default or on.
+    await assertSucceeds(ref.set({ ...feed(), kind: 'podcast', autoQueue: false }));
+    await assertSucceeds(ref.set({ autoQueue: true, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ ...feed(), kind: 'podcast', autoQueue: 'yes' }));
+    await assertFails(ref.set({ autoQueue: 1, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ kind: 'reader', updatedAt: now() }, { merge: true }));
+    // Nobody else moves it or reads it.
+    await assertFails(
+      intruder().doc(path).set({ kind: 'podcast', updatedAt: now() }, { merge: true }),
+    );
+    await assertFails(intruder().doc(path).get());
+    await assertFails(
+      anonymous().doc(path).set({ autoQueue: true, updatedAt: now() }, { merge: true }),
+    );
   });
 
   it('lets the owner mark an article read or saved, and nothing else', async () => {

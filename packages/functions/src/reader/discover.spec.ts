@@ -101,6 +101,21 @@ describe('feed discovery (#174)', () => {
     expect(fetchFeed).not.toHaveBeenCalled();
   });
 
+  it('says how many episodes a podcast’s feed has (#245)', async () => {
+    const pod = `<rss version="2.0"><channel><title>Kiln talk</title>
+      <item><title>2</title><guid>2</guid><enclosure url="https://pod.test/2.mp3" type="audio/mpeg"/></item>
+      <item><title>1</title><guid>1</guid><enclosure url="https://pod.test/1.mp3" type="audio/mpeg"/></item>
+      <item><title>Notes</title><guid>n</guid><link>https://pod.test/n</link></item>
+      </channel></rss>`;
+    const page: PageFetcher = async () => ({
+      contentType: 'application/rss+xml',
+      bytes: new TextEncoder().encode(pod),
+    });
+    expect(await discoverFeeds('https://pod.test/rss', page, feeds({}))).toEqual({
+      feeds: [{ url: 'https://pod.test/rss', title: 'Kiln talk', episodes: 2 }],
+    });
+  });
+
   it('finds a feed served as text/html as itself (review on #183)', async () => {
     const page: PageFetcher = async () => html(RSS('Mislabelled'));
     const fetchFeed = feeds({});

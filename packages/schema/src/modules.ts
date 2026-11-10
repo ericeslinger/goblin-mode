@@ -22,15 +22,30 @@ export const MODULES = [
     about: 'Feeds you follow, in folders, read in the app and filed in the garden (#159).',
     defaultOn: false,
   },
+  {
+    id: 'podcasts',
+    label: 'Podcasts',
+    about: 'Shows you follow, their newest episodes, and the player (#244).',
+    defaultOn: false,
+    // Until switched itself, it follows the Reader's switch (#245,
+    // 2026-11-10): podcasts came out of the Reader, so whoever had them
+    // there keeps them, and a Reader never switched on brings none.
+    follows: 'reader',
+  },
 ] as const;
 export type ModuleId = (typeof MODULES)[number]['id'];
 
-/** Whether module `id` is on, given the stored settings (or none yet). */
+/**
+ * Whether module `id` is on, given the stored settings (or none yet):
+ * its switch, else the switch of the module it follows, else its default.
+ */
 export function moduleOn(
   settings: Partial<Record<ModuleId, { enabled?: unknown } | undefined>> | undefined,
   id: ModuleId,
 ): boolean {
   const stored = settings?.[id]?.enabled;
   if (typeof stored === 'boolean') return stored;
-  return MODULES.find((m) => m.id === id)?.defaultOn ?? false;
+  const module = MODULES.find((m) => m.id === id);
+  if (module && 'follows' in module) return moduleOn(settings, module.follows);
+  return module?.defaultOn ?? false;
 }

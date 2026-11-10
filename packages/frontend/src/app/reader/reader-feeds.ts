@@ -9,7 +9,6 @@ import {
 import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
-import { DownloadPrefs, KEEP_CHOICES } from './download-prefs';
 import {
   type DiscoveredFeed,
   type FeedRecord,
@@ -37,8 +36,10 @@ export function renamedFolder(names: readonly string[]): string {
  * moved between folders and removed. Reading is on `/reader` (#162).
  * A site's address finds its feeds (#174): Find feeds, or Find feeds on
  * a followed link the server could not read as one, lists what the
- * server found to pick from. A podcast's row chooses how many of its
- * newest episodes this device keeps downloaded (#180).
+ * server found to pick from. The shows in Podcasts are not here
+ * (#245): each feed has Move to Podcasts for one filed in the Reader by
+ * mistake (Eric, 2026-11-10: nothing moves by itself), and a show's
+ * downloads are chosen in Podcasts.
  */
 @Component({
   selector: 'app-reader-feeds',
@@ -54,7 +55,7 @@ export function renamedFolder(names: readonly string[]): string {
       }
 
       <h2 id="folders">Folders</h2>
-      @if (reader.loaded() && reader.feeds().length === 0) {
+      @if (reader.loaded() && reader.readerFeeds().length === 0) {
         <p class="muted">No feeds yet. Import a file from your reader, or follow one below.</p>
       }
       <ul class="folders" aria-labelledby="folders">
@@ -95,20 +96,15 @@ export function renamedFolder(names: readonly string[]): string {
                         (change)="move(feed, $any($event.target).value)"
                       />
                     </label>
-                    @if (feed.kind === 'podcast') {
-                      <label class="keep">
-                        <span aria-hidden="true">Keep downloaded</span>
-                        <select
-                          [attr.aria-label]="'Episodes of ' + feed.title + ' kept downloaded'"
-                          (change)="prefs.setKeep(feed.id, +$any($event.target).value)"
-                        >
-                          @for (n of keepChoices; track n) {
-                            <option [value]="n" [selected]="prefs.keepFor(feed.id) === n">
-                              {{ keepText(n) }}
-                            </option>
-                          }
-                        </select>
-                      </label>
+                    @if (feed.url) {
+                      <button
+                        type="button"
+                        class="find"
+                        [attr.aria-label]="'Move to Podcasts: ' + feed.title"
+                        (click)="toPodcasts(feed)"
+                      >
+                        Move to Podcasts
+                      </button>
                     }
                     @if (feed.dead || feed.error) {
                       <button
@@ -248,17 +244,8 @@ export function renamedFolder(names: readonly string[]): string {
     .meta {
       grid-column: 1;
     }
-    .move,
-    .keep {
+    .move {
       grid-column: 1;
-    }
-    .keep {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      align-items: center;
-      color: var(--quiet);
-      font-size: 14px;
     }
     .remove,
     .retry {
@@ -301,8 +288,6 @@ export function renamedFolder(names: readonly string[]): string {
 export class ReaderFeeds {
   protected readonly reader = inject(ReaderService);
   protected readonly modules = inject(ModulesService);
-  protected readonly prefs = inject(DownloadPrefs);
-  protected readonly keepChoices = KEEP_CHOICES;
   protected readonly cap = FEED_CAP;
   protected readonly imported = signal('');
   /** A Feedly export on its way to the server (#176). */
@@ -439,9 +424,10 @@ export class ReaderFeeds {
     );
   }
 
-  /** A choice of how many newest episodes to keep downloaded (#180). */
-  protected keepText(n: number): string {
-    return n === 0 ? 'by hand only' : n === 1 ? 'the newest' : `the newest ${n}`;
+  /** Move to Podcasts (#245): the feed leaves the Reader for the shows, said here. */
+  protected toPodcasts(feed: FeedRecord): void {
+    this.reader.setPodcast(feed.id, true);
+    this.moved.set(`${feed.title} is in Podcasts now.`);
   }
 
   /** The server looked and found a page, not a feed (#161's message). */
@@ -464,8 +450,6 @@ export class ReaderFeeds {
     } catch {
       // The link as it is, then.
     }
-    // A podcast says so first (#178).
-    if (feed.kind === 'podcast') host = `${host} · podcast`;
     if (feed.dead) return `${host} · not answering for a month, given up`;
     if (feed.error) return `${host} · last look failed: ${feed.error}`;
     if (feed.fetchedAt === undefined) return `${host} · not looked at yet`;

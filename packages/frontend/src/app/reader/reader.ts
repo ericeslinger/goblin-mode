@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { type ItemRecord, ItemsService, PODCASTS } from './items.service';
+import { type ItemRecord, ItemsService, shelfParam } from './items.service';
 import { ReaderBar } from './reader-bar';
 import { ReaderService } from './reader.service';
 
@@ -8,7 +8,8 @@ import { ReaderService } from './reader.service';
  * The Reader's Folders tab (`/reader/folders`; the front, #162, until
  * #220 opened the Reader on All): the folders with what is unread in
  * each, Refresh, and above them Continue listening, the episodes left
- * part-way on any device, newest first (#179). All, Saved and Podcasts
+ * part-way on any device, newest first (#179): the Reader's own items
+ * with audio, since the shows in Podcasts left it (#245). All and Saved
  * are tabs of their own; Search, Downloads and Manage feeds are in the
  * header (#221).
  */
@@ -37,7 +38,7 @@ import { ReaderService } from './reader.service';
           <ul class="listening" aria-label="Continue listening">
             @for (ep of items.listening(); track ep.id) {
               <li>
-                <a [routerLink]="['/reader/a', ep.id]" [queryParams]="{ in: shelf }">
+                <a [routerLink]="['/reader/a', ep.id]" [queryParams]="{ in: shelfOf(ep) }">
                   <span class="title">{{ ep.title }}</span>
                   <span class="count">{{ left(ep) }}</span>
                 </a>
@@ -112,8 +113,10 @@ import { ReaderService } from './reader.service';
 export class Reader {
   protected readonly reader = inject(ReaderService);
   protected readonly items = inject(ItemsService);
-  /** Continue listening opens an episode among the podcasts (#179). */
-  protected readonly shelf = `f:${PODCASTS}`;
+  /** Continue listening opens an episode among its feed's (#179, #245). */
+  protected shelfOf(ep: ItemRecord): string {
+    return shelfParam({ kind: 'feed', id: ep.feedId });
+  }
   protected readonly refreshing = signal(false);
   protected readonly refreshed = signal('');
 

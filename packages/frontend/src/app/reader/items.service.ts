@@ -32,9 +32,9 @@ import { NotesService } from '../notes/notes.service';
 import { NOW, SESSION_STORAGE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import { ReaderService, callableMessage } from './reader.service';
-import { ALL, PODCASTS, SAVED, type Shelf2, shelfParam } from './shelves';
+import { ALL, SAVED, type Shelf2, shelfParam } from './shelves';
 
-export { ALL, PODCASTS, RESERVED_FOLDERS, SAVED, type Shelf2, shelfParam } from './shelves';
+export { ALL, RESERVED_FOLDERS, SAVED, type Shelf2, shelfParam } from './shelves';
 
 /** The newest unread articles the app listens to; the rest come as these are read. */
 export const UNREAD_LIMIT = 1000;
@@ -42,6 +42,11 @@ export const UNREAD_LIMIT = 1000;
 export const READ_LIMIT = 200;
 /** Articles opened from a search that no shelf holds, kept at hand at most (#175). */
 const OPENED_MAX = 20;
+/**
+ * Each show's newest episodes the app listens to (#245), read or not,
+ * so one whose notes were read stays at hand until it is heard.
+ */
+export const EPISODES_PER_SHOW = 100;
 
 /** A podcast episode's audio (#178), as the fetcher stored it. */
 export interface EnclosureRecord {
@@ -120,6 +125,14 @@ export interface ItemsApi {
   /** A timestamp made on the device from epoch millis (#179: playedAt). */
   timestamp(ms: number): unknown;
   clear(): unknown;
+  /** One show's newest episodes, read or not (#245), newest first. */
+  listenFeed(
+    db: Firestore,
+    path: string,
+    feedId: string,
+    next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    error: (err: unknown) => void,
+  ): () => void;
   /** The fetchArticle callable (#163): the page's article kept on the item. */
   fetchArticle(itemId: string): Promise<{ state: string }>;
   /** One article's document (#175), for one search found that no shelf holds; undefined when gone. */
@@ -170,6 +183,20 @@ function itemsApi(functions: Functions): ItemsApi {
         error,
       );
     },
+    listenFeed: (db, path, feedId, next, error) =>
+      onSnapshot(
+        query(
+          collection(db, path),
+          where('feedId', '==', feedId),
+          orderBy('published', 'desc'),
+          limit(EPISODES_PER_SHOW),
+        ),
+        (snap) =>
+          next(
+            snap.docs.map((d) => ({ id: d.id, data: d.data({ serverTimestamps: 'estimate' }) })),
+          ),
+        error,
+      ),
     listenOne: (db, path, next, error) =>
       onSnapshot(
         doc(db, path),
@@ -252,8 +279,17 @@ export class ItemsService {
   private readonly read = signal(false);
   /** Marks made here before the listeners echo them, by id. */
   private readonly local = signal<
-    Record<string, Partial<Pick<ItemRecord, 'read' | 'saved' | 'attachmentId' | 'noteId'>>>
+    Record<
+      string,
+      Partial<
+        Pick<ItemRecord, 'read' | 'saved' | 'attachmentId' | 'noteId' | 'played' | 'position'>
+      >
+    >
   >({});
+  /** Each show's newest episodes (#245), by feed id. */
+  private readonly episodeDocs = signal<Record<string, ItemRecord[]>>({});
+  private episodeStops = new Map<string, () => void>();
+  private episodesUid?: string;
 
   /**
    * The articles opened on one shelf in this sitting, by its
@@ -282,47 +318,67 @@ export class ItemsService {
   readonly items = computed(() => {
     const local = this.local();
     const byId = new Map<string, ItemRecord>();
-    for (const list of [this.unreadDocs(), this.readDocs(), this.savedDocs()]) {
+    for (const list of [
+      this.unreadDocs(),
+      this.readDocs(),
+      this.savedDocs(),
+      ...Object.values(this.episodeDocs()),
+    ]) {
       for (const i of list) byId.set(i.id, { ...i, ...local[i.id] });
     }
     return [...byId.values()].sort((a, b) => b.published - a.published);
   });
 
   /**
-   * Continue listening (#179): the episodes left part-way, on any
-   * device, the most recently played first.
+   * The Reader's articles (#245): every item at hand but the episodes
+   * of the shows in Podcasts, which no shelf, count or line of the
+   * Reader's holds.
+   */
+  readonly readerItems = computed(() => {
+    const podcasts = this.podcastIds();
+    return this.items().filter((i) => !podcasts.has(i.feedId));
+  });
+
+  /** The episodes of the shows in Podcasts (#245), newest first. */
+  readonly episodes = computed(() => {
+    const podcasts = this.podcastIds();
+    return this.items().filter((i) => podcasts.has(i.feedId));
+  });
+
+  /**
+   * Continue listening (#179), in the Reader: its own items with audio
+   * left part-way, on any device, the most recently played first. The
+   * shows in Podcasts have Started there instead (#245).
    */
   readonly listening = computed(() =>
-    this.items()
+    this.readerItems()
       .filter((i) => i.enclosure && !i.played && (i.position ?? 0) > 0)
       .sort((a, b) => (b.playedAt ?? 0) - (a.playedAt ?? 0)),
   );
 
   /** Unread articles per folder name, the special folders included. */
   readonly unreadCounts = computed(() => {
-    const counts: Record<string, number> = { [ALL]: 0, [SAVED]: 0, [PODCASTS]: 0 };
+    const counts: Record<string, number> = { [ALL]: 0, [SAVED]: 0 };
     const folders = this.foldersOf();
-    const podcasts = this.podcastFeeds();
-    for (const i of this.items()) {
+    for (const i of this.readerItems()) {
       if (i.saved) counts[SAVED] = (counts[SAVED] ?? 0) + (i.read ? 0 : 1);
       if (i.read) continue;
       counts[ALL]++;
-      if (podcasts.has(i.feedId)) counts[PODCASTS]++;
       for (const f of folders.get(i.feedId) ?? [UNCATEGORIZED]) counts[f] = (counts[f] ?? 0) + 1;
     }
     return counts;
   });
 
-  /** The ids of the feeds the fetcher marked podcasts (#178). */
-  private readonly podcastFeeds = computed(
+  /** The ids of the shows in Podcasts (#245), the same list while it is the same. */
+  private readonly podcastIdList = computed(
     () =>
-      new Set(
-        this.feeds
-          .feeds()
-          .filter((f) => f.kind === 'podcast')
-          .map((f) => f.id),
-      ),
+      this.feeds
+        .podcastFeeds()
+        .map((f) => f.id)
+        .sort(),
+    { equal: (a, b) => a.length === b.length && a.every((id, n) => id === b[n]) },
   );
+  private readonly podcastIds = computed(() => new Set(this.podcastIdList()));
 
   /**
    * Folders with unread articles newer than when their list was last
@@ -333,7 +389,7 @@ export class ItemsService {
     const seen = this.feeds.seenAt();
     const folders = this.foldersOf();
     const counts = new Map<string, number>();
-    for (const i of this.items()) {
+    for (const i of this.readerItems()) {
       if (i.read) continue;
       for (const f of folders.get(i.feedId) ?? [UNCATEGORIZED]) {
         const at = seen[f];
@@ -357,10 +413,21 @@ export class ItemsService {
 
   private uid?: string;
   private stops: (() => void)[] = [];
+  /** The account the listeners are for: none while the Reader and Podcasts are both off. */
+  private readonly listenAs = computed(() =>
+    this.modules.reader() || this.modules.podcasts() ? this.auth.user()?.uid : undefined,
+  );
 
   constructor() {
+    // Each show's newest episodes (#245), a listener per show, started
+    // and stopped as shows are followed, moved and unfollowed.
     effect(() => {
-      const uid = this.modules.reader() ? this.auth.user()?.uid : undefined;
+      const uid = this.listenAs();
+      const ids = this.podcastIdList();
+      untracked(() => this.followEpisodes(uid, ids));
+    });
+    effect(() => {
+      const uid = this.listenAs();
       if (uid === this.uid) return;
       for (const stop of this.stops) stop();
       this.stops = [];
@@ -407,21 +474,62 @@ export class ItemsService {
     inject(DestroyRef).onDestroy(() => {
       this.stops.forEach((s) => s());
       this.opened.forEach((s) => s());
+      this.episodeStops.forEach((s) => s());
     });
   }
 
-  /** The articles on a shelf: a folder (All, Saved and Podcasts included) or one feed. */
+  private followEpisodes(uid: string | undefined, ids: readonly string[]): void {
+    if (uid !== this.episodesUid) {
+      for (const stop of this.episodeStops.values()) stop();
+      this.episodeStops.clear();
+      this.episodeDocs.set({});
+      this.episodesUid = uid;
+    }
+    if (!uid) return;
+    const want = new Set(ids);
+    for (const [id, stop] of this.episodeStops) {
+      if (want.has(id)) continue;
+      stop();
+      this.episodeStops.delete(id);
+      this.episodeDocs.update(({ [id]: _, ...rest }) => rest);
+    }
+    for (const id of ids) {
+      if (this.episodeStops.has(id)) continue;
+      this.episodeStops.set(
+        id,
+        this.api.listenFeed(
+          this.fb.db,
+          paths.feedItems(uid),
+          id,
+          (docs) => {
+            this.episodeDocs.update((d) => ({
+              ...d,
+              [id]: docs.map((doc) => toItem(doc.id, doc.data)),
+            }));
+            this.local.update((l) => {
+              const next = { ...l };
+              for (const doc of docs) delete next[doc.id];
+              return next;
+            });
+          },
+          (err) => console.error('episodes listener', err),
+        ),
+      );
+    }
+  }
+
+  /**
+   * The articles on a shelf: a folder (All and Saved included) or one
+   * feed; never an episode of a show in Podcasts (#245).
+   */
   inShelf(shelf: Shelf2, showRead: boolean): ItemRecord[] {
     const folders = this.foldersOf();
-    const podcasts = this.podcastFeeds();
-    return this.items().filter((i) => {
+    return this.readerItems().filter((i) => {
       if (shelf.kind === 'feed') {
         if (i.feedId !== shelf.id) return false;
       } else if (shelf.name === SAVED) {
         if (!i.saved) return false;
         return true;
-      } else if (shelf.name === PODCASTS) {
-        if (!podcasts.has(i.feedId)) return false;
       } else if (shelf.name !== ALL) {
         if (!(folders.get(i.feedId) ?? [UNCATEGORIZED]).includes(shelf.name)) return false;
       }
@@ -567,6 +675,27 @@ export class ItemsService {
       })
       .catch((err) => console.error('listening position not saved', err));
     return at;
+  }
+
+  /**
+   * Mark as heard, or Mark as new (#245): heard is `played`; new
+   * clears it and the place kept, so the episode is New again. Neither
+   * touches `read`, which is whether its notes were read.
+   */
+  setPlayed(id: string, played: boolean): void {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return;
+    this.local.update((l) => ({
+      ...l,
+      [id]: { ...l[id], played, ...(played ? {} : { position: undefined }) },
+    }));
+    void this.api
+      .set(this.fb.db, paths.feedItem(uid, id), {
+        played,
+        ...(played ? {} : { position: this.api.clear() }),
+        updatedAt: this.api.serverTime(),
+      })
+      .catch((err) => console.error('heard mark not saved', err));
   }
 
   /** "12:34", or "1:02:03" past the hour, for the player (#179). */

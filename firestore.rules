@@ -89,7 +89,7 @@ service cloud.firestore {
         && data.keys().hasOnly(['theme', 'mode', 'startOn', 'homeTiles', 'homeHidden', 'updatedAt'])
         && (data.theme is string && data.theme in ['herbarium', 'night', 'moss', 'bog', 'pixel'])
         && (data.mode is string && data.mode in ['system', 'light', 'dark'])
-        && (!('startOn' in data) || (data.startOn is string && data.startOn in ['home', 'note', 'right-now', 'kitchen', 'reader']))
+        && (!('startOn' in data) || (data.startOn is string && data.startOn in ['home', 'note', 'right-now', 'kitchen', 'reader', 'podcasts']))
         && (!('homeTiles' in data) || data.homeTiles is list)
         && (!('homeHidden' in data) || data.homeHidden is list)
         && data.updatedAt is timestamp;
@@ -97,10 +97,11 @@ service cloud.firestore {
 
     function isValidModuleSettings(data) {
       return data.keys().hasAll(['updatedAt'])
-        && data.keys().hasOnly(['projects', 'kitchen', 'reader', 'updatedAt'])
+        && data.keys().hasOnly(['projects', 'kitchen', 'reader', 'podcasts', 'updatedAt'])
         && (!('projects' in data) || data.projects is map)
         && (!('kitchen' in data) || data.kitchen is map)
         && (!('reader' in data) || data.reader is map)
+        && (!('podcasts' in data) || data.podcasts is map)
         && data.updatedAt is timestamp;
     }
 
@@ -135,7 +136,7 @@ service cloud.firestore {
 
     function isValidFeed(data) {
       return data.keys().hasAll(['url', 'title', 'folders', 'addedAt', 'updatedAt'])
-        && data.keys().hasOnly(['url', 'title', 'site', 'folders', 'addedAt', 'updatedAt', 'nextFetchAt', 'etag', 'lastModified', 'fetchedAt', 'claimedAt', 'interval', 'errorCount', 'error', 'lastItemAt', 'dead', 'kind'])
+        && data.keys().hasOnly(['url', 'title', 'site', 'folders', 'addedAt', 'updatedAt', 'nextFetchAt', 'etag', 'lastModified', 'fetchedAt', 'claimedAt', 'interval', 'errorCount', 'error', 'lastItemAt', 'dead', 'kind', 'autoQueue'])
         && data.url is string
         && data.title is string
         && (!('site' in data) || data.site is string)
@@ -152,7 +153,8 @@ service cloud.firestore {
         && (!('error' in data) || data.error is string)
         && (!('lastItemAt' in data) || data.lastItemAt is timestamp)
         && (!('dead' in data) || data.dead is bool)
-        && (!('kind' in data) || (data.kind is string && data.kind in ['podcast']));
+        && (!('kind' in data) || (data.kind is string && data.kind in ['podcast']))
+        && (!('autoQueue' in data) || data.autoQueue is bool);
     }
 
     function isValidReaderSettings(data) {
