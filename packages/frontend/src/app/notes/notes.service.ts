@@ -166,6 +166,8 @@ export interface NoteRecord {
   /** Whether that was Eric or an assistant, and which one (#142). */
   updatedBy?: 'user' | 'claude';
   agent?: string;
+  /** `textHash` of the text the last body write replaced, when known (#241). */
+  baseHash?: string;
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -301,6 +303,9 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
     createdAt: (data['createdAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
     settledAt: (data['settledAt'] as { toMillis?: () => number } | undefined)?.toMillis?.(),
     ...(typeof data['deviceId'] === 'string' ? { deviceId: data['deviceId'] } : {}),
+    ...(typeof data['baseHash'] === 'string' && data['baseHash']
+      ? { baseHash: data['baseHash'] }
+      : {}),
   };
 }
 

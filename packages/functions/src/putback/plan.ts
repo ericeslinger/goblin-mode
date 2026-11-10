@@ -2,7 +2,13 @@
 // it started from, and the notes as they stand now, which writes put
 // them back (DESIGN.md, Trust, step 1). The text comes back verbatim
 // from what the run wrote over; nothing here composes text.
-import { type FieldBefore, REROUTE_TOOL, firstWordsTitle, textHash } from '@mossgoblin/schema';
+import {
+  type FieldBefore,
+  REROUTE_TOOL,
+  firstWordsTitle,
+  summarySaysText,
+  textHash,
+} from '@mossgoblin/schema';
 
 /**
  * How far before its activity record a run's own note write can be
@@ -102,7 +108,7 @@ export function didOf(base: RunFacts): Map<string, Did> {
       out.set(t.id, {
         kind: 'edited',
         ...(flip ? { flip } : {}),
-        text: /\btext\b/.test(base.summary),
+        text: summarySaysText(base.summary),
       });
       return;
     }
