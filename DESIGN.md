@@ -2251,7 +2251,7 @@ Functions, so the MCP endpoint and OAuth live on mossgoblin.garden:
 Other functions: `noteHistory`, `noteTitle` and `reminderScheduled`
 (Firestore triggers), `reminderWake` (a Cloud Tasks queue),
 `sendDuePush` (hourly) and the app's callables, among them `revertRun`
-(Put back, #154).
+(Put back, #154) and `rerouteRun` (File it under…, #235).
 
 **The Trash sweep (#217, 2026-11-09).** `trashSweep` runs daily
 (`notes/trash.ts`): a collection-group query on `notes.deletedAt`
@@ -2724,6 +2724,42 @@ the `PUT_BACK_API` seam; the plan is `putback/plan.ts`, the transaction
   back does the run again. 50 put backs a day (`usage`).
 - **No MCP tool.** An assistant undoes its own work by doing it again
   with the tools it has; Put back is Eric's, in the app.
+
+**Reroute (#235, step 2 of #154, 2026-11-09).** Once Put back has
+undone an assistant's filing, the same entry offers "File it under…"
+with Eric's active projects (not archived, not done) as buttons, and
+Not now, so the correction is one more tap; the status line says what
+happened ("Filed under Pottery."). With Projects off, or no project to
+offer, there is no offer.
+
+- **When.** Only right after a put back of a filing or a merge, read
+  from the record by `rerouteNotes` (schema, `putback.ts`), shared by
+  the app and the server: a merge files the originals the put back
+  restored; a `refile` that filed a project under another (`parent`
+  among its `before`, "filed under" in its summary) files that
+  project; a `link_notes` whose targets include a project files the
+  note it linked; a reroute files what it filed. A text edit, tagging
+  or a finished queue item offers nothing.
+- **How it files.** The way the assistant's filing would have: a
+  project goes under the chosen one with `parent` (the same chain check
+  as `refile`, so no loop), any other note gets the "See also
+  [[Project]]" line `link_notes` adds under the text, which stays as
+  it is. The tags a refile added stay put back: they were chosen for
+  the project Eric turned down.
+- **A callable, online.** `rerouteRun` (`onCall`, beside `revertRun`
+  in `putback/`, through the same `PUT_BACK_API` seam) does it in one
+  transaction, because `activity` is function-only (2026-10-05) and
+  the record is what makes the change visible and undoable. It needs
+  the network and says so offline, as Put back does, and is offered
+  only after a put back, which was online a moment before. This
+  departs from the issue's "works offline like every note write".
+- **A run of its own.** Recorded as tool `reroute`, agent Mossgoblin,
+  under the derived id `reroute-<put back id>` (a second tap answers
+  already), writing as deviceId `agent:Mossgoblin~reroute-<put back
+  id>`. Its entry keeps each note's fields before (`parent`, or
+  `links` with the `textHash` of the text before as `body`, #206), so
+  Put back undoes it like any filing. It counts toward the day's 50
+  put backs. No stored schema or rules changed.
 
 **Nightly suggestions (#35, 2026-10-07; a Claude routine, Eric,
 2026-10-07).** A Claude routine on Eric's subscription, not a

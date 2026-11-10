@@ -102,6 +102,7 @@ import {
   type Takes,
 } from '@mossgoblin/schema';
 import {
+  type CollectionReference,
   type DocumentReference,
   FieldValue,
   type Firestore,
@@ -191,7 +192,7 @@ const touchedNew = (id: string, d: Data): Touched => ({ ...touched(id, d), made:
  * (#206). The text is History's; a run that rewrote it keeps only the
  * hash History knows the text before by, as `body`.
  */
-const touchedFields = (id: string, d: Data, update: Data): Touched => ({
+export const touchedFields = (id: string, d: Data, update: Data): Touched => ({
   ...touched(id, d),
   before: Object.fromEntries(
     Object.keys(update)
@@ -205,6 +206,52 @@ const touchedFields = (id: string, d: Data, update: Data): Touched => ({
 
 /** A name that can sit inside `[[...]]` as it is. */
 const linkable = (name: string) => !/\[\[|\]\]|\||\n/.test(name) && name.trim() !== '';
+
+/** The name a link to note `id` (data `d`) can use: its title or another name that reaches it. */
+export function linkName(id: string, d: Data, index: Map<string, string>): string | undefined {
+  return [String(d['title'] ?? ''), ...((d['synonyms'] as string[]) ?? [])].find(
+    (n) => linkable(n) && index.get(normalizeName(n)) === id,
+  );
+}
+
+/** The assistant's own line linking `names`, under the gardener's text, which stays as it is. */
+export function withSeeAlso(body: string, names: readonly string[]): string {
+  return `${body.trimEnd()}\n\nSee also ${names.map((n) => `[[${n}]]`).join(', ')}`;
+}
+
+/**
+ * The title of project `parent`, refusing it unless it is a live
+ * project that is neither `id` nor under it. Up the parent's chain, read
+ * in `tx`, so two moves at once cannot make a loop (review on #95).
+ */
+export async function parentTitle(
+  tx: Transaction,
+  notes: CollectionReference,
+  id: string,
+  parent: string,
+): Promise<string> {
+  let title = '';
+  const seen = new Set<string>();
+  for (let at: string | undefined = parent; at;) {
+    if (at === id) throw new ToolError('a project cannot go under itself or a project under it');
+    if (seen.has(at)) break;
+    seen.add(at);
+    const up = await tx.get(notes.doc(at));
+    const data = up.data();
+    if (
+      !up.exists ||
+      data?.['conceptType'] !== 'project' ||
+      data['archived'] === true ||
+      inTrash(data)
+    ) {
+      if (at === parent) throw new ToolError(`no project ${parent}`);
+      break;
+    }
+    if (at === parent) title = String(data['title'] ?? '');
+    at = data['parent'] as string | undefined;
+  }
+  return title;
+}
 
 /**
  * An attachment's text is a page's or a file's words, not Eric's: said
@@ -1543,9 +1590,7 @@ export class NotesTools {
         if (linked.has(to.id)) continue;
         linked.add(to.id);
         const d = to.data()!;
-        const name = [String(d['title'] ?? ''), ...((d['synonyms'] as string[]) ?? [])].find(
-          (n) => linkable(n) && index.get(normalizeName(n)) === to.id,
-        );
+        const name = linkName(to.id, d, index);
         if (!name) {
           throw new ToolError(
             `nothing links to ${to.id} by name: its title is empty or names another note; ` +
@@ -1557,7 +1602,7 @@ export class NotesTools {
       }
       if (names.length === 0) return { id: from.id, linked: [] };
       // Claude's own line, under the gardener's text, which stays as it is.
-      const next = `${body.trimEnd()}\n\nSee also ${names.map((n) => `[[${n}]]`).join(', ')}`;
+      const next = withSeeAlso(body, names);
       const update: Data = {
         ...this.stamp(),
         body: next,
@@ -1792,31 +1837,9 @@ export class NotesTools {
           said.push('moved to the top level');
         }
       } else if (args.parent !== undefined && args.parent !== current['parent']) {
-        // Up the new parent's chain, read in this transaction, so two
-        // moves at once cannot make a loop (review on #95).
-        let parentTitle = '';
-        const seen = new Set<string>();
-        for (let at: string | undefined = args.parent; at;) {
-          if (at === args.id)
-            throw new ToolError('a project cannot go under itself or a project under it');
-          if (seen.has(at)) break;
-          seen.add(at);
-          const up = await tx.get(this.notes().doc(at));
-          const data = up.data();
-          if (
-            !up.exists ||
-            data?.['conceptType'] !== 'project' ||
-            data['archived'] === true ||
-            inTrash(data)
-          ) {
-            if (at === args.parent) throw new ToolError(`no project ${args.parent}`);
-            break;
-          }
-          if (at === args.parent) parentTitle = String(data['title'] ?? '');
-          at = data['parent'] as string | undefined;
-        }
+        const title = await parentTitle(tx, this.notes(), args.id, args.parent);
         update['parent'] = args.parent;
-        said.push(`filed under ${parentTitle || args.parent}`);
+        said.push(`filed under ${title || args.parent}`);
       }
       if (args.kind && args.kind !== current['projectKind']) {
         update['projectKind'] = args.kind;

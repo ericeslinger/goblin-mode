@@ -2,7 +2,7 @@
 // it started from, and the notes as they stand now, which writes put
 // them back (DESIGN.md, Trust, step 1). The text comes back verbatim
 // from what the run wrote over; nothing here composes text.
-import { type FieldBefore, firstWordsTitle, textHash } from '@mossgoblin/schema';
+import { type FieldBefore, REROUTE_TOOL, firstWordsTitle, textHash } from '@mossgoblin/schema';
 
 /**
  * How far before its activity record a run's own note write can be
@@ -67,6 +67,8 @@ export type Did =
  * with no text before it, so the plan leaves it alone. Filing and
  * `finish_queued` change fields, which their records keep (`before`,
  * #206, 2026-11-09); a record from before that names its notes only.
+ * A reroute (#235) is filing too: a project's `parent`, or a note's
+ * `links` with the hash of the text before its "See also" line.
  */
 export function didOf(base: RunFacts): Map<string, Did> {
   const out = new Map<string, Did>();
@@ -75,7 +77,7 @@ export function didOf(base: RunFacts): Map<string, Did> {
       out.set(t.id, i === 0 ? { kind: 'merged' } : { kind: 'original', into: base.notes[0].id });
       return;
     }
-    if (base.tool === 'refile' || base.tool === 'finish_queued') {
+    if (base.tool === 'refile' || base.tool === 'finish_queued' || base.tool === REROUTE_TOOL) {
       if (t.before)
         out.set(t.id, {
           kind: 'fields',

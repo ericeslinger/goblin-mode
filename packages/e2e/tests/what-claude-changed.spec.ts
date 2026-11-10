@@ -7,7 +7,8 @@ import { OWNER } from '../src/personas';
 // What assistants changed (#34): Claude organizes through MCP, and the app
 // lists each change with the notes it touched and their History. Put back
 // (#154 step 1) undoes a change in one tap, as a run of its own, filing
-// included (#206).
+// included (#206). After a filing is put back, File it under… files the
+// note under the project Eric picks, as a change of his own (#235).
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -118,4 +119,61 @@ test('a merge by Claude shows in What assistants changed, with its notes and His
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(back).toBeVisible();
   await expect(back.getByRole('list', { name: 'Tags' })).toHaveCount(0);
+});
+
+test('after a filing is put back, File it under… files the note under another project', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await signInAs(page, OWNER);
+  await typeLines(page, ['Kiln log', 'Cone 6, slow cool.']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'New' }).click();
+
+  const call = await connectClaude(page);
+  await call('create_concept', { name: 'Pottery', type: 'project' });
+  await call('create_concept', { name: 'Garden', type: 'project' });
+  const [kiln] = (await call('search_notes', { query: 'kiln' })) as { id: string }[];
+  // The assistant files the note under the wrong project.
+  await call('link_notes', { from: kiln.id, to: ['c-pottery'] });
+  // noteHistory runs in the emulator: wait until it kept the text it replaced.
+  await page.goto(`/history?note=${kiln.id}`);
+  await expect(
+    page.getByRole('list', { name: 'Earlier versions' }).getByRole('button', { name: /slow cool/ }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  await page.goto('/activity');
+  const changes = page.getByRole('list', { name: 'Changes' });
+  await changes.getByRole('button', { name: 'Put back: Linked a note to 1 other' }).click();
+  await changes.getByRole('button', { name: 'Yes' }).click();
+  await expect(changes).toContainText('Put back 1 note.', { timeout: 15_000 });
+
+  // One more tap files it where Eric meant.
+  const offer = changes.getByRole('group', { name: 'File it under: Linked a note to 1 other' });
+  await expect(offer).toContainText('File it under…');
+  await expect(offer.getByRole('button', { name: 'Pottery' })).toBeVisible();
+  await offer.getByRole('button', { name: 'Garden' }).click();
+  await expect(changes).toContainText('Filed under Garden.', { timeout: 15_000 });
+  await expect(offer).toHaveCount(0);
+  await expect(changes).toContainText('Mossgoblin: Filed Kiln log under Garden');
+  // His own change, listed like any other, can itself be put back.
+  await expect(
+    changes.getByRole('button', { name: 'Put back: Filed Kiln log under Garden' }),
+  ).toBeVisible();
+
+  // His text stays word for word, with the link under it.
+  await page.goto(`/n/${kiln.id}`);
+  await expect(note(page)).toContainText('Cone 6, slow cool.');
+  await expect(note(page)).toContainText('Garden');
+  await expect(note(page)).not.toContainText('Pottery');
+
+  // The note shows under Garden.
+  await page.goto('/n/c-garden');
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  await expect(
+    back
+      .getByRole('region', { name: 'Linked from' })
+      .getByRole('link', { name: 'Kiln log', exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
 });

@@ -3,9 +3,11 @@ import { provideRouter } from '@angular/router';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import {
   FakeAuthService,
+  FakeModules,
   FakeNotes,
   FakeProposals,
   fakeFirebase,
@@ -41,6 +43,7 @@ async function render(suggestions: ProposalRecord[] = []) {
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: AuthService, useValue: auth },
       { provide: NotesService, useValue: notes },
+      { provide: ModulesService, useValue: new FakeModules() },
       { provide: ProposalsService, useValue: proposals },
     ],
   }).compileComponents();

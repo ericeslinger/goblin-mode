@@ -32,12 +32,62 @@ export function putBackDepth(runId: string): { base: string; depth: number } {
 }
 
 /**
+ * The tool a reroute records itself as (#235): after a put back of a
+ * filing, Eric filing its notes under the project he picks.
+ */
+export const REROUTE_TOOL = 'reroute';
+
+/**
+ * The activity id of the reroute that follows put back `putBackRunId`.
+ * Derived like a put back's, so a second tap finds the first.
+ */
+export function rerouteId(putBackRunId: string): string {
+  return `reroute-${putBackRunId}`;
+}
+
+/**
+ * Which notes "File it under…" files once run `run` is put back (#235),
+ * none when the run was no filing. Read from the record as the put back
+ * plan reads it: a merge lists its merged note first, then the
+ * originals, which the put back restores; a `refile` that filed a
+ * project under another keeps `parent` among its `before`; a
+ * `link_notes` names the note it linked first, then its targets, one of
+ * them a project (`isProject`, from the notes as they are); a reroute
+ * lists the notes it filed. A plain text edit, tagging or a finished
+ * queue item files nothing.
+ */
+export function rerouteNotes(
+  run: { tool: string; summary: string; notes: readonly { id: string; before?: unknown }[] },
+  isProject: (id: string) => boolean,
+): string[] {
+  const [first, ...rest] = run.notes;
+  if (!first) return [];
+  switch (run.tool) {
+    case 'merge_notes':
+      return rest.map((n) => n.id);
+    case 'refile': {
+      const before = first.before;
+      const parent = !!before && typeof before === 'object' && 'parent' in before;
+      return parent && /\bfiled under\b/.test(run.summary) ? [first.id] : [];
+    }
+    case 'link_notes':
+      return rest.some((n) => isProject(n.id)) ? [first.id] : [];
+    case REROUTE_TOOL:
+      return run.notes.map((n) => n.id);
+    default:
+      return [];
+  }
+}
+
+/**
  * Runs that change fields History does not keep, only text: filing
- * (types, names, tags, stages) and a sent note marked done. Their
+ * (types, names, tags, stages), a sent note marked done, and a reroute
+ * (#235), which keeps a project's `parent` or a note's `links` with the
+ * hash of its text before. Their
  * records keep the values they replaced (`before` on each note, #206,
  * 2026-11-09); a record from before that cannot be put back.
  */
-const KEEPS_BEFORE = new Set(['refile', 'finish_queued']);
+const KEEPS_BEFORE = new Set(['refile', 'finish_queued', 'reroute']);
 
 /** Whether a run can be offered Put back: it touched notes, in a way it can undo. */
 export function canPutBack(run: { tool: string; notes: readonly { before?: unknown }[] }): boolean {

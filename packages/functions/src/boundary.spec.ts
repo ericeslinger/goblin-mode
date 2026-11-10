@@ -12,6 +12,7 @@ const EXPORTS = [
   'oauth',
   'proposalAccepted',
   'revertRun',
+  'rerouteRun',
   'sendDuePush',
   'reminderScheduled',
   'reminderWake',
