@@ -1620,13 +1620,23 @@ export class NotesTools {
         ...this.stamp(),
         body,
         baseHash: textHash(String(current['body'] ?? '')),
-        links: resolveLinks(targetsOf(body), index),
       };
       if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(body);
+      // Each piece links back to the note it came from, where that
+      // note's name, as it reads after the split, reaches it (#233).
+      const after = nameIndex([
+        ...docs.map((d) => named(d.id, d.id === args.id ? { ...current, ...update } : d.data)),
+        ...pieces.map((p) => named(p.id, p.data)),
+      ]);
+      const from = String(update['title'] ?? current['title'] ?? '');
+      if (linkable(from) && after.get(normalizeName(from)) === args.id) {
+        for (const p of pieces) p.data['body'] = `${p.data['body']}\n\nSplit from: [[${from}]]`;
+      }
+      update['links'] = resolveLinks(targetsOf(body), after);
       Note.parse({ ...current, ...update });
       tx.update(ref, update);
       for (const p of pieces) {
-        p.data['links'] = resolveLinks(targetsOf(String(p.data['body'])), index);
+        p.data['links'] = resolveLinks(targetsOf(String(p.data['body'])), after);
         tx.set(this.notes().doc(p.id), Note.parse(p.data));
       }
       tx.set(

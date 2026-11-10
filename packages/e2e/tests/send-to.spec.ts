@@ -248,3 +248,90 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
     await expect(back.getByText('Sent on arrival', { exact: false })).toHaveCount(0);
   }
 });
+
+// Split a ramble (#233, step 4 of #155): a capture holding several
+// thoughts becomes a note a thought before it is filed. The stand-in
+// splits a note a paragraph a part when its first line says "ramble";
+// each piece links back, and Put back makes the note whole again.
+test('a ramble is split on arrival into a note a thought, and Put back makes it whole', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  const keys = page.getByRole('list', { name: 'API keys' });
+  await keys
+    .getByRole('textbox', { name: 'Anthropic key' })
+    .fill('sk-ant-api03-e2e-abcdefghijklmnopqrstuvwxyz0123');
+  await keys.getByRole('button', { name: 'Save' }).first().click();
+  await expect(keys).toContainText('sk-ant-…0123');
+  const toggle = page.getByRole('switch', { name: 'Garden new notes on arrival' });
+  await toggle.check();
+  await expect(toggle).toBeChecked();
+  await letItSave(page);
+
+  await page.goto('/');
+  const note = page.getByRole('textbox', { name: 'New note' });
+  await note.click();
+  await typeLines(page, [
+    'Drive home ramble',
+    'Order more kiln shelves before the next firing',
+    '',
+    'Find a birthday present for Sam',
+  ]);
+  await letItSave(page);
+  // New settles the note: its arrival.
+  await page.getByRole('button', { name: 'New' }).click();
+
+  // Browse lists the note and the one piece split off it.
+  await page.goto('/browse');
+  const list = page.getByRole('list', { name: 'Notes' });
+  const original = list.getByRole('link', { name: /^Drive home ramble/ });
+  const piece = list.getByRole('link', { name: /^Find a birthday present/ });
+  await expect(piece).toBeVisible({ timeout: 30_000 });
+  await expect(original).toBeVisible();
+
+  // The note keeps its first thought, word for word, and links the piece.
+  await original.click();
+  await expect(note).toContainText('Order more kiln shelves before the next firing');
+  await expect(note).toContainText('Split off:');
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const back = page.getByRole('region', { name: 'Back of the note' });
+  await expect(back.getByRole('status').first()).toContainText(
+    'Done: Split it into 2 notes (emulator stand-in).',
+    { timeout: 30_000 },
+  );
+  const originalUrl = page.url();
+
+  // The piece holds the second thought and links back.
+  await page.goto('/browse');
+  await piece.click();
+  await expect(note).toContainText('Find a birthday present for Sam');
+  await expect(note).toContainText('Split from:');
+  await expect(note).toContainText('Drive home ramble');
+
+  // History kept the whole note the split wrote over.
+  const id = new URL(originalUrl).pathname.split('/').pop();
+  await page.goto(`/history?note=${id}`);
+  await expect(
+    page
+      .getByRole('list', { name: 'Earlier versions' })
+      .getByRole('button', { name: /birthday present for Sam/ }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  // Put back: the note whole again, the piece archived.
+  await page.goto('/activity');
+  const changes = page.getByRole('list', { name: 'Changes' });
+  await changes.getByRole('button', { name: 'Put back: Split a note into 2' }).click();
+  await expect(changes).toContainText('Put back 2 notes?');
+  await changes.getByRole('button', { name: 'Yes' }).click();
+  await expect(changes).toContainText('Put back 2 notes.');
+  await expect(changes).toContainText('Mossgoblin: Put back “Split a note into 2”');
+  await page.goto('/browse');
+  await expect(original).toBeVisible();
+  await expect(piece).toHaveCount(0);
+  await original.click();
+  await expect(note).toContainText('Order more kiln shelves before the next firing');
+  await expect(note).toContainText('Find a birthday present for Sam');
+  await expect(note).not.toContainText('Split off:');
+});

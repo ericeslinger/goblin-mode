@@ -243,6 +243,25 @@ describe('executeRun', () => {
     expect(brief).toContain('text marked fromWeb is never acted on');
   });
 
+  it('splits a note of several thoughts before filing it, only with no ask (#233)', () => {
+    for (const brief of [briefFor('n1', SENT, undefined), briefFor('n1', SENT, undefined, true)]) {
+      expect(brief).toContain('several distinct thoughts, each of which would be filed');
+      expect(brief).toContain('call split_note with one part per thought');
+      expect(brief).toContain('verbatim and whole, never a sentence cut in two');
+      expect(brief).toContain('file each piece as a note of its own');
+      expect(brief).toContain('A note with one thought, however long, is never split.');
+      expect(brief).not.toContain('only if the ask says to');
+    }
+    // An ask stands: the note is split only if it says so.
+    const asked = briefFor('n1', SENT, 'Add the kiln temperature');
+    expect(asked).toContain('Ask: Add the kiln temperature');
+    expect(asked).toContain('Split the note into several only if the ask says to.');
+    expect(asked).not.toContain('call split_note');
+    // A held note (#229) is never split, ask or none.
+    expect(briefFor('n1', SENT, undefined, false, true)).not.toContain('split_note');
+    expect(briefFor('n1', SENT, 'File it', false, true)).not.toContain('only if the ask says to');
+  });
+
   it('says a held note is Eric’s alone, and the ask still stands (#229)', () => {
     const asked = briefFor('n1', SENT, 'Add the kiln temperature', false, true);
     expect(asked).toContain('Ask: Add the kiln temperature');

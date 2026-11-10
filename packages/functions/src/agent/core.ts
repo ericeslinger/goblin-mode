@@ -92,7 +92,10 @@ export type RunOutcome = 'done' | 'failed' | 'capped' | 'skipped';
  * gives. The note's title is not here: it can be a page's words, and
  * get_note labels those (review on #152). A note Eric holds back
  * (#229) is his alone: the run reads it and does the ask, if any, and
- * leaves its text and filing as they are otherwise.
+ * leaves its text and filing as they are otherwise. With no ask, a
+ * note holding several thoughts is split into one note a thought
+ * before filing (#233), never a held one; with an ask, it is split
+ * only if the ask says to.
  */
 export function briefFor(
   noteId: string,
@@ -121,7 +124,15 @@ export function briefFor(
             'it, but leave its text and filing (links, tags, where it is filed) as they are, ' +
             'beyond what the ask above says.',
         ]
-      : []),
+      : // Split a ramble (#233): one note a thought, before filing; never a held note.
+        [
+          ask
+            ? 'Split the note into several only if the ask says to.'
+            : 'A note that plainly holds several distinct thoughts, each of which would be filed ' +
+              'somewhere different, is split first: call split_note with one part per thought, ' +
+              'each part Eric’s words verbatim and whole, never a sentence cut in two, then file ' +
+              'each piece as a note of its own. A note with one thought, however long, is never split.',
+        ]),
     '',
     'Read it with get_note, do the ask, then call finish_queued with the note id and sentAt ' +
       'above and one plain line saying what you did. If you cannot do it, finish it with a ' +
