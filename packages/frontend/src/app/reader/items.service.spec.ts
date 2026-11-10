@@ -268,14 +268,20 @@ describe('ItemsService (#162)', () => {
     const hundred = Array.from({ length: 100 }, (_, n) => item(`e${n}`, 'p1', n + 1));
     api.pushFeed('p1', hundred);
     expect(items.mayHaveOlder('p1')).toBe(true);
-    api.pageFeed.mockResolvedValueOnce([item('old1', 'p1', 200), item('old2', 'p1', 300)]);
+    // The page starts at the oldest at hand, so it comes back too and
+    // is dropped: episodes sharing its instant are not cut (#250).
+    api.pageFeed.mockResolvedValueOnce([
+      item('e99', 'p1', 100),
+      item('old1', 'p1', 200),
+      item('old2', 'p1', 300),
+    ]);
     expect(await items.loadOlder('p1')).toBe(2);
     expect(api.pageFeed).toHaveBeenCalledWith(
       expect.anything(),
       'users/u1/feedItems',
       'p1',
       NOW_MS - 100 * H,
-      100,
+      101,
     );
     expect(items.olderEpisodes('p1').map((e) => e.id)).toEqual(['old1', 'old2']);
     // A short page: that was the last; the older ones open like any other.
@@ -607,5 +613,135 @@ describe('ItemsService (#162)', () => {
     modules.set('reader', false);
     TestBed.tick();
     expect(api.listen).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('the listening queue (#249)', () => {
+  const audio = { enclosure: { url: 'https://p.test/a.mp3', type: 'audio/mpeg', seconds: 600 } };
+  const episode = (id: string, more: Record<string, unknown> = {}) =>
+    item(id, 'p1', 1, { ...audio, ...more });
+
+  function queueSetup() {
+    const s = setup();
+    s.feeds.push([
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
+      { id: 'f1', data: { url: 'https://a.test/f', title: 'Design blog', folders: [] } },
+    ]);
+    TestBed.tick();
+    /** The queue's writes, one place each, in order. */
+    const places = () =>
+      s.api.set.mock.calls
+        .filter((c) => 'queue' in c[2])
+        .map((c) => [c[1].split('/').at(-1), c[2]['queue']]);
+    return { ...s, places };
+  }
+
+  it('listens to the queued items, ascending, the shows’ in Podcasts only', () => {
+    const { items, api } = queueSetup();
+    expect(api.listenQueue).toHaveBeenCalledTimes(1);
+    expect(api.listenQueue.mock.calls[0][1]).toBe('users/u1/feedItems');
+    api.pushQueue([
+      episode('b', { queue: 2000 }),
+      episode('a', { queue: 1000 }),
+      episode('tie', { queue: 2000 }),
+      // A Reader feed's item, its show moved: not the queue's.
+      item('reader', 'f1', 1, { ...audio, queue: 500 }),
+      // A place that is no number.
+      episode('junk', { queue: 'first' }),
+    ]);
+    expect(items.queue().map((i) => i.id)).toEqual(['a', 'b', 'tie']);
+    expect(items.queued('b')).toBe(true);
+    expect(items.queued('reader')).toBe(false);
+    expect(items.readerItems().map((i) => i.id)).not.toContain('reader');
+    // Older than the show's newest hundred, and read: still in the queue.
+    expect(items.find('a')?.queue).toBe(1000);
+  });
+
+  it('adds at the end, never before now, plays next a step before the first, and removes', () => {
+    const { items, api, places } = queueSetup();
+    api.pushFeed('p1', [episode('a'), episode('b'), episode('c')]);
+    items.addToQueue('a');
+    expect(places()).toEqual([['a', NOW_MS]]);
+    expect(items.queue().map((i) => i.id)).toEqual(['a']);
+    items.addToQueue('b');
+    items.addToQueue('b');
+    expect(places().at(-1)).toEqual(['b', NOW_MS + 1000]);
+    expect(places()).toHaveLength(2);
+    items.playNext('c');
+    expect(places().at(-1)).toEqual(['c', NOW_MS - 1000]);
+    expect(items.queue().map((i) => i.id)).toEqual(['c', 'a', 'b']);
+    items.removeFromQueue('a');
+    expect(places().at(-1)).toEqual(['a', 'CLEAR']);
+    expect(items.queue().map((i) => i.id)).toEqual(['c', 'b']);
+    expect(api.set.mock.calls.at(-1)![2]).toEqual({ queue: 'CLEAR', updatedAt: 'SERVER_TIME' });
+  });
+
+  it('moves to the midpoint of its new neighbours, or past an end', () => {
+    const { items, api, places } = queueSetup();
+    api.pushQueue([
+      episode('a', { queue: 1000 }),
+      episode('b', { queue: 2000 }),
+      episode('c', { queue: 3000 }),
+    ]);
+    items.moveInQueue('c', ['a', 'c', 'b']);
+    expect(places().at(-1)).toEqual(['c', 1500]);
+    expect(items.queue().map((i) => i.id)).toEqual(['a', 'c', 'b']);
+    items.moveInQueue('b', ['b', 'a', 'c']);
+    expect(places().at(-1)).toEqual(['b', 0]);
+    items.moveInQueue('b', ['a', 'c', 'b']);
+    expect(places().at(-1)).toEqual(['b', NOW_MS]);
+    expect(api.setMany).not.toHaveBeenCalled();
+  });
+
+  it('renumbers the whole queue in one batch when neighbours are too close', () => {
+    const { items, api } = queueSetup();
+    api.pushQueue([
+      episode('a', { queue: 1000 }),
+      episode('b', { queue: 1000.0001 }),
+      episode('c', { queue: 3000 }),
+    ]);
+    items.moveInQueue('c', ['a', 'c', 'b']);
+    expect(api.setMany).toHaveBeenCalledTimes(1);
+    expect(api.setMany.mock.calls[0][1]).toEqual([
+      { path: 'users/u1/feedItems/a', data: { queue: 1000, updatedAt: 'SERVER_TIME' } },
+      { path: 'users/u1/feedItems/c', data: { queue: 2000, updatedAt: 'SERVER_TIME' } },
+      { path: 'users/u1/feedItems/b', data: { queue: 3000, updatedAt: 'SERVER_TIME' } },
+    ]);
+    expect(items.queue().map((i) => i.id)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('takes an episode off the queue once heard: to the end, marked, or all marked', () => {
+    const { items, api } = queueSetup();
+    api.pushQueue([
+      episode('a', { queue: 1 }),
+      episode('b', { queue: 2 }),
+      episode('c', { queue: 3 }),
+      episode('d', { queue: 4 }),
+    ]);
+    items.setProgress('a', { position: 600, played: true });
+    expect(api.set.mock.calls.find((c) => c[2]['played'] === true)![2]).toMatchObject({
+      queue: 'CLEAR',
+    });
+    items.setPlayed('b', true);
+    expect(api.set.mock.calls.at(-1)![2]).toEqual({
+      played: true,
+      queue: 'CLEAR',
+      updatedAt: 'SERVER_TIME',
+    });
+    items.setPlayedMany(['c']);
+    expect(api.setMany.mock.calls[0][1][0].data).toEqual({
+      played: true,
+      queue: 'CLEAR',
+      updatedAt: 'SERVER_TIME',
+    });
+    expect(items.queue().map((i) => i.id)).toEqual(['d']);
+    // Mark as new leaves the queue alone, and so does a place kept.
+    items.setPlayed('d', false);
+    items.setProgress('d', { position: 30 });
+    expect(items.queue().map((i) => i.id)).toEqual(['d']);
+    // Not queued: a heard mark writes no place.
+    api.pushFeed('p1', [episode('e')]);
+    items.setPlayed('e', true);
+    expect(api.set.mock.calls.at(-1)![2]).not.toHaveProperty('queue');
   });
 });

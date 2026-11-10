@@ -68,6 +68,9 @@ const PATHS = {
     'M14.5 13.5H19a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1h-4.5a1 1 0 0 1-1-1v-4.5a1 1 0 0 1 1-1z',
   ],
   sort: ['M7 4v16M3 16l4 4 4-4', 'M13 6h8M13 12h6M13 18h4'],
+  // The listening queue (#249): Add to the queue, and In the queue.
+  'queue-add': ['M4 6h12M4 12h12M4 18h7', 'M18 14v7M14.5 17.5h7'],
+  queued: ['M4 6h12M4 12h12M4 18h7', 'M14 18l3 3 5-6'],
 } as const;
 
 export type IconName = keyof typeof PATHS;

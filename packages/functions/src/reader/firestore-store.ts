@@ -1,5 +1,11 @@
 import { FieldPath, FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
-import { SAVES_FEED_ID, SAVES_FEED_TITLE, matchesSearch, paths } from '@mossgoblin/schema';
+import {
+  SAVES_FEED_ID,
+  SAVES_FEED_TITLE,
+  isQueueOrder,
+  matchesSearch,
+  paths,
+} from '@mossgoblin/schema';
 import type { SavesStore } from './feedly';
 import {
   CLAIM_MS,
@@ -43,6 +49,8 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
           ...(num(d['errorCount']) === undefined ? {} : { errorCount: num(d['errorCount']) }),
           ...(ms(d['lastItemAt']) === undefined ? {} : { lastItemAt: ms(d['lastItemAt']) }),
           ...(d['dead'] === true ? { dead: true } : {}),
+          ...(d['kind'] === 'podcast' ? { podcast: true } : {}),
+          ...(d['autoQueue'] === true ? { autoQueue: true } : {}),
         };
         return [feed];
       });
@@ -111,6 +119,15 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
       return typeof months === 'number' && Number.isInteger(months) && months >= 1 && months <= 120
         ? months
         : undefined;
+    },
+    queueEnd: async (uid) => {
+      // Only the items with a place: orderBy leaves out those without one.
+      const snap = await db
+        .collection(paths.feedItems(uid))
+        .orderBy('queue', 'desc')
+        .limit(1)
+        .get();
+      return isQueueOrder(snap.docs[0]?.get('queue')) ? snap.docs[0].get('queue') : undefined;
     },
     countFetch: async (uid, day) => {
       await db

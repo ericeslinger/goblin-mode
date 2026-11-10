@@ -1,7 +1,7 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SAVES_FEED_ID, feedId, feedItemId } from '@mossgoblin/schema';
+import { FeedItem, SAVES_FEED_ID, feedId, feedItemId } from '@mossgoblin/schema';
 import { importSaves } from './feedly';
 import {
   applyRetention,
@@ -12,7 +12,7 @@ import {
   searchItems,
   sweepOld,
 } from './firestore-store';
-import { monthsAfter } from './refresh';
+import { monthsAfter, refreshFeed } from './refresh';
 import { termsOf } from './terms';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
@@ -86,6 +86,62 @@ describe("the feed's artwork (#246)", () => {
     });
     await store.updateFeed('u1', 'f-1', { ...look, image: null });
     expect((await ref.get()).data()).not.toHaveProperty('image');
+  });
+});
+
+describe('new episodes join the queue (#249)', () => {
+  const POD = `<rss version="2.0"><channel><title>Kiln talk</title>
+    <item><title>Ep 3</title><guid>ep-3</guid><pubDate>${new Date(NOW - 3_600_000).toUTCString()}</pubDate><enclosure url="https://kiln.test/3.mp3" type="audio/mpeg" length="1"/></item>
+    <item><title>Ep 2</title><guid>ep-2</guid><pubDate>${new Date(NOW - 7_200_000).toUTCString()}</pubDate><enclosure url="https://kiln.test/2.mp3" type="audio/mpeg" length="1"/></item>
+    <item><title>Ep 1</title><guid>ep-1</guid><pubDate>${new Date(NOW - 2 * DAY).toUTCString()}</pubDate><enclosure url="https://kiln.test/1.mp3" type="audio/mpeg" length="1"/></item>
+  </channel></rss>`;
+  const look = async () => ({ status: 200, contentType: 'application/rss+xml', text: POD });
+  const queueOf = async (guid: string) =>
+    (await db.doc(`users/u1/feedItems/${feedItemId('f-1', guid)}`).get()).data()?.['queue'];
+
+  it('reads the switch with a due feed and appends the new episodes after the last place', async () => {
+    const store = firestoreRefreshStore(db);
+    expect(await store.queueEnd('u1')).toBeUndefined();
+    await db.doc('users/u1/feeds/f-1').set({
+      url: 'https://kiln.test/feed.xml',
+      title: 'Kiln talk',
+      folders: [],
+      kind: 'podcast',
+      autoQueue: true,
+      lastItemAt: Timestamp.fromMillis(NOW - 2 * DAY),
+      nextFetchAt: Timestamp.fromMillis(NOW - DAY),
+    });
+    // Ep 1 was stored by an earlier look; another show's episode is queued last.
+    await article(feedItemId('f-1', 'ep-1'), 2);
+    await article('other', 1, { feedId: 'f-2', queue: NOW + 60_000 });
+    await article('earlier', 1, { feedId: 'f-2', queue: NOW - 60_000 });
+    expect(await store.queueEnd('u1')).toBe(NOW + 60_000);
+    const [due] = await store.due(NOW, 10, 'u1');
+    expect(due).toMatchObject({ id: 'f-1', podcast: true, autoQueue: true });
+    await refreshFeed({ store, fetch: look, now: () => NOW }, due);
+    expect(await queueOf('ep-2')).toBe(NOW + 61_000);
+    expect(await queueOf('ep-3')).toBe(NOW + 62_000);
+    expect(await queueOf('ep-1')).toBeUndefined();
+    expect(await store.queueEnd('u1')).toBe(NOW + 62_000);
+    // The stored episode keeps the shape the schema holds.
+    const stored = (await db.doc(`users/u1/feedItems/${feedItemId('f-1', 'ep-3')}`).get()).data();
+    expect(FeedItem.safeParse(stored).success).toBe(true);
+  });
+
+  it('queues nothing at a feed’s first look', async () => {
+    const store = firestoreRefreshStore(db);
+    await db.doc('users/u1/feeds/f-1').set({
+      url: 'https://kiln.test/feed.xml',
+      title: 'Kiln talk',
+      folders: [],
+      kind: 'podcast',
+      autoQueue: true,
+      nextFetchAt: Timestamp.fromMillis(NOW - DAY),
+    });
+    const [due] = await store.due(NOW, 10, 'u1');
+    await refreshFeed({ store, fetch: look, now: () => NOW }, due);
+    for (const guid of ['ep-1', 'ep-2', 'ep-3']) expect(await queueOf(guid)).toBeUndefined();
+    expect(await store.queueEnd('u1')).toBeUndefined();
   });
 });
 

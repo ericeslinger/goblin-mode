@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { feedItemView } from './tools';
+import { feedItemView, queueRanks } from './tools';
 
 describe('feedItemView (#178)', () => {
   const feeds = new Map([['f-1', { title: 'Kiln hour', folders: [] }]]);
@@ -74,5 +74,38 @@ describe('feedItemView (#178)', () => {
       tags: ['Pottery'],
     });
     expect(feedItemView('f-1-t', base, feeds)).not.toHaveProperty('tags');
+  });
+
+  it('says an episode is in the listening queue and where, 1 next (#249)', () => {
+    const shows = new Map([
+      ['f-1', { title: 'Kiln hour', folders: [], podcast: true }],
+      ['f-2', { title: 'Design notes', folders: [] }],
+    ]);
+    const audio = { enclosure: { url: 'https://pod.invalid/1.mp3', type: 'audio/mpeg' } };
+    const ranks = queueRanks(
+      [
+        { id: 'b', data: { feedId: 'f-1', queue: 5, ...audio } },
+        { id: 'a', data: { feedId: 'f-1', queue: 5, ...audio } },
+        { id: 'c', data: { feedId: 'f-1', queue: -1, ...audio } },
+        // Not what the app shows as the queue: no audio, a Reader feed's, a string.
+        { id: 'd', data: { feedId: 'f-1', queue: 1 } },
+        { id: 'e', data: { feedId: 'f-2', queue: 1, ...audio } },
+        { id: 'f', data: { feedId: 'f-1', queue: '1', ...audio } },
+      ],
+      shows,
+    );
+    expect([...ranks]).toEqual([
+      ['c', 1],
+      ['a', 2],
+      ['b', 3],
+    ]);
+    expect(feedItemView('a', { ...base, ...audio }, shows, ranks)).toMatchObject({
+      queued: true,
+      queuePosition: 2,
+    });
+    const out = feedItemView('d', base, shows, ranks);
+    expect(out).not.toHaveProperty('queued');
+    expect(out).not.toHaveProperty('queuePosition');
+    expect(feedItemView('a', base, shows)).not.toHaveProperty('queued');
   });
 });

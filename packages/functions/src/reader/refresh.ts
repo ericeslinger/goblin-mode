@@ -4,7 +4,7 @@
 // writes only the items not yet stored. Each feed's interval follows
 // how often it posts and backs off on errors; one that fails for about
 // a month is given up until the gardener asks again.
-import { FEED_CAP, feedItemId } from '@mossgoblin/schema';
+import { FEED_CAP, feedItemId, orderAfter } from '@mossgoblin/schema';
 import { type Enclosure, parseFeed } from './feed-parse';
 import { CONTENT_MAX, htmlToMarkdown, summaryOf } from './markdown';
 import { termsOf } from './terms';
@@ -60,6 +60,9 @@ export interface DueFeed {
   /** Milliseconds. */
   lastItemAt?: number;
   dead?: boolean;
+  /** Followed in Podcasts (#245), and whether its new episodes join the queue (#249). */
+  podcast?: boolean;
+  autoQueue?: boolean;
 }
 
 /** An item as the store writes it; times in milliseconds. */
@@ -80,6 +83,8 @@ export interface NewItem {
   episode?: number;
   /** The word index (#175): the title's and content's terms, for search. */
   terms: string[];
+  /** Its place in the listening queue (#249), for a new episode of a show with `autoQueue`. */
+  queue?: number;
 }
 
 /** What a look at a feed changes on it; times in milliseconds, null clears. */
@@ -112,6 +117,8 @@ export interface RefreshStore {
   countFetch(uid: string, day: string): Promise<void>;
   /** The gardener's keep-for months (#171), or none to keep everything. */
   keepMonths(uid: string): Promise<number | undefined>;
+  /** The last place in the gardener's listening queue (#249), or none when it is empty. */
+  queueEnd(uid: string): Promise<number | undefined>;
 }
 
 export interface RefreshDeps {
@@ -249,6 +256,7 @@ export async function refreshFeed(
       terms: termsOf(title, content),
     });
   });
+  await joinQueue(store, feed, fresh, now);
   if (fresh.length) await store.writeItems(feed.uid, fresh);
   const newest = all.reduce((m, i) => Math.max(m, i.published), feed.lastItemAt ?? 0);
   const interval = nextInterval(
@@ -275,6 +283,33 @@ export async function refreshFeed(
     // it was added or moved (#245, Eric 2026-11-10), never the audio's.
   });
   return { outcome: fresh.length ? 'new' : 'unchanged', added: fresh.length };
+}
+
+/**
+ * New episodes join the queue (#249; Eric 2026-11-10, the switch on
+ * Add a podcast, off by default): on a show in Podcasts with
+ * `autoQueue`, each episode stored for the first time with its audio
+ * is appended to the listening queue, oldest first so they play in
+ * the order they came out, after the queue's last place read once for
+ * this look (`orderAfter`, the app's own arithmetic). Never the
+ * backlog: a feed that no look has read an item from yet
+ * (`lastItemAt` unset) is being looked at for the first time, and its
+ * episodes are left for the gardener to add.
+ */
+async function joinQueue(
+  store: RefreshStore,
+  feed: DueFeed,
+  fresh: NewItem[],
+  now: number,
+): Promise<void> {
+  if (!feed.podcast || !feed.autoQueue || feed.lastItemAt === undefined) return;
+  const joining = fresh.filter((i) => i.enclosure).sort((a, b) => a.published - b.published);
+  if (!joining.length) return;
+  let last = await store.queueEnd(feed.uid);
+  for (const item of joining) {
+    last = orderAfter(last, now);
+    item.queue = last;
+  }
 }
 
 /**

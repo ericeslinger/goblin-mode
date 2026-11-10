@@ -99,10 +99,10 @@ describe('Latest (#245)', () => {
     expect(el.querySelector('ul img')?.getAttribute('src')).toBe('https://pod.test/2.jpg');
     expect(el.querySelector('ul .square')?.textContent?.trim()).toBe('KT');
     const tabs = el.querySelector('nav[aria-label="Podcasts screens"]')!;
-    // No Queue tab until step 3 brings the queue.
+    // The Queue tab (#249), with how many are in it.
     expect(
       [...tabs.querySelectorAll('a')].map((a) => a.textContent!.replace(/\s+/g, ' ').trim()),
-    ).toEqual(['Latest 2 new', 'Shows']);
+    ).toEqual(['Latest 2 new', 'Shows', 'Queue 0 in the queue']);
     expect(tabs.querySelector('a[aria-current="page"]')?.textContent).toContain('Latest');
     expect(el.querySelector('a[aria-label="Add a podcast"]')?.getAttribute('href')).toBe(
       '/podcasts/add',
@@ -157,5 +157,22 @@ describe('Latest (#245)', () => {
     await harness.fixture.whenStable();
     expect(first.querySelector('img')).toBeNull();
     expect(first.querySelector('.square')?.textContent?.trim()).toBe('KT');
+  });
+
+  it('adds an episode to the queue from its row, pressed once in it, off again (#249)', async () => {
+    const { harness, button, items, el } = await open();
+    const add = button('Add Episode e1 to the queue')!;
+    expect(add.getAttribute('aria-pressed')).toBe('false');
+    add.click();
+    await harness.fixture.whenStable();
+    expect(items.addToQueue).toHaveBeenCalledWith('e1');
+    const queued = button('Episode e1 is in the queue')!;
+    expect(queued.getAttribute('aria-pressed')).toBe('true');
+    const tabs = el.querySelector('nav[aria-label="Podcasts screens"]')!;
+    expect(tabs.textContent!.replace(/\s+/g, ' ')).toContain('Queue 1 in the queue');
+    queued.click();
+    await harness.fixture.whenStable();
+    expect(items.removeFromQueue).toHaveBeenCalledWith('e1');
+    expect(button('Add Episode e1 to the queue')?.getAttribute('aria-pressed')).toBe('false');
   });
 });

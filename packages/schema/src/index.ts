@@ -20,6 +20,7 @@ export * from './grocery';
 export * from './pantry';
 export * from './suggest';
 export * from './queue';
+export * from './listening-queue';
 export * from './keys';
 export * from './runs';
 export * from './assigned';

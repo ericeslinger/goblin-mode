@@ -9,14 +9,14 @@ import { ItemsService } from '../reader/items.service';
 import { ReaderService } from '../reader/reader.service';
 import { episodeState } from './episodes';
 
-export type PodcastsTab = 'latest' | 'shows';
+export type PodcastsTab = 'latest' | 'shows' | 'queue';
 
 /**
  * Podcasts' header and tabs (#245, step 1 of #244): the leaf, then
  * Downloads (with a dot while anything is downloaded) and Add a podcast
  * as icons with names; under them the tabs Latest (`/podcasts`, with
- * how many are new) and Shows (`/podcasts/shows`). Queue comes with
- * step 3, so it has no tab yet.
+ * how many are new), Shows (`/podcasts/shows`) and Queue
+ * (`/podcasts/queue`, #249, with how many are in it).
  */
 @Component({
   selector: 'app-podcasts-bar',
@@ -105,6 +105,13 @@ export class PodcastsBar {
     return [
       { name: 'Latest', link: '/podcasts', count: fresh, counts: 'new', current: at('latest') },
       { name: 'Shows', link: '/podcasts/shows', current: at('shows') },
+      {
+        name: 'Queue',
+        link: '/podcasts/queue',
+        count: this.items.queue().length,
+        counts: 'in the queue',
+        current: at('queue'),
+      },
     ];
   });
 }

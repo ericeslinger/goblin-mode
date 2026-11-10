@@ -75,7 +75,10 @@ users/{uid}
                               kind (Podcasts) and autoQueue are the
                               gardener's (#245); image, the feed's
                               artwork, is the fetcher's (#246)
-  feedItems/{itemId}          their articles, fetcher-written (#159)
+  feedItems/{itemId}          their articles, fetcher-written (#159);
+                              queue, an episode's place in the
+                              listening queue, the gardener's and
+                              the fetcher's (#249)
   usage/{day}                 a day's metered calls, server-only;
                               usage/digest the last digest pushed (#237)
 oauth/...                     MCP auth state, server-only
@@ -1954,7 +1957,8 @@ Queue for the later steps).
 - **The queue switch is on Add, off by default.** "New episodes join
   the queue setting should be on the add feed UI (when adding the
   atom/rss to follow the show), default off." It is stored on the
-  feed as `autoQueue`; the queue itself is step 3, which acts on it.
+  feed as `autoQueue`; the queue itself is step 3 (#249), which acts
+  on it.
 
 **What changed from #178.** #178 had the fetcher set `Feed.kind:
 'podcast'` once a look found audio among the feed's items, never
@@ -1993,7 +1997,8 @@ of their own, shown while either module is on.
 **Screens.** `/podcasts` is Latest under the module's tabs
 (`app-podcasts-bar`: the leaf, Downloads and Add a podcast as named
 icons, then the tabs Latest, with how many are new, and Shows). Queue
-has no tab until step 3 builds it. Latest lists the newest episodes
+had no tab until step 3 built it (#249, a third tab since
+2026-11-10). Latest lists the newest episodes
 of every show, each with its artwork (the episode's `image`, else its
 show's initials on a square tinted with `--second` by its id, and the
 initials when images are off), title, state, show, age and length,
@@ -2122,7 +2127,8 @@ header; the artwork, the name as `h1`, "112 episodes · 9 unheard"
 "Not in a folder"). The cadence line of the mockup is left out. Two
 settings: New episodes join the queue (`autoQueue`, written through
 the cache by `ReaderService.setAutoQueue`; the queue is step 3, so
-step 1's note that it comes soon stays) and Keep downloaded, step
+step 1's note that it comes soon stayed, until step 3 removed it,
+#249) and Keep downloaded, step
 1's choice. Then its episodes, rows as in Latest without the artwork,
 Unheard and All with counts, Newest first or Oldest first, and the
 search: every word in the title or the notes (summary and content),
@@ -2167,6 +2173,129 @@ oldest first, a search by its notes, the sheet closed by Escape, and
 Mark all as heard clearing its count in the grid; axe on the grid,
 the folder view, the show's page and the sheet. Step 1's journeys
 open Move to the Reader from the show's page.
+
+**Step 3: the listening queue, arranged by dragging (#249,
+2026-11-10).** Eric, 2026-11-10: "I still want to have a listening
+queue, but that's not quite first in or last in ordering, I'll want
+to be able to arrange it by dragging", and "A listening queue that new
+episodes append to, but can be rearranged."
+
+*The order.* An episode in the queue carries `FeedItem.queue`, a
+finite number, absent when it is not queued; the queue is the
+episodes that have one, ascending, ties by id so every device draws
+the same order. The arithmetic is `listening-queue.ts` in the schema,
+shared by the app and the fetcher: Add to the queue is a step (1000)
+after the last and never before now, the device's clock in
+milliseconds (`orderAfter`); Play next is a step before the first
+(`orderBefore`); a drop between two rows is their midpoint
+(`orderBetween`); past either end, a step beyond it. When two
+neighbours are closer than a thousandth (`needsRenumber`, some twenty
+halvings of a step), the move renumbers the whole queue a step apart
+from the first's place, in one batch. Every write goes through the
+persistent cache, never awaited, shown at once by the local marks.
+The rules let the owner write `queue` as a number inside plus or
+minus 10^15 (no NaN or infinity), and clear it; the rules tests cover
+setting, changing and clearing it, a string, a boolean, an infinity,
+a number out of bounds, and an intruder.
+
+*Offline and two devices.* An append is "after the last, and not
+before now", so two devices appending while offline both land after
+what was there, in the order they were appended once both sync; an
+empty or long-idle queue starts at now. Two moves of the same episode
+on two devices: the later write wins, as for any field. Two devices
+giving two episodes the same place (a midpoint of the same pair)
+order them by id, the same everywhere, until the next move. A
+renumber on one device while the other moves can interleave, but
+every value stays a plain number, so the queue is always some order
+and never lost; the next move puts it right.
+
+*Reading it.* Its own listener, `orderBy('queue')` on the gardener's
+feedItems (which holds only the items that have the field; a
+single-field index, so no composite one), at most 500, so the queue
+is whole whatever each show's newest hundred holds. Its items join
+the app's at hand only for a show in Podcasts: a show moved to the
+Reader keeps its episodes' places, unseen, until it comes back.
+`ItemsService.queue()` is the ordered list and `queued(id)` says
+whether one is in it; the episodes need audio to count.
+
+*The Queue tab* (`/podcasts/queue`, a third tab with how many are in
+it): Now playing, the player's episode with its artwork, show, time
+left and a thin progress bar, then Up next, "4 episodes · 4 h 07 min"
+(what is left of each, its length less its kept place, where known),
+and the queue in order without the one playing. Each row: a grip, the
+artwork, the title (to the episode's page), its show and length, and
+More. An empty queue says how to fill it.
+
+*Arranging* follows Arrange Home's tiles (#222): the grip takes
+pointer events (touch and mouse, captured), the row lifts, tilted and
+dashed, the others glide to the places they would take, and a dashed
+slot shows where it lands; it lands past every row whose middle it
+passed. `touch-action: none` on the grip keeps the page still under
+the finger. Released, the one move is written. With the grip focused,
+Arrow Up and Arrow Down move the row a place, and a polite live
+region says "Moved Wedging clay to 2 of 4". More is a small menu of
+buttons (a group named "More for <title>", not an ARIA menu): Play,
+Move up, Move down, Play next and Remove from the queue; its first
+button takes focus, Escape or a press outside closes it, and focus
+goes back to More. Everything the drag does, the keys and the menu
+do. With reduced motion the tilt goes and nothing glides (`--motion`
+is 0).
+
+*Everywhere an episode shows.* Latest's rows and a show's page's rows
+have Add to the queue beside Play, the queue icon named for the
+episode ("Add Reduction firing to the queue"), pressed and named
+"Reduction firing is in the queue" once in, a second press taking it
+off. The episode's page has Add to the queue (In the queue, pressed,
+once there) and Play next, as words; on its own page they need not
+name the episode.
+
+*Playing through* (the player's ended path, where `played` is set):
+the finished episode's `played` write also clears its `queue`, then
+the first of the queue starts, by the same `load` a tap uses (its
+download, its kept place) on the one audio element. That happens
+whether or not the finished one was queued: a queue is what plays
+next, so finishing anything plays on into it. Starting from the ended
+event of an element that was playing is allowed by browsers' autoplay
+rules. Mark as heard, and Mark all as heard, also take a queued
+episode off. Play from a row's More, or from anywhere else, leaves the
+queue as it is: the one playing is drawn under Now playing, not again
+under Up next, and leaves the queue once heard. Closing the player
+leaves the queue alone.
+
+*New episodes join by themselves.* The fetcher, storing episodes it
+had not stored before (with audio) for a show in Podcasts whose
+`autoQueue` is on, reads the queue's last place once for that look
+(`orderBy('queue', 'desc')`, one document) and appends them, oldest
+first so they play in the order they came out, each `orderAfter` the
+one before. Never the backlog: a feed no look has read an item from
+(`lastItemAt` unset before this look) is being looked at for the
+first time, and its episodes are left to be added by hand. So a feed
+that listed nothing at its first look and posts later is left too
+until its second episode; no flag was added for that edge. The
+admin write keeps the stored shape the schema holds (the emulator
+spec parses it). The stopgap notes that the queue comes soon, on Add
+a podcast and on the show's page, are gone.
+
+*The assistant's side.* No new tool. `list_feed_items` and
+`get_feed_item` say `queued: true` and `queuePosition` (1-based, 1
+plays next, the order the app draws) on an episode in the queue, and
+`list_feed_items` takes `queued: true` to list the queue itself, in
+order; the text stays labelled `fromWeb`. The positions are read with
+one small query per call (at most 500).
+
+*Journeys* (`podcasts.spec.ts`): a third fixture show, Wheel talk,
+whose second look finds a new episode. Two episodes added from
+Latest, in order on the Queue tab with its count and total; the
+second moved up with its More (closed by Escape first, focus back on
+More), then back with its grip's Arrow Down and the live region; Play
+next from an episode's page; one removed; one played from its row to
+its end, the next started and the finished one gone, then that one to
+its end and the queue empty; then New episodes join the queue on for
+Wheel talk, Refresh, and Trimming feet appended. The journey clears
+the day's refresh limit as admin between the two Refreshes. axe on
+the Queue tab with the menu open and closed. The assistant's
+`list_feed_items` with `queued` is checked along the way. Step 1's
+tabs check gains Queue.
 
 ## Themes (#23, 2026-10-06)
 
@@ -2621,8 +2750,8 @@ it, one backticked tool name per row.
 | `capture` | Files chat words under a project, verbatim ("garden this"): an idea or question as its own note, a decision as a dated line | Garden this (#42, #119) |
 | `add_attachment` | Saves a link or PDF to the reading queue | Attachment text, server half (#45) |
 | `list_reading_queue` | PDFs and links saved to read later, newest first | Attachment text, server half (#45) |
-| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a `tag` (a Feedly board, #176) narrows any of these, and an article carries its `tags`; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179); `podcast: true` on an item of a show in Podcasts, and `podcasts` false for the Reader's own articles only, true for the episodes only (#245) | The Reader, step 4 (#163), Feedly's export (#176), Podcasts (#245) |
-| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179), and `podcast: true` for a show in Podcasts (#245) | The Reader, step 4 (#163) |
+| `list_feed_items` | Articles from the feeds Eric follows: a folder, a feed, or what is saved; unread unless asked; a `tag` (a Feedly board, #176) narrows any of these, and an article carries its `tags`; a podcast episode with its `enclosure` (audio url, type, bytes, seconds), `image` and `episode` (#178), and `position` (seconds) and `played` once listened to (#179); `podcast: true` on an item of a show in Podcasts, and `podcasts` false for the Reader's own articles only, true for the episodes only (#245); `queued: true` lists the listening queue in its order, and an episode in it carries `queued: true` and `queuePosition`, 1 plays next (#249) | The Reader, step 4 (#163), Feedly's export (#176), Podcasts (#245), the queue (#249) |
+| `get_feed_item` | One article's text, the page's own when reader mode fetched it, a stretch at a time; an episode's `enclosure`, `image` and `episode` too (#178), and its `position` and `played` (#179), and `podcast: true` for a show in Podcasts (#245), and `queued: true` and `queuePosition` when it is in the listening queue (#249) | The Reader, step 4 (#163) |
 | `search_feed_items` | Articles holding every word of a query, with snippets (and an episode's `enclosure`, #178, and `podcast: true` for a show in Podcasts, #245): across every article by the word index, the last `days` only when asked (#175; a query of only stop words, or one the index finds nothing for, scans the last 30 days; `{ items, truncated: true }` when older ones were not all searched, review on #197) | The Reader, step 4 (#163); the index (#175) |
 | `clip_feed_item` | Files an article in the garden as a note of kind clipping, as File in the garden does | The Reader, step 4 (#163) |
 | `get_attachment_text` | A stretch of a PDF's or saved page's text | Attachment text, server half (#45) |

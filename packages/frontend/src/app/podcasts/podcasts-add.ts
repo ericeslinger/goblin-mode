@@ -12,7 +12,9 @@ import { type DiscoveredFeed, ReaderService, cleanFolder } from '../reader/reade
  * Add a podcast (#245, `/podcasts/add`): the show's feed or its site,
  * Find the feed asking the server as the Reader's discovery does
  * (#174), the feed found with its name and episodes, a folder, and New
- * episodes join the queue, off unless switched on (Eric, 2026-11-10).
+ * episodes join the queue, off unless switched on (Eric, 2026-11-10):
+ * since #249 the fetcher appends the show's new episodes to the
+ * listening queue while it is on.
  * Following writes the feed with `kind: 'podcast'` and `autoQueue`,
  * through the persistent cache, offline too; without a look, the link
  * is followed as it is. A feed followed already stays where it is:
@@ -109,7 +111,6 @@ import { type DiscoveredFeed, ReaderService, cleanFolder } from '../reader/reade
             }}</span>
           </span>
         </label>
-        <p class="muted">The queue itself comes soon; the switch is kept on the show for it.</p>
         <button type="submit" class="follow" [disabled]="!reader.loaded() || !address().trim()">
           {{ chosen() ? 'Follow ' + chosen()!.title : 'Follow' }}
         </button>

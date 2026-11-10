@@ -15,7 +15,8 @@ import { episodeState, stateText } from './episodes';
 
 /**
  * An episode's page in Podcasts (#245, `/podcasts/e/<id>`): its artwork,
- * show, title and state, the player's full controls, Mark as heard (or
+ * show, title and state, the player's full controls, Add to the queue
+ * (In the queue once there) and Play next (#249), Mark as heard (or
  * Mark as new), Download, File in the garden and the page, then the
  * show notes, the feed's text rendered as the Reader renders an
  * article's. Opening it marks the notes read (`read`) and nothing else:
@@ -106,6 +107,19 @@ import { episodeState, stateText } from './episodes';
             <app-episode-player [item]="it" />
           }
           <p class="acts">
+            @if (it.enclosure) {
+              <button
+                type="button"
+                class="queue"
+                [attr.aria-pressed]="items.queued(it.id) ? 'true' : 'false'"
+                (click)="toggleQueue(it)"
+              >
+                <app-icon [name]="items.queued(it.id) ? 'queued' : 'queue-add'" [size]="20" />{{
+                  items.queued(it.id) ? 'In the queue' : 'Add to the queue'
+                }}
+              </button>
+              <button type="button" (click)="playNext(it)">Play next</button>
+            }
             @if (heard(it)) {
               <button type="button" (click)="items.setPlayed(it.id, false)">Mark as new</button>
             } @else {
@@ -211,6 +225,14 @@ import { episodeState, stateText } from './episodes';
     .acts button {
       min-height: 44px;
     }
+    .queue {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .queue[aria-pressed='true'] {
+      background: var(--chip-bg);
+    }
     .body {
       line-height: 1.55;
       overflow-wrap: anywhere;
@@ -277,6 +299,26 @@ export class PodcastEpisode {
 
   protected heard(it: ItemRecord): boolean {
     return episodeState(it) === 'heard';
+  }
+
+  /**
+   * Add to the queue, or take it off again once in it (#249): at the
+   * end of the listening queue.
+   */
+  protected toggleQueue(it: ItemRecord): void {
+    if (this.items.queued(it.id)) {
+      this.items.removeFromQueue(it.id);
+      this.said.set('Taken off the queue.');
+    } else {
+      this.items.addToQueue(it.id);
+      this.said.set('Added to the end of the queue.');
+    }
+  }
+
+  /** Play next (#249): first in Up next, after the one playing. */
+  protected playNext(it: ItemRecord): void {
+    this.items.playNext(it.id);
+    this.said.set('Next up in the queue.');
   }
 
   /** Download (#180): kept on the device, or the reason it was not, said. */

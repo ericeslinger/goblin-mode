@@ -1616,6 +1616,53 @@ describe('list_feed_items and Podcasts (#245)', () => {
     expect(await ids({ podcasts: true })).toEqual(['episode']);
     expect(await ids({ podcasts: true, includeRead: true })).toEqual(['episode', 'heard']);
   });
+
+  it('lists the listening queue in its order, each with its place (#249)', async () => {
+    await db.doc('users/u1/feeds/p-1').set({
+      url: 'https://feeds.invalid/pod.xml',
+      title: 'Kiln hour',
+      folders: [],
+      kind: 'podcast',
+    });
+    await db
+      .doc('users/u1/feeds/f-1')
+      .set({ url: 'https://feeds.invalid/d.xml', title: 'Design notes', folders: [] });
+    const at = (id: string, feedId: string, more: object = {}) =>
+      db.doc(`users/u1/feedItems/${id}`).set({
+        feedId,
+        title: id,
+        link: `https://x.invalid/${id}`,
+        published: Timestamp.fromMillis(T),
+        summary: '',
+        content: 'Show notes.',
+        read: false,
+        saved: false,
+        enclosure: { url: `https://x.invalid/${id}.mp3`, type: 'audio/mpeg' },
+        createdAt: Timestamp.fromMillis(T),
+        updatedAt: Timestamp.fromMillis(T),
+        ...more,
+      });
+    await at('second', 'p-1', { queue: 2000 });
+    await at('first', 'p-1', { queue: -500.5 });
+    await at('unqueued', 'p-1');
+    // A Reader feed's item with a place is not in the queue the app shows.
+    await at('reader', 'f-1', { queue: 1 });
+    type Row = { id: string; queued?: boolean; queuePosition?: number; fromWeb: string };
+    const queue = (await tools().listFeedItems({ queued: true })) as Row[];
+    expect(queue.map((r) => [r.id, r.queuePosition])).toEqual([
+      ['first', 1],
+      ['second', 2],
+    ]);
+    expect(queue.every((r) => r.queued === true && r.fromWeb)).toBe(true);
+    const listed = (await tools().listFeedItems({ podcasts: true })) as Row[];
+    expect(listed.find((r) => r.id === 'second')).toMatchObject({ queuePosition: 2 });
+    expect(listed.find((r) => r.id === 'unqueued')).not.toHaveProperty('queued');
+    expect(await tools().getFeedItem({ id: 'first' })).toMatchObject({
+      queued: true,
+      queuePosition: 1,
+    });
+    expect(await tools().getFeedItem({ id: 'reader' })).not.toHaveProperty('queuePosition');
+  });
 });
 
 describe('Trash (#217)', () => {
