@@ -116,6 +116,8 @@ describe('runSides', () => {
       updatedAt: AT + 60_000,
     });
     expect(sides.before?.body).toBe('eric text');
+    // Found by time, not hash, so said to be approximate (review on #243).
+    expect(sides.beforeApprox).toBe(true);
     expect(sides.after).toEqual({ body: 'run text', at: AT - 1000, now: false });
     expect(sides.afterLater).toBeUndefined();
   });

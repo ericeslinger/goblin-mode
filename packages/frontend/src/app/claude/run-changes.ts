@@ -5,6 +5,7 @@ import {
   REROUTE_TOOL,
   lineDiff,
   paths,
+  summarySaysText,
   textHash,
   textLines,
 } from '@mossgoblin/schema';
@@ -44,7 +45,7 @@ export function changesText(run: RunRecord, index: number): boolean {
     case 'archive_note':
       return false;
     case 'update_note':
-      return /\btext\b/.test(run.summary);
+      return summarySaysText(run.summary);
     case PUT_BACK_TOOL:
     default:
       return true;
@@ -119,7 +120,10 @@ export function runSides(
     const found = byHash ?? byTime;
     if (found) {
       out.before = { body: found.body, at: found.updatedAt, now: false };
-      if (byTime && hash) out.beforeApprox = true;
+      // A time match may hold other changes made since: an assistant's
+      // write within ten minutes of another is not kept as its own
+      // version, so this is said to be approximate (review on #243).
+      if (byTime) out.beforeApprox = true;
     } else if (
       versions.length === 0 &&
       note?.createdAt !== undefined &&
@@ -390,7 +394,7 @@ export class RunChanges {
       out.push('Too long to compare line by line: the changed part is shown whole on each side.');
     if (s.beforeApprox)
       out.push(
-        'History has no copy of the exact text before; this is the version it kept just before the run.',
+        'History has no copy of the exact text before this run; this is the version it kept just before, which may hold other changes made since.',
       );
     if (s.noBefore === 'unkept' && (this.versions()?.length ?? 0) >= HISTORY_SHOWN)
       out.push(`History here reads its latest ${HISTORY_SHOWN} versions; open History for more.`);

@@ -90,6 +90,16 @@ export function rerouteNotes(
 const KEEPS_BEFORE = new Set(['refile', 'finish_queued', 'reroute']);
 
 /** Whether a run can be offered Put back: it touched notes, in a way it can undo. */
+/**
+ * Whether an `update_note` record's summary says the run changed the
+ * note's text, as tools.ts words it ("Changed a note's text and tags").
+ * Put back's plan and the diff view both read it here, so the wording
+ * has one home (review on #243).
+ */
+export function summarySaysText(summary: string): boolean {
+  return /\btext\b/.test(summary);
+}
+
 export function canPutBack(run: { tool: string; notes: readonly { before?: unknown }[] }): boolean {
   if (run.notes.length === 0) return false;
   return !KEEPS_BEFORE.has(run.tool) || run.notes.every((n) => n.before !== undefined);

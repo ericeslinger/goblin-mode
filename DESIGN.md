@@ -2906,8 +2906,11 @@ back stays the way to undo.
   hash, or with one History no longer holds, the latest version
   written before the run that is not the run's own (an assistant's
   write, by the run's agent, within the 5 seconds Put back allows,
-  `RUN_SLACK_MS`); when a hash was named and missed, the view says the
-  version is the one kept just before, not the exact text. With no
+  `RUN_SLACK_MS`); any such time match is said to be approximate (the
+  version kept just before, which may hold other changes made since:
+  an assistant's write within ten minutes of another is not kept as
+  its own version), whether or not a hash was named (review on #243,
+  2026-11-10). With no
   version at all and the note made at the run's time, it reads as
   made; otherwise the view says History has no version from before
   the run, and shows the after unmarked.

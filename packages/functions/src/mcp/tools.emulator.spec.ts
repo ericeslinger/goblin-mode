@@ -1,7 +1,7 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { textHash } from '@mossgoblin/schema';
+import { summarySaysText, textHash } from '@mossgoblin/schema';
 import type { ImportedRecipe } from '../kitchen/recipe-import';
 import { termsOf } from '../reader/terms';
 import { NotesTools, ToolError } from './tools';
@@ -307,6 +307,13 @@ describe('organizing tools', () => {
         reminders: [expect.objectContaining({ title: 'Water seeds' })],
       }),
     ]);
+    // Put back and the diff view read "text" from that wording (#243).
+    const [, edit] = await runs();
+    expect(summarySaysText(String(edit['summary']))).toBe(true);
+    await t.updateNote({ id, tags: ['garden', 'seeds'] });
+    const tagsOnly = (await runs()).at(-1)!;
+    expect(String(tagsOnly['summary'])).toBe("Changed a note's tags");
+    expect(summarySaysText(String(tagsOnly['summary']))).toBe(false);
   });
 
   it('lists concepts by links and finds backlinks with their sentence', async () => {
