@@ -4,7 +4,7 @@ import { httpsCallable } from 'firebase/functions';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
-import { ONLINE } from '../platform/platform';
+import { ONLINE, TIME_ZONE } from '../platform/platform';
 import type { RunRecord } from './activity';
 
 /** What the revertRun callable answers (#154 step 1). */
@@ -25,15 +25,23 @@ export const PUT_BACK_API = new InjectionToken<PutBackApi>('put-back-api', {
   providedIn: 'root',
   factory: () => {
     const fb = inject(FIREBASE);
+    // The device's zone dates the line each leaves under Corrections in
+    // Context for Claude (#239).
+    const timeZone = inject(TIME_ZONE);
     return {
       revert: async (runId) =>
-        (await httpsCallable<unknown, PutBackResult>(fb.functions, 'revertRun')({ runId })).data,
+        (
+          await httpsCallable<unknown, PutBackResult>(
+            fb.functions,
+            'revertRun',
+          )({ runId, timeZone })
+        ).data,
       reroute: async (runId, projectId) =>
         (
           await httpsCallable<unknown, PutBackResult>(
             fb.functions,
             'rerouteRun',
-          )({ runId, projectId })
+          )({ runId, projectId, timeZone })
         ).data,
     };
   },

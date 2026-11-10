@@ -27,3 +27,4 @@ export * from './reader';
 export * from './putback';
 export * from './digest';
 export * from './modes';
+export * from './corrections';

@@ -87,8 +87,10 @@ export const INSTRUCTIONS = [
   "Eric's Context for Claude is the note with id context: what you should always know about " +
     'him and the garden. When he has written any, it follows these instructions; get_context ' +
     'reads it again. When he asks you to remember something for later, add it there with ' +
-    "add_lines, starting '✳' and your name. A template's Instructions for Claude are its own field " +
-    '(list_templates, use_template; update_note instructions), not in its text.',
+    "add_lines, starting '✳' and your name. The lines under its Corrections heading are Eric's " +
+    'past put backs and reroutes of what assistants did (the server writes them): respect them ' +
+    "when filing, and do not do again what he put back. A template's Instructions for Claude " +
+    'are its own field (list_templates, use_template; update_note instructions), not in its text.',
 ].join('\n');
 
 /**
@@ -414,8 +416,9 @@ export function buildServer(
       title: 'Read the Context for Claude',
       description:
         "Eric's Context for Claude (the note with id context): what to always know about him and " +
-        'the garden, as given after the server instructions. Add to it with add_lines when he ' +
-        'asks you to remember something.',
+        'the garden, as given after the server instructions, with his past put backs and ' +
+        'reroutes under Corrections. Add to it with add_lines when he asks you to remember ' +
+        'something.',
       inputSchema: {},
       annotations: read,
     },

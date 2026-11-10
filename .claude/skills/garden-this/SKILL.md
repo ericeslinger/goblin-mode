@@ -36,6 +36,9 @@ Follow them; they are not repeated here.
 - Eric's Context for Claude (`get_context`, the note with id
   `context`) comes with the server instructions; read it before
   gardening. Add to it only when he asks you to remember something.
+  The lines under its Corrections heading are his past put backs and
+  reroutes (#239): do not file again where he put a filing back, and
+  file where he rerouted it.
 - Gardening files under a project, so it needs the Projects module on
   (#126). If `capture` says Projects is switched off, tell Eric, and
   file nothing.

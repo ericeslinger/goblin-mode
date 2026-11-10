@@ -432,7 +432,10 @@ text, cut at that limit with a line saying so, to the server
 instructions when a connection initializes (read only then, not on
 every call), and `get_context` returns it; Claude adds to it with
 `add_lines`, marked as its own, when Eric asks it to remember
-something.
+something. Since #239 (2026-11-10) the server also keeps a
+`## Corrections` heading in it, made at the end the first time Eric
+puts back an assistant's run or files its notes again, with one line
+for each, newest last, the last 20 kept (Learn from the correction).
 
 ### Templates (#36, 2026-10-07)
 
@@ -2335,7 +2338,7 @@ it, one backticked tool name per row.
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; Instructions for Claude, a template's or any note's that takes them | Safe co-editing (#37), Templates (#111), Document modes (#231) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
-| `get_context` | Eric's Context for Claude, the context note's text | Context for Claude (#113) |
+| `get_context` | Eric's Context for Claude, the context note's text, with his put backs and reroutes under Corrections | Context for Claude (#113), Learn from the correction (#239) |
 | `link_notes` | Adds a `See also [[...]]` line at the end of a note | Organize tools (#34) |
 | `split_note` | Cuts a note into pieces, refusing any rewording | Organize tools (#34) |
 | `merge_notes` | Joins notes into a new one, archiving the originals | Organize tools (#34) |
@@ -2763,6 +2766,65 @@ offer, there is no offer.
   `links` with the `textHash` of the text before as `body`, #206), so
   Put back undoes it like any filing. It counts toward the day's 50
   put backs. No stored schema or rules changed.
+
+**Learn from the correction (#239, step 3 of #154, 2026-11-10).**
+When Eric puts back an assistant's run, or files its notes again under
+another project (Reroute), the correction is noted in his Context for
+Claude as one plain line, so the next run knows: "Put back: Filed
+Kiln log under Pottery (2026-11-10)." or "Filed Kiln log under
+Garden, not Pottery (2026-11-10)." Every run reads it with the server
+instructions and `get_context`; the brief says the lines are his past
+put backs and reroutes, to respect when filing.
+
+- **The line.** `correctionLine` (schema, `corrections.ts`) reads the
+  run's record, as the digest does, and calls no model. A put back
+  says what the run did: a filing under a project by the project the
+  put back took it from (the `parent` its record says it replaced), a
+  link by its note and targets, a merge by its originals and merged
+  note, a split by its note and pieces, a finished queue item as
+  marked done, and anything else (a text edit, an archive, a note
+  made) as the run's summary, "a note" named. A reroute says where
+  Eric filed the notes and where the assistant had them: the project
+  a `refile` or a `link_notes` filed under, or "not merged into" the
+  merged note. Titles are as the notes are now, cut at 40 characters,
+  with markdown's own characters escaped, so a `[[name]]` or `#tag`
+  in one stays words. A clipping's or an imported recipe's title is a
+  page's words, and the line reaches every run unlabelled, so it says
+  "a clipping" or "an imported recipe" instead, in a name or in the
+  summary. Dated on the device's clock: both callables take an
+  optional `timeZone`, the app's `TIME_ZONE`, through `PUT_BACK_API`;
+  UTC without one or for a zone not known.
+- **Where it goes.** `withCorrection` adds the line as a list item
+  under the note's first `Corrections` heading (any level, matched
+  without case), after its last line of text, so newest last; the
+  heading is added at the end, level 2, when the note has none, so
+  there is only ever one. Only the last 20 list items under it are
+  kept (`CORRECTIONS_MAX`); older ones drop off with the lines
+  indented under them. Everything else in the note, any other text
+  Eric wrote under the heading included, stays byte for byte, and he
+  edits or deletes the lines like any text. They sit at the end, so a
+  note over 4,000 characters loses them from what Claude is given
+  first.
+- **Written in the same transaction.** `revertRun` and `rerouteRun`
+  read the context note with everything else and write the line with
+  their other writes, stamped as those are (`updatedBy: claude`, agent
+  Mossgoblin, the run's own deviceId, `baseHash` the text before), so
+  History keeps Eric's text before it and an open editor merges it in
+  like any other device's write (Safe co-editing); words kept until
+  acknowledged (#198) treat it as they treat an `add_lines` there. No
+  record lists the context
+  note, so the line is no run of its own, offers no Put back, and is
+  not counted in the digest; its title stays as it is. With no
+  context note yet it is made as the app makes it (kind `context`,
+  "Context for Claude", `titleSource: user`); one Eric archived or put
+  in Trash is left alone, with no line.
+- **When there is no line.** A put back of a put back (it does the run
+  again, or undoes that) says nothing: a correction of a correction
+  says nothing useful, and the first line already stands. Nor does a
+  put back of Eric's own reroute, or a reroute after one, since those
+  correct him, not an assistant. A put back of a run that wrote the
+  context note itself leaves no line, since that note is already being
+  written back. No stored schema or rules changed.
 
 **The daily digest (#237, step 4 of #154, 2026-11-09).** What
 assistants changed starts with yesterday in one line: "Yesterday: 4
