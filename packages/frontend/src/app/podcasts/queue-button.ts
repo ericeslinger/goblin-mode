@@ -1,4 +1,4 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, output } from '@angular/core';
 import { Icon } from '../home/icon';
 import { type ItemRecord, ItemsService } from '../reader/items.service';
 
@@ -7,6 +7,8 @@ import { type ItemRecord, ItemsService } from '../reader/items.service';
  * show's page: a toggle that reads "In the queue" (pressed) once the
  * episode is in the listening queue, and takes it off again on a
  * second press. Its name names the episode, so each row's is its own.
+ * At the queue's cap nothing is added (review on #252), and `said`
+ * carries the words for the page's status line.
  */
 @Component({
   selector: 'app-queue-button',
@@ -46,6 +48,8 @@ import { type ItemRecord, ItemsService } from '../reader/items.service';
 export class QueueButton {
   readonly item = input.required<Pick<ItemRecord, 'id' | 'title'>>();
   private readonly items = inject(ItemsService);
+  /** Why nothing was added, for the page to say (the queue is full). */
+  readonly said = output<string>();
   protected readonly queued = computed(() => this.items.queued(this.item().id));
   protected readonly label = computed(() =>
     this.queued()
@@ -56,6 +60,9 @@ export class QueueButton {
   protected toggle(): void {
     const id = this.item().id;
     if (this.queued()) this.items.removeFromQueue(id);
-    else this.items.addToQueue(id);
+    else {
+      const refused = this.items.addToQueue(id);
+      if (refused) this.said.emit(refused);
+    }
   }
 }

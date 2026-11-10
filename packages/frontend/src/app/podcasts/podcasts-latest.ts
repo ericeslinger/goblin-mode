@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Icon } from '../home/icon';
 import { DownloadsService } from '../reader/downloads.service';
@@ -8,6 +8,7 @@ import { ReaderService } from '../reader/reader.service';
 import { EpisodeArt } from './episode-art';
 import { type EpisodeState, episodeState, lengthText, stateText } from './episodes';
 import { PodcastsBar } from './podcasts-bar';
+import { PodcastsSeen } from './podcasts-seen';
 import { QueueButton } from './queue-button';
 
 /** Latest's filters (#245): New, Started, or every episode. */
@@ -23,6 +24,7 @@ export type LatestFilter = 'new' | 'started' | 'all';
  * one playing has Pause and the time left. New, Started and All filter
  * them, with counts. New lasts until the episode is heard (Eric,
  * 2026-11-10): one whose notes were read says "New, notes read".
+ * Opening it marks Latest seen on this device, for Right Now (#251).
  */
 @Component({
   selector: 'app-podcasts-latest',
@@ -78,11 +80,14 @@ export type LatestFilter = 'new' | 'started' | 'all';
               </button>
             }
             @if (ep.enclosure) {
-              <app-queue-button [item]="ep" />
+              <app-queue-button [item]="ep" (said)="said.set($event)" />
             }
           </li>
         }
       </ul>
+      @if (said()) {
+        <p class="status" role="status">{{ said() }}</p>
+      }
     </main>
   `,
   styles: `
@@ -142,7 +147,8 @@ export type LatestFilter = 'new' | 'started' | 'all';
       overflow-wrap: anywhere;
     }
     .meta,
-    .muted {
+    .muted,
+    .status {
       color: var(--quiet);
       font-size: 14px;
     }
@@ -170,7 +176,19 @@ export class PodcastsLatest {
   protected readonly reader = inject(ReaderService);
   protected readonly downloads = inject(DownloadsService);
   private readonly player = inject(PlayerService);
+
+  constructor() {
+    // Seen while open (#251): Right Now's "new in Podcasts" counts only
+    // what comes out after, episodes arriving here included.
+    const seen = inject(PodcastsSeen);
+    effect(() => {
+      this.items.episodes();
+      seen.markSeen();
+    });
+  }
   protected readonly filter = signal<LatestFilter>('new');
+  /** What a row's queue button could not do (review on #252: the queue is full). */
+  protected readonly said = signal('');
 
   /** The episodes before the filter: every show's. */
   private readonly all = computed(() => this.items.episodes());

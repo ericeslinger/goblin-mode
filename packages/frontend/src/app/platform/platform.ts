@@ -50,3 +50,28 @@ export const ONLINE = new InjectionToken<() => boolean>('online', {
   providedIn: 'root',
   factory: () => () => typeof navigator === 'undefined' || navigator.onLine,
 });
+
+/**
+ * Hands the gardener a file to keep (#251, Export as OPML): a download
+ * of `text` named `name`, as a link with `download` does elsewhere in
+ * the app (a note's attached document's Save), made on the device, no
+ * network. The object URL is let go once the browser has it.
+ */
+export const SAVE_FILE = new InjectionToken<(name: string, type: string, text: string) => void>(
+  'save-file',
+  {
+    providedIn: 'root',
+    factory: () => (name: string, type: string, text: string) => {
+      const url = URL.createObjectURL(new Blob([text], { type }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    },
+  },
+);

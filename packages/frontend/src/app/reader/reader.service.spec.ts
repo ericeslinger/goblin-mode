@@ -10,7 +10,13 @@ import { FakeModules, FakeReaderApi, FakeSettingsApi, fakeFirebase } from '../te
 import { ReadingService } from '../reading/reading.service';
 import { zipOf } from '../testing/zip';
 import { renamedFolder } from './reader-feeds';
-import { READER_API, ReaderService, SAVES_QUEUED, cleanFolder } from './reader.service';
+import {
+  READER_API,
+  ReaderService,
+  SAVES_QUEUED,
+  cleanFolder,
+  podcastOpmlMessage,
+} from './reader.service';
 
 const OPML = `<opml><body>
   <outline text="Design">
@@ -63,7 +69,7 @@ describe('ReaderService (#159)', () => {
   it('imports an OPML file once: twice is known, folders union', () => {
     const { reader, api } = setup();
     api.push([]);
-    expect(reader.importOpml(OPML)).toEqual({ added: 2, known: 0, refused: 0 });
+    expect(reader.importOpml(OPML)).toEqual({ added: 2, known: 0, elsewhere: 0, refused: 0 });
     const kottke = feedId('https://kottke.org/main/index.xml');
     const [, path, data, merge] = api.set.mock.calls[0];
     expect(path).toBe(`users/u1/feeds/${kottke}`);
@@ -80,6 +86,7 @@ describe('ReaderService (#159)', () => {
     expect(reader.importOpml(OPML.replace('Design', 'Art'))).toEqual({
       added: 0,
       known: 2,
+      elsewhere: 0,
       refused: 0,
     });
     expect(api.set).toHaveBeenCalledTimes(3);
@@ -91,6 +98,82 @@ describe('ReaderService (#159)', () => {
     expect(reader.importOpml('<opml><body/></opml>')).toBeUndefined();
   });
 
+  it('imports podcasts from OPML as shows (#251): queue off, a Reader feed left where it is', () => {
+    const { reader, api } = setup();
+    const kottke = feedId('https://kottke.org/main/index.xml');
+    api.push([
+      {
+        id: kottke,
+        data: { url: 'https://kottke.org/main/index.xml', title: 'Kottke', folders: [] },
+      },
+    ]);
+    expect(reader.importOpml(OPML, { podcast: true })).toEqual({
+      added: 1,
+      known: 0,
+      elsewhere: 1,
+      refused: 0,
+    });
+    // Only the new one is written: the Reader's feed keeps its folders and kind.
+    expect(api.set).toHaveBeenCalledTimes(1);
+    const [, path, data] = api.set.mock.calls[0];
+    expect(path).toBe(`users/u1/feeds/${feedId('https://dice.example/feed')}`);
+    expect(data).toMatchObject({ kind: 'podcast', autoQueue: false, folders: ['Games'] });
+    expect(reader.podcastFeeds().map((f) => f.title)).toEqual(['Dice']);
+    // Twice is once.
+    expect(reader.importOpml(OPML, { podcast: true })).toEqual({
+      added: 0,
+      known: 1,
+      elsewhere: 1,
+      refused: 0,
+    });
+    expect(api.set).toHaveBeenCalledTimes(1);
+    expect(podcastOpmlMessage({ added: 3, known: 2, elsewhere: 1, refused: 0 })).toBe(
+      '3 added, 1 already in the Reader, 2 already followed.',
+    );
+    // And the Reader's import leaves the show where it is, its folders too.
+    expect(reader.importOpml(OPML)).toEqual({ added: 0, known: 1, elsewhere: 1, refused: 0 });
+    expect(api.set).toHaveBeenCalledTimes(2);
+    expect(api.set.mock.lastCall![1]).toBe(`users/u1/feeds/${kottke}`);
+  });
+
+  it('exports the shows as OPML, their folders as outlines (#251)', () => {
+    const { reader, api } = setup();
+    api.push([
+      {
+        id: 'p1',
+        data: {
+          url: 'https://kiln.test/rss',
+          title: 'Kiln talk',
+          folders: ['Making'],
+          kind: 'podcast',
+        },
+      },
+      {
+        id: 'p2',
+        data: { url: 'https://glaze.test/rss', title: 'Glaze lab', folders: [], kind: 'podcast' },
+      },
+      { id: 'r1', data: { url: 'https://blog.test/rss', title: 'A blog', folders: ['Making'] } },
+    ]);
+    const text = reader.podcastsOpml();
+    expect(text).toContain('<outline text="Making" title="Making">');
+    expect(text).toContain('xmlUrl="https://kiln.test/rss"');
+    expect(text).toContain('xmlUrl="https://glaze.test/rss"');
+    expect(text).not.toContain('blog.test');
+  });
+
+  it('hands back a Move’s write for a batch, shown at once (#251)', () => {
+    const { reader, api } = setup();
+    api.push([
+      { id: 'p1', data: { url: 'https://kiln.test/rss', title: 'Kiln', kind: 'podcast' } },
+    ]);
+    expect(reader.kindWrite('p1', false)).toEqual({
+      path: 'users/u1/feeds/p1',
+      data: { kind: 'CLEAR', updatedAt: 'SERVER_TIME' },
+    });
+    expect(reader.podcastFeeds()).toEqual([]);
+    expect(api.set).not.toHaveBeenCalled();
+  });
+
   it('refuses feeds past the cap', () => {
     const { reader, api } = setup();
     api.push(
@@ -99,7 +182,7 @@ describe('ReaderService (#159)', () => {
         data: { url: `https://x.test/${i}`, title: `${i}`, folders: [] },
       })),
     );
-    expect(reader.importOpml(OPML)).toEqual({ added: 1, known: 0, refused: 1 });
+    expect(reader.importOpml(OPML)).toEqual({ added: 1, known: 0, elsewhere: 0, refused: 1 });
     expect(reader.addFeed('https://one.more/feed')).toBeUndefined();
   });
 
@@ -160,14 +243,14 @@ describe('ReaderService (#159)', () => {
     expect(reader.folderNames()).toEqual(['Games', 'Podcasts (folder)']);
     // An outline named Saved: the feed is kept, in Saved (folder).
     const opml = OPML.replace('"Design"', '"Saved"');
-    expect(reader.importOpml(opml)).toEqual({ added: 1, known: 1, refused: 0 });
+    expect(reader.importOpml(opml)).toEqual({ added: 1, known: 1, elsewhere: 0, refused: 0 });
     const kottke = feedId('https://kottke.org/main/index.xml');
     expect(api.set.mock.calls.find((c) => c[1] === `users/u1/feeds/${kottke}`)![2]).toMatchObject({
       folders: ['Saved (folder)', 'Games'],
     });
     // Again: known, and no folder to add, so nothing is written.
     const writes = api.set.mock.calls.length;
-    expect(reader.importOpml(opml)).toEqual({ added: 0, known: 2, refused: 0 });
+    expect(reader.importOpml(opml)).toEqual({ added: 0, known: 2, elsewhere: 0, refused: 0 });
     expect(api.set).toHaveBeenCalledTimes(writes);
     expect(reader.folderNames()).toEqual(['Games', 'Podcasts (folder)', 'Saved (folder)']);
   });

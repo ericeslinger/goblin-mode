@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
 import { connectClaude } from '../src/claude';
@@ -17,7 +18,10 @@ import { OWNER } from '../src/personas';
 // and More. Step 3 (#249): the listening queue, added to from Latest
 // and an episode's page, arranged by its More and its grip's arrows,
 // played through, and appended to by the fetcher for a show whose new
-// episodes join it.
+// episodes join it. Step 4 (#251): an OPML list of podcasts imported
+// on Add a podcast, twice, and exported from Shows; the Home tile's
+// line; Right Now's "new in Podcasts"; a show with a queued episode
+// moved to the Reader, the queue emptied with it.
 
 const FEED = 'https://feeds.invalid/pod.xml';
 const SHOW = 'Kiln hour (fixture)';
@@ -691,4 +695,171 @@ test('the listening queue: add, arrange, play next, remove, play through, new ep
   await expect(upNext(page).first()).toContainText('Trimming feet');
   await expect(upNext(page).first()).toContainText(`${SHOW3} · 19 min`);
   expect(await queued()).toEqual([['Trimming feet', 1]]);
+});
+
+/** An OPML list (#251): Kiln hour in a folder, Glaze lab in none, and Wheel talk. */
+const PODCASTS_OPML = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0"><head><title>My podcasts</title></head><body>
+  <outline text="Listening">
+    <outline type="rss" text="${SHOW}" xmlUrl="${FEED}"/>
+  </outline>
+  <outline type="rss" text="${SHOW2}" xmlUrl="${FEED2}"/>
+  <outline type="rss" text="${SHOW3}" xmlUrl="${FEED3}"/>
+  <outline type="rss" text="Not a link" xmlUrl="javascript:alert(1)"/>
+</body></opml>`;
+
+// Step 4 (#251, the last of #244): "two imports with no auto moving"
+// (Eric, 2026-11-10). Wheel talk is followed in the Reader first, so
+// the list's import leaves it there and counts it; the other two
+// become shows, Kiln hour in Listening; the same file again adds
+// nothing; Export as OPML saves the two shows in their folders. Then
+// the Home tile's line through new, queued and playing, Right Now's
+// line cleared by a visit to Latest, and Kiln hour moved to the Reader
+// with its queued episode, which leaves the queue.
+test('podcasts from an OPML list and back out, the tile’s line, Right Now, a move that empties the queue', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await serveEpisodes(page);
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Reader' }).check();
+  await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
+  await letItSave(page);
+
+  // Wheel talk followed in the Reader, by its link.
+  await page.goto('/reader/feeds');
+  await expect(page.getByRole('button', { name: 'Follow', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Feed link' }).fill(FEED3);
+  await page.getByRole('button', { name: 'Follow', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
+  await letItSave(page);
+
+  // The list imported on Add a podcast: two shows, Wheel talk left in the Reader.
+  await page.goto('/podcasts/add');
+  const list = page.getByLabel('Import a list of podcasts (OPML)');
+  await expect(list).toBeEnabled();
+  await expect(page.getByRole('combobox', { name: /^Keep downloaded/ })).toHaveValue('0');
+  await axe(page);
+  const file = {
+    name: 'podcasts.opml',
+    mimeType: 'text/x-opml',
+    buffer: Buffer.from(PODCASTS_OPML),
+  };
+  await list.setInputFiles(file);
+  await expect(page.getByRole('status')).toContainText('2 added, 1 already in the Reader.');
+  await letItSave(page);
+  // Twice is once.
+  await list.setInputFiles(file);
+  await expect(page.getByRole('status')).toContainText(
+    '0 added, 1 already in the Reader, 2 already followed.',
+  );
+  await letItSave(page);
+
+  // In Shows, each once, Kiln hour in Listening; New episodes join the queue off.
+  await page.goto('/podcasts/shows');
+  await expect(grid(page).getByRole('listitem')).toHaveCount(2);
+  await expect(grid(page).getByRole('link', { name: SHOW })).toHaveCount(1);
+  await expect(grid(page).getByRole('link', { name: SHOW2 })).toHaveCount(1);
+  await expect(grid(page).getByRole('link', { name: SHOW3 })).toHaveCount(0);
+  await page
+    .getByRole('group', { name: 'Folders' })
+    .getByRole('button', { name: 'Listening' })
+    .click();
+  await expect(grid(page).getByRole('listitem')).toHaveCount(1);
+  await expect(grid(page).getByRole('link', { name: SHOW })).toHaveCount(1);
+  await page.getByRole('group', { name: 'Folders' }).getByRole('button', { name: /^All/ }).click();
+  await expect(grid(page).getByRole('listitem')).toHaveCount(2);
+
+  // Export as OPML: the two shows, Kiln hour inside Listening, no Reader feed.
+  const exported = page.getByRole('button', { name: 'Export as OPML' });
+  await expect(exported).toBeEnabled();
+  const [download] = await Promise.all([page.waitForEvent('download'), exported.click()]);
+  expect(download.suggestedFilename()).toBe('mossgoblin-podcasts.opml');
+  const text = await readFile(await download.path(), 'utf8');
+  const listening = text.slice(text.indexOf('<outline text="Listening"'));
+  const inListening = listening.slice(0, listening.indexOf('</outline>'));
+  expect(inListening).toContain(`text="${SHOW}"`);
+  expect(inListening).toContain(`xmlUrl="${FEED}"`);
+  expect(inListening).not.toContain(FEED2);
+  expect(text).toContain(`xmlUrl="${FEED2}"`);
+  expect(text).not.toContain(FEED3);
+  expect(text).not.toContain('javascript');
+  await expect(page.getByRole('status')).toContainText('Exported 2 shows as OPML.');
+  await axe(page);
+
+  // The server looks: the shows' four episodes, and Wheel talk's two articles.
+  await expect(page.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('status')).toContainText('6 new articles', { timeout: 30_000 });
+
+  // Right Now: the four new in Podcasts, until Latest is seen.
+  const fresh = page.getByRole('link', { name: /new in Podcasts$/ });
+  await page.goto('/right-now');
+  await expect(fresh).toHaveText('4 new in Podcasts', { timeout: 15_000 });
+  await expect(fresh).toHaveAttribute('href', '/podcasts');
+  // The Reader's line counts its own articles only.
+  await expect(page.getByRole('list', { name: 'New in the Reader' })).toContainText('2 new in');
+  await axe(page);
+  await fresh.click();
+  await expect(page).toHaveURL(/\/podcasts$/);
+  await expect(episodes(page)).toHaveCount(4);
+  await page.goto('/right-now');
+  await expect(page.getByRole('list', { name: 'New in the Reader' })).toBeVisible();
+  await expect(fresh).toHaveCount(0);
+
+  // The Home tile: what is new, then what is queued.
+  const tile = page
+    .getByRole('navigation', { name: 'Modules' })
+    .getByRole('link', { name: /^Podcasts/ });
+  await page.goto('/home');
+  await expect(tile).toContainText('4 new');
+  await expect(tile).not.toContainText('in the queue');
+  await page.goto('/podcasts');
+  for (const title of ['Reduction firing', 'Wedging clay']) {
+    const add = page.getByRole('button', { name: `Add ${title} to the queue`, exact: true });
+    await expect(add).toHaveAttribute('aria-pressed', 'false');
+    await add.click();
+    await expect(
+      page.getByRole('button', { name: `${title} is in the queue`, exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
+  }
+  await letItSave(page);
+  await page.goto('/home');
+  await expect(tile).toContainText('4 new · 2 in the queue');
+
+  // And what is playing, with its time left; heard to its end (six
+  // seconds of fixture audio), it leaves the queue and the next plays.
+  await page.goto('/podcasts');
+  await page.getByRole('button', { name: 'Play Reduction firing' }).click();
+  await expect(page.getByRole('button', { name: 'Pause Reduction firing' })).toBeVisible();
+  // In the app, not a reload, so it keeps playing.
+  await page.getByRole('link', { name: 'Home' }).first().click();
+  await expect(tile).toContainText(/Playing: Reduction firing · \d+ min left/);
+  await expect(tile).toContainText('Playing: Wedging clay', { timeout: 20_000 });
+  const bar = page.getByRole('complementary', { name: 'Now playing' });
+  await bar.getByRole('button', { name: 'Pause' }).click();
+  // Reduction firing heard; Wedging clay may be Started by now.
+  await expect(tile).toContainText(/[23] new · 1 in the queue/);
+  await letItSave(page);
+
+  // Kiln hour moved to the Reader: its queued episode leaves the queue with it.
+  await page.goto('/podcasts/shows');
+  await grid(page).getByRole('link', { name: SHOW }).click();
+  await expect(page.getByRole('heading', { name: SHOW, level: 1 })).toBeVisible();
+  await page.getByRole('button', { name: `More for ${SHOW}` }).click();
+  await page
+    .getByRole('dialog', { name: `More for ${SHOW}` })
+    .getByRole('button', { name: /Move to the Reader/ })
+    .click();
+  await expect(page.getByRole('status')).toHaveText(
+    `${SHOW} is in the Reader now. 1 episode left the queue.`,
+  );
+  await letItSave(page);
+  await page.goto('/podcasts/queue');
+  await expect(tabs(page).getByRole('link', { name: /^Queue/ })).toHaveText(/^Queue\s*0/);
+  await expect(upNext(page)).toHaveCount(0);
+  await page.goto('/home');
+  await expect(tile).toContainText('2 new');
+  await expect(tile).not.toContainText('in the queue');
 });

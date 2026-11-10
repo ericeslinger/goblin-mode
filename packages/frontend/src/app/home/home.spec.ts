@@ -11,6 +11,8 @@ import { ModulesService } from '../modules/modules.service';
 import { type NoteRecord, NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { type ItemRecord, ItemsService } from '../reader/items.service';
+import { PlayerService } from '../reader/player.service';
+import { type FeedRecord, ReaderService } from '../reader/reader.service';
 import { ReadingService } from '../reading/reading.service';
 import { RemindersService } from '../reminders/reminders.service';
 import {
@@ -19,6 +21,7 @@ import {
   FakeModules,
   FakeNotes,
   FakeProposals,
+  FakeReader,
   fakeFirebase,
   noteRecord,
 } from '../testing/fakes';
@@ -36,6 +39,10 @@ interface Setup {
   listId?: string;
   runs?: number[];
   arrangement?: Arrangement;
+  /** The Podcasts tile (#251): the episodes at hand, the shows, and what plays. */
+  episodes?: ItemRecord[];
+  shows?: FeedRecord[];
+  playing?: { item: ItemRecord; position: number; duration: number };
 }
 
 async function render(setup: Setup = {}) {
@@ -62,12 +69,33 @@ async function render(setup: Setup = {}) {
     saved: false,
     ...more,
   });
-  items.episodes.set([
-    ep('e1'),
-    ep('e2', { read: true }),
-    ep('e3', { position: 120 }),
-    ep('e4', { played: true, read: true }),
-  ]);
+  items.episodes.set(
+    setup.episodes ?? [
+      ep('e1'),
+      ep('e2', { read: true }),
+      ep('e3', { position: 120 }),
+      ep('e4', { played: true, read: true }),
+    ],
+  );
+  const reader = new FakeReader();
+  reader.feeds.set(
+    setup.shows ?? [
+      {
+        id: 'p1',
+        url: 'https://p.test/f',
+        title: 'Kiln talk',
+        folders: [],
+        dead: false,
+        kind: 'podcast',
+      },
+    ],
+  );
+  const player = {
+    item: signal(setup.playing?.item),
+    playing: signal(!!setup.playing),
+    position: signal(setup.playing?.position ?? 0),
+    duration: signal(setup.playing?.duration ?? 0),
+  };
   items.newSince.set([
     { folder: 'Design', count: 3 },
     { folder: 'Clay', count: 2 },
@@ -94,6 +122,8 @@ async function render(setup: Setup = {}) {
       { provide: NotesService, useValue: notes },
       { provide: ModulesService, useValue: modules },
       { provide: ItemsService, useValue: items },
+      { provide: ReaderService, useValue: reader },
+      { provide: PlayerService, useValue: player },
       { provide: ProposalsService, useValue: proposals },
       { provide: ReadingService, useValue: { unread: signal([{}, {}, {}]) } },
       {
@@ -164,8 +194,60 @@ describe('Home (#219)', () => {
     // The Reader counts its articles only; the episodes are Podcasts' (#245).
     expect(tile(el, 'Reader')?.textContent?.trim()).toMatch(/14 unread$/);
     expect(tile(el, 'Podcasts')?.getAttribute('href')).toBe('/podcasts');
-    // New until heard: notes read is still new.
-    expect(tile(el, 'Podcasts')?.textContent).toContain('2 new · 1 started');
+    // New until heard: notes read is still new (#251: and the queue, not Started).
+    expect(tile(el, 'Podcasts')?.textContent?.trim()).toMatch(/Podcasts\s*2 new$/);
+  });
+
+  describe('the Podcasts tile’s line (#251)', () => {
+    const ep = (id: string, more: Partial<ItemRecord> = {}): ItemRecord => ({
+      id,
+      feedId: 'p1',
+      title: id,
+      link: '',
+      published: 0,
+      summary: '',
+      content: '',
+      read: false,
+      saved: false,
+      enclosure: { url: 'https://p.test/a.mp3', type: 'audio/mpeg', seconds: 2520 },
+      ...more,
+    });
+    const line = async (setup: Setup) =>
+      tile(await render({ reader: true, ...setup }), 'Podcasts')
+        ?.querySelector('.status')
+        ?.textContent?.trim();
+
+    it('says what is new and what is in the queue, leaving out a zero part', async () => {
+      expect(
+        await line({
+          episodes: [ep('a'), ep('b', { queue: 1 }), ep('c', { played: true, queue: 2 })],
+        }),
+      ).toBe('2 new · 2 in the queue');
+    });
+
+    it('leaves out the new part when nothing is new', async () => {
+      expect(await line({ episodes: [ep('a', { played: true, queue: 1 })] })).toBe(
+        '1 in the queue',
+      );
+    });
+
+    it('says what is playing with its time left', async () => {
+      const playing = ep('Reduction firing', { position: 600 });
+      expect(
+        await line({
+          episodes: [playing, ep('b')],
+          playing: { item: playing, position: 1200, duration: 2520 },
+        }),
+      ).toBe('Playing: Reduction firing · 22 min left');
+    });
+
+    it('counts the shows when nothing is new or queued, else says what it is', async () => {
+      expect(await line({ episodes: [ep('a', { played: true })] })).toBe('1 show');
+    });
+
+    it('says what the module is with no shows', async () => {
+      expect(await line({ episodes: [], shows: [] })).toBe('Shows and the queue');
+    });
   });
 
   it('counts the live notes and those written in today', async () => {
@@ -214,6 +296,8 @@ describe('Home (#219)', () => {
     const row = el.querySelector<HTMLAnchorElement>('a.right-now')!;
     expect(row.getAttribute('href')).toBe('/right-now');
     expect(row.textContent).toContain('Glaze the mugs · Plan the week · 5 new in the Reader');
+    // And Podcasts' line beside it (#251), the Latest never seen on this device.
+    expect(row.textContent).toContain('5 new in the Reader · 2 new in Podcasts');
     expect(row.textContent).not.toContain('Call');
   });
 

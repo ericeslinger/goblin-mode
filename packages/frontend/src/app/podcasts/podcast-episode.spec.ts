@@ -84,6 +84,20 @@ describe('An episode’s page and the queue (#249)', () => {
     expect(button('Add to the queue')).toBeTruthy();
   });
 
+  it('says so when the queue is full, and adds nothing (review on #252)', async () => {
+    const { harness, items, button, el } = await open();
+    const full = 'The queue is full: 500 episodes. Take some off to add more.';
+    items.addToQueue.mockImplementationOnce(() => full);
+    button('Add to the queue')!.click();
+    await harness.fixture.whenStable();
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(full);
+    expect(button('Add to the queue')?.getAttribute('aria-pressed')).toBe('false');
+    items.playNext.mockImplementationOnce(() => full);
+    button('Play next')!.click();
+    await harness.fixture.whenStable();
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(full);
+  });
+
   it('plays it next: first in the queue', async () => {
     const { harness, items, button } = await open();
     button('Play next')!.click();

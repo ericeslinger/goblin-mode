@@ -17,7 +17,7 @@ import { type ItemRecord, ItemsService } from '../reader/items.service';
 import { PlayerService } from '../reader/player.service';
 import { ReaderService } from '../reader/reader.service';
 import { EpisodeArt } from './episode-art';
-import { lengthText } from './episodes';
+import { lengthText, totalText } from './episodes';
 import { PodcastsBar } from './podcasts-bar';
 
 /** A row being dragged by its grip: the order it would drop in, and how far it moved. */
@@ -419,13 +419,13 @@ export class PodcastsQueue {
     return it ? this.length(it) : undefined;
   });
 
-  /** "4 episodes · 4 h 07 min": what is left of each, where its length is known. */
+  /** "4 episodes · 4 h 7 min" (#251): what is left of each, where its length is known. */
   protected readonly totalLine = computed(() => {
     const list = this.upNext();
     if (!list.length) return undefined;
     const seconds = list.reduce((sum, i) => sum + left(i), 0);
     const n = plural(list.length, 'episode', 'episodes');
-    return seconds > 0 ? `${n} · ${this.items.duration(seconds)}` : n;
+    return seconds > 0 ? `${n} · ${totalText(seconds)}` : n;
   });
 
   protected showTitle(ep: ItemRecord): string {
@@ -583,8 +583,7 @@ export class PodcastsQueue {
 
   protected next(ep: ItemRecord): void {
     this.menu.set(undefined);
-    this.items.playNext(ep.id);
-    this.said.set(`${ep.title} plays next`);
+    this.said.set(this.items.playNext(ep.id) ?? `${ep.title} plays next`);
     this.focusMore(ep.id);
   }
 

@@ -691,13 +691,30 @@ export class FakeItems {
   private place(id: string, queue: number | undefined): void {
     this.episodes.update((l) => l.map((e) => (e.id === id ? { ...e, queue } : e)));
   }
-  addToQueue = vi.fn((id: string) => {
+  /** The real ones answer the words to show when the queue is full (review on #252). */
+  addToQueue = vi.fn((id: string): string | undefined => {
     if (!this.queued(id)) this.place(id, (this.queue().at(-1)?.queue ?? 0) + 1000);
+    return undefined;
   });
-  playNext = vi.fn((id: string) =>
-    this.place(id, (this.queue().find((e) => e.id !== id)?.queue ?? 0) - 1000),
-  );
+  playNext = vi.fn((id: string): string | undefined => {
+    this.place(id, (this.queue().find((e) => e.id !== id)?.queue ?? 0) - 1000);
+    return undefined;
+  });
   removeFromQueue = vi.fn((id: string) => this.place(id, undefined));
+  /**
+   * Move to the Reader (#251): the show's queued episodes off the
+   * queue, then `moved` (a spec points it at FakeReader's setPodcast);
+   * how many left.
+   */
+  moveToReader = vi.fn((feedId: string) => {
+    const ids = this.queue()
+      .filter((e) => e.feedId === feedId)
+      .map((e) => e.id);
+    for (const id of ids) this.place(id, undefined);
+    this.moved(feedId);
+    return ids.length;
+  });
+  moved: (feedId: string) => void = () => undefined;
   moveInQueue = vi.fn((_id: string, order: readonly string[]) => {
     const by = new Map(this.queue().map((e) => [e.id, e.queue]));
     const values = order.map((x) => by.get(x)!).sort((a, b) => a - b);

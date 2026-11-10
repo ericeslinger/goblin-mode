@@ -28,6 +28,9 @@ import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { episodeState } from '../podcasts/episodes';
+import { PodcastsSeen } from '../podcasts/podcasts-seen';
+import { PlayerService } from '../reader/player.service';
+import { ReaderService } from '../reader/reader.service';
 import { ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
 import { RemindersService } from '../reminders/reminders.service';
@@ -464,6 +467,9 @@ export class Home {
   private readonly modules = inject(ModulesService);
   private readonly reminders = inject(RemindersService);
   private readonly items = inject(ItemsService);
+  private readonly reader = inject(ReaderService);
+  private readonly player = inject(PlayerService);
+  private readonly podcastsSeen = inject(PodcastsSeen);
   private readonly reading = inject(ReadingService);
   private readonly proposals = inject(ProposalsService);
   private readonly grocery = inject(GroceryService);
@@ -492,7 +498,7 @@ export class Home {
   /** Where on its tile the dragged one was taken, relative to its slot. */
   private grip?: { x: number; y: number; list: HTMLElement };
 
-  /** The next reminder or two, then what is new in the Reader, as Right Now has them. */
+  /** The next reminder or two, then what is new in the Reader and Podcasts, as Right Now has them. */
   protected readonly rightNow = computed(() => {
     const parts = this.reminders
       .placed()
@@ -502,6 +508,8 @@ export class Home {
       ? this.items.newSince().reduce((sum, f) => sum + f.count, 0)
       : 0;
     if (fresh) parts.push(`${fresh} new in the Reader`);
+    const heard = this.modules.podcasts() ? this.podcastsSeen.fresh() : 0;
+    if (heard) parts.push(`${heard} new in Podcasts`);
     return parts.length ? parts.join(' · ') : 'Nothing to tend. The garden is quiet.';
   });
 
@@ -542,17 +550,12 @@ export class Home {
       });
     }
     if (this.modules.podcasts()) {
-      const states = this.items.episodes().map(episodeState);
-      const started = states.filter((s) => s === 'started').length;
       tiles.push({
         id: 'podcasts',
         name: 'Podcasts',
         icon: 'podcasts',
         link: '/podcasts',
-        status: [
-          `${states.filter((s) => s === 'new').length} new`,
-          ...(started ? [`${started} started`] : []),
-        ].join(' · '),
+        status: this.podcastsLine(),
       });
     }
     const toRead = this.reading.unread().length;
@@ -760,6 +763,30 @@ export class Home {
     afterNextRender(() => this.host.nativeElement.querySelector<HTMLElement>(selector)?.focus(), {
       injector: this.injector,
     });
+  }
+
+  /**
+   * The Podcasts tile's line (#251): what is playing with its time
+   * left, else what is new and what is in the queue (a zero part left
+   * out), else how many shows, else what the module is.
+   */
+  private podcastsLine(): string {
+    const it = this.player.item();
+    if (it && this.player.playing() && this.reader.isPodcast(it.feedId)) {
+      const total = this.player.duration();
+      const left =
+        total > 0 ? ` · ${this.items.duration(total - this.player.position())} left` : '';
+      return `Playing: ${it.title}${left}`;
+    }
+    const fresh = this.items.episodes().filter((e) => episodeState(e) === 'new').length;
+    const queued = this.items.queue().length;
+    const parts = [
+      ...(fresh ? [`${fresh} new`] : []),
+      ...(queued ? [`${queued} in the queue`] : []),
+    ];
+    if (parts.length) return parts.join(' · ');
+    const shows = this.reader.podcastFeeds().length;
+    return shows ? plural(shows, 'show', 'shows') : 'Shows and the queue';
   }
 
   /** Every note Browse's Recent lists, and how many were written in today. */

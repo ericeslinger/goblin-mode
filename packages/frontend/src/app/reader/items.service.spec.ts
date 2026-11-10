@@ -16,7 +16,8 @@ import {
   fakeFirebase,
 } from '../testing/fakes';
 import { SETTINGS_API } from '../theme/theme-sync.service';
-import { ALL, ITEMS_API, ItemsService, SAVED, VISITED_KEY } from './items.service';
+import { QUEUE_MAX } from '@mossgoblin/schema';
+import { ALL, ITEMS_API, ItemsService, QUEUE_FULL, SAVED, VISITED_KEY } from './items.service';
 import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
@@ -657,6 +658,90 @@ describe('the listening queue (#249)', () => {
     expect(items.find('a')?.queue).toBe(1000);
   });
 
+  it('moves a show to the Reader with its episodes off the queue, in one batch (#251)', () => {
+    const { items, api, feeds } = queueSetup();
+    feeds.push([
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
+      { id: 'p2', data: { url: 'https://q.test/f', title: 'Other', folders: [], kind: 'podcast' } },
+    ]);
+    TestBed.tick();
+    api.pushQueue([
+      episode('a', { queue: 1000 }),
+      item('other', 'p2', 1, { ...audio, queue: 1500 }),
+      episode('b', { queue: 2000 }),
+    ]);
+    expect(items.moveToReader('p1')).toBe(2);
+    expect(api.setMany).toHaveBeenCalledTimes(1);
+    expect(api.setMany.mock.calls[0][1]).toEqual([
+      { path: 'users/u1/feeds/p1', data: { kind: 'CLEAR', updatedAt: 'SERVER_TIME' } },
+      { path: 'users/u1/feedItems/a', data: { queue: 'CLEAR', updatedAt: 'SERVER_TIME' } },
+      { path: 'users/u1/feedItems/b', data: { queue: 'CLEAR', updatedAt: 'SERVER_TIME' } },
+    ]);
+    expect(items.queue().map((i) => i.id)).toEqual(['other']);
+    // Nothing queued: the move alone, still one batch.
+    expect(items.moveToReader('p2')).toBe(1);
+    expect(items.moveToReader('p2')).toBe(0);
+    expect(api.setMany.mock.calls.at(-1)![1]).toEqual([
+      { path: 'users/u1/feeds/p2', data: { kind: 'CLEAR', updatedAt: 'SERVER_TIME' } },
+    ]);
+  });
+
+  it('leaves out a queued episode whose show is gone (#251)', () => {
+    const { items, api, feeds } = queueSetup();
+    api.pushQueue([episode('a', { queue: 1000 }), item('gone', 'p9', 1, { ...audio, queue: 500 })]);
+    expect(items.queue().map((i) => i.id)).toEqual(['a']);
+    feeds.push([]);
+    TestBed.tick();
+    expect(items.queue()).toEqual([]);
+    expect(items.find('gone')).toBeUndefined();
+  });
+
+  it('clears the keep-for expiry in the same write as a place, never on taking one off (review on #252)', () => {
+    const { items, api } = queueSetup();
+    api.pushFeed('p1', [episode('a'), episode('b')]);
+    items.addToQueue('a');
+    expect(api.set.mock.calls.at(-1)![2]).toEqual({
+      queue: NOW_MS,
+      expireAt: 'CLEAR',
+      updatedAt: 'SERVER_TIME',
+    });
+    items.playNext('b');
+    expect(api.set.mock.calls.at(-1)![2]).toEqual({
+      queue: NOW_MS - 1000,
+      expireAt: 'CLEAR',
+      updatedAt: 'SERVER_TIME',
+    });
+    // Off again: no expiry put back, as unsaving puts none back.
+    items.removeFromQueue('a');
+    expect(api.set.mock.calls.at(-1)![2]).toEqual({ queue: 'CLEAR', updatedAt: 'SERVER_TIME' });
+  });
+
+  it('refuses a new episode past the queue’s cap, and still moves one in it (review on #252)', () => {
+    const { items, api } = queueSetup();
+    api.pushQueue(
+      Array.from({ length: QUEUE_MAX }, (_, n) => episode(`q${n}`, { queue: n * 1000 })),
+    );
+    api.pushFeed('p1', [episode('new')]);
+    const writes = api.set.mock.calls.length;
+    expect(items.addToQueue('new')).toBe(QUEUE_FULL);
+    expect(items.playNext('new')).toBe(QUEUE_FULL);
+    expect(QUEUE_FULL).toBe('The queue is full: 500 episodes. Take some off to add more.');
+    expect(api.set.mock.calls.length).toBe(writes);
+    expect(items.queued('new')).toBe(false);
+    // One already in the queue moves to the front.
+    expect(items.playNext('q9')).toBeUndefined();
+    expect(items.queue()[0].id).toBe('q9');
+    // A place freed, a new one fits.
+    items.removeFromQueue('q1');
+    api.pushQueue(
+      Array.from({ length: QUEUE_MAX }, (_, n) => episode(`q${n}`, { queue: n * 1000 })).filter(
+        (d) => d.id !== 'q1',
+      ),
+    );
+    expect(items.addToQueue('new')).toBeUndefined();
+    expect(items.queued('new')).toBe(true);
+  });
+
   it('adds at the end, never before now, plays next a step before the first, and removes', () => {
     const { items, api, places } = queueSetup();
     api.pushFeed('p1', [episode('a'), episode('b'), episode('c')]);
@@ -703,9 +788,18 @@ describe('the listening queue (#249)', () => {
     items.moveInQueue('c', ['a', 'c', 'b']);
     expect(api.setMany).toHaveBeenCalledTimes(1);
     expect(api.setMany.mock.calls[0][1]).toEqual([
-      { path: 'users/u1/feedItems/a', data: { queue: 1000, updatedAt: 'SERVER_TIME' } },
-      { path: 'users/u1/feedItems/c', data: { queue: 2000, updatedAt: 'SERVER_TIME' } },
-      { path: 'users/u1/feedItems/b', data: { queue: 3000, updatedAt: 'SERVER_TIME' } },
+      {
+        path: 'users/u1/feedItems/a',
+        data: { queue: 1000, expireAt: 'CLEAR', updatedAt: 'SERVER_TIME' },
+      },
+      {
+        path: 'users/u1/feedItems/c',
+        data: { queue: 2000, expireAt: 'CLEAR', updatedAt: 'SERVER_TIME' },
+      },
+      {
+        path: 'users/u1/feedItems/b',
+        data: { queue: 3000, expireAt: 'CLEAR', updatedAt: 'SERVER_TIME' },
+      },
     ]);
     expect(items.queue().map((i) => i.id)).toEqual(['a', 'c', 'b']);
   });

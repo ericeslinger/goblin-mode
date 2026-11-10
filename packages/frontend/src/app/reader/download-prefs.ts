@@ -9,6 +9,13 @@ export const CAP_CHOICES = [250, 500, 1000, 2000, 5000] as const;
 export const DEFAULT_CAP_MB = 500;
 /** How many of a podcast's newest episodes may be kept downloaded; 0 is by hand only. */
 export const KEEP_CHOICES = [0, 1, 2, 3, 5, 10] as const;
+/**
+ * A Keep downloaded choice in words, as a show's page and Add a podcast
+ * both offer it (#251): "by hand only", "the newest", "the newest 3".
+ */
+export function keepText(n: number): string {
+  return n === 0 ? 'by hand only' : n === 1 ? 'the newest' : `the newest ${n}`;
+}
 /** A megabyte, as the cap and the sizes count it. */
 export const MB = 1024 * 1024;
 

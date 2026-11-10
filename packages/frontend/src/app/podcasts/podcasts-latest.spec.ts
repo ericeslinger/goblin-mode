@@ -9,6 +9,7 @@ import { PlayerService } from '../reader/player.service';
 import { ReaderService } from '../reader/reader.service';
 import { FakeDownloads, FakeItems, FakeModules, FakeReader } from '../testing/fakes';
 import { PodcastsLatest } from './podcasts-latest';
+import { PodcastsSeen } from './podcasts-seen';
 
 const audio = (seconds: number) => ({ url: 'https://pod.test/x.mp3', type: 'audio/mpeg', seconds });
 const ep = (id: string, feedId: string, more: Partial<ItemRecord> = {}): ItemRecord => ({
@@ -62,6 +63,7 @@ async function open(url = '/podcasts') {
   };
   const modules = new FakeModules();
   modules.set('podcasts', true);
+  const seen = { markSeen: vi.fn() };
   TestBed.configureTestingModule({
     providers: [
       provideRouter([{ path: 'podcasts', component: PodcastsLatest }]),
@@ -70,6 +72,7 @@ async function open(url = '/podcasts') {
       { provide: PlayerService, useValue: player },
       { provide: DownloadsService, useValue: new FakeDownloads() },
       { provide: ModulesService, useValue: modules },
+      { provide: PodcastsSeen, useValue: seen },
     ],
   });
   const harness = await RouterTestingHarness.create(url);
@@ -85,10 +88,19 @@ async function open(url = '/podcasts') {
     [...el.querySelectorAll<HTMLButtonElement>('button')].find(
       (b) => (b.getAttribute('aria-label') ?? b.textContent!.replace(/\s+/g, ' ').trim()) === name,
     );
-  return { harness, el, rows, button, player, items };
+  return { harness, el, rows, button, player, items, seen };
 }
 
 describe('Latest (#245)', () => {
+  it('marks Latest seen for Right Now while open, episodes arriving included (#251)', async () => {
+    const { seen, items, harness } = await open();
+    expect(seen.markSeen).toHaveBeenCalled();
+    const before = seen.markSeen.mock.calls.length;
+    items.episodes.update((l) => [...l]);
+    await harness.fixture.whenStable();
+    expect(seen.markSeen.mock.calls.length).toBeGreaterThan(before);
+  });
+
   it('lists the new episodes, notes read still new, with their show, age and length', async () => {
     const { el, rows } = await open();
     expect(rows()).toEqual([
@@ -157,6 +169,16 @@ describe('Latest (#245)', () => {
     await harness.fixture.whenStable();
     expect(first.querySelector('img')).toBeNull();
     expect(first.querySelector('.square')?.textContent?.trim()).toBe('KT');
+  });
+
+  it('says so on the page when the queue is full (review on #252)', async () => {
+    const { harness, button, items, el } = await open();
+    const full = 'The queue is full: 500 episodes. Take some off to add more.';
+    items.addToQueue.mockImplementationOnce(() => full);
+    button('Add Episode e1 to the queue')!.click();
+    await harness.fixture.whenStable();
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(full);
+    expect(button('Add Episode e1 to the queue')?.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('adds an episode to the queue from its row, pressed once in it, off again (#249)', async () => {

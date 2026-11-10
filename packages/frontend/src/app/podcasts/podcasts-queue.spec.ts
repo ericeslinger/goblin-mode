@@ -95,7 +95,9 @@ describe('PodcastsQueue (#249)', () => {
     const { el, upNext } = await open(three());
     expect(upNext()).toEqual(['Ash glazes', 'Bisque firing', 'Cone packs']);
     // 50 min, then 40 of Bisque's left; Cone packs' length is unknown.
-    expect(el.querySelector('.next .head .meta')!.textContent!.trim()).toBe('3 episodes · 90 min');
+    expect(el.querySelector('.next .head .meta')!.textContent!.trim()).toBe(
+      '3 episodes · 1 h 30 min',
+    );
     const rows = el.querySelectorAll('li.row');
     const meta = (n: number) => rows[n].querySelector('.meta')!.textContent!.replace(/\s+/g, ' ');
     expect(meta(0)).toContain('Kiln talk · 50 min');

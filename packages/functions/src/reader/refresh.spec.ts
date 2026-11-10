@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { feedItemId } from '@mossgoblin/schema';
+import { QUEUE_MAX, feedItemId } from '@mossgoblin/schema';
 import {
   DEAD_AFTER,
   type DueFeed,
@@ -24,7 +24,7 @@ const RSS = (items: string) =>
 const item = (guid: string, hoursAgo: number, html = '<p>Words</p>') =>
   `<item><title>${guid}</title><link>https://kottke.org/${guid}</link><guid>${guid}</guid><pubDate>${new Date(NOW - hoursAgo * H).toUTCString()}</pubDate><description><![CDATA[${html}]]></description></item>`;
 
-function store(knownIds: string[] = [], claimed = true, queueEnd?: number) {
+function store(knownIds: string[] = [], claimed = true, queueEnd?: number, queueCount = 0) {
   const s = {
     due: vi.fn(async (): Promise<DueFeed[]> => []),
     claim: vi.fn(async (_uid: string, _id: string, _now: number) => claimed),
@@ -35,7 +35,10 @@ function store(knownIds: string[] = [], claimed = true, queueEnd?: number) {
     updateFeed: vi.fn(async (_uid: string, _id: string, _update: FeedUpdate) => undefined),
     countFetch: vi.fn(async () => undefined),
     keepMonths: vi.fn(async (_uid: string): Promise<number | undefined> => undefined),
-    queueEnd: vi.fn(async (_uid: string): Promise<number | undefined> => queueEnd),
+    queueState: vi.fn(async (_uid: string): Promise<{ last?: number; count: number }> => ({
+      ...(queueEnd === undefined ? {} : { last: queueEnd }),
+      count: queueCount,
+    })),
   } satisfies RefreshStore;
   return s;
 }
@@ -172,10 +175,42 @@ describe('refreshFeed (#161)', () => {
       const s = store([feedItemId('f-1', 'ep-1')], true, NOW + 5000);
       const body = pod(episode('ep-3', 1) + episode('ep-2', 5) + episode('ep-1', 30));
       await refreshFeed({ store: s, fetch: ok(body), now: () => NOW }, show);
-      expect(s.queueEnd).toHaveBeenCalledTimes(1);
-      expect(s.queueEnd).toHaveBeenCalledWith('u1');
+      expect(s.queueState).toHaveBeenCalledTimes(1);
+      expect(s.queueState).toHaveBeenCalledWith('u1');
       // ep-2 came out first, so it plays first; ep-1 was stored before.
       expect(queued(s)).toEqual({ 'ep-3': NOW + 7000, 'ep-2': NOW + 6000 });
+    });
+
+    it('gives a queued episode no expiry, and a stored one unqueued keeps its own (review on #252)', async () => {
+      const s = store([], true, NOW);
+      s.keepMonths.mockResolvedValue(3);
+      const body = pod(episode('ep-2', 1));
+      await refreshFeed({ store: s, fetch: ok(body), now: () => NOW }, show);
+      const [written] = s.writeItems.mock.calls[0][1];
+      expect(written.queue).toBe(NOW + 1000);
+      expect(written).not.toHaveProperty('expireAt');
+      const off = store([], true, NOW);
+      off.keepMonths.mockResolvedValue(3);
+      await refreshFeed(
+        { store: off, fetch: ok(body), now: () => NOW },
+        { ...show, autoQueue: false },
+      );
+      expect(off.writeItems.mock.calls[0][1][0].expireAt).toBe(monthsAfter(NOW - H, 3));
+    });
+
+    it('stops at the queue’s cap, the oldest joining first (review on #252)', async () => {
+      const body = pod(episode('ep-3', 1) + episode('ep-2', 5));
+      const room = store([], true, NOW, QUEUE_MAX - 1);
+      room.keepMonths.mockResolvedValue(3);
+      await refreshFeed({ store: room, fetch: ok(body), now: () => NOW }, show);
+      expect(queued(room)).toEqual({ 'ep-3': undefined, 'ep-2': NOW + 1000 });
+      // The one left out keeps its expiry, as any unqueued item does.
+      const left = room.writeItems.mock.calls[0][1].find((i) => i.title === 'ep-3')!;
+      expect(left.expireAt).toBe(monthsAfter(NOW - H, 3));
+      const full = store([], true, NOW, QUEUE_MAX);
+      await refreshFeed({ store: full, fetch: ok(body), now: () => NOW }, show);
+      expect(queued(full)).toEqual({ 'ep-3': undefined, 'ep-2': undefined });
+      expect(full.queueState).toHaveBeenCalledTimes(1);
     });
 
     it('starts an empty or old queue at now', async () => {
@@ -196,7 +231,7 @@ describe('refreshFeed (#161)', () => {
       );
       expect(first.writeItems.mock.calls[0][1]).toHaveLength(2);
       expect(queued(first)).toEqual({ 'ep-2': undefined, 'ep-1': undefined });
-      expect(first.queueEnd).not.toHaveBeenCalled();
+      expect(first.queueState).not.toHaveBeenCalled();
       for (const off of [
         { ...show, autoQueue: false },
         { ...show, podcast: false },
@@ -204,7 +239,7 @@ describe('refreshFeed (#161)', () => {
         const s = store();
         await refreshFeed({ store: s, fetch: ok(body), now: () => NOW }, off);
         expect(queued(s)).toEqual({ 'ep-2': undefined, 'ep-1': undefined });
-        expect(s.queueEnd).not.toHaveBeenCalled();
+        expect(s.queueState).not.toHaveBeenCalled();
       }
     });
 
@@ -212,11 +247,11 @@ describe('refreshFeed (#161)', () => {
       const s = store([], true, NOW);
       await refreshFeed({ store: s, fetch: ok(RSS(item('words', 1))), now: () => NOW }, show);
       expect(queued(s)).toEqual({ words: undefined });
-      expect(s.queueEnd).not.toHaveBeenCalled();
+      expect(s.queueState).not.toHaveBeenCalled();
       const none = store([feedItemId('f-1', 'ep-1')]);
       await refreshFeed({ store: none, fetch: ok(pod(episode('ep-1', 30))), now: () => NOW }, show);
       expect(none.writeItems).not.toHaveBeenCalled();
-      expect(none.queueEnd).not.toHaveBeenCalled();
+      expect(none.queueState).not.toHaveBeenCalled();
     });
   });
 

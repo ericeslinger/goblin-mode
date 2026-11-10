@@ -4,9 +4,18 @@ import { FEED_CAP } from '@mossgoblin/schema';
 import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
 import { ModulesService } from '../modules/modules.service';
+import { DownloadPrefs, KEEP_CHOICES, keepText } from '../reader/download-prefs';
 import { ItemsService } from '../reader/items.service';
 import { renamedFolder } from '../reader/reader-feeds';
-import { type DiscoveredFeed, ReaderService, cleanFolder } from '../reader/reader.service';
+import {
+  type DiscoveredFeed,
+  ReaderService,
+  cleanFolder,
+  podcastOpmlMessage,
+} from '../reader/reader.service';
+
+/** The largest OPML file Import reads (#251): a list of feeds is a few hundred kilobytes. */
+export const OPML_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * Add a podcast (#245, `/podcasts/add`): the show's feed or its site,
@@ -19,6 +28,10 @@ import { type DiscoveredFeed, ReaderService, cleanFolder } from '../reader/reade
  * through the persistent cache, offline too; without a look, the link
  * is followed as it is. A feed followed already stays where it is:
  * nothing moves by itself, so one in the Reader is moved from there.
+ * Keep downloaded is the show's page's choice, offered here too and
+ * kept the same way, on this device (#251). Import a list of podcasts
+ * (OPML) follows a file's feeds as shows (#251): the Reader's parser
+ * and import, pointed at Podcasts.
  */
 @Component({
   selector: 'app-podcasts-add',
@@ -111,10 +124,31 @@ import { type DiscoveredFeed, ReaderService, cleanFolder } from '../reader/reade
             }}</span>
           </span>
         </label>
+        <label class="keep">
+          Keep downloaded
+          <select (change)="keep.set(+$any($event.target).value)">
+            @for (n of keepChoices; track n) {
+              <option [value]="n" [selected]="keep() === n">{{ keepText(n) }}</option>
+            }
+          </select>
+        </label>
         <button type="submit" class="follow" [disabled]="!reader.loaded() || !address().trim()">
           {{ chosen() ? 'Follow ' + chosen()!.title : 'Follow' }}
         </button>
       </form>
+      <label class="file">
+        Import a list of podcasts (OPML)
+        <input
+          type="file"
+          accept=".opml,.xml,text/xml,application/xml,text/x-opml"
+          [disabled]="!reader.loaded() || importing()"
+          (change)="importFile($any($event.target))"
+        />
+      </label>
+      <p class="muted">
+        Each feed in the file is followed here as a show, in the file's folders, with New episodes
+        join the queue off. A feed already in the Reader stays there.
+      </p>
       @if (said()) {
         <p class="status" role="status">{{ said() }}</p>
       }
@@ -191,6 +225,31 @@ import { type DiscoveredFeed, ReaderService, cleanFolder } from '../reader/reade
       font-weight: 600;
       overflow-wrap: anywhere;
     }
+    .keep {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
+      color: var(--quiet);
+      font-size: 14px;
+    }
+    .keep select {
+      min-height: 44px;
+      font: inherit;
+    }
+    .file {
+      display: grid;
+      gap: 6px;
+      margin-top: var(--space-4);
+      font-weight: 600;
+    }
+    .file input {
+      box-sizing: border-box;
+      max-width: 100%;
+      min-height: 44px;
+      font: inherit;
+      font-weight: 400;
+    }
     .meta,
     .muted,
     .status {
@@ -205,6 +264,11 @@ export class PodcastsAdd {
   protected readonly reader = inject(ReaderService);
   protected readonly modules = inject(ModulesService);
   private readonly items = inject(ItemsService);
+  private readonly prefs = inject(DownloadPrefs);
+  protected readonly keepChoices = KEEP_CHOICES;
+  /** Keep downloaded, as the show's page offers it: by hand only unless chosen. */
+  protected readonly keep = signal(0);
+  protected readonly importing = signal(false);
   protected readonly address = signal('');
   protected readonly folderName = signal('');
   /** New episodes join the queue: off unless switched on (Eric, 2026-11-10). */
@@ -298,6 +362,8 @@ export class PodcastsAdd {
       );
       return;
     }
+    // Kept as the show's page keeps it, so the two read alike.
+    if (this.keep()) this.prefs.setKeep(id, this.keep());
     this.addedId.set(id);
     this.address.set('');
     this.found.set([]);
@@ -309,6 +375,44 @@ export class PodcastsAdd {
       ]
         .filter(Boolean)
         .join(' '),
+    );
+  }
+
+  protected keepText(n: number): string {
+    return keepText(n);
+  }
+
+  /**
+   * Import a list of podcasts (#251): an OPML file read on the device,
+   * by the Reader's parser (outlines with an http(s) `xmlUrl` are feeds,
+   * the ones around them folders; the file's markup is never shown or
+   * run), every feed followed as a show with New episodes join the
+   * queue off. A feed in the Reader is left there and counted.
+   */
+  protected async importFile(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = '';
+    if (file.size > OPML_MAX_BYTES) {
+      this.said.set('That file is too large for a list of podcasts.');
+      return;
+    }
+    this.importing.set(true);
+    let text: string;
+    try {
+      text = await file.text();
+    } catch (err) {
+      console.error('OPML not read', err);
+      this.said.set('That file could not be read.');
+      return;
+    } finally {
+      this.importing.set(false);
+    }
+    const out = this.reader.importOpml(text, { podcast: true });
+    this.said.set(
+      out
+        ? `${podcastOpmlMessage(out)}${out.added ? ' Their episodes arrive once the server has looked.' : ''}`
+        : 'No feeds found in that file. It wants an OPML list of podcasts.',
     );
   }
 }

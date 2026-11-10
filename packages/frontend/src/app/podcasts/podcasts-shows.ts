@@ -3,6 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { Icon } from '../home/icon';
+import { SAVE_FILE } from '../platform/platform';
 import { ItemsService } from '../reader/items.service';
 import { ReaderService } from '../reader/reader.service';
 import { PodcastsBar } from './podcasts-bar';
@@ -25,7 +26,8 @@ import {
  * first. Folder chips above filter it (`?folder=`, so the folder view
  * can open one), and a button switches to the shows by folder. A
  * show's More is on its page: a long list of menus is not wanted here.
- * Refresh asks the server to look at every feed now.
+ * Refresh asks the server to look at every feed now; Export as OPML
+ * saves a file of the shows in their folders (#251).
  */
 @Component({
   selector: 'app-podcasts-shows',
@@ -82,6 +84,12 @@ import {
         </button>
         <span class="hint">The server looks at every show on its own, every quarter hour.</span>
       </p>
+      @if (reader.podcastFeeds().length) {
+        <p class="export">
+          <button type="button" (click)="exportOpml()">Export as OPML</button>
+          <span class="hint">A file of the shows you follow, in their folders.</span>
+        </p>
+      }
       @if (refreshed()) {
         <p class="status" role="status">{{ refreshed() }}</p>
       }
@@ -183,7 +191,8 @@ import {
       font-size: 12px;
       pointer-events: none;
     }
-    .refresh {
+    .refresh,
+    .export {
       display: flex;
       flex-wrap: wrap;
       gap: var(--space-2);
@@ -197,6 +206,7 @@ export class PodcastsShows {
   private readonly items = inject(ItemsService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly save = inject(SAVE_FILE);
   protected readonly refreshing = signal(false);
   protected readonly refreshed = signal('');
   private readonly asked = toSignal(
@@ -253,6 +263,17 @@ export class PodcastsShows {
       queryParams: { folder: folder ?? null },
       replaceUrl: true,
     });
+  }
+
+  /**
+   * Export as OPML (#251): the shows followed, their folders as
+   * outlines, a file saved on the device; any reader takes it, and Add
+   * a podcast's import takes it back. The Reader has no export.
+   */
+  protected exportOpml(): void {
+    const n = this.reader.podcastFeeds().length;
+    this.save('mossgoblin-podcasts.opml', 'text/x-opml', this.reader.podcastsOpml());
+    this.refreshed.set(`Exported ${n} ${n === 1 ? 'show' : 'shows'} as OPML.`);
   }
 
   protected async refresh(): Promise<void> {

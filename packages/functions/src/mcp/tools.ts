@@ -72,6 +72,7 @@ import {
   recipeBody,
   untouchedRecipe,
   MODULES,
+  QUEUE_MAX,
   type ModuleId,
   moduleOn,
   contextForClaude,
@@ -2628,12 +2629,12 @@ export class NotesTools {
       .map((d) => feedItemView(d.id, d.data(), feeds, queue));
   }
 
-  /** The listening queue's places (#249), read once: at most 500, as the app listens to. */
+  /** The listening queue's places (#249), read once: at most `QUEUE_MAX`, as the app listens to. */
   private async queueRanks(feeds: FeedIndex): Promise<QueueRanks> {
     const snap = await this.feedItems()
       .orderBy('queue')
       .select('feedId', 'queue', 'enclosure')
-      .limit(500)
+      .limit(QUEUE_MAX)
       .get();
     return queueRanks(
       snap.docs.map((d) => ({ id: d.id, data: d.data() })),
