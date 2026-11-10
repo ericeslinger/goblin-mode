@@ -30,6 +30,7 @@ export {
 export { proposalAccepted } from './organize/triggers';
 export { rerouteRun, revertRun } from './putback/callable';
 export { sendDuePush } from './push/send-due-push';
+export { digestPush } from './push/digest-push';
 export { reminderScheduled, reminderWake } from './push/reminder-wake';
 export {
   attachmentCreated,

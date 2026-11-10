@@ -196,3 +196,25 @@ function atWallTime(day: WallDate, time: string, tz: string): number {
   });
   return matches.length ? Math.min(...matches) : before;
 }
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** The calendar day of instant `ms` in `tz`, as YYYY-MM-DD. */
+export function zonedDay(ms: number, tz: string): string {
+  const p = parts(ms, tz);
+  return `${p['year']}-${pad2(p['month']!)}-${pad2(p['day']!)}`;
+}
+
+/** The hour, 0 to 23, of instant `ms` on the clock in `tz`. */
+export function zonedHour(ms: number, tz: string): number {
+  return parts(ms, tz)['hour']!;
+}
+
+/**
+ * The instant day `iso` (YYYY-MM-DD) begins in `tz`: its midnight, or
+ * just after the gap where a clock change skips midnight.
+ */
+export function zonedDayStart(iso: string, tz: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return atWallTime(addDays({ y, m, d, weekday: 0 }, 0), '00:00', tz);
+}

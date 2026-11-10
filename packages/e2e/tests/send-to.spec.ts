@@ -135,8 +135,10 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await note.click();
   await typeLines(page, ['Kiln log', 'Cone 6 firing on Saturday']);
   await letItSave(page);
-  // New settles the note: its arrival.
+  // New settles the note: its arrival. The settle is a write of its own,
+  // so let it reach the emulator before the page goes (lost under load).
   await page.getByRole('button', { name: 'New' }).click();
+  await letItSave(page);
   await page.goto('/browse');
   await page
     .getByRole('list', { name: 'Notes' })
@@ -173,13 +175,18 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await page.goto('/settings');
   await page.getByRole('button', { name: 'New template', exact: true }).click();
   await expect(page).toHaveURL(/\/n\/\w+$/);
+  // The template's text can arrive after the page does (#226): clear it
+  // only once the template header shows, and give the title its settle.
+  await expect(page.getByRole('region', { name: 'Template' })).toBeVisible();
   await note.click();
   await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.press('Delete');
   await typeLines(page, ['Pottery journal', 'Fired: ']);
   await letItSave(page);
   await page.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(back.getByRole('heading', { level: 2, name: 'Pottery journal' })).toBeVisible();
+  await expect(back.getByRole('heading', { level: 2, name: 'Pottery journal' })).toBeVisible({
+    timeout: 20_000,
+  });
   await page.goto('/settings');
   const skip = page.getByRole('checkbox', { name: 'Notes made from Pottery journal' });
   await skip.check();
@@ -231,6 +238,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await typeLines(page, ['Glaze order', 'Celadon and shino']);
   await letItSave(page);
   await page.getByRole('button', { name: 'New' }).click();
+  await letItSave(page);
   const backOf = async (title: RegExp) => {
     await page.goto('/browse');
     await page.getByRole('list', { name: 'Notes' }).getByRole('link', { name: title }).click();
@@ -280,8 +288,9 @@ test('a ramble is split on arrival into a note a thought, and Put back makes it 
     'Find a birthday present for Sam',
   ]);
   await letItSave(page);
-  // New settles the note: its arrival.
+  // New settles the note: its arrival; let the settle reach the emulator.
   await page.getByRole('button', { name: 'New' }).click();
+  await letItSave(page);
 
   // Browse lists the note and the one piece split off it.
   await page.goto('/browse');

@@ -14,6 +14,7 @@ const EXPORTS = [
   'revertRun',
   'rerouteRun',
   'sendDuePush',
+  'digestPush',
   'reminderScheduled',
   'reminderWake',
   'attachmentUploaded',

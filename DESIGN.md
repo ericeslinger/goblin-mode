@@ -67,11 +67,14 @@ users/{uid}
   settings/keys               masked provider keys, function-written (#144)
   settings/reader             the Reader's folder order and switches (#159)
   settings/assistant          the assistant's switches (#214):
-                              gardenOnArrival, arrivalSkip (#229)
+                              gardenOnArrival, arrivalSkip (#229),
+                              digest { push, hour, timeZone } (#237)
   activity/{runId}            "What Claude changed" records
   runs/{runId}                the garden's own agent runs (#144 step 3)
   feeds/{feedId}              feeds followed, id from the URL (#159)
   feedItems/{itemId}          their articles, fetcher-written (#159)
+  usage/{day}                 a day's metered calls, server-only;
+                              usage/digest the last digest pushed (#237)
 oauth/...                     MCP auth state, server-only
 secrets/{uid}                 encrypted provider keys, server-only (#144)
 ```
@@ -2761,6 +2764,64 @@ offer, there is no offer.
   Put back undoes it like any filing. It counts toward the day's 50
   put backs. No stored schema or rules changed.
 
+**The daily digest (#237, step 4 of #154, 2026-11-09).** What
+assistants changed starts with yesterday in one line: "Yesterday: 4
+notes filed under Pottery, 2 lines added to Kiln log, Gift ideas
+made; you put back 1 change." Optionally it comes by push, once a day
+at an hour Eric picks.
+
+- **The sentence.** `digestSentence` (schema, `digest.ts`), shared by
+  the app and the push, reads the day's records and calls no model.
+  It groups by tool and names from the notes each record lists: filed
+  under a project (a `refile` whose summary says "filed under", a
+  `link_notes` to a project as the notes are now, an idea or question
+  `capture` filed under its project), lines added to a note (summed),
+  notes made (`made`, #211), edited, items answered, merged, split,
+  refiled, linked, archived, restored, and any other tool as "N other
+  changes". Projects and notes go by title, cut at 40 characters; a
+  group names one or two notes and counts more. A merge's merged note
+  and a split's pieces are not said again as made. At most four parts,
+  then "and N more changes" (N counts records). Eric's own
+  corrections come last, as his: "you put back 2 changes and filed a
+  note again" (put backs and reroutes, #154, #235). A run he put back
+  still counts: it happened, and the put back says so. Only a
+  refile's project and an `add_lines` count are read from summaries,
+  since the record keeps neither.
+- **The view.** Above the list, in a section headed for the screen
+  reader ("The day in one line"), in the quiet colour. Yesterday is
+  the device's day (`TIME_ZONE`, `NOW`), read from the runs already
+  loaded (the latest 100), so a day busier than that is cut short
+  here; the push reads the whole day. Today's runs are not in
+  yesterday's line. When yesterday had none and today has some, the
+  line says "Today so far: …" instead; with neither, there is no line.
+  That keeps the line useful on a quiet morning, and is what the
+  journey checks, since its records are all today's and the e2e build
+  has no way to set the clock.
+- **The push.** Settings, AI assistants, under Daily digest: a switch,
+  **A daily digest by push**, and an hour (0 to 23, in the device's
+  own hour words), with no key needed. Stored as `digest: { push,
+  hour, timeZone }` in `settings/assistant`, a merge write like
+  `arrivalSkip` (review on #232), `timeZone` the device's IANA zone
+  when it was set, since the app keeps no zone of the gardener's
+  anywhere else (a repeat keeps its own). `digestPush` (scheduled,
+  hourly on the hour, no retries) finds each gardener with `push` on
+  (a collection-group query on `settings`, its index in
+  `firestore.indexes.json`), and for each one whose clock reads the
+  chosen hour (UTC when no zone is kept, or the zone is unknown)
+  builds yesterday's sentence from that day's records (up to 500) and
+  sends it through the reminders' path (`fcmSender`, every device in
+  `devices`, a token FCM calls gone removed): title "What assistants
+  changed", the sentence, a tap opens `/activity`, tag `digest`. A
+  day with nothing to say sends nothing and claims nothing. Claim,
+  then send, as reminders do: `usage/digest` keeps `sentFor`, the
+  local date, set in a transaction only if it is not today, so a
+  rerun or an overlapping run never sends twice. A missed hourly run
+  skips that day's push; the line is still in the app. With no device
+  the day is claimed all the same, so a device added later gets no
+  stale digest.
+- **Rules.** `digest` is checked as a map, as other maps are; the
+  push's state lives in `usage`, which no client may write.
+
 **Nightly suggestions (#35, 2026-10-07; a Claude routine, Eric,
 2026-10-07).** A Claude routine on Eric's subscription, not a
 scheduled function calling the API: billing comes from his plan. The
@@ -2923,6 +2984,12 @@ reminder's note, or a new note from its template.
   `packages/schema/src/reminders.ts`). One-offs push once.
 - Templates (the feelings note) wait for Phase 2: until then a tap on
   a template reminder opens Right Now.
+- **The daily digest (#237, 2026-11-09)** goes the same way, from its
+  own hourly `digestPush`: yesterday's line from What assistants
+  changed, once a day at the hour the gardener picked on their own
+  clock, only when the day had changes; a tap opens What assistants
+  changed. Its claim is `usage/digest` (`sentFor`, the local date).
+  See The daily digest, under the Trust sections.
 
 ## Deploy configuration (Eric, 2026-10-06)
 
