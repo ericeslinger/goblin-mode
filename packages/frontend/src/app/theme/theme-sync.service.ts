@@ -3,8 +3,10 @@ import { Settings, StartOn, paths } from '@mossgoblin/schema';
 import { type Firestore, doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { STORAGE } from '../platform/platform';
 import { HomeTilesService } from '../home/home-tiles';
 import { StartOnService } from '../home/start-on';
+import { keepUntilAcknowledged } from './kept-settings';
 import { ThemeService } from './theme.service';
 
 /** The Firestore calls ThemeSync makes, as a seam for unit specs. */
@@ -28,24 +30,30 @@ export interface SettingsApi {
 
 export const SETTINGS_API = new InjectionToken<SettingsApi>('settings-api', {
   providedIn: 'root',
-  factory: () => ({
-    listen: (db, path, next, error) =>
-      onSnapshot(
-        doc(db, path),
-        // Metadata changes too, so a cached "no doc" is followed by the
-        // server's answer.
-        { includeMetadataChanges: true },
-        (snap) =>
-          next(
-            snap.exists() ? snap.data() : undefined,
-            snap.metadata.fromCache,
-            snap.metadata.hasPendingWrites,
+  // Each write is kept on the device until acknowledged (#224), so a
+  // reload in the moment before the cache takes it does not lose it.
+  factory: () =>
+    keepUntilAcknowledged(
+      {
+        listen: (db, path, next, error) =>
+          onSnapshot(
+            doc(db, path),
+            // Metadata changes too, so a cached "no doc" is followed by the
+            // server's answer.
+            { includeMetadataChanges: true },
+            (snap) =>
+              next(
+                snap.exists() ? snap.data() : undefined,
+                snap.metadata.fromCache,
+                snap.metadata.hasPendingWrites,
+              ),
+            error,
           ),
-        error,
-      ),
-    set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge: merge === true }),
-    now: () => serverTimestamp(),
-  }),
+        set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge: merge === true }),
+        now: () => serverTimestamp(),
+      },
+      inject(STORAGE),
+    ),
 });
 
 /**
@@ -58,7 +66,11 @@ export const SETTINGS_API = new InjectionToken<SettingsApi>('settings-api', {
  * the gardener is known, rather than lost to the older doc. Start on
  * (#219) rides in the same doc and is kept the same way: the doc is
  * written whole, so each write carries both. So does Home's
- * arrangement (#222), `homeTiles` and `homeHidden`.
+ * arrangement (#222), `homeTiles` and `homeHidden`. A choice the cache
+ * had not yet taken when the page reloaded is written again from the
+ * device (SETTINGS_API, #224) before the doc is listened to, so the
+ * first snapshot is this device's own pending write, which `received`
+ * passes over, and the doc that wins after it holds that choice.
  */
 @Injectable({ providedIn: 'root' })
 export class ThemeSync {

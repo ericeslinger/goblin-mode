@@ -103,6 +103,44 @@ function readSettings(data: Record<string, unknown>): ReaderSettingsView {
   };
 }
 
+/** The Reader's settings a device changes: the switches, the months, and folders seen, by name. */
+interface SettingsChange {
+  images?: boolean;
+  readOnScroll?: boolean;
+  keepMonths?: number;
+  seenAt?: Record<string, number>;
+}
+
+const DEFAULT_SETTINGS: ReaderSettingsView = { folderOrder: [], images: true };
+
+/** `stored` with this device's changes not yet heard back shown over it (#224). */
+function overlaid(
+  stored: ReaderSettingsView | undefined,
+  change: SettingsChange,
+): ReaderSettingsView | undefined {
+  if (Object.keys(change).length === 0) return stored;
+  const { seenAt, ...fields } = change;
+  const next: ReaderSettingsView = { ...(stored ?? DEFAULT_SETTINGS), ...fields };
+  if (next.keepMonths === undefined) delete next.keepMonths;
+  if (seenAt) next.seenAt = { ...stored?.seenAt, ...seenAt };
+  return next;
+}
+
+/** `change` without what `view` already holds: what is still to be heard back. */
+function unheard(change: SettingsChange, view: ReaderSettingsView | undefined): SettingsChange {
+  const out: SettingsChange = {};
+  if ('images' in change && (view?.images ?? true) !== change.images) out.images = change.images;
+  if ('readOnScroll' in change && (view?.readOnScroll ?? false) !== change.readOnScroll) {
+    out.readOnScroll = change.readOnScroll;
+  }
+  if ('keepMonths' in change && view?.keepMonths !== change.keepMonths) {
+    out.keepMonths = change.keepMonths;
+  }
+  const seen = Object.entries(change.seenAt ?? {}).filter(([f, at]) => view?.seenAt?.[f] !== at);
+  if (seen.length) out.seenAt = Object.fromEntries(seen);
+  return out;
+}
+
 /**
  * When each folder's list was last opened (#173), as millis by folder
  * name. The app writes millis; a Timestamp or anything with `toMillis`
@@ -359,7 +397,18 @@ export class ReaderService {
   /** Feed writes not yet acknowledged by the server (#176). */
   private readonly writing = new Set<Promise<void>>();
   /** The Reader's own settings doc (`settings/reader`), once read. */
-  private readonly settings = signal<ReaderSettingsView | undefined>(undefined);
+  private readonly stored = signal<ReaderSettingsView | undefined>(undefined);
+  /**
+   * This device's changes to it not yet heard back (#224), as
+   * ItemsService's local marks: a switch shows its new state at once,
+   * and a snapshot made before the change and delivered after it does
+   * not show the old one again, nor does a later write carry it.
+   */
+  private readonly unheard = signal<SettingsChange>({});
+  /** Settings writes the server has not acknowledged yet. */
+  private settingsUnacked = 0;
+  /** The settings as this device shows them: the doc, its own changes over it. */
+  private readonly settings = computed(() => overlaid(this.stored(), this.unheard()));
   /** Whether articles show their images (#162); on until switched off. */
   readonly images = computed(() => this.settings()?.images ?? true);
   /** Months articles are kept unless saved or filed (#171); none keeps everything. */
@@ -418,14 +467,22 @@ export class ReaderService {
       this.uid = uid;
       this.list.set([]);
       this.read.set(false);
-      this.settings.set(undefined);
+      this.stored.set(undefined);
+      this.unheard.set({});
       this.settingsRead.set(false);
       if (!uid) return;
       const stopSettings = this.settingsApi.listen(
         this.fb.db,
         paths.reader(uid),
-        (data) => {
-          this.settings.set(data ? readSettings(data) : undefined);
+        (data, _fromCache, local) => {
+          const stored = data ? readSettings(data) : undefined;
+          this.stored.set(stored);
+          // A change is heard back in this device's own echo; once every
+          // write is acknowledged, the server's doc is all there is. A
+          // snapshot made before a change and heard while it is still on
+          // its way holds the old value, and is shown under it.
+          if (local) this.unheard.update((change) => unheard(change, stored));
+          else if (this.settingsUnacked === 0) this.unheard.set({});
           this.settingsRead.set(true);
         },
         (err) => console.error('reader settings listener', err),
@@ -835,7 +892,7 @@ export class ReaderService {
    * every device and in specs, where a server time would not.
    */
   markSeen(folder: string, at: number): void {
-    this.writeSettings({ seenAt: { ...this.settings()?.seenAt, [folder]: at } });
+    this.writeSettings({ seenAt: { [folder]: at } });
   }
 
   /**
@@ -868,17 +925,30 @@ export class ReaderService {
     }
   }
 
-  /** The settings doc written whole, as the rules want it, with the change. */
-  private writeSettings(change: Partial<ReaderSettingsView>): void {
+  /**
+   * The settings doc written whole, as the rules want it, with the
+   * change, shown at once. Whole, so composed from what this device
+   * shows, its changes not yet heard back included (#224). Refused, the
+   * change shows no longer.
+   */
+  private writeSettings(change: SettingsChange): void {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
-    const current = this.settings() ?? { folderOrder: [], images: true };
-    const next: ReaderSettingsView = { ...current, ...change };
-    if (next.keepMonths === undefined) delete next.keepMonths;
-    this.settings.set(next);
+    this.unheard.update((u) => ({
+      ...u,
+      ...change,
+      ...(change.seenAt ? { seenAt: { ...u.seenAt, ...change.seenAt } } : {}),
+    }));
+    const next = overlaid(this.stored(), this.unheard()) ?? DEFAULT_SETTINGS;
+    this.settingsUnacked++;
     void this.settingsApi
       .set(this.fb.db, paths.reader(uid), { ...next, updatedAt: this.settingsApi.now() })
-      .catch((err) => console.error('reader settings not saved', err));
+      .catch((err) => {
+        console.error('reader settings not saved', err);
+        // What this write set, unless changed again since.
+        this.unheard.update((u) => unheard(u, next));
+      })
+      .finally(() => this.settingsUnacked--);
   }
 
   /** Asks the fetcher to try a given-up or failing feed again, now. */

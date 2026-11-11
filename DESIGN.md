@@ -761,6 +761,31 @@ flash the refusal, and each concept rename keeps the name before it
 and folds a stub holding the new one, so a pause on "Vik" on the way
 to "Vikas" would make "Vik" another name and fold its stub.
 
+*Settings docs too (#224, 2026-11-11).* A theme or mode chosen a
+moment before a reload could be lost the same way, and the older
+cached doc then won (Eric asked for #224 to be fixed; option 1 of the
+issue, keep until acknowledged). Every settings doc is written through
+one seam, `SETTINGS_API`, and its production form
+(`theme/kept-settings.ts`) keeps each write in localStorage first,
+under `goblin.pendingSettings.` and the doc's path (which carries the
+uid, so it is never replayed into another account), then writes. Merge
+writes to one doc accumulate their fields, maps merged as Firestore
+merges them; a whole write replaces the record. The record is
+forgotten when the write settles, acknowledged or refused (a refused
+write is never replayed), but only if no later write to that doc was
+kept since. The server time is kept as a marker and is a fresh one on
+replay; a write holding any other value JSON would change is not kept,
+and drops the record, so an older write never replays over it. On the
+first listen to a doc in a load, a record left from an earlier one is
+written again before the listener starts, so the first snapshot holds
+it as this device's own pending write; it is then kept and forgotten
+the same way. There is no `base` check as for notes: settings are
+last write wins, and the write replayed is the one the cache would
+have sent. One that was acknowledged but whose page closed before the
+answer was heard is written again, over anything another device
+chose since; that window is the length of one round trip. Storage
+missing or refused, writes go unkept, as before.
+
 **Lists and search.** One live listener on the user's whole `notes`
 collection, newest first, feeds Recent, Previous note and search; one
 person's notes are small enough, and the cache answers it offline.
@@ -1492,7 +1517,13 @@ unsaved, unfiled articles already stored, in pages by document id.
 (`onCall`): the unread, unsaved, unfiled ones older than the fetcher's
 cutoff go, in batches, for the backlog a first import brought in
 before the cutoff existed. The same doc carries `readOnScroll` (#172)
-and `seenAt` (#173) so those steps change no schema.
+and `seenAt` (#173) so those steps change no schema. The doc is
+written whole, from what the device shows: its own changes not yet
+heard back are kept over the doc (`ReaderService`, 2026-11-11, #224),
+so a snapshot made before a switch and heard after it neither shows
+the old state nor goes into the next write. A change is heard back in
+the device's own echo; once every write is acknowledged the doc is
+all there is; a refused one shows no longer.
 
 **Mark read on scroll (#172, 2026-11-07).** Off unless the gardener
 switches it on: Settings, Reader, Mark articles read as I scroll past
@@ -2598,7 +2629,13 @@ Bog Goblin and Pixel Mossling, each light and dark.
   once there is one, the doc wins over a choice made while signed
   out. A choice made while sign-in is still being restored is held and
   written once the gardener is known, so it is not lost to the older
-  doc.
+  doc. *Changed 2026-11-11 (#224; Eric asked for it fixed, option 1 of
+  the issue, keep until acknowledged):* the doc no longer wins over a
+  choice made here that the cache had not yet taken when the page
+  reloaded. That choice is kept on the device until the server has it
+  (Client, Saving, Settings docs too) and written again before the doc
+  is listened to, so the first snapshot is this device's own pending
+  write, passed over, and the doc that wins after it holds the choice.
 - Fonts are self-hosted from `@fontsource`, not Google Fonts, so they
   work offline and make no third-party request. Every `@font-face` is
   declared, but a browser fetches a font only when text uses it, and
@@ -3533,7 +3570,16 @@ at an hour Eric picks.
   hour, timeZone }` in `settings/assistant`, a merge write like
   `arrivalSkip` (review on #232), `timeZone` the device's IANA zone
   when it was set, since the app keeps no zone of the gardener's
-  anywhere else (a repeat keeps its own). `digestPush` (scheduled,
+  anywhere else (a repeat keeps its own). *Field by field
+  (2026-11-11, #224):* the switch writes only `push` and the hour
+  only `hour`, each with `timeZone`, so neither writes the other's
+  value read back from a signal (the switch turned on, then at once
+  the hour, wrote `push: false`: a snapshot from before the switch
+  had reset it). A field the doc was never seen with nor written
+  here goes once with its default, so a stored digest has both.
+  `KeysService` also passes over its own echo and any snapshot heard
+  while a write of its is unacknowledged, as `ModulesService` does.
+  `digestPush` (scheduled,
   hourly on the hour, no retries) finds each gardener with `push` on
   (a collection-group query on `settings`, its index in
   `firestore.indexes.json`), and for each one whose clock reads the

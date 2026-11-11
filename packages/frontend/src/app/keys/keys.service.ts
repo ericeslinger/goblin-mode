@@ -121,6 +121,12 @@ export class KeysService {
   /** The daily digest by push (#237), from `settings/assistant`; off until read. */
   readonly digest = signal<DigestPush>(NO_DIGEST);
   private stopAssistant?: () => void;
+  /** Whether `settings/assistant` has been read since sign-in. */
+  private assistantRead = false;
+  /** Writes to `settings/assistant` the server has not acknowledged yet. */
+  private unacked = 0;
+  /** The digest's fields the doc was seen with or this device wrote (#224). */
+  private digestHas = { push: false, hour: false };
 
   constructor() {
     effect(() => {
@@ -134,6 +140,8 @@ export class KeysService {
       this.onArrival.set(false);
       this.arrivalSkip.set(NO_SKIP);
       this.digest.set(NO_DIGEST);
+      this.assistantRead = false;
+      this.digestHas = { push: false, hour: false };
       if (!uid) return;
       this.stop = this.settings.listen(
         this.fb.db,
@@ -144,10 +152,25 @@ export class KeysService {
       this.stopAssistant = this.settings.listen(
         this.fb.db,
         paths.assistant(uid),
-        (data) => {
+        (data, _fromCache, local) => {
+          const stored = data?.['digest'] as Record<string, unknown> | undefined;
+          this.digestHas = {
+            push: this.digestHas.push || typeof stored?.['push'] === 'boolean',
+            hour: this.digestHas.hour || isHour(stored?.['hour']),
+          };
+          // As ModulesService does: a snapshot heard while a write of
+          // this device's is unacknowledged may have been made before it,
+          // and the echo of its own write may lag a later one; neither is
+          // newer than what is showing, and adopting it would undo a
+          // choice just made (#224: the digest switch set, then a
+          // snapshot from before it, then the hour written beside it).
+          // An echo is taken only when nothing is known yet, as after a
+          // reload with writes still pending.
+          if (this.unacked > 0 || (local && this.assistantRead)) return;
+          this.assistantRead = true;
           this.onArrival.set(data?.['gardenOnArrival'] === true);
           this.arrivalSkip.set(skipOf(data?.['arrivalSkip']));
-          this.digest.set(digestOf(data?.['digest']));
+          this.digest.set(digestOf(stored));
         },
         (err) => console.error('assistant settings listener', err),
       );
@@ -181,15 +204,40 @@ export class KeysService {
   }
 
   /**
-   * The daily digest by push (#237): on or off, at `hour` on this
-   * device's clock, its time zone kept beside it for the scheduled
-   * push to read. Written as the switch is.
+   * The daily digest by push (#237) on or off. Only `push` is written
+   * (#224), never the hour beside it, so the switch and the hour select
+   * never write each other's value from a signal that a late snapshot
+   * may have reset. The device's time zone goes with it, for the
+   * scheduled push to read. Written as the switch above is.
    */
-  setDigest(digest: DigestPush): void {
-    if (!this.uid || !isHour(digest.hour)) return;
-    const kept = { push: digest.push, hour: digest.hour };
-    this.digest.set(kept);
-    this.writeAssistant({ digest: { ...kept, timeZone: this.timeZone } });
+  setDigestPush(push: boolean): void {
+    if (!this.uid) return;
+    this.digest.update((d) => ({ ...d, push }));
+    this.writeDigest({ push });
+  }
+
+  /** The digest's hour on this device's clock (#237); only `hour` is written, as above. */
+  setDigestHour(hour: number): void {
+    if (!this.uid || !isHour(hour)) return;
+    this.digest.update((d) => ({ ...d, hour }));
+    this.writeDigest({ hour });
+  }
+
+  /**
+   * A merge write of the digest's fields given, nested maps merging
+   * field by field. A stored digest keeps both fields, as the schema
+   * has it and the scheduled push needs (it passes over one without an
+   * hour): one neither seen in the doc nor written here yet goes with
+   * its default, once.
+   */
+  private writeDigest(change: Partial<DigestPush>): void {
+    const filled = {
+      ...(this.digestHas.push ? {} : { push: NO_DIGEST.push }),
+      ...(this.digestHas.hour ? {} : { hour: NO_DIGEST.hour }),
+      ...change,
+    };
+    this.digestHas = { push: true, hour: true };
+    this.writeAssistant({ digest: { ...filled, timeZone: this.timeZone } });
   }
 
   /**
@@ -200,6 +248,7 @@ export class KeysService {
    */
   private writeAssistant(fields: Record<string, unknown>): void {
     if (!this.uid) return;
+    this.unacked++;
     this.settings
       .set(
         this.fb.db,
@@ -207,7 +256,8 @@ export class KeysService {
         { ...fields, updatedAt: this.settings.now() },
         true,
       )
-      .catch((err) => console.error('assistant settings write', err));
+      .catch((err) => console.error('assistant settings write', err))
+      .finally(() => this.unacked--);
   }
 
   /** Keeps a pasted key; the masked record arrives through the listener. */
