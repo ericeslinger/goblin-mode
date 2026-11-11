@@ -13,10 +13,15 @@ import { termsOf } from './terms';
 const NOW = Date.parse('2026-11-07T12:00:00Z');
 const DESIGN = 'https://design.test/feed.xml';
 
-function store(stored: Record<string, string[]> = {}, follows = [feedId(DESIGN)]) {
+function store(
+  stored: Record<string, string[]> = {},
+  follows = [feedId(DESIGN)],
+  shows: string[] = [],
+) {
   const s = {
     followed: vi.fn(
-      async (_uid: string, ids: string[]) => new Set(ids.filter((i) => follows.includes(i))),
+      async (_uid: string, ids: string[]) =>
+        new Map(ids.filter((i) => follows.includes(i)).map((i) => [i, shows.includes(i)])),
     ),
     existing: vi.fn(
       async (_uid: string, ids: string[]) =>
@@ -25,6 +30,7 @@ function store(stored: Record<string, string[]> = {}, follows = [feedId(DESIGN)]
     ensureSavesFeed: vi.fn(async (_uid: string) => undefined),
     write: vi.fn(async (_uid: string, _items: SavedItem[]) => undefined),
     setTags: vi.fn(async (_uid: string, _updates: { id: string; tags: string[] }[]) => undefined),
+    restamp: vi.fn(async (_uid: string, _feedId: string) => 0),
   } satisfies SavesStore;
   return s;
 }
@@ -170,5 +176,45 @@ describe('importSaves (#176)', () => {
     expect(s.write).not.toHaveBeenCalled();
     expect(s.ensureSavesFeed).not.toHaveBeenCalled();
     expect(s.setTags).toHaveBeenCalledWith('u1', [{ id: b, tags: ['Glaze', 'Kiln'] }]);
+  });
+
+  it('stamps the module that owns each (#248): a show’s save is Podcasts’, the rest the Reader’s', async () => {
+    const SHOW = 'https://show.test/feed.xml';
+    const s = store({}, [feedId(DESIGN), feedId(SHOW)], [feedId(SHOW)]);
+    await importSaves(
+      s,
+      'u1',
+      [
+        { url: 'https://d.test/a', title: 'A', feedUrl: DESIGN, tags: [] },
+        { url: 'https://show.test/1', title: 'One', feedUrl: SHOW, tags: [] },
+        { url: 'https://loose.test/b', title: 'B', tags: [] },
+      ],
+      NOW,
+    );
+    const items = s.write.mock.calls[0][1];
+    expect(items.map((i) => [i.feedId, i.podcast])).toEqual([
+      [feedId(DESIGN), false],
+      [feedId(SHOW), true],
+      [SAVES_FEED_ID, false],
+    ]);
+    // The kinds read again after the write are the same: nothing restamped.
+    expect(s.followed).toHaveBeenCalledTimes(2);
+    expect(s.restamp).not.toHaveBeenCalled();
+  });
+
+  it('restamps a feed moved while its saves were written (#248)', async () => {
+    const s = store();
+    // Read as the Reader's, then found in Podcasts after the write.
+    s.followed
+      .mockResolvedValueOnce(new Map([[feedId(DESIGN), false]]))
+      .mockResolvedValueOnce(new Map([[feedId(DESIGN), true]]));
+    await importSaves(
+      s,
+      'u1',
+      [{ url: 'https://d.test/a', title: 'A', feedUrl: DESIGN, tags: [] }],
+      NOW,
+    );
+    expect(s.write.mock.calls[0][1][0].podcast).toBe(false);
+    expect(s.restamp).toHaveBeenCalledWith('u1', feedId(DESIGN));
   });
 });

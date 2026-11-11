@@ -31,6 +31,8 @@ const EXPORTS = [
   'feedsRefresh',
   'refreshFeeds',
   'feedRemoved',
+  'feedKindChanged',
+  'stampFeedItems',
   'fetchArticle',
   'applyRetentionNow',
   'sweepArticles',

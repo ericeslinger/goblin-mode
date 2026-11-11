@@ -45,8 +45,11 @@ export interface SavedItem extends NewItem {
 }
 
 export interface SavesStore {
-  /** Which of these feed ids have a feed doc: the feeds the gardener follows. */
-  followed(uid: string, feedIds: string[]): Promise<Set<string>>;
+  /**
+   * Which of these feed ids have a feed doc, the feeds the gardener
+   * follows, each with whether it is a show in Podcasts (#248).
+   */
+  followed(uid: string, feedIds: string[]): Promise<Map<string, boolean>>;
   /** The stored ones among these ids, with their tags. */
   existing(uid: string, ids: string[]): Promise<Map<string, string[]>>;
   /** Makes the Feedly saves feed if it is not there yet. */
@@ -55,6 +58,8 @@ export interface SavesStore {
   write(uid: string, items: SavedItem[]): Promise<void>;
   /** Sets the tags of stored articles; nothing else on them changes. */
   setTags(uid: string, updates: { id: string; tags: string[] }[]): Promise<void>;
+  /** Every item of the feed stamped with its kind as it is now (#248). */
+  restamp(uid: string, feedId: string): Promise<number>;
 }
 
 export interface SavesOutcome {
@@ -142,7 +147,7 @@ export async function importSaves(
   // (review on #199): those are filed under the Feedly saves instead,
   // by their link, as an entry with no feed is.
   const named = [...new Set(entries.flatMap((e) => (e.feedUrl ? [feedId(e.feedUrl)] : [])))];
-  const followed = named.length ? await store.followed(uid, named) : new Set<string>();
+  const followed = named.length ? await store.followed(uid, named) : new Map<string, boolean>();
   const filed = entries.map((e) => {
     if (!e.feedUrl || followed.has(feedId(e.feedUrl))) return e;
     const { feedUrl: _feedUrl, guid: _guid, ...rest } = e;
@@ -183,10 +188,24 @@ export async function importSaves(
       // The word index (#175), as the fetcher writes it, so search finds an imported save.
       terms: termsOf(title, content),
       tags: entry.tags,
+      // The module that owns it (#248): a save filed under a show in
+      // Podcasts is the show's; the Feedly saves feed is the Reader's.
+      podcast: followed.get(feed) === true,
     });
   }
   if (fresh.some((i) => i.feedId === SAVES_FEED_ID)) await store.ensureSavesFeed(uid);
-  if (fresh.length) await store.write(uid, fresh);
+  if (fresh.length) {
+    await store.write(uid, fresh);
+    // A Move meanwhile may have been restamped before these existed
+    // (#248): the kinds are read again, and a changed feed restamped.
+    const shows = [...new Set(fresh.map((i) => i.feedId))].filter((f) => followed.has(f));
+    if (shows.length) {
+      const now = await store.followed(uid, shows);
+      for (const f of shows) {
+        if (now.has(f) && now.get(f) !== followed.get(f)) await store.restamp(uid, f);
+      }
+    }
+  }
   if (retag.length) await store.setTags(uid, retag);
   return {
     added: fresh.length,

@@ -86,6 +86,22 @@ async function addThePodcast(
   });
 }
 
+/**
+ * Each stored item's module stamp (#248), `podcast`, read past the rules
+ * as admin, in document order: the server's, never shown.
+ */
+async function stamps(): Promise<(boolean | undefined)[]> {
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents/users/${OWNER.uid}/feedItems?pageSize=300`,
+    { headers: { authorization: 'Bearer owner' } },
+  );
+  expect(res.ok).toBe(true);
+  const { documents = [] } = (await res.json()) as {
+    documents?: { fields?: { podcast?: { booleanValue?: boolean } } }[];
+  };
+  return documents.map((d) => d.fields?.podcast?.booleanValue);
+}
+
 test('add a podcast, its episodes in Latest, new until heard; move it to the Reader and back', async ({
   page,
 }) => {
@@ -184,7 +200,9 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   await axe(page);
 
   // Misfiled: More on the show's page (#246) moves it to the Reader,
-  // where its items are articles.
+  // where its items are articles. The fetcher stamped them Podcasts'
+  // (#248).
+  expect(await stamps()).toEqual([true, true]);
   await tabs(page).getByRole('link', { name: 'Shows' }).click();
   await shows.getByRole('link', { name: SHOW }).click();
   await expect(page.getByRole('heading', { name: SHOW, level: 1 })).toBeVisible();
@@ -197,6 +215,8 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
     page.getByRole('status').filter({ hasText: `${SHOW} is in the Reader now.` }),
   ).toBeVisible();
   await letItSave(page);
+  // The Move's trigger restamps the show's items the Reader's (#248).
+  await expect.poll(stamps, { timeout: 20_000 }).toEqual([false, false]);
   await page.goto('/podcasts/shows');
   await expect(page.getByText('No shows yet.')).toBeVisible();
   await expect(shows.getByRole('listitem')).toHaveCount(0);
@@ -221,6 +241,7 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
     page.getByRole('status').filter({ hasText: `${SHOW} is in Podcasts now.` }),
   ).toBeVisible();
   await letItSave(page);
+  await expect.poll(stamps, { timeout: 20_000 }).toEqual([true, true]);
   await page.goto('/reader');
   await expect(page.getByRole('list', { name: 'Articles' })).not.toContainText('Wedging clay');
   await page.goto('/podcasts/shows');

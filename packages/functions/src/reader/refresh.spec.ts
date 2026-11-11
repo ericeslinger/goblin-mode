@@ -24,7 +24,13 @@ const RSS = (items: string) =>
 const item = (guid: string, hoursAgo: number, html = '<p>Words</p>') =>
   `<item><title>${guid}</title><link>https://kottke.org/${guid}</link><guid>${guid}</guid><pubDate>${new Date(NOW - hoursAgo * H).toUTCString()}</pubDate><description><![CDATA[${html}]]></description></item>`;
 
-function store(knownIds: string[] = [], claimed = true, queueEnd?: number, queueCount = 0) {
+function store(
+  knownIds: string[] = [],
+  claimed = true,
+  queueEnd?: number,
+  queueCount = 0,
+  kindNow?: boolean,
+) {
   const s = {
     due: vi.fn(async (): Promise<DueFeed[]> => []),
     claim: vi.fn(async (_uid: string, _id: string, _now: number) => claimed),
@@ -39,6 +45,8 @@ function store(knownIds: string[] = [], claimed = true, queueEnd?: number, queue
       ...(queueEnd === undefined ? {} : { last: queueEnd }),
       count: queueCount,
     })),
+    podcastNow: vi.fn(async (_uid: string, _id: string): Promise<boolean | undefined> => kindNow),
+    restamp: vi.fn(async (_uid: string, _id: string) => 0),
   } satisfies RefreshStore;
   return s;
 }
@@ -75,6 +83,8 @@ describe('refreshFeed (#161)', () => {
         content: 'Hi *there*',
         // The word index (#175): the title's and the text's, never the hidden "secret".
         terms: ['new', 'hi'],
+        // The Reader's (#248): the feed is no show.
+        podcast: false,
       },
     ]);
     expect(s.updateFeed).toHaveBeenCalledWith('u1', 'f-1', {
@@ -160,6 +170,49 @@ describe('refreshFeed (#161)', () => {
     expect(plain.updateFeed.mock.calls[0][2]).not.toHaveProperty('kind');
     expect(plain.writeItems.mock.calls[0][1][0]).not.toHaveProperty('enclosure');
     expect(plain.writeItems.mock.calls[0][1][0]).not.toHaveProperty('image');
+  });
+
+  describe('the module stamp (#248)', () => {
+    it('stamps each item with its feed’s kind as the look found it', async () => {
+      const reader = store([], true, undefined, 0, false);
+      await refreshFeed({ store: reader, fetch: ok(RSS(item('a', 1))), now: () => NOW }, feed);
+      expect(reader.writeItems.mock.calls[0][1].map((i) => i.podcast)).toEqual([false]);
+      const show = store([], true, undefined, 0, true);
+      await refreshFeed(
+        { store: show, fetch: ok(RSS(item('a', 1) + item('b', 2))), now: () => NOW },
+        { ...feed, podcast: true },
+      );
+      expect(show.writeItems.mock.calls[0][1].map((i) => i.podcast)).toEqual([true, true]);
+      // The kind read again after the write is the same: nothing restamped.
+      expect(show.podcastNow).toHaveBeenCalledWith('u1', 'f-1');
+      expect(show.restamp).not.toHaveBeenCalled();
+    });
+
+    it('restamps the feed when it moved while the look was writing', async () => {
+      // Due as a show; moved to the Reader before the items landed.
+      const s = store([], true, undefined, 0, false);
+      await refreshFeed(
+        { store: s, fetch: ok(RSS(item('a', 1))), now: () => NOW },
+        { ...feed, podcast: true },
+      );
+      expect(s.writeItems.mock.calls[0][1][0].podcast).toBe(true);
+      expect(s.restamp).toHaveBeenCalledWith('u1', 'f-1');
+      expect(s.writeItems.mock.invocationCallOrder[0]).toBeLessThan(
+        s.restamp.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('reads nothing more when the look stored nothing, or the feed is gone', async () => {
+      const none = store([feedItemId('f-1', 'a')]);
+      await refreshFeed({ store: none, fetch: ok(RSS(item('a', 1))), now: () => NOW }, feed);
+      expect(none.podcastNow).not.toHaveBeenCalled();
+      const gone = store([], true, undefined, 0, undefined);
+      await refreshFeed(
+        { store: gone, fetch: ok(RSS(item('a', 1))), now: () => NOW },
+        { ...feed, podcast: true },
+      );
+      expect(gone.restamp).not.toHaveBeenCalled();
+    });
   });
 
   describe('new episodes join the queue (#249)', () => {

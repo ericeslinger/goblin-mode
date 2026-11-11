@@ -75,6 +75,60 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "read",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "podcast",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "published",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "feedItems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "read",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "podcast",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "readAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "feedItems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "saved",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "podcast",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "published",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "feedItems",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "terms",
           "arrayConfig": "CONTAINS"
         },

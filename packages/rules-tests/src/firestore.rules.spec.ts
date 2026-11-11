@@ -726,6 +726,36 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
     await assertFails(ref.set({ queue: t, expireAt: now(), updatedAt: now() }, { merge: true }));
   });
 
+  it('keeps which module owns an item the server’s: the owner cannot set, change or clear it (#248)', async () => {
+    const path = 'users/owner/feedItems/f-1-stamp';
+    const ref = owner().doc(path);
+    await seed(path, { ...item(), podcast: true });
+    await assertFails(ref.set({ podcast: false, updatedAt: now() }, { merge: true }));
+    await assertFails(
+      ref.set(
+        { podcast: firebase.firestore.FieldValue.delete(), updatedAt: now() },
+        { merge: true },
+      ),
+    );
+    // Not even beside a mark the owner may make.
+    await assertFails(ref.set({ read: true, podcast: false, updatedAt: now() }, { merge: true }));
+    await assertSucceeds(ref.set({ read: true, updatedAt: now() }, { merge: true }));
+    // An item stored before the stamp cannot be given one from the app.
+    const bare = 'users/owner/feedItems/f-1-bare';
+    await seed(bare, item());
+    await assertFails(owner().doc(bare).set({ podcast: false, updatedAt: now() }, { merge: true }));
+  });
+
+  it('keeps the server’s note on the Reader (#248) read-only: settings/readerServer', async () => {
+    const path = 'users/owner/settings/readerServer';
+    await seed(path, { podcastStampedAt: now() });
+    await assertSucceeds(owner().doc(path).get());
+    await assertFails(intruder().doc(path).get());
+    await assertFails(owner().doc(path).set({ podcastStampedAt: now() }));
+    await assertFails(owner().doc(path).set({ podcastStampedAt: now() }, { merge: true }));
+    await assertFails(owner().doc(path).delete());
+  });
+
   it('keeps the Reader’s settings to their shape', async () => {
     const ref = owner().doc('users/owner/settings/reader');
     await assertFails(ref.set({ folderOrder: 'Design', images: true, updatedAt: now() }));

@@ -1,9 +1,14 @@
 // The Reader's functions (#161): the schedule that keeps feeds fresh,
 // Refresh from the app (onCall, as everything the app asks the server
 // to do is), and the trigger that takes a removed feed's items with it.
-import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import {
+  type DocumentSnapshot,
+  FieldValue,
+  Timestamp,
+  getFirestore,
+} from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
-import { onDocumentDeleted } from 'firebase-functions/v2/firestore';
+import { onDocumentDeleted, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { FEED_CAP, paths } from '@mossgoblin/schema';
@@ -19,10 +24,13 @@ import {
   firestoreSavesStore,
   markAllDue,
   removeFeedItems,
+  firestoreStampStore,
+  restampFeed,
   searchItems,
   sweepOld,
 } from './firestore-store';
 import { ITEM_MAX_AGE_MS, type RefreshDeps, refreshDue } from './refresh';
+import { kindChanged, stampItems } from './stamp';
 import { standInFeedFetcher, standInPageFetcher } from './stand-in';
 import { termsOfItem } from './terms';
 
@@ -36,6 +44,8 @@ export const DAILY_DISCOVERIES = 50;
 export const DAILY_INDEXES = 1;
 /** Searches from the app a day per gardener (review on #197), counted in the usage record. */
 export const DAILY_SEARCHES = 500;
+/** Runs of the module stamp's backfill a day per gardener (#248), counted in the usage record. */
+export const DAILY_STAMPS = 24;
 /** A reader-mode fetch claimed this long ago is a lost one's, and may be asked again. */
 const ARTICLE_STALE_MS = 2 * 60_000;
 
@@ -100,15 +110,75 @@ export const refreshFeeds = onCall({ memory: '512MiB', timeoutSeconds: 300 }, as
   }
 });
 
-/** A feed removed: its unread, unsaved, unfiled articles go with it. */
+/**
+ * A feed removed: its unread, unsaved, unfiled articles go with it.
+ * What stays (saved or filed) is stamped the Reader's (#248), where
+ * the Saved shelf has always shown it once its feed was gone.
+ */
 export const feedRemoved = onDocumentDeleted(
   { document: 'users/{uid}/feeds/{feedId}', timeoutSeconds: 300 },
   async (event) => {
     const { uid, feedId } = event.params;
-    const removed = await removeFeedItems(getFirestore(), uid, feedId);
-    logger.info('feedRemoved', { feedId, removed });
+    const db = getFirestore();
+    const removed = await removeFeedItems(db, uid, feedId);
+    const stamped = await restampFeed(db, uid, feedId);
+    logger.info('feedRemoved', { feedId, removed, stamped });
   },
 );
+
+/**
+ * A feed moved between the Reader and Podcasts (#248): its items are
+ * restamped with the module that owns them now (`podcast`), which the
+ * owner's rules never let the app write. Every feed write fires it,
+ * the fetcher's included; it reads nothing unless the write changed
+ * `kind`, or made the feed (a show followed again finds its saved
+ * episodes stamped the Reader's when it left). The kind restamped is
+ * read from the feed as it is when the run starts, not from the event,
+ * so events out of order still end at the feed's kind; running twice
+ * writes nothing the second time. A removed feed is `feedRemoved`'s.
+ */
+export const feedKindChanged = onDocumentWritten(
+  { document: 'users/{uid}/feeds/{feedId}', timeoutSeconds: 300 },
+  async (event) => {
+    const shape = (d?: DocumentSnapshot) => d && { exists: d.exists, kind: d.get('kind') };
+    if (!kindChanged(shape(event.data?.before), shape(event.data?.after))) return;
+    const { uid, feedId } = event.params;
+    const stamped = await restampFeed(getFirestore(), uid, feedId);
+    logger.info('feedKindChanged', { feedId, stamped });
+  },
+);
+
+/**
+ * The module stamp's backfill (#248), asked by the app on its own
+ * while `settings/readerServer` has no `podcastStampedAt`: one run of
+ * `stampItems`, ten thousand items at most, going on from where the
+ * last stopped. onCall, as everything the app asks the server to do
+ * is; signed in, and at most 24 runs a day per gardener (`stampRuns`
+ * in the usage record), given back when the run fails.
+ */
+export const stampFeedItems = onCall({ timeoutSeconds: 540, memory: '512MiB' }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = request.auth.uid;
+  const db = getFirestore();
+  const usageRef = db.doc(paths.usage(uid, new Date().toISOString().slice(0, 10)));
+  await db.runTransaction(async (tx) => {
+    const used = Number((await tx.get(usageRef)).data()?.['stampRuns'] ?? 0);
+    if (used >= DAILY_STAMPS) {
+      throw new HttpsError('resource-exhausted', 'Stamped enough for today; it goes on tomorrow.');
+    }
+    tx.set(usageRef, { stampRuns: used + 1 }, { merge: true });
+  });
+  try {
+    const outcome = await stampItems(firestoreStampStore(db), uid, Date.now());
+    logger.info('stampFeedItems', outcome);
+    return outcome;
+  } catch (err) {
+    await usageRef
+      .set({ stampRuns: FieldValue.increment(-1) }, { merge: true })
+      .catch(() => undefined);
+    throw err;
+  }
+});
 
 /**
  * Reader mode (#163), from the app: the article's page is fetched and

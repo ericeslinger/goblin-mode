@@ -85,6 +85,11 @@ export interface NewItem {
   terms: string[];
   /** Its place in the listening queue (#249), for a new episode of a show with `autoQueue`. */
   queue?: number;
+  /**
+   * The module that owns it (#248): true for a show's in Podcasts,
+   * from its feed's kind as the look found it.
+   */
+  podcast: boolean;
 }
 
 /** What a look at a feed changes on it; times in milliseconds, null clears. */
@@ -122,6 +127,10 @@ export interface RefreshStore {
    * is empty, and how many it holds (review on #252), for the cap.
    */
   queueState(uid: string): Promise<{ last?: number; count: number }>;
+  /** Whether the feed is a show in Podcasts now (#248); undefined when it is gone. */
+  podcastNow(uid: string, id: string): Promise<boolean | undefined>;
+  /** Every item of the feed stamped with its kind as it is now (#248), as a Move's trigger does. */
+  restamp(uid: string, id: string): Promise<number>;
 }
 
 export interface RefreshDeps {
@@ -257,10 +266,14 @@ export async function refreshFeed(
       ...(item.image ? { image: item.image } : {}),
       ...(item.episode === undefined ? {} : { episode: item.episode }),
       terms: termsOf(title, content),
+      podcast: feed.podcast === true,
     });
   });
   await joinQueue(store, feed, fresh, now);
-  if (fresh.length) await store.writeItems(feed.uid, fresh);
+  if (fresh.length) {
+    await store.writeItems(feed.uid, fresh);
+    await settleStamp(store, feed);
+  }
   const newest = all.reduce((m, i) => Math.max(m, i.published), feed.lastItemAt ?? 0);
   const interval = nextInterval(
     all.map((i) => i.published),
@@ -286,6 +299,19 @@ export async function refreshFeed(
     // it was added or moved (#245, Eric 2026-11-10), never the audio's.
   });
   return { outcome: fresh.length ? 'new' : 'unchanged', added: fresh.length };
+}
+
+/**
+ * The stamp written is the feed's kind as the look began (#248). A
+ * Move between then and the write would leave these items with the old
+ * one: its trigger may have restamped the feed before they existed. So
+ * the kind is read again after the write; changed, the feed's items
+ * are restamped here. A Move after this read is the trigger's, which
+ * runs after the items exist.
+ */
+async function settleStamp(store: RefreshStore, feed: DueFeed): Promise<void> {
+  const now = await store.podcastNow(feed.uid, feed.id);
+  if (now !== undefined && now !== (feed.podcast === true)) await store.restamp(feed.uid, feed.id);
 }
 
 /**

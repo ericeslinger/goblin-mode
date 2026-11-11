@@ -7,12 +7,15 @@ import {
   applyRetention,
   firestoreRefreshStore,
   firestoreSavesStore,
+  firestoreStampStore,
   indexItems,
   markAllDue,
+  restampFeed,
   searchItems,
   sweepOld,
 } from './firestore-store';
 import { monthsAfter, refreshFeed } from './refresh';
+import { STAMP_SETTLE_MS, stampItems } from './stamp';
 import { termsOf } from './terms';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
@@ -347,5 +350,107 @@ describe('Feedly saves (#176)', () => {
       feedItemId(followedId, 'g-a'),
       feedItemId(SAVES_FEED_ID, 'https://y.test/b'),
     ]);
+  });
+});
+
+describe('the module stamp (#248)', () => {
+  const stampOf = async (id: string) =>
+    (await db.doc(`users/u1/feedItems/${id}`).get()).data()?.['podcast'];
+
+  it('stamps what the fetcher writes with the feed’s kind, in the stored shape', async () => {
+    const store = firestoreRefreshStore(db);
+    await db.doc('users/u1/feeds/f-1').set({
+      url: 'https://kiln.test/feed.xml',
+      title: 'Kiln talk',
+      folders: [],
+      kind: 'podcast',
+      nextFetchAt: Timestamp.fromMillis(NOW - DAY),
+    });
+    const [due] = await store.due(NOW, 10, 'u1');
+    const text = `<rss version="2.0"><channel><title>Kiln talk</title><item><title>Ep</title><guid>ep</guid><pubDate>${new Date(NOW - 3_600_000).toUTCString()}</pubDate></item></channel></rss>`;
+    await refreshFeed(
+      {
+        store,
+        fetch: async () => ({ status: 200, contentType: 'application/rss+xml', text }),
+        now: () => NOW,
+      },
+      due,
+    );
+    const id = feedItemId('f-1', 'ep');
+    expect(await stampOf(id)).toBe(true);
+    const data = (await db.doc(`users/u1/feedItems/${id}`).get()).data()!;
+    expect(
+      FeedItem.safeParse({ ...data, createdAt: data['createdAt'], updatedAt: data['updatedAt'] })
+        .success,
+    ).toBe(true);
+  });
+
+  it('restamps a moved feed’s items, leaves another feed’s alone, and never brings one back', async () => {
+    await db
+      .doc('users/u1/feeds/f-1')
+      .set({ url: 'https://a.test/f', title: 'A', folders: [], kind: 'podcast' });
+    await article('a1', 1);
+    await article('a2', 2, { podcast: false });
+    await article('b1', 1, { feedId: 'f-2', podcast: false });
+    expect(await restampFeed(db, 'u1', 'f-1')).toBe(2);
+    expect([await stampOf('a1'), await stampOf('a2'), await stampOf('b1')]).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    expect(await restampFeed(db, 'u1', 'f-1')).toBe(0);
+    // Unfollowed: what stays is the Reader's.
+    await db.doc('users/u1/feeds/f-1').delete();
+    expect(await restampFeed(db, 'u1', 'f-1')).toBe(2);
+    expect(await stampOf('a1')).toBe(false);
+    // A stamp for an item gone meanwhile is dropped, not a new document.
+    const store = firestoreStampStore(db);
+    await db.doc('users/u1/feedItems/a2').delete();
+    expect(
+      await store.write('u1', [
+        { id: 'a1', podcast: true },
+        { id: 'a2', podcast: true },
+      ]),
+    ).toBe(1);
+    expect((await db.doc('users/u1/feedItems/a2').get()).exists).toBe(false);
+    expect(await stampOf('a1')).toBe(true);
+  });
+
+  it('backfills every item from its feed’s kind, in runs, then writes the server’s note', async () => {
+    const store = firestoreStampStore(db);
+    await db.doc('users/u1/feeds/f-1').set({ url: 'https://a.test/f', title: 'A', folders: [] });
+    await db
+      .doc('users/u1/feeds/f-2')
+      .set({ url: 'https://b.test/f', title: 'B', folders: [], kind: 'podcast' });
+    for (let i = 0; i < 5; i++) await article(`a${i}`, i);
+    for (let i = 0; i < 4; i++) await article(`p${i}`, i, { feedId: 'f-2' });
+    expect(await stampItems(store, 'u1', NOW)).toMatchObject({ done: false, more: false });
+    const later = NOW + STAMP_SETTLE_MS;
+    expect(await stampItems(store, 'u1', later, { pageSize: 2, pages: 2 })).toEqual({
+      stamped: 4,
+      done: false,
+      more: true,
+    });
+    expect((await db.doc('users/u1/settings/readerServer').get()).exists).toBe(false);
+    let out;
+    do out = await stampItems(store, 'u1', later, { pageSize: 2, pages: 2 });
+    while (!out.done);
+    for (let i = 0; i < 5; i++) expect(await stampOf(`a${i}`)).toBe(false);
+    for (let i = 0; i < 4; i++) expect(await stampOf(`p${i}`)).toBe(true);
+    const note = (await db.doc('users/u1/settings/readerServer').get()).data();
+    expect(note?.['podcastStampedAt']).toBeInstanceOf(Timestamp);
+    const state = (await db.doc('users/u1/usage/reader').get()).data() ?? {};
+    expect(state).not.toHaveProperty('stampCursor');
+    expect(state).not.toHaveProperty('stampFirstAt');
+    expect(await stampItems(store, 'u1', later)).toEqual({ stamped: 0, done: true, more: false });
+  });
+
+  it('marks a new gardener at once', async () => {
+    expect(await stampItems(firestoreStampStore(db), 'u1', NOW)).toEqual({
+      stamped: 0,
+      done: true,
+      more: false,
+    });
+    expect((await db.doc('users/u1/settings/readerServer').get()).exists).toBe(true);
   });
 });
