@@ -36,8 +36,14 @@ test('add a reminder, see it in Right Now, then done and undo', async ({ page })
   await expect(section(page, 'Overdue')).toContainText('Call the bank');
   await expect(section(page, 'Someday')).toContainText('Learn the banjo');
 
-  // Home (#219), then its box, back to the editor.
+  await addReminder(page, 'Fetch the kiln shelf', { inMinutes: 2 * 24 * 60 });
+
+  // Home (#219) names what is due today, not a later day's reminder or
+  // Someday's; then its box, back to the editor.
   await page.getByRole('link', { name: 'Home' }).click();
+  await expect(page.locator('a.right-now')).toContainText('Call the bank');
+  await expect(page.locator('a.right-now')).not.toContainText('Fetch the kiln shelf');
+  await expect(page.locator('a.right-now')).not.toContainText('Learn the banjo');
   await page.getByRole('link', { name: 'Plant a thought' }).click();
   await expect(rightNow(page)).toContainText('Call the bank');
   await expect(rightNow(page)).not.toContainText('Learn the banjo');
