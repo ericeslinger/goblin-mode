@@ -35,6 +35,7 @@ interface Setup {
   notes?: NoteRecord[];
   kitchen?: boolean;
   reader?: boolean;
+  /** The reminders overdue or due today, as the service's `due` has them. */
   reminders?: string[];
   listId?: string;
   runs?: number[];
@@ -129,7 +130,7 @@ async function render(setup: Setup = {}) {
       {
         provide: RemindersService,
         useValue: {
-          placed: signal((setup.reminders ?? []).map((text, i) => ({ id: `${i}`, text }))),
+          due: signal((setup.reminders ?? []).map((text, i) => ({ id: `${i}`, text }))),
         },
       },
       { provide: GroceryService, useValue: { listId: signal(setup.listId) } },
@@ -288,7 +289,7 @@ describe('Home (#219)', () => {
     expect(tile(el, 'Kitchen')?.textContent).toContain('Tonight: nothing planned');
   });
 
-  it('shows the next reminders and what is new in the Reader, linking to Right Now', async () => {
+  it('shows the reminders due today and what is new in the Reader, linking to Right Now', async () => {
     const el = await render({
       reader: true,
       reminders: ['Glaze the mugs', 'Plan the week', 'Call'],

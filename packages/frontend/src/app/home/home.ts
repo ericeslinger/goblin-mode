@@ -38,7 +38,7 @@ import { SignIn } from '../sign-in/sign-in';
 import { HomeTilesService, arrange, moveBy, moveTo, nearestSlot, type Slot } from './home-tiles';
 import { Icon, type IconName } from './icon';
 
-/** Right Now's row names at most this many reminders. */
+/** Right Now's row names at most this many reminders, of those due today. */
 export const HOME_REMINDERS = 2;
 /** How long a tile is held to open Arrange Home (#222), in milliseconds. */
 export const HOLD_MS = 400;
@@ -498,10 +498,14 @@ export class Home {
   /** Where on its tile the dragged one was taken, relative to its slot. */
   private grip?: { x: number; y: number; list: HTMLElement };
 
-  /** The next reminder or two, then what is new in the Reader and Podcasts, as Right Now has them. */
+  /**
+   * The first reminder or two that are overdue or due today, then what is
+   * new in the Reader and Podcasts. A later day's reminder waits for its
+   * day (Eric, 2026-11-11): one worded "tonight" read wrong the day before.
+   */
   protected readonly rightNow = computed(() => {
     const parts = this.reminders
-      .placed()
+      .due()
       .slice(0, HOME_REMINDERS)
       .map((r) => r.text);
     const fresh = this.modules.reader()

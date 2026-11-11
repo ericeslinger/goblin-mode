@@ -931,8 +931,10 @@ because it is reached for in the store with one hand.
 design A over B (a bar of slots along the bottom): a Home screen at
 `/home` with a header (the leaf, Mossgoblin, the sync word, a gear to
 Settings), a one-line box, "Plant a thought", the Right Now row (the
-next two reminders as Right Now places them, and how many are new in
-the Reader, linking to `/right-now`) and a two-column grid of tiles,
+first two reminders that are overdue or due today, and how many are
+new in the Reader, linking to `/right-now`; until 2026-11-11 it named
+the next two whenever they were due, and Eric saw Wednesday's "for
+tonight's dinner" on Tuesday) and a two-column grid of tiles,
 each an icon, a name and a line on how it stands: Notes (what Browse's
 Recent counts, and how many were written in today), Kitchen (tonight's
 dinner from this week's plan, what the grocery list has open), Reader
