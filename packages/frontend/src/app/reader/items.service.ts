@@ -687,7 +687,14 @@ export class ItemsService {
     return { shelf: '', ids: NONE };
   }
 
-  private forgetVisits(): void {
+  /**
+   * Ends the run through a shelf: its list is on screen again, so the
+   * next article opened starts a fresh one. Until 2026-11-11 only
+   * another shelf or signing out did, and a day's reading on All piled
+   * up: three unread read "41 of 44", and Next landed on ones read
+   * hours before (Eric).
+   */
+  forgetVisits(): void {
     this.visited.set({ shelf: '', ids: NONE });
     try {
       this.session?.removeItem(VISITED_KEY);

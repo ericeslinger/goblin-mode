@@ -433,9 +433,14 @@ export class ReaderList {
       untracked(() => this.items.markSeen(shelf.name));
     });
     // Another shelf starts afresh: no hold, nothing waiting, no Undo.
+    // And a list on screen ends the run through its articles: the next
+    // one opened counts from the unread, not from all read before it.
     effect(() => {
       this.shelf();
-      untracked(() => this.forget());
+      untracked(() => {
+        this.forget();
+        this.items.forgetVisits();
+      });
     });
     if (typeof IntersectionObserver !== 'undefined') {
       this.observer = new IntersectionObserver((entries) => this.seen(entries));
