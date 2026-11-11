@@ -783,8 +783,14 @@ the same way. There is no `base` check as for notes: settings are
 last write wins, and the write replayed is the one the cache would
 have sent. One that was acknowledged but whose page closed before the
 answer was heard is written again, over anything another device
-chose since; that window is the length of one round trip. Storage
-missing or refused, writes go unkept, as before.
+chose since; that window is the length of one round trip. A write
+made offline stays kept for as long as the device is offline, and is
+written again on each load in that time; a whole write (the theme
+doc) then carries the doc as this device last saw it, over what
+another device chose meanwhile, as the SDK's own queued write would.
+A record the SDK refuses outright on replay is dropped, and the doc
+is listened to all the same (review on #259). Storage missing or
+refused, writes go unkept, as before.
 
 **Lists and search.** One live listener on the user's whole `notes`
 collection, newest first, feeds Recent, Previous note and search; one

@@ -164,6 +164,11 @@ export class KeptSettings {
     return { data: decode(left.data, now) as Record<string, unknown>, merge: left.merge };
   }
 
+  /** Drops the record for `path`, whatever it holds. */
+  drop(path: string): void {
+    this.forget(path);
+  }
+
   private forget(path: string): void {
     try {
       this.storage?.removeItem(key(path));
@@ -201,9 +206,17 @@ export function keepUntilAcknowledged(api: SettingsApi, storage: Storage | null)
     listen: (db, path, next, error) => {
       const left = kept.takeLeft(path, now);
       if (left) {
-        set(db, path, left.data, left.merge).catch((err) =>
-          console.error('kept settings write failed', err),
-        );
+        // A record the SDK will not take throws here, not in the
+        // promise: forgotten, so the doc is still listened to, now and
+        // on later loads (review on #259).
+        try {
+          set(db, path, left.data, left.merge).catch((err) =>
+            console.error('kept settings write failed', err),
+          );
+        } catch (err) {
+          console.error('kept settings write not made', err);
+          kept.drop(path);
+        }
       }
       return api.listen(db, path, next, error);
     },

@@ -177,6 +177,27 @@ describe('keepUntilAcknowledged (#224)', () => {
     expect(stored(storage, ASSISTANT)).toBeUndefined();
   });
 
+  it('drops a record the write throws on, and still listens (review on #259)', () => {
+    const storage = new MemoryStorage();
+    const first = setup(storage);
+    void first.kept.set(DB, APP, { theme: 'bog', updatedAt: first.kept.now() });
+    // The page reloads; the SDK refuses the kept data outright, by throwing.
+    const { kept, api, order } = setup(storage);
+    api.set.mockImplementationOnce(() => {
+      throw new Error('unsupported field value');
+    });
+    const stop = vi.fn();
+    api.listen.mockImplementation((_db: unknown, path: string) => {
+      order.push(`listen ${path}`);
+      return stop;
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(kept.listen(DB, APP, vi.fn(), vi.fn())).toBe(stop);
+    expect(order).toEqual([`listen ${APP}`]);
+    expect(stored(storage, APP)).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+
   it('replays once a load, and never a doc already written in this one', () => {
     const storage = new MemoryStorage();
     void setup(storage).kept.set(DB, APP, { theme: 'bog' });
