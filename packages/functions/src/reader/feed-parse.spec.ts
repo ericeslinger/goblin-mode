@@ -409,4 +409,22 @@ describe('parseFeed (#161)', () => {
     // An empty xhtml content falls back to the summary, markup kept.
     expect(feed.items[1].html).toContain('Short <b>one</b>');
   });
+  it('reads xhtml content holding ]]> whole, and leaves markup quoted in CDATA alone (review on #258)', () => {
+    const feed = parseFeed(
+      `<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>t</title>
+  <entry>
+    <title>One</title><link href="https://b.example/1"/><id>1</id>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>a ]]&gt; b ]]> c</p></div></content>
+  </entry>
+  <entry>
+    <title>Two</title><link href="https://b.example/2"/><id>2</id>
+    <content type="html"><![CDATA[<p>Write <code>&lt;content type="xhtml"&gt;x&lt;/content&gt;</code> or <content type="xhtml">y</content> and more.</p>]]></content>
+  </entry>
+</feed>`,
+      'https://b.example/feed',
+    )!;
+    expect(feed.items[0].html).toContain('<p>a ]]&gt; b ]]> c</p>');
+    expect(feed.items[1].html).toContain('<content type="xhtml">y</content> and more.</p>');
+  });
 });

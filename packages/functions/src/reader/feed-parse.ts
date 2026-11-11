@@ -73,7 +73,10 @@ function text(node: Node): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node).trim();
   const own = node['#text'];
   const cdata = node['#cdata'];
-  const parts = [own, cdata].filter((p) => p !== undefined && p !== null).map(String);
+  // Two CDATA sections in one element come as a list: joined as written.
+  const parts = [own, cdata]
+    .filter((p) => p !== undefined && p !== null)
+    .map((p) => (Array.isArray(p) ? p.join('') : String(p)));
   if (parts.length) return parts.join('').trim();
   // Atom `type="xhtml"`: the content is child elements; their text will do.
   return Object.entries(node)
@@ -389,14 +392,17 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
  * its inside is wrapped as CDATA first, and reaches the same HTML
  * reading as every other feed's content.
  */
+// A CDATA section first, so markup quoted inside one is never taken
+// for an element (review on #258).
 const XHTML =
-  /<(content|summary)\b([^>]*?\btype\s*=\s*["']xhtml["'][^>]*?)(?<!\/)>([\s\S]*?)<\/\1\s*>/g;
+  /<!\[CDATA\[[\s\S]*?\]\]>|<(content|summary)\b([^>]*?\btype\s*=\s*["']xhtml["'][^>]*?)(?<!\/)>([\s\S]*?)<\/\1\s*>/g;
 const xhtmlAsText = (source: string) =>
-  source.replace(XHTML, (_all, tag: string, attrs: string, inner: string) =>
-    // Already CDATA: left alone. A `]]>` inside would end ours early.
-    inner.trimStart().startsWith('<![CDATA[')
-      ? _all
-      : `<${tag}${attrs}><![CDATA[${inner.replaceAll(']]>', ']]]]><![CDATA[>')}]]></${tag}>`,
+  source.replace(XHTML, (all, tag?: string, attrs?: string, inner?: string) =>
+    // A CDATA section, or content already in one: left alone. A `]]>`
+    // inside would end ours early, so it is split across two.
+    tag === undefined || inner === undefined || inner.trimStart().startsWith('<![CDATA[')
+      ? all
+      : `<${tag}${attrs ?? ''}><![CDATA[${inner.replaceAll(']]>', ']]]]><![CDATA[>')}]]></${tag}>`,
   );
 
 /**
