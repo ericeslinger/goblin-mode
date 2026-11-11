@@ -199,7 +199,13 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   // Off again, so the lists below are only what the swipes and taps do.
   await page.setViewportSize(tall);
   await page.goto('/settings');
-  await onScroll.uncheck();
+  // Once the setting has been read (it draws off until then), a click,
+  // and the switch off once it settles: uncheck() reads the switch the
+  // instant after its click, and failed once on a state the page was
+  // still passing through, though the switch ended off.
+  await expect(onScroll).toBeChecked();
+  await onScroll.click();
+  await expect(onScroll).not.toBeChecked();
   await letItSave(page);
   await page.goto('/reader');
   await expect(tabs.getByRole('link', { name: /^All/ })).toContainText('7 unread');
