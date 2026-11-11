@@ -382,6 +382,24 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
 }
 
 /**
+ * Atom's `type="xhtml"` content is markup as child elements, not text
+ * (Tim Bray's feed, Eric 2026-11-11). Parsed as XML it loses its
+ * order: a paragraph's words either side of a link join up, the link
+ * and every other inline element go, and paragraphs run together. So
+ * its inside is wrapped as CDATA first, and reaches the same HTML
+ * reading as every other feed's content.
+ */
+const XHTML =
+  /<(content|summary)\b([^>]*?\btype\s*=\s*["']xhtml["'][^>]*?)(?<!\/)>([\s\S]*?)<\/\1\s*>/g;
+const xhtmlAsText = (source: string) =>
+  source.replace(XHTML, (_all, tag: string, attrs: string, inner: string) =>
+    // Already CDATA: left alone. A `]]>` inside would end ours early.
+    inner.trimStart().startsWith('<![CDATA[')
+      ? _all
+      : `<${tag}${attrs}><![CDATA[${inner.replaceAll(']]>', ']]]]><![CDATA[>')}]]></${tag}>`,
+  );
+
+/**
  * The feed in `source`, fetched from `url` (for relative links), or
  * undefined when it is no feed this reads. Items with neither a title
  * nor a link are dropped; the first of two items with one guid stays.
@@ -393,7 +411,7 @@ export function parseFeed(source: string, url: string): ParsedFeed | undefined {
   else {
     let root: Record<string, unknown>;
     try {
-      root = parser.parse(trimmed) as Record<string, unknown>;
+      root = parser.parse(xhtmlAsText(trimmed)) as Record<string, unknown>;
     } catch {
       return undefined;
     }

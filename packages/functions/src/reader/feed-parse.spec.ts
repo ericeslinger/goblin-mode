@@ -377,4 +377,36 @@ describe('parseFeed (#161)', () => {
       );
     });
   });
+  it('keeps the markup of Atom xhtml content: links, emphasis and paragraphs (Eric, 2026-11-11)', () => {
+    const feed = parseFeed(
+      `<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>ongoing</title>
+  <entry>
+    <title>Long Links</title>
+    <link href="https://blog.example/long-links"/>
+    <id>tag:blog,2026:long-links</id>
+    <updated>2026-11-08T12:00:00-08:00</updated>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+      <p>I haven\u2019t done a <i>Long Links</i> since June.</p>
+      <p>I recommended <a href="https://colors.example/">STORIED COLORS</a>, then
+      <a href="/reply">Lachlan replied</a> &amp; so on.</p>
+    </div></content>
+  </entry>
+  <entry>
+    <title>Empty</title>
+    <link href="https://blog.example/empty"/>
+    <id>tag:blog,2026:empty</id>
+    <content type="xhtml"/>
+    <summary type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">Short <b>one</b></div></summary>
+  </entry>
+</feed>`,
+      'https://blog.example/feed',
+    )!;
+    const html = feed.items[0].html;
+    expect(html).toContain('<p>I haven\u2019t done a <i>Long Links</i> since June.</p>');
+    expect(html).toContain('<a href="https://colors.example/">STORIED COLORS</a>, then');
+    expect(html).toContain('&amp; so on.</p>');
+    // An empty xhtml content falls back to the summary, markup kept.
+    expect(feed.items[1].html).toContain('Short <b>one</b>');
+  });
 });
