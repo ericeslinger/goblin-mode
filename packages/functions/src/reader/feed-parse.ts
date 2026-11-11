@@ -73,7 +73,10 @@ function text(node: Node): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node).trim();
   const own = node['#text'];
   const cdata = node['#cdata'];
-  const parts = [own, cdata].filter((p) => p !== undefined && p !== null).map(String);
+  // Two CDATA sections in one element come as a list: joined as written.
+  const parts = [own, cdata]
+    .filter((p) => p !== undefined && p !== null)
+    .map((p) => (Array.isArray(p) ? p.join('') : String(p)));
   if (parts.length) return parts.join('').trim();
   // Atom `type="xhtml"`: the content is child elements; their text will do.
   return Object.entries(node)
@@ -382,6 +385,27 @@ function fromJson(source: string, base: string): ParsedFeed | undefined {
 }
 
 /**
+ * Atom's `type="xhtml"` content is markup as child elements, not text
+ * (Tim Bray's feed, Eric 2026-11-11). Parsed as XML it loses its
+ * order: a paragraph's words either side of a link join up, the link
+ * and every other inline element go, and paragraphs run together. So
+ * its inside is wrapped as CDATA first, and reaches the same HTML
+ * reading as every other feed's content.
+ */
+// A CDATA section first, so markup quoted inside one is never taken
+// for an element (review on #258).
+const XHTML =
+  /<!\[CDATA\[[\s\S]*?\]\]>|<(content|summary)\b([^>]*?\btype\s*=\s*["']xhtml["'][^>]*?)(?<!\/)>([\s\S]*?)<\/\1\s*>/g;
+const xhtmlAsText = (source: string) =>
+  source.replace(XHTML, (all, tag?: string, attrs?: string, inner?: string) =>
+    // A CDATA section, or content already in one: left alone. A `]]>`
+    // inside would end ours early, so it is split across two.
+    tag === undefined || inner === undefined || inner.trimStart().startsWith('<![CDATA[')
+      ? all
+      : `<${tag}${attrs ?? ''}><![CDATA[${inner.replaceAll(']]>', ']]]]><![CDATA[>')}]]></${tag}>`,
+  );
+
+/**
  * The feed in `source`, fetched from `url` (for relative links), or
  * undefined when it is no feed this reads. Items with neither a title
  * nor a link are dropped; the first of two items with one guid stays.
@@ -393,7 +417,7 @@ export function parseFeed(source: string, url: string): ParsedFeed | undefined {
   else {
     let root: Record<string, unknown>;
     try {
-      root = parser.parse(trimmed) as Record<string, unknown>;
+      root = parser.parse(xhtmlAsText(trimmed)) as Record<string, unknown>;
     } catch {
       return undefined;
     }
