@@ -15,6 +15,7 @@ import {
   type RefreshStore,
   monthsAfter,
 } from './refresh';
+import { type Stamp, type StampStore, restamp } from './stamp';
 import { queryTerms, rarestTerm, termsOfItem } from './terms';
 
 const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
@@ -135,8 +136,112 @@ export function firestoreRefreshStore(db: Firestore): RefreshStore {
         .doc(paths.usage(uid, day))
         .set({ feedFetches: FieldValue.increment(1) }, { merge: true });
     },
+    podcastNow: async (uid, id) => {
+      const doc = await db.doc(paths.feed(uid, id)).get();
+      return doc.exists ? doc.data()?.['kind'] === 'podcast' : undefined;
+    },
+    restamp: (uid, id) => restampFeed(db, uid, id),
   };
 }
+
+/**
+ * Writes `podcast` on these items (#248), a batch at a time. An item
+ * gone meanwhile (a TTL expiry, a removed feed's sweep) fails its
+ * batch; the batch is then written one by one, the gone left gone, so
+ * a stamp never brings an item back.
+ */
+async function writeStamps(db: Firestore, uid: string, stamps: Stamp[]): Promise<number> {
+  let written = 0;
+  const update = (s: Stamp) => db.doc(paths.feedItem(uid, s.id)).update({ podcast: s.podcast });
+  for (let at = 0; at < stamps.length; at += 400) {
+    const chunk = stamps.slice(at, at + 400);
+    const batch = db.batch();
+    for (const s of chunk) batch.update(db.doc(paths.feedItem(uid, s.id)), { podcast: s.podcast });
+    try {
+      await batch.commit();
+      written += chunk.length;
+    } catch (err) {
+      if ((err as { code?: number }).code !== 5) throw err;
+      for (const s of chunk) {
+        await update(s).then(
+          () => written++,
+          (e: { code?: number }) => {
+            if (e.code !== 5) throw e;
+          },
+        );
+      }
+    }
+  }
+  return written;
+}
+
+/** The module stamp's reads and writes (#248), for a Move's restamp and the backfill. */
+export function firestoreStampStore(db: Firestore): StampStore {
+  const items = (uid: string) => db.collection(paths.feedItems(uid));
+  const marker = (uid: string) => db.doc(paths.readerServer(uid));
+  // Beside the word index's state (#175): the server's alone.
+  const state = (uid: string) => db.doc(indexStatePath(uid));
+  return {
+    isShow: async (uid, feedId) =>
+      (await db.doc(paths.feed(uid, feedId)).get()).data()?.['kind'] === 'podcast',
+    feedPage: async (uid, feedId, after, size) => {
+      let query = items(uid)
+        .where('feedId', '==', feedId)
+        .orderBy(FieldPath.documentId())
+        .select('podcast')
+        .limit(size);
+      if (after) query = query.startAfter(after);
+      return (await query.get()).docs.map((d) => ({ id: d.id, podcast: d.get('podcast') }));
+    },
+    write: (uid, stamps) => writeStamps(db, uid, stamps),
+    marked: async (uid) =>
+      (await marker(uid).get()).data()?.['podcastStampedAt'] instanceof Timestamp,
+    progress: async (uid) => {
+      const d = (await state(uid).get()).data() ?? {};
+      return {
+        ...(ms(d['stampFirstAt']) === undefined ? {} : { firstAt: ms(d['stampFirstAt']) }),
+        ...(str(d['stampCursor']) ? { cursor: str(d['stampCursor']) } : {}),
+      };
+    },
+    saveProgress: async (uid, p) => {
+      await state(uid).set(
+        {
+          ...(p.firstAt === undefined ? {} : { stampFirstAt: Timestamp.fromMillis(p.firstAt) }),
+          ...(p.cursor === undefined ? {} : { stampCursor: p.cursor }),
+        },
+        { merge: true },
+      );
+    },
+    kinds: async (uid) => {
+      const snap = await db.collection(paths.feeds(uid)).select('kind').get();
+      return new Map(snap.docs.map((d) => [d.id, d.get('kind') === 'podcast']));
+    },
+    anyItem: async (uid) => !(await items(uid).limit(1).get()).empty,
+    page: async (uid, after, size) => {
+      let query = items(uid)
+        .orderBy(FieldPath.documentId())
+        .select('feedId', 'podcast')
+        .limit(size);
+      if (after) query = query.startAfter(after);
+      return (await query.get()).docs.map((d) => ({
+        id: d.id,
+        feedId: String(d.get('feedId') ?? ''),
+        podcast: d.get('podcast'),
+      }));
+    },
+    finish: async (uid) => {
+      await marker(uid).set({ podcastStampedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await state(uid).set(
+        { stampFirstAt: FieldValue.delete(), stampCursor: FieldValue.delete() },
+        { merge: true },
+      );
+    },
+  };
+}
+
+/** Every item of a feed stamped with the module that owns it now (#248); see `restamp`. */
+export const restampFeed = (db: Firestore, uid: string, feedId: string) =>
+  restamp(firestoreStampStore(db), uid, feedId);
 
 /**
  * Removes a feed's items that are neither saved nor filed, in pages by
@@ -492,8 +597,11 @@ export function firestoreSavesStore(db: Firestore): SavesStore {
   return {
     followed: async (uid, feedIds) => {
       const docs = await db.getAll(...feedIds.map((id) => db.doc(paths.feed(uid, id))));
-      return new Set(docs.filter((d) => d.exists).map((d) => d.id));
+      return new Map(
+        docs.filter((d) => d.exists).map((d) => [d.id, d.data()?.['kind'] === 'podcast']),
+      );
     },
+    restamp: (uid, feedId) => restampFeed(db, uid, feedId),
     existing: async (uid, ids) => {
       const out = new Map<string, string[]>();
       for (let at = 0; at < ids.length; at += 100) {

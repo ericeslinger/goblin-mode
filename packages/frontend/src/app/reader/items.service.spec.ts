@@ -5,7 +5,7 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
-import { NOW, SESSION_STORAGE } from '../platform/platform';
+import { NOW, SESSION_STORAGE, STORAGE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import {
   FakeItemsApi,
@@ -17,7 +17,15 @@ import {
 } from '../testing/fakes';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { QUEUE_MAX } from '@mossgoblin/schema';
-import { ALL, ITEMS_API, ItemsService, QUEUE_FULL, SAVED, VISITED_KEY } from './items.service';
+import {
+  ALL,
+  ITEMS_API,
+  ItemsService,
+  QUEUE_FULL,
+  SAVED,
+  SPLIT_KEY,
+  VISITED_KEY,
+} from './items.service';
 import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
@@ -58,7 +66,7 @@ function memoryStorage(): Storage {
   };
 }
 
-function setup(session: Storage | null = memoryStorage()) {
+function setup(session: Storage | null = memoryStorage(), local: Storage | null = memoryStorage()) {
   const api = new FakeItemsApi();
   const feeds = new FakeReaderApi();
   const modules = new FakeModules();
@@ -79,6 +87,7 @@ function setup(session: Storage | null = memoryStorage()) {
       { provide: AuthService, useValue: { user } },
       { provide: NOW, useValue: () => NOW_MS },
       { provide: SESSION_STORAGE, useValue: session },
+      { provide: STORAGE, useValue: local },
     ],
   });
   const items = TestBed.inject(ItemsService);
@@ -88,7 +97,7 @@ function setup(session: Storage | null = memoryStorage()) {
     { id: 'f2', data: { url: 'https://b.test/f', title: 'Dice', folders: ['Games', 'Design'] } },
     { id: 'f3', data: { url: 'https://c.test/f', title: 'Loose', folders: [] } },
   ]);
-  return { items, api, feeds, user, modules, notes, reading, settings };
+  return { items, api, feeds, user, modules, notes, reading, settings, local };
 }
 
 describe('ItemsService (#162)', () => {
@@ -837,5 +846,146 @@ describe('the listening queue (#249)', () => {
     api.pushFeed('p1', [episode('e')]);
     items.setPlayed('e', true);
     expect(api.set.mock.calls.at(-1)![2]).not.toHaveProperty('queue');
+  });
+});
+
+describe('each module’s own shelves (#248)', () => {
+  const audio = { enclosure: { url: 'https://p.test/a.mp3', type: 'audio/mpeg', seconds: 600 } };
+  const SPLIT = [
+    'unread:reader',
+    'unread:podcasts',
+    'read:reader',
+    'read:podcasts',
+    'saved:reader',
+    'saved:podcasts',
+  ] as const;
+
+  function stampSetup(local: Storage | null = memoryStorage()) {
+    const s = setup(memoryStorage(), local);
+    s.feeds.push([
+      { id: 'f1', data: { url: 'https://a.test/f', title: 'Design blog', folders: ['Design'] } },
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
+    ]);
+    TestBed.tick();
+    return s;
+  }
+  const ids = (list: { id: string }[]) => list.map((i) => i.id);
+
+  it('keeps the shared shelves until the server’s note, and asks for the backfill once', async () => {
+    const { api } = stampSetup();
+    expect(api.listen.mock.calls.map((c) => [c[2], c[5]])).toEqual([
+      ['unread', undefined],
+      ['read', undefined],
+      ['saved', undefined],
+    ]);
+    expect(api.listenStamp.mock.calls[0][1]).toBe('users/u1/settings/readerServer');
+    // The cache's "not yet" asks for nothing; the server's does, once a sitting.
+    api.pushStamp(false, true);
+    expect(api.stampFeedItems).not.toHaveBeenCalled();
+    api.pushStamp(false);
+    api.pushStamp(false);
+    await Promise.resolve();
+    expect(api.stampFeedItems).toHaveBeenCalledTimes(1);
+    TestBed.tick();
+    expect(api.listening()).toEqual(['unread', 'read', 'saved']);
+  });
+
+  it('asks again while a run says more is left, a few runs at most', async () => {
+    const { api } = stampSetup();
+    api.stampFeedItems.mockResolvedValue({ done: false, more: true });
+    api.pushStamp(false);
+    await vi.waitFor(() => expect(api.stampFeedItems).toHaveBeenCalledTimes(5));
+    await new Promise((r) => setTimeout(r));
+    expect(api.stampFeedItems).toHaveBeenCalledTimes(5);
+  });
+
+  it('splits on the note, keeping the shared shelves beside until the server answers every split one', () => {
+    const { api, items, local } = stampSetup();
+    api.push('unread', [
+      item('a', 'f1', 1),
+      item('e', 'p1', 2, audio),
+      item('b', 'f1', 3, { podcast: false }),
+    ]);
+    api.pushStamp(true);
+    TestBed.tick();
+    expect(api.listen.mock.calls.slice(3).map((c) => `${c[2]}:${c[5]}`)).toEqual([...SPLIT]);
+    expect(api.listening()).toEqual(['unread', 'read', 'saved', ...SPLIT]);
+    // From the cache, the Reader's own lacks an item it holds from before
+    // the backfill: the shared shelf still shows it.
+    api.push('unread:reader', [item('b', 'f1', 3, { podcast: false })], true);
+    expect(ids(items.inShelf({ kind: 'folder', name: ALL }, false))).toEqual(['a', 'b']);
+    expect(ids(items.episodes())).toEqual(['e']);
+    for (const key of SPLIT) api.push(key, [], true);
+    expect(api.listening()).toContain('unread');
+    // The server's answers, every split shelf: the shared ones go.
+    api.push('unread:reader', [
+      item('a', 'f1', 1, { podcast: false }),
+      item('b', 'f1', 3, { podcast: false }),
+    ]);
+    api.push('unread:podcasts', [item('e', 'p1', 2, { ...audio, podcast: true })]);
+    for (const key of SPLIT.filter((k) => !k.startsWith('unread'))) api.push(key, []);
+    expect(api.stopped).toEqual(['unread', 'read', 'saved']);
+    expect(api.listening()).toEqual([...SPLIT]);
+    expect(local?.getItem(`${SPLIT_KEY}.u1`)).toBe('1');
+    expect(ids(items.inShelf({ kind: 'folder', name: ALL }, false))).toEqual(['a', 'b']);
+    expect(ids(items.episodes())).toEqual(['e']);
+    expect(items.unreadCounts()[ALL]).toBe(2);
+  });
+
+  it('starts on the split shelves on a device that had them from the server before', () => {
+    const local = memoryStorage();
+    local.setItem(`${SPLIT_KEY}.u1`, '1');
+    const { api, items } = stampSetup(local);
+    expect(api.listening()).toEqual([...SPLIT]);
+    // The cache's "not yet" leaves them as they are.
+    api.pushStamp(false, true);
+    TestBed.tick();
+    expect(api.listening()).toEqual([...SPLIT]);
+    // Loaded once both modules' unread are heard.
+    api.push('unread:reader', [item('a', 'f1', 1, { podcast: false })], true);
+    expect(items.loaded()).toBe(false);
+    api.push('unread:podcasts', [], true);
+    expect(items.loaded()).toBe(true);
+    expect(ids(items.inShelf({ kind: 'folder', name: ALL }, false))).toEqual(['a']);
+  });
+
+  it('shows a moved show’s items where the feed is now, before their restamp lands', () => {
+    const local = memoryStorage();
+    local.setItem(`${SPLIT_KEY}.u1`, '1');
+    const { api, items, feeds } = stampSetup(local);
+    api.push('unread:reader', [item('a', 'f1', 1, { podcast: false })]);
+    api.push('unread:podcasts', [item('e', 'p1', 2, { ...audio, podcast: true })]);
+    // Moved to the Reader: still stamped Podcasts' until the trigger runs.
+    feeds.push([
+      { id: 'f1', data: { url: 'https://a.test/f', title: 'Design blog', folders: ['Design'] } },
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [] } },
+    ]);
+    TestBed.tick();
+    expect(ids(items.inShelf({ kind: 'folder', name: ALL }, false))).toEqual(['a', 'e']);
+    expect(items.episodes()).toEqual([]);
+    // An episode in the Reader's own (the device ahead of the stamp) is
+    // still kept off the Reader while its feed is a show.
+    feeds.push([
+      { id: 'f1', data: { url: 'https://a.test/f', title: 'Design blog', folders: ['Design'] } },
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
+    ]);
+    api.push('unread:reader', [
+      item('a', 'f1', 1, { podcast: false }),
+      item('e', 'p1', 2, { ...audio, podcast: false }),
+    ]);
+    TestBed.tick();
+    expect(ids(items.inShelf({ kind: 'folder', name: ALL }, false))).toEqual(['a']);
+    expect(ids(items.episodes())).toEqual(['e']);
+  });
+
+  it('runs the shared shelves beside every time when the device cannot keep the mark', () => {
+    const { api } = stampSetup(null);
+    api.pushStamp(true);
+    TestBed.tick();
+    for (const key of SPLIT) api.push(key, []);
+    expect(api.listening()).toEqual([...SPLIT]);
+    TestBed.resetTestingModule();
+    const again = stampSetup(null);
+    expect(again.api.listening()).toEqual(['unread', 'read', 'saved']);
   });
 });

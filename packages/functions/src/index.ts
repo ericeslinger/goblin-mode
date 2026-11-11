@@ -18,6 +18,7 @@ export { recipeImport } from './kitchen/triggers';
 export {
   applyRetentionNow,
   discoverFeeds,
+  feedKindChanged,
   feedRemoved,
   feedsRefresh,
   fetchArticle,
@@ -25,6 +26,7 @@ export {
   importFeedlySaves,
   refreshFeeds,
   searchArticles,
+  stampFeedItems,
   sweepArticles,
 } from './reader/functions';
 export { proposalAccepted } from './organize/triggers';

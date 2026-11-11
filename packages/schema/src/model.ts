@@ -20,6 +20,7 @@
 // | feedItems | function, plus the owner's read and saved marks | the Reader's articles (#159), written by the fetcher |
 // | settings/reader | client, direct | the Reader's folder order and switches (#159) |
 // | settings/assistant | client, direct | the assistant's switches, e.g. garden on arrival (#214) |
+// | settings/readerServer | function only | items stamped by module, so the app may filter (#248) |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 // | secrets (top level) | function only | a gardener's encrypted provider keys (#144), never client-readable |
 //
@@ -714,10 +715,32 @@ export const FeedItem = z.object({
    * by the app; the owner's update rule leaves it out.
    */
   tags: z.array(z.string().min(1).max(60)).max(20).optional(),
+  /**
+   * Which module owns it (#248, Eric 2026-11-11: a module owns its
+   * records): true for an item of a show in Podcasts, false for the
+   * Reader's, from its feed's `kind`. The server's alone: the fetcher
+   * and the Feedly import stamp it on every item they write, a trigger
+   * restamps a feed's items when the feed moves, and a backfill stamped
+   * those stored before it. The owner's update rule leaves it out.
+   * Absent only on items stored before the backfill reached them.
+   */
+  podcast: z.boolean().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
 });
 export type FeedItem = z.infer<typeof FeedItem>;
+
+/**
+ * The server's own note to the app about the Reader (#248), one doc,
+ * `settings/readerServer`: the owner reads it, and no rule lets the
+ * owner write or remove it. `podcastStampedAt` is set once every item
+ * stored carries `podcast`, so the app's queries may filter on it
+ * (`where('podcast', '==', false)` matches no item without the field).
+ */
+export const ReaderServerState = z.object({
+  podcastStampedAt: Timestamp.optional(),
+});
+export type ReaderServerState = z.infer<typeof ReaderServerState>;
 
 /** The Reader's own settings (#159), one doc, `settings/reader`. */
 export const ReaderSettings = z.object({
@@ -802,6 +825,8 @@ export const paths = {
   feedItems: (uid: string) => `users/${uid}/feedItems`,
   feedItem: (uid: string, id: string) => `users/${uid}/feedItems/${id}`,
   reader: (uid: string) => `users/${uid}/settings/reader`,
+  /** The server's note to the app on the Reader (#248), function-written, owner-read. */
+  readerServer: (uid: string) => `users/${uid}/settings/readerServer`,
   /** The assistant's switches (#214), e.g. garden on arrival. */
   assistant: (uid: string) => `users/${uid}/settings/assistant`,
   /** The gardener's masked provider keys (#144), read by the app. */

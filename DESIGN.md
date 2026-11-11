@@ -2423,6 +2423,97 @@ way is (b), as its own change with Eric's review; until then the
 Reader's shelves can hold fewer than a thousand of its own articles
 while that many episodes are unread.
 
+**A module owns its records (Eric, 2026-11-11).** No other module's
+query reads them. The Reader and Podcasts keep sharing `feedItems`,
+for the history already stored there, and each item says which owns
+it by a stamp the server keeps. This replaces the paragraph above's
+"nothing built": (b) is built (#248, 2026-11-11), as follows.
+
+*The stamp.* `podcast` on a feed item (`FeedItem`, optional in the
+schema only for the items stored before it): true for a show's item
+in Podcasts, false for the Reader's, from the feed's `kind`. It is
+the server's alone: the feedItems update rule's list leaves it out,
+so the owner can neither set, change nor clear it (a rules test says
+so). No generated validator covers feed items, so `rules:gen` has
+nothing to regenerate. Who writes it:
+
+- The fetcher, on every item it stores, from the feed's kind as the
+  look found it. A Move between that read and the write could leave
+  the new items with the old kind, the Move's trigger having run
+  before they existed; so after writing, the look reads the kind
+  again and, changed, restamps the feed. A Move after that read is
+  the trigger's.
+- The Feedly import (#176): a save filed under a followed show is
+  Podcasts', one under a Reader feed or the Feedly saves feed is the
+  Reader's; the kinds are read again after the write, as the
+  fetcher's are.
+- `feedKindChanged`, a trigger on every write to a feed document: it
+  reads nothing unless the write changed `kind` (Move to Podcasts,
+  Move to the Reader) or made the feed (a show followed again finds
+  any saved episodes the Reader's), then restamps all the feed's items
+  in pages of 400 by document id, writing only those whose stamp
+  differs, from the kind the feed has when it runs, not the event's,
+  so events out of order still end right and a second run writes
+  nothing. Every fetch's own feed update fires it too and costs an
+  invocation that returns at once. A stamp never recreates an item
+  removed meanwhile: a batch that meets one is redone item by item,
+  the gone left gone.
+- `feedRemoved` restamps what it leaves (saved, filed) as the
+  Reader's: once a feed was gone its items were never a show's, and
+  the Reader's Saved shelf has shown them since #245.
+
+*The backfill.* `stampFeedItems` (`onCall`), as `indexArticles`
+(#175) pages: every item by document id, from each feed's kind (an
+item whose feed is gone is the Reader's), only differing stamps
+written. It is not a Settings button: the app asks for it by itself,
+once a sitting, while the server's note (below) is missing and the
+server confirms so, and asks again, up to five runs, while a run says
+more is left. Bounded: 25 pages of 400 a run, at most 24 runs a day
+per gardener (`stampRuns` in the usage record, given back when a run
+fails). Resumable: the last id done is kept after each page in
+`usage/reader` (`stampCursor`, beside the word index's `indexedAt`,
+the server's alone). Not before its time: the first run only notes
+when it was asked (`stampFirstAt`), and the pass starts on a run ten
+minutes later, past the longest a function runs, so a look begun on
+the code from before the stamp has ended and the pass meets every
+item it wrote. A gardener with no feed and no item is marked on the
+first run with no work. Each run reads the feeds' kinds at its start
+and its end, and restamps whole any feed moved between.
+
+*The server's note.* When a pass ends, `settings/readerServer` gets
+`podcastStampedAt` and the progress is cleared. The owner reads that
+doc; no rule lets the owner write it or remove it (a rules test says
+so). Its own doc, not a field of `settings/reader`, which the app
+writes and its validator would have to let the owner write too.
+
+*The switch, and why no shelf ever holds less.* The query
+`where('podcast', '==', false)` matches no item without the field, so
+the app keeps the shared queries until the note is there, then each
+shelf (unread, read, saved) is two listeners, the Reader's own
+(`podcast == false`) and Podcasts' own (`podcast == true`), each with
+the shelf's limit (a thousand unread, two hundred read). Podcasts
+leaned on the shared shelves: the read shelf is how an older episode
+whose page was opened stays at hand for the player after a reload and
+for Started, and the unread one carried episodes past each show's
+newest hundred into Latest and the counts. So Podcasts gets its own
+listener on every shelf rather than losing them, and the two together
+hold every item the shared one did, and more: the Reader's thousand
+are now its own. A device's cache can still hold an item from before
+the backfill without the stamp, which no split query matches; so on a
+device that has not yet had the split shelves from the server, the
+shared ones run beside them (their items shown under the split ones'
+newer copies) until all six have had the server's answer, and then
+stop. The device then keeps that in local storage
+(`goblin.reader.split.<uid>`) and starts on the split shelves next
+time; where storage is refused the shared ones run beside every time.
+The cache's word that the note is missing never undoes one seen. The
+on-device drop of a show's episodes from the Reader (`readerItems`,
+the feed's kind) stays as the backstop, and is what shows a moved
+show's items where they now belong before their restamp lands.
+Three composite indexes serve the split queries (read, podcast,
+published; read, podcast, readAt; saved, podcast, published). The
+assistant's tools take what they took; nothing on their side changed.
+
 *Keep-for spares the queue (review on #252, 2026-11-10).* Saving and
 filing cleared `expireAt` so the TTL policy (#171) never removed
 those, but queuing did not: with Keep articles for set, an unheard

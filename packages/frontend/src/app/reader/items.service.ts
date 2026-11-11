@@ -42,7 +42,7 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
-import { NOW, SESSION_STORAGE } from '../platform/platform';
+import { NOW, SESSION_STORAGE, STORAGE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import { ReaderService, callableMessage } from './reader.service';
 import { ALL, SAVED, type Shelf2, shelfParam } from './shelves';
@@ -132,15 +132,55 @@ function toEnclosure(v: unknown): EnclosureRecord | undefined {
 /** Which articles a listener follows. */
 export type Shelf = 'unread' | 'read' | 'saved';
 
+/**
+ * Whose items a shelf's listener reads (#248; Eric, 2026-11-11: a
+ * module owns its records, and no other module's query reads them):
+ * the Reader's (`podcast == false`) or Podcasts' (`podcast == true`),
+ * once the server's note says every item carries the stamp. Undefined
+ * is the query from before the stamp, both modules' items together.
+ */
+export type ShelfPart = 'reader' | 'podcasts';
+
+/** A shelf's listener as the service keys it: `unread`, or `unread:reader`, and so on. */
+type ShelfKey = Shelf | `${Shelf}:${ShelfPart}`;
+const SHELVES: readonly Shelf[] = ['unread', 'read', 'saved'];
+const PARTS: readonly ShelfPart[] = ['reader', 'podcasts'];
+const SPLIT: readonly ShelfKey[] = SHELVES.flatMap((s) => PARTS.map((p) => `${s}:${p}` as const));
+
+/**
+ * Where this device keeps, by account, that its shelves have read the
+ * split queries from the server once (#248), so its cache holds every
+ * item's stamp and the old queries need not run beside them again.
+ */
+export const SPLIT_KEY = 'goblin.reader.split';
+
 /** The Firestore calls the service makes, as a seam for unit specs. */
 export interface ItemsApi {
+  /**
+   * A shelf's articles; with `part`, only that module's (#248). `fromCache`
+   * says the server has not confirmed the answer.
+   */
   listen(
     db: Firestore,
     path: string,
     shelf: Shelf,
-    next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    next: (docs: { id: string; data: Record<string, unknown> }[], fromCache: boolean) => void,
+    error: (err: unknown) => void,
+    part?: ShelfPart,
+  ): () => void;
+  /**
+   * The server's note on the Reader (#248, `settings/readerServer`):
+   * whether every item carries its module's stamp, and whether the
+   * answer is the cache's alone.
+   */
+  listenStamp(
+    db: Firestore,
+    path: string,
+    next: (stamped: boolean, fromCache: boolean) => void,
     error: (err: unknown) => void,
   ): () => void;
+  /** The stampFeedItems callable (#248): one run of the backfill of the stamp. */
+  stampFeedItems(): Promise<{ done: boolean; more: boolean }>;
   set(db: Firestore, path: string, data: Record<string, unknown>): Promise<void>;
   /** Several merges in one batch, for Mark all read and read on scroll. */
   setMany(db: Firestore, writes: { path: string; data: Record<string, unknown> }[]): Promise<void>;
@@ -203,33 +243,63 @@ function itemsApi(functions: Functions): ItemsApi {
   return {
     fetchArticle: async (itemId) =>
       (await httpsCallable<unknown, { state: string }>(functions, 'fetchArticle')({ itemId })).data,
-    listen: (db, path, shelf, next, error) => {
+    stampFeedItems: async () =>
+      (
+        await httpsCallable<unknown, { done: boolean; more: boolean }>(
+          functions,
+          'stampFeedItems',
+        )({})
+      ).data,
+    listen: (db, path, shelf, next, error, part) => {
       const items = collection(db, path);
+      // The module's own (#248): only with the server's note, as an
+      // item without the stamp matches neither.
+      const own = part === undefined ? [] : [where('podcast', '==', part === 'podcasts')];
       const q =
         shelf === 'unread'
           ? query(
               items,
               where('read', '==', false),
+              ...own,
               orderBy('published', 'desc'),
               limit(UNREAD_LIMIT),
             )
           : shelf === 'read'
-            ? query(items, where('read', '==', true), orderBy('readAt', 'desc'), limit(READ_LIMIT))
+            ? query(
+                items,
+                where('read', '==', true),
+                ...own,
+                orderBy('readAt', 'desc'),
+                limit(READ_LIMIT),
+              )
             : query(
                 items,
                 where('saved', '==', true),
+                ...own,
                 orderBy('published', 'desc'),
                 limit(UNREAD_LIMIT),
               );
       return onSnapshot(
         q,
+        // A module's own shelf hears metadata changes too, so one read
+        // from the cache is followed by the server's word that it
+        // stands (#248), which the switch waits for.
+        { includeMetadataChanges: part !== undefined },
         (snap) =>
           next(
             snap.docs.map((d) => ({ id: d.id, data: d.data({ serverTimestamps: 'estimate' }) })),
+            snap.metadata.fromCache,
           ),
         error,
       );
     },
+    listenStamp: (db, path, next, error) =>
+      onSnapshot(
+        doc(db, path),
+        { includeMetadataChanges: true },
+        (snap) => next(snap.exists() && !!snap.get('podcastStampedAt'), snap.metadata.fromCache),
+        error,
+      ),
     listenFeed: (db, path, feedId, next, error) =>
       onSnapshot(
         query(
@@ -330,6 +400,16 @@ export const VISITED_KEY = 'goblin.reader.visited';
  * read and everything saved, each a listener through the persistent
  * cache, filtered by folder on the device. Marks are written at once,
  * offline too; the listeners move the article between shelves.
+ *
+ * Each shelf is two listeners once the server's note says every item
+ * carries its module's stamp (#248): the Reader's own (`podcast ==
+ * false`) and Podcasts' own (`podcast == true`), each with the
+ * shelf's limit, so a show's unheard episodes no longer take places
+ * in the Reader's thousand, and Podcasts keeps every episode the one
+ * shared listener gave it. Until the note, the one shared listener per
+ * shelf, as before. A device that has not yet had the split shelves
+ * from the server keeps the shared ones running beside them until it
+ * has, so no shelf ever holds fewer than before.
  */
 @Injectable({ providedIn: 'root' })
 export class ItemsService {
@@ -342,9 +422,16 @@ export class ItemsService {
   private readonly notes = inject(NotesService);
   private readonly reading = inject(ReadingService);
 
-  private readonly unreadDocs = signal<ItemRecord[]>([]);
-  private readonly readDocs = signal<ItemRecord[]>([]);
-  private readonly savedDocs = signal<ItemRecord[]>([]);
+  private readonly storage = inject(STORAGE);
+  /** Each shelf listener's articles, by its key (#248). */
+  private readonly shelfDocs = signal<Partial<Record<ShelfKey, ItemRecord[]>>>({});
+  private shelfStops = new Map<ShelfKey, () => void>();
+  /** The split shelves the server has confirmed since they started (#248). */
+  private confirmed = new Set<ShelfKey>();
+  /** Whether the server's note says every item carries its module's stamp (#248). */
+  private readonly stamped = signal(false);
+  /** The accounts this app asked the stamp's backfill for, once a sitting each. */
+  private readonly stampAsked = new Set<string>();
   private readonly read = signal(false);
   /** Marks made here before the listeners echo them, by id. */
   private readonly local = signal<
@@ -403,11 +490,13 @@ export class ItemsService {
     // of a show moved to the Reader keeps its place, unseen, until it
     // is moved back.
     const podcasts = this.podcastIds();
+    const shelves = this.shelfDocs();
     for (const list of [
       this.queueDocs().filter((i) => podcasts.has(i.feedId)),
-      this.unreadDocs(),
-      this.readDocs(),
-      this.savedDocs(),
+      // The shared shelves first (#248): while they run beside the
+      // split ones, the split ones' newer copies win.
+      ...SHELVES.map((k) => shelves[k] ?? []),
+      ...SPLIT.map((k) => shelves[k] ?? []),
       ...Object.values(this.episodeDocs()),
     ]) {
       for (const i of list) byId.set(i.id, { ...i, ...local[i.id] });
@@ -524,20 +613,28 @@ export class ItemsService {
       const ids = this.podcastIdList();
       untracked(() => this.followEpisodes(uid, ids));
     });
+    // The shelves' listeners (#248): the shared ones until the server's
+    // note, then each module's own.
+    effect(() => {
+      const uid = this.listenAs();
+      const stamped = this.stamped();
+      untracked(() => {
+        if (uid && uid === this.uid) this.followShelves(uid, stamped);
+      });
+    });
     effect(() => {
       const uid = this.listenAs();
       if (uid === this.uid) return;
       for (const stop of this.stops) stop();
       this.stops = [];
+      this.stopShelves();
+      this.stamped.set(false);
       this.queueDocs.set([]);
       const was = this.uid;
       for (const stop of this.opened.values()) stop();
       this.opened.clear();
       this.openedDocs.set({});
       this.uid = uid;
-      this.unreadDocs.set([]);
-      this.readDocs.set([]);
-      this.savedDocs.set([]);
       this.local.set({});
       // Signed out (or the Reader off): this tab forgets them. Not on
       // the first sign-in, which would drop what a reload kept.
@@ -545,11 +642,26 @@ export class ItemsService {
       this.read.set(false);
       if (!uid) return;
       const path = paths.feedItems(uid);
-      const shelves: [Shelf, (list: ItemRecord[]) => void][] = [
-        ['unread', (l) => (this.unreadDocs.set(l), this.read.set(true))],
-        ['read', (l) => this.readDocs.set(l)],
-        ['saved', (l) => this.savedDocs.set(l)],
-      ];
+      // A device whose split shelves had the server's answer before
+      // starts with them, not with the shared ones only to stop them.
+      this.stamped.set(this.splitConfirmed(uid));
+      this.followShelves(uid, untracked(this.stamped));
+      // The server's note (#248): every item stamped, so the shelves
+      // may split. Never yet, and the server says so: the backfill is
+      // asked for, once a sitting.
+      this.stops.push(
+        this.api.listenStamp(
+          this.fb.db,
+          paths.readerServer(uid),
+          (stamped, fromCache) => {
+            if (uid !== this.uid) return;
+            // The cache's "not yet" never undoes what this device knew.
+            if (stamped || !fromCache) this.stamped.set(stamped);
+            if (!stamped && !fromCache) void this.askStamp(uid);
+          },
+          (err) => console.error('reader stamp listener', err),
+        ),
+      );
       // The listening queue (#249): its own listener, so the queue is
       // whole whatever each show's newest hundred holds.
       this.stops.push(
@@ -567,31 +679,121 @@ export class ItemsService {
           (err) => console.error('queue listener', err),
         ),
       );
-      for (const [shelf, set] of shelves) {
-        this.stops.push(
-          this.api.listen(
-            this.fb.db,
-            path,
-            shelf,
-            (docs) => {
-              set(docs.map((d) => toItem(d.id, d.data)));
-              // The echo carries this device's marks: drop the local copy.
-              this.local.update((l) => {
-                const next = { ...l };
-                for (const d of docs) delete next[d.id];
-                return next;
-              });
-            },
-            (err) => console.error(`${shelf} articles listener`, err),
-          ),
-        );
-      }
     });
     inject(DestroyRef).onDestroy(() => {
       this.stops.forEach((s) => s());
+      this.stopShelves();
       this.opened.forEach((s) => s());
       this.episodeStops.forEach((s) => s());
     });
+  }
+
+  /**
+   * The shelves' listeners as they should be now (#248): the shared
+   * three until the server's note; then the six split ones, with the
+   * shared three still beside them until every split one has had the
+   * server's answer, on a device that has not had it before. Until
+   * then its cache may hold an item from before the backfill without
+   * the stamp, which no split query matches.
+   */
+  private followShelves(uid: string, stamped: boolean): void {
+    const splitDone = stamped && this.splitConfirmed(uid);
+    const want = new Set<ShelfKey>([...(stamped ? SPLIT : []), ...(splitDone ? [] : SHELVES)]);
+    for (const [key, stop] of this.shelfStops) {
+      if (want.has(key)) continue;
+      stop();
+      this.shelfStops.delete(key);
+      this.confirmed.delete(key);
+      this.shelfDocs.update(({ [key]: _, ...rest }) => rest);
+    }
+    const path = paths.feedItems(uid);
+    for (const key of want) {
+      if (this.shelfStops.has(key)) continue;
+      const [shelf, part] = key.split(':') as [Shelf, ShelfPart | undefined];
+      this.shelfStops.set(
+        key,
+        this.api.listen(
+          this.fb.db,
+          path,
+          shelf,
+          (docs, fromCache) => {
+            if (uid !== this.uid || !this.shelfStops.has(key)) return;
+            this.shelfDocs.update((d) => ({ ...d, [key]: docs.map((x) => toItem(x.id, x.data)) }));
+            // The echo carries this device's marks: drop the local copy.
+            this.local.update((l) => {
+              const next = { ...l };
+              for (const d of docs) delete next[d.id];
+              return next;
+            });
+            if (this.unreadHeard()) this.read.set(true);
+            if (part && !fromCache) this.confirm(uid, key);
+          },
+          (err) => console.error(`${key} articles listener`, err),
+          part,
+        ),
+      );
+    }
+  }
+
+  /** Whether the unread shelf has been heard: the shared one, or both modules' own (#248). */
+  private unreadHeard(): boolean {
+    const d = untracked(this.shelfDocs);
+    return !!d.unread || (!!d['unread:reader'] && !!d['unread:podcasts']);
+  }
+
+  /** A split shelf the server answered (#248); all six, and the shared ones may go. */
+  private confirm(uid: string, key: ShelfKey): void {
+    this.confirmed.add(key);
+    if (!SPLIT.every((k) => this.confirmed.has(k))) return;
+    if (!SHELVES.some((k) => this.shelfStops.has(k))) return;
+    try {
+      this.storage?.setItem(`${SPLIT_KEY}.${uid}`, '1');
+    } catch {
+      // Storage refused: the shared shelves run beside again next time.
+    }
+    this.splitHere.add(uid);
+    this.followShelves(uid, true);
+  }
+
+  /** Accounts whose split shelves this sitting has had from the server (#248). */
+  private readonly splitHere = new Set<string>();
+
+  /** Whether this device's split shelves have had the server's answer before (#248). */
+  private splitConfirmed(uid: string): boolean {
+    if (this.splitHere.has(uid)) return true;
+    try {
+      return this.storage?.getItem(`${SPLIT_KEY}.${uid}`) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private stopShelves(): void {
+    for (const stop of this.shelfStops.values()) stop();
+    this.shelfStops.clear();
+    this.confirmed.clear();
+    this.shelfDocs.set({});
+  }
+
+  /**
+   * The stamp's backfill (#248), asked for while the server's note is
+   * not there: a run at a time, a few while each says more is left,
+   * once a sitting. The server bounds each run and keeps where it got
+   * to; the note arriving switches the shelves.
+   */
+  private async askStamp(uid: string): Promise<void> {
+    if (this.stampAsked.has(uid)) return;
+    this.stampAsked.add(uid);
+    for (let run = 0; run < 5; run++) {
+      let out: { done: boolean; more: boolean };
+      try {
+        out = await this.api.stampFeedItems();
+      } catch (err) {
+        console.warn('stamp backfill not run', err);
+        return;
+      }
+      if (uid !== this.uid || out.done || !out.more) return;
+    }
   }
 
   private followEpisodes(uid: string | undefined, ids: readonly string[]): void {

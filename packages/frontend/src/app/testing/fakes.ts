@@ -16,7 +16,13 @@ import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
-import { ITEMS_API, type ItemRecord, type ItemsApi, type Shelf } from '../reader/items.service';
+import {
+  ITEMS_API,
+  type ItemRecord,
+  type ItemsApi,
+  type Shelf,
+  type ShelfPart,
+} from '../reader/items.service';
 import type {
   ConnectionInfo,
   DownloadProgress,
@@ -369,23 +375,51 @@ export class FakeSettingsApi implements SettingsApi {
   }
 }
 
-/** A stand-in Firestore seam for ItemsService (#162); `push` is one shelf's snapshot. */
+/**
+ * A stand-in Firestore seam for ItemsService (#162); `push` is one
+ * shelf's snapshot, by its shelf, or `shelf:part` for a module's own
+ * (#248).
+ */
 export class FakeItemsApi implements ItemsApi {
   private readonly nexts = new Map<
-    Shelf,
-    (docs: { id: string; data: Record<string, unknown> }[]) => void
+    string,
+    (docs: { id: string; data: Record<string, unknown> }[], fromCache: boolean) => void
   >();
+  /** The shelf listeners stopped, by key (#248). */
+  readonly stopped: string[] = [];
   listen = vi.fn(
     (
       _db: unknown,
       _path: string,
       shelf: Shelf,
-      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+      next: (docs: { id: string; data: Record<string, unknown> }[], fromCache: boolean) => void,
+      _error: (err: unknown) => void,
+      part?: ShelfPart,
     ) => {
-      this.nexts.set(shelf, next);
+      const key = part ? `${shelf}:${part}` : shelf;
+      this.nexts.set(key, next);
+      return () => {
+        this.nexts.delete(key);
+        this.stopped.push(key);
+      };
+    },
+  );
+  /** The shelf listeners running now, by key (#248). */
+  listening(): string[] {
+    return [...this.nexts.keys()];
+  }
+  private stampNext?: (stamped: boolean, fromCache: boolean) => void;
+  listenStamp = vi.fn(
+    (_db: unknown, _path: string, next: (stamped: boolean, fromCache: boolean) => void) => {
+      this.stampNext = next;
       return vi.fn();
     },
   );
+  /** The server's note on the Reader (#248), as its listener hears it. */
+  pushStamp(stamped: boolean, fromCache = false): void {
+    this.stampNext?.(stamped, fromCache);
+  }
+  stampFeedItems = vi.fn(async () => ({ done: false, more: false }));
   set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge?: boolean) =>
     Promise.resolve(),
   );
@@ -458,8 +492,12 @@ export class FakeItemsApi implements ItemsApi {
     },
   );
 
-  push(shelf: Shelf, docs: { id: string; data: Record<string, unknown> }[]): void {
-    this.nexts.get(shelf)?.(docs);
+  push(
+    shelf: Shelf | `${Shelf}:${ShelfPart}`,
+    docs: { id: string; data: Record<string, unknown> }[],
+    fromCache = false,
+  ): void {
+    this.nexts.get(shelf)?.(docs, fromCache);
   }
 
   /** One article's document, for a listener `listenOne` started (#175). */

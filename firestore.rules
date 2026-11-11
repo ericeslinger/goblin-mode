@@ -207,10 +207,13 @@ service cloud.firestore {
       // settings/assistant: the assistant's switches (#214).
       // Written by any device. settings/keys: the
       // gardener's masked provider keys (#144), written by the saveKey
-      // and removeKey functions only.
+      // and removeKey functions only. settings/readerServer: the
+      // server's note that every item carries its module's stamp
+      // (#248), written by functions only, and kept: the app picks its
+      // queries by it.
       match /settings/{settingsId} {
         allow read: if isOwner(uid);
-        allow delete: if isOwner(uid) && settingsId != 'keys';
+        allow delete: if isOwner(uid) && !(settingsId in ['keys', 'readerServer']);
         allow create, update: if isOwner(uid) && (
           (settingsId == 'app' && isValidSettings(request.resource.data))
           || (settingsId == 'modules' && isValidModuleSettings(request.resource.data))
@@ -235,7 +238,8 @@ service cloud.firestore {
       // saved, ties it to the reading-queue record or the clipping the
       // app made (#163), keeps where an episode was left (#179) and
       // its place in the listening queue (#249), and nothing else: the
-      // text stays what the feed gave.
+      // text stays what the feed gave, and `podcast`, the module that
+      // owns it (#248), is the server's, so it is not in the list.
       match /feedItems/{itemId} {
         allow read: if isOwner(uid);
         allow update: if isOwner(uid)
