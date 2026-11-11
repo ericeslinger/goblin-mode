@@ -207,4 +207,25 @@ describe('stampItems, the backfill (#248)', () => {
     expect(Object.values(m.items).map((i) => i.podcast)).toEqual([false, false, false, false]);
     expect(m.isMarked()).toBe(true);
   });
+  it('leaves the fetcher’s stamp on a show followed while the run was stamping (review on #257)', async () => {
+    const m = memory(
+      { blog: false, late: true },
+      {
+        a: { feedId: 'blog' },
+        // The fetcher stamped this one as it wrote it; this one predates the stamp.
+        b: { feedId: 'late', podcast: true },
+        c: { feedId: 'late' },
+      },
+    );
+    m.store.saveProgress('u1', { firstAt: NOW - STAMP_SETTLE_MS });
+    // The show was followed after the run read the feeds' kinds.
+    m.store.kinds.mockImplementationOnce(async () => new Map([['blog', false]]));
+    await stampItems(m.store, 'u1', NOW);
+    expect(m.items).toEqual({
+      a: { feedId: 'blog', podcast: false },
+      b: { feedId: 'late', podcast: true },
+      c: { feedId: 'late', podcast: true },
+    });
+    expect(m.isMarked()).toBe(true);
+  });
 });

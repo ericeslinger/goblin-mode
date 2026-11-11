@@ -139,8 +139,9 @@ export interface StampOutcome {
  * app reads to switch its queries.
  *
  * Each feed's kind is read at the start of a call and again at its
- * end; a feed moved between is restamped whole, as a Move after the
- * second read is its own trigger's.
+ * end; a feed moved or followed between is restamped whole, and until
+ * then a stamp on an item of a feed the first read did not know is
+ * left as it is. A Move after the second read is its own trigger's.
  */
 export async function stampItems(
   store: StampStore,
@@ -170,14 +171,21 @@ export async function stampItems(
   let stamped = 0;
   const settle = async () => {
     const later = await store.kinds(uid);
+    // A feed moved since the first read, or followed since (review on
+    // #257): its kind was not known to the pages above.
     for (const [id, show] of later) {
-      if (kinds.has(id) && kinds.get(id) !== show) stamped += await restamp(store, uid, id);
+      if (kinds.get(id) !== show) stamped += await restamp(store, uid, id);
     }
   };
   for (let n = 0; n < pages; n++) {
     const page = await store.page(uid, cursor, pageSize);
     const stale = page.flatMap((d) => {
-      const want = kinds.get(d.feedId) === true;
+      const known = kinds.get(d.feedId);
+      // A feed not known at the first read was followed since, and its
+      // items carry the fetcher's stamp, which stands (review on #257);
+      // or it is gone, and what feedRemoved left is stamped already.
+      if (known === undefined && typeof d.podcast === 'boolean') return [];
+      const want = known === true;
       return d.podcast === want ? [] : [{ id: d.id, podcast: want }];
     });
     if (stale.length) stamped += await store.write(uid, stale);
