@@ -341,4 +341,14 @@ describe('ReaderList, under the Reader tabs (#220)', () => {
       expect(el.querySelector(`[aria-label="${name}"]`)).not.toBeNull();
     }
   });
+  it('ends the run through a shelf: a list on screen drops the articles read on the way (Eric, 2026-11-11)', () => {
+    const { items } = setup(false);
+    const all = { kind: 'folder', name: 'all' } as const;
+    items.visit(all, 'a');
+    items.visit(all, 'b');
+    expect([...items.visitedIn(all)]).toEqual(['a', 'b']);
+    // Back to the list from the article: the next one opened starts afresh.
+    TestBed.createComponent(ReaderList).detectChanges();
+    expect([...items.visitedIn(all)]).toEqual([]);
+  });
 });

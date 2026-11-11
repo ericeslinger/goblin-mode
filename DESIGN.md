@@ -1473,7 +1473,10 @@ by `ItemsService` per shelf rather than by the article page, so a
 fresh page (back from the caught-up page) still has the one before
 it, and in the tab's sessionStorage (`goblin.reader.visited`), so a
 reload does too; another shelf or signing out starts afresh (#188,
-2026-11-07).
+2026-11-07). So does the shelf's list coming back on screen
+(2026-11-11): without that a day's reading on All piled up, three
+unread read "41 of 44", and Next landed on articles read hours
+before (Eric).
 
 **Retention (#171, Eric, 2026-11-07).** Everything is kept unless
 the gardener says otherwise: Settings, Reader, Keep articles for (3,
