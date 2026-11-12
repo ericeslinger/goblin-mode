@@ -62,6 +62,13 @@ async function storedSealedNote(): Promise<{ body?: string; title?: string }> {
   return { body: doc.fields?.body?.stringValue, title: doc.fields?.title?.stringValue };
 }
 
+/** The whole stored document as the emulator has it: every field, and when it was last written. */
+async function storedDocument(): Promise<unknown> {
+  const res = await fetch(DOC, { headers: { authorization: 'Bearer owner' } });
+  const { fields, updateTime } = (await res.json()) as { fields?: unknown; updateTime?: string };
+  return { fields, updateTime };
+}
+
 const noteKeyOnDevice = (page: Page) =>
   page.evaluate((uid) => localStorage.getItem(`goblin.noteKey.${uid}`), OWNER.uid);
 
@@ -96,6 +103,9 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
     .context()
     .route('**/api/note-key', (route) => route.fulfill({ status: 503, body: '' }));
   await page.evaluate((uid) => localStorage.removeItem(`goblin.noteKey.${uid}`), OWNER.uid);
+  // As it stands now, with the key gone: nothing may write to it from here on.
+  await letItSave(page);
+  const whileLocked = await storedDocument();
   await page.goto('/browse');
   await expect(list.getByRole('link', { name: 'Sealed note' })).toBeVisible();
   await expect(list.getByRole('link', { name: /Kiln firing/ })).toHaveCount(0);
@@ -122,6 +132,9 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
   await page.reload();
   await expect(editor).toContainText('Plain words stay plain, still');
 
-  // Nothing was written over the sealed note.
+  // Nothing was written over the sealed note: its text as seeded, and
+  // not one field or write time changed while it was locked (review
+  // on #262).
   expect(await storedSealedNote()).toEqual(seeded);
+  expect(await storedDocument()).toEqual(whileLocked);
 });

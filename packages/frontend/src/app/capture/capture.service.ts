@@ -24,6 +24,13 @@ interface LastSeen {
 interface PendingDraft {
   id: string;
   body: string;
+  /**
+   * Typed for a note this device could not open (step 3a): a fragment
+   * to merge into its text when it opens, never the whole of it. Kept
+   * on the draft itself, so a reload before the note opens still knows
+   * (review on #262).
+   */
+  forLocked?: true;
 }
 
 export const LAST_SEEN_KEY = 'goblin.lastSeen';
@@ -138,8 +145,13 @@ export class CaptureService {
         const pending = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
         if (pending && this.notes.locked(pending.id)) {
           this.draftWaited = true;
+          // Whatever it was typed as, it waited for a locked note.
+          if (!pending.forLocked) {
+            this.store.set(PENDING_DRAFT_KEY, { ...pending, forLocked: true });
+          }
         } else if (pending) {
-          const note = this.draftWaited ? list.find((n) => n.id === pending.id) : undefined;
+          const waited = this.draftWaited || pending.forLocked === true;
+          const note = waited ? list.find((n) => n.id === pending.id) : undefined;
           if (note && pending.body.trim()) {
             const text = merge3('', pending.body, note.body);
             if (text !== note.body) this.notes.save(pending.id, text, { base: note.body });
@@ -232,7 +244,9 @@ export class CaptureService {
     // open (step 3a): kept on the device as a draft, never written over
     // it, and merged in once it opens.
     if (this.notes.locked(id)) {
-      if (this.body.trim()) this.store.set(PENDING_DRAFT_KEY, { id, body: this.body });
+      if (this.body.trim()) {
+        this.store.set(PENDING_DRAFT_KEY, { id, body: this.body, forLocked: true });
+      }
       return;
     }
     // This text is newer than any pending draft, which must not land

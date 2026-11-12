@@ -638,7 +638,11 @@ describe('CaptureService, when the page goes before the cache has the text (#200
       vi.advanceTimersByTime(SAVE_DELAY_MS);
       capture.leave();
       expect(notes.save).not.toHaveBeenCalled();
-      expect(draft()).toEqual({ id: 'n1', body: 'typed before it loaded, and more' });
+      expect(draft()).toEqual({
+        id: 'n1',
+        body: 'typed before it loaded, and more',
+        forLocked: true,
+      });
 
       // The key arrives: the note opens, and the typing merges into it.
       notes.notes.set([note('n1', 'The note as it was')]);
@@ -662,7 +666,7 @@ describe('CaptureService, when the page goes before the cache has the text (#200
       capture.onText('plain, edited');
       vi.advanceTimersByTime(SAVE_DELAY_MS);
       expect(notes.save).toHaveBeenCalledWith('p1', 'plain, edited', { base: 'plain' });
-      expect(draft()).toEqual({ id: 'n1', body: 'kept words' });
+      expect(draft()).toEqual({ id: 'n1', body: 'kept words', forLocked: true });
       // Opened, merged into the note's text and written; the draft goes.
       notes.notes.set([note('n1', 'the text'), note('p1', 'plain, edited')]);
       TestBed.tick();
@@ -670,6 +674,21 @@ describe('CaptureService, when the page goes before the cache has the text (#200
         base: 'the text',
       });
       expect(notes.save.mock.lastCall?.[1]).toContain('the text');
+      expect(draft()).toBeNull();
+    });
+
+    it('merges a draft kept for a locked note even after a reload, with the key now here (review on #262)', () => {
+      // A load ago this draft waited for n1, locked then; this load has the key at once.
+      const { notes } = setup({
+        [PENDING_DRAFT_KEY]: { id: 'n1', body: 'a fragment', forLocked: true },
+      });
+      notes.signIn([note('n1', 'the whole text')]);
+      TestBed.tick();
+      const [id, text, opts] = notes.save.mock.calls[0];
+      expect(id).toBe('n1');
+      expect(text).toContain('a fragment');
+      expect(text).toContain('the whole text');
+      expect(opts).toEqual({ base: 'the whole text' });
       expect(draft()).toBeNull();
     });
 
