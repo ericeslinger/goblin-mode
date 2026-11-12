@@ -1,4 +1,11 @@
-import { RESTORE_SUFFIX, textHash } from '@mossgoblin/schema';
+import {
+  type DataKey,
+  RESTORE_SUFFIX,
+  aadFor,
+  newDataKey,
+  sealText,
+  textHash,
+} from '@mossgoblin/schema';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { User } from 'firebase/auth';
@@ -6,10 +13,14 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { fakeFirebase } from '../testing/fakes';
 import { NOW, ONLINE } from '../platform/platform';
+import { NoteKeyService } from './note-key.service';
 import {
   NOTES_API,
   type NotesApi,
   NotesService,
+  OpenedTexts,
+  SEALED_TITLE,
+  toRecord,
   PENDING_CONCEPTS_KEY,
   PENDING_INSTRUCTIONS_KEY,
   PENDING_MOODS_KEY,
@@ -43,10 +54,13 @@ function setup({ reload = false }: { reload?: boolean } = {}) {
     removeField: () => 'REMOVED',
   } satisfies NotesApi;
   const online = signal(true);
+  /** The gardener's note key as NoteKeyService holds it (step 3a). */
+  const key = signal<DataKey | undefined>(undefined);
   TestBed.configureTestingModule({
     providers: [
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: AuthService, useValue: { user } },
+      { provide: NoteKeyService, useValue: { key } },
       { provide: NOTES_API, useValue: api },
       { provide: ONLINE, useValue: () => online() },
       { provide: NOW, useValue: () => CLOCK },
@@ -65,6 +79,7 @@ function setup({ reload = false }: { reload?: boolean } = {}) {
     push: (docs: Parameters<typeof push>[0], { fromCache = false } = {}) => push(docs, fromCache),
     user,
     online,
+    key,
   };
 }
 
@@ -1416,5 +1431,281 @@ describe('NotesService', () => {
     const id = notes.deviceId();
     expect(id).toMatch(/^[A-Za-z0-9]{20}$/);
     expect(notes.deviceId()).toBe(id);
+  });
+
+  describe('sealed notes, read but never written over (note encryption step 3a)', () => {
+    const UID = 'u1';
+    const KEY = newDataKey();
+    const seal = (id: string, field: 'body' | 'title', text: string, key: DataKey = KEY) =>
+      sealText(key, aadFor(UID, id, field), text);
+    /** A note document with its body and title sealed. */
+    const sealedDoc = (id: string, body: string, title: string, more = {}) => ({
+      id,
+      data: { body: seal(id, 'body', body), title: seal(id, 'title', title), ...more },
+    });
+    const writesTo = (api: ReturnType<typeof setup>['api'], id: string) => [
+      ...api.set.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`),
+      ...api.createIfAbsent.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`),
+      ...api.remove.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`),
+    ];
+
+    describe('toRecord, the one decode point', () => {
+      const opener = (key?: DataKey) => {
+        const opened = new OpenedTexts();
+        return { opened, open: opened.pass(() => key, UID) };
+      };
+
+      it('opens a sealed body and title with the key and the note’s own aad', () => {
+        const { open } = opener(KEY);
+        const note = toRecord('n1', sealedDoc('n1', 'Kiln\nfire at cone 6', 'Kiln').data, open);
+        expect(note).toMatchObject({ id: 'n1', body: 'Kiln\nfire at cone 6', title: 'Kiln' });
+        expect(note.locked).toBeUndefined();
+      });
+
+      it('passes plain text through unchanged, key or no key', () => {
+        const data = { body: 'Plain words', title: 'Plain' };
+        expect(toRecord('n1', data)).toEqual(toRecord('n1', data, opener(KEY).open));
+        expect(toRecord('n1', data)).toMatchObject({ body: 'Plain words', title: 'Plain' });
+        expect(toRecord('n1', data).locked).toBeUndefined();
+      });
+
+      it('locks a sealed note with no key: placeholders, never the sealed text', () => {
+        const note = toRecord('n1', sealedDoc('n1', 'secret', 'Secret').data);
+        expect(note).toMatchObject({ body: '', title: SEALED_TITLE, locked: true });
+        expect(JSON.stringify(note)).not.toContain('\uE000');
+      });
+
+      it('locks a sealed note under a wrong key, or moved from another note', () => {
+        expect(
+          toRecord('n1', sealedDoc('n1', 'b', 't').data, opener(newDataKey()).open),
+        ).toMatchObject({ body: '', title: SEALED_TITLE, locked: true });
+        // Sealed for n2: its aad names n2, so it does not open as n1.
+        expect(toRecord('n1', sealedDoc('n2', 'b', 't').data, opener(KEY).open).locked).toBe(true);
+      });
+
+      it('locks the whole note when only one field will not open', () => {
+        const data = { body: 'plain body', title: seal('n1', 'title', 'T', newDataKey()) };
+        expect(toRecord('n1', data, opener(KEY).open)).toMatchObject({
+          body: '',
+          title: SEALED_TITLE,
+          locked: true,
+        });
+      });
+    });
+
+    describe('the cache of opened text', () => {
+      const docs = [sealedDoc('n1', 'one', 'One'), sealedDoc('n2', 'two', 'Two')];
+      const readAll = (opened: OpenedTexts, key: DataKey | undefined, list = docs) => {
+        const open = opened.pass(() => key, UID);
+        return list.map((d) => toRecord(d.id, d.data, open));
+      };
+
+      it('opens an unchanged sealed value once, however many snapshots show it', () => {
+        const opened = new OpenedTexts();
+        readAll(opened, KEY);
+        expect(opened.tries).toBe(4);
+        expect(readAll(opened, KEY).map((n) => n.title)).toEqual(['One', 'Two']);
+        expect(opened.tries).toBe(4);
+      });
+
+      it('opens a changed value afresh, and keeps only what the last snapshot holds', () => {
+        const opened = new OpenedTexts();
+        readAll(opened, KEY);
+        const changed = [sealedDoc('n1', 'one, edited', 'One'), docs[1]];
+        expect(readAll(opened, KEY, changed)[0].body).toBe('one, edited');
+        expect(opened.tries).toBe(6);
+        // n1's old values were dropped with the snapshot that held them.
+        readAll(opened, KEY);
+        expect(opened.tries).toBe(8);
+      });
+
+      it('tries a value that will not open once, and starts again for a new key', () => {
+        const opened = new OpenedTexts();
+        readAll(opened, newDataKey());
+        readAll(opened, newDataKey());
+        expect(opened.tries).toBe(8);
+        const wrong = newDataKey();
+        readAll(opened, wrong);
+        readAll(opened, wrong);
+        expect(opened.tries).toBe(12);
+        expect(readAll(opened, KEY).every((n) => !n.locked)).toBe(true);
+      });
+
+      it('never reads the key while every note is plain', () => {
+        const opened = new OpenedTexts();
+        const key = vi.fn(() => KEY);
+        const open = opened.pass(key, UID);
+        toRecord('n1', { body: 'plain', title: 'plain' }, open);
+        expect(key).not.toHaveBeenCalled();
+      });
+    });
+
+    it('shows a sealed note locked until the key arrives, then opened', () => {
+      const { notes, signIn, push, key } = setup();
+      signIn(UID);
+      push([
+        sealedDoc('n1', 'Kiln\nfire at cone 6', 'Kiln'),
+        { id: 'p1', data: { body: 'Plain' } },
+      ]);
+      expect(notes.find('n1')).toMatchObject({ body: '', title: SEALED_TITLE, locked: true });
+      expect(notes.locked('n1')).toBe(true);
+      expect(notes.find('p1')).toMatchObject({ body: 'Plain', title: '' });
+      key.set(KEY);
+      expect(notes.find('n1')).toMatchObject({ body: 'Kiln\nfire at cone 6', title: 'Kiln' });
+      expect(notes.locked('n1')).toBe(false);
+      // Signed out and the key gone: locked again.
+      key.set(undefined);
+      expect(notes.locked('n1')).toBe(true);
+    });
+
+    it('opens a sealed note in Trash, and keeps it out of the names links resolve by', () => {
+      const { notes, signIn, push, key } = setup();
+      signIn(UID);
+      push([
+        sealedDoc('c-kiln', '', 'Kiln', { kind: 'concept', synonyms: ['Oven'] }),
+        sealedDoc('t1', 'gone', 'Gone', { deletedAt: { toMillis: () => 5 } }),
+      ]);
+      expect(notes.trashed('t1')?.locked).toBe(true);
+      // A locked concept answers to its other names, never to the placeholder.
+      expect(notes.names().get('oven')).toBe('c-kiln');
+      expect(notes.names().has(SEALED_TITLE.toLowerCase())).toBe(false);
+      key.set(KEY);
+      expect(notes.trashed('t1')?.body).toBe('gone');
+      expect(notes.names().get('kiln')).toBe('c-kiln');
+    });
+
+    it('refuses every write to a locked note, whichever path it takes', async () => {
+      const { notes, api, signIn, push } = setup();
+      signIn(UID);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      push([
+        sealedDoc('n1', 'text', 'Text', { kind: 'text', fromTemplate: 't1' }),
+        sealedDoc('c-kiln', '', 'Kiln', { kind: 'concept', conceptType: 'project' }),
+        sealedDoc('r1', 'recipe', 'Soup', { kind: 'recipe', source: { url: 'https://a.b/' } }),
+        sealedDoc('t1', 'Journal\n', 'Journal', { kind: 'template' }),
+        sealedDoc('x1', 'gone', 'Gone', { deletedAt: { toMillis: () => 5 } }),
+      ]);
+      const ids = ['n1', 'c-kiln', 'r1', 't1', 'x1'];
+      for (const id of ids) {
+        notes.save(id, 'over it', { base: '' });
+        notes.settle(id, { edited: true });
+        notes.settle(id);
+        notes.remove(id);
+        notes.setArchived(id, true);
+        notes.setDeleted(id, true);
+        notes.setDeleted(id, false);
+        notes.setGardenHold(id, true);
+        notes.setWeek(id, '2026-11-09');
+        notes.setNoteMode(id, 'log');
+        notes.setTemplateMode(id, 'living');
+        notes.setInstructions(id, 'Ask how it went.');
+        expect(notes.holdInstructions(id, 'Ask.')).toBe(false);
+        expect(notes.holdName(id, 'A new name')).toBe(false);
+        expect(notes.rename(id, 'A new name')).toEqual([]);
+        notes.updateConcept(id, { title: 'Studio', synonyms: ['Shed'], tags: ['x'] });
+        notes.updateRecipe(id, { title: 'Stew', servings: 4 });
+        notes.addRecipeNote(id, 'Good with bread');
+        notes.retryImport(id);
+        notes.sendToAssistant(id, 'tidy it');
+        notes.unsend(id);
+      }
+      // A stub concept a rename would fold, and the name the fold takes.
+      notes.createItem('c-other', 'Kiln');
+      notes.createConcept('Kiln');
+      await Promise.resolve();
+      for (const id of ids) expect(writesTo(api, id)).toEqual([]);
+      expect(notes.find('n1')).toBeDefined();
+      for (const key of [PENDING_SAVES_KEY, PENDING_NAMES_KEY, PENDING_INSTRUCTIONS_KEY]) {
+        expect(localStorage.getItem(key)).toBeNull();
+      }
+      warn.mockRestore();
+    });
+
+    it('still writes plain notes beside a locked one, as before', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn(UID);
+      push([sealedDoc('n1', 'text', 'Text'), { id: 'p1', data: { body: 'Plain', kind: 'text' } }]);
+      notes.save('p1', 'Plain, edited', { base: 'Plain' });
+      notes.save('fresh', 'A new note');
+      expect(writesTo(api, 'p1')).toHaveLength(1);
+      expect(writesTo(api, 'fresh')).toHaveLength(1);
+    });
+
+    it('keeps a kept save for a locked note, and replays it once the note opens', () => {
+      // Typed on a load that could open the note; the page closed before
+      // the server had it.
+      const first = setup();
+      first.key.set(KEY);
+      first.signIn(UID);
+      first.push([sealedDoc('n1', 'old words', 'Old')]);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      first.notes.save('n1', 'new words', { base: 'old words' });
+      // The next load has no key yet.
+      const next = setup({ reload: true });
+      next.signIn(UID);
+      next.push([sealedDoc('n1', 'old words', 'Old')]);
+      TestBed.tick();
+      expect(writesTo(next.api, 'n1')).toEqual([]);
+      expect(JSON.parse(localStorage.getItem(PENDING_SAVES_KEY)!)).toMatchObject({
+        n1: { value: 'new words', base: 'old words' },
+      });
+      // Later snapshots while it is locked change nothing.
+      next.push([sealedDoc('n1', 'old words', 'Old')]);
+      TestBed.tick();
+      expect(writesTo(next.api, 'n1')).toEqual([]);
+      next.key.set(KEY);
+      TestBed.tick();
+      expect(writesTo(next.api, 'n1')).toEqual([
+        [
+          {},
+          'users/u1/notes/n1',
+          expect.objectContaining({ body: 'new words', baseHash: textHash('old words') }),
+          true,
+        ],
+      ]);
+    });
+
+    it('forgets a kept save once the note opens holding someone else’s newer text', () => {
+      const first = setup();
+      first.key.set(KEY);
+      first.signIn(UID);
+      first.push([sealedDoc('n1', 'old words', 'Old')]);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      first.notes.save('n1', 'new words', { base: 'old words' });
+      const next = setup({ reload: true });
+      next.signIn(UID);
+      next.push([sealedDoc('n1', 'Claude’s words', 'Old')]);
+      TestBed.tick();
+      expect(localStorage.getItem(PENDING_SAVES_KEY)).not.toBeNull();
+      next.key.set(KEY);
+      TestBed.tick();
+      expect(writesTo(next.api, 'n1')).toEqual([]);
+      expect(localStorage.getItem(PENDING_SAVES_KEY)).toBeNull();
+    });
+
+    it('keeps a kept name for a locked concept, and renames it once it opens', () => {
+      const first = setup();
+      first.key.set(KEY);
+      first.signIn(UID);
+      first.push([sealedDoc('c-kiln', '', 'Kiln', { kind: 'concept' })]);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      first.notes.rename('c-kiln', 'Big kiln');
+      const next = setup({ reload: true });
+      next.signIn(UID);
+      next.push([sealedDoc('c-kiln', '', 'Kiln', { kind: 'concept' })]);
+      TestBed.tick();
+      expect(writesTo(next.api, 'c-kiln')).toEqual([]);
+      expect(localStorage.getItem(PENDING_NAMES_KEY)).not.toBeNull();
+      next.key.set(KEY);
+      TestBed.tick();
+      expect(writesTo(next.api, 'c-kiln')).toEqual([
+        [
+          {},
+          'users/u1/notes/c-kiln',
+          expect.objectContaining({ title: 'Big kiln', synonyms: ['Kiln'] }),
+          true,
+        ],
+      ]);
+    });
   });
 });

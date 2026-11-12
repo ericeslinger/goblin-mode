@@ -142,6 +142,7 @@ export class FakeNotes {
   find = (id: string) => this.notes().find((x) => x.id === id);
   exists = (id: string) => this.written.has(id) || !!this.find(id);
   trashed = (id: string) => this.trash().find((x) => x.id === id);
+  locked = (id: string) => (this.find(id) ?? this.trashed(id))?.locked === true;
 
   signIn(list: NoteRecord[] = []): void {
     this.notes.set(list);

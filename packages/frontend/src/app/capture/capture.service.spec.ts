@@ -3,7 +3,14 @@ import { TestBed } from '@angular/core/testing';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
-import { NOTES_API, type NotesApi, NotesService, PENDING_SAVES_KEY } from '../notes/notes.service';
+import {
+  NOTES_API,
+  type NoteRecord,
+  type NotesApi,
+  NotesService,
+  PENDING_SAVES_KEY,
+  SEALED_TITLE,
+} from '../notes/notes.service';
 import { FakeNotes, fakeFirebase, noteRecord } from '../testing/fakes';
 import { NOW, ONLINE } from '../platform/platform';
 import {
@@ -605,5 +612,109 @@ describe('CaptureService, when the page goes before the cache has the text (#200
     expect(next.bodies()).toEqual([
       { path: `users/u1/notes/${id}`, body: 'before sign-in', merge: false },
     ]);
+  });
+
+  describe('a sealed note this device cannot open (note encryption step 3a)', () => {
+    /** As NotesService reads a note it cannot open: placeholders. */
+    const locked = (id: string, more: Partial<NoteRecord> = {}): NoteRecord => ({
+      ...note(id, ''),
+      title: SEALED_TITLE,
+      locked: true,
+      ...more,
+    });
+    const draft = () => JSON.parse(localStorage.getItem(PENDING_DRAFT_KEY) ?? 'null');
+
+    it('keeps typing from before the notes loaded on the device, and merges it in once it opens', () => {
+      const { capture, notes } = setup({
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 4 * MIN, noteId: 'n1' },
+      });
+      capture.onText('typed before it loaded');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      notes.signIn([locked('n1')]);
+      TestBed.tick();
+      // Locked: never written over, never merged with the placeholder.
+      expect(capture.current()).toBe('typed before it loaded');
+      capture.onText('typed before it loaded, and more');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      capture.leave();
+      expect(notes.save).not.toHaveBeenCalled();
+      expect(draft()).toEqual({
+        id: 'n1',
+        body: 'typed before it loaded, and more',
+        forLocked: true,
+      });
+
+      // The key arrives: the note opens, and the typing merges into it.
+      notes.notes.set([note('n1', 'The note as it was')]);
+      TestBed.tick();
+      const [id, text, opts] = notes.save.mock.calls[0];
+      expect(id).toBe('n1');
+      expect(text).toContain('typed before it loaded, and more');
+      expect(text).toContain('The note as it was');
+      expect(opts).toEqual({ base: 'The note as it was' });
+      expect(capture.open().text).toBe(text);
+      expect(draft()).toBeNull();
+    });
+
+    it('waits with a draft for a note that is not open, and keeps it past other edits', () => {
+      const { capture, notes } = setup({
+        [PENDING_DRAFT_KEY]: { id: 'n1', body: 'kept words' },
+      });
+      notes.signIn([locked('n1'), note('p1', 'plain')]);
+      TestBed.tick();
+      capture.openNote('p1');
+      capture.onText('plain, edited');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      expect(notes.save).toHaveBeenCalledWith('p1', 'plain, edited', { base: 'plain' });
+      expect(draft()).toEqual({ id: 'n1', body: 'kept words', forLocked: true });
+      // Opened, merged into the note's text and written; the draft goes.
+      notes.notes.set([note('n1', 'the text'), note('p1', 'plain, edited')]);
+      TestBed.tick();
+      expect(notes.save).toHaveBeenLastCalledWith('n1', expect.stringContaining('kept words'), {
+        base: 'the text',
+      });
+      expect(notes.save.mock.lastCall?.[1]).toContain('the text');
+      expect(draft()).toBeNull();
+    });
+
+    it('merges a draft kept for a locked note even after a reload, with the key now here (review on #262)', () => {
+      // A load ago this draft waited for n1, locked then; this load has the key at once.
+      const { notes } = setup({
+        [PENDING_DRAFT_KEY]: { id: 'n1', body: 'a fragment', forLocked: true },
+      });
+      notes.signIn([note('n1', 'the whole text')]);
+      TestBed.tick();
+      const [id, text, opts] = notes.save.mock.calls[0];
+      expect(id).toBe('n1');
+      expect(text).toContain('a fragment');
+      expect(text).toContain('the whole text');
+      expect(opts).toEqual({ base: 'the whole text' });
+      expect(draft()).toBeNull();
+    });
+
+    it('never removes, settles or restores over a locked note left or opened', () => {
+      const { capture, notes } = setup();
+      notes.signIn([locked('n1', { kind: 'text' })]);
+      TestBed.tick();
+      capture.openNote('n1');
+      expect(capture.open()).toEqual({ id: 'n1', text: '' });
+      capture.newNote();
+      capture.restore('n1', 'an old version');
+      capture.leave();
+      expect(notes.remove).not.toHaveBeenCalled();
+      // Only the fresh note it was opened from is settled.
+      expect(notes.settle.mock.calls.map(([id]) => id)).not.toContain('n1');
+      expect(notes.save).not.toHaveBeenCalled();
+    });
+
+    it('changes nothing for plain notes', () => {
+      const { capture, notes } = setup({ [PENDING_DRAFT_KEY]: { id: 'n1', body: 'draft' } });
+      notes.signIn([note('n1', 'stored')]);
+      TestBed.tick();
+      // As before step 3a: the draft is written as it was typed.
+      expect(notes.save).toHaveBeenCalledWith('n1', 'draft');
+      expect(draft()).toBeNull();
+      expect(capture.open().id).toBe('n1');
+    });
   });
 });

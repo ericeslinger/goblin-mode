@@ -4059,6 +4059,69 @@ your own). Replacing it changes every key.
 answering for it, and every sealed value opened with the old key and
 sealed again with the new one before the old version is dropped.
 
+**Reading sealed notes (step 3a, 2026-11-12).** Readers learn to open
+sealed text before any writer seals it: after this step the app shows
+a sealed note correctly if one exists, and still writes plain, so
+nothing in normal use makes one. An app from before this step would
+show a sealed note's text as gibberish, and its next save would write
+over it with whatever it showed, so sealing stays off until every
+device runs this version or later. No server, schema or rules change;
+with only plain notes the app behaves as before.
+
+*One decode point.* Every note the app reads comes through `toRecord`
+(`packages/frontend/src/app/notes/notes.service.ts`). NotesService
+keeps the snapshot's raw documents and derives the records from them
+and the gardener's key (`NoteKeyService`), so a key that arrives after
+the first snapshot, or changes at sign-in or sign-out, opens or locks
+the notes then, with no new snapshot. A sealed `body` or `title` opens
+with `aadFor(uid, id, field)`; plain text passes through untouched.
+The key is read only once a sealed value turns up, so with only plain
+notes its arrival recomputes nothing.
+
+*The cache.* Opened text is kept by note, field and the sealed value
+itself, so an unchanged note costs nothing on a new snapshot and a
+changed value is opened afresh. Each snapshot keeps only the entries
+it used, which bounds the cache by the sealed fields of the latest
+snapshot; a value that will not open is kept too, so a wrong key costs
+one try per value. A different key or gardener, or signing out, drops
+it all.
+
+*Locked notes.* A sealed note this device cannot open (no key yet, or
+the value does not open) is `locked`: its body is '' and its title
+"Sealed note", never the sealed text. Lists show the label with no
+snippet; links, backlinks, the map, projects, kitchen and Home see
+the placeholders and carry on. Opening one shows a single calm line:
+the note is sealed, its key is not on this device yet, and it will
+open once the device is back online and signed in. The editor is
+hidden and read-only there. `names` leaves the placeholder out, so
+`[[Sealed note]]` never resolves to a locked note; a locked concept
+still answers to its other names, which are not sealed yet.
+
+*Never written over.* A locked note's record holds placeholders, so
+any write made from it would be made over text this device has not
+seen. Every NotesService write goes through one guarded seam that
+refuses a write, create or delete aimed at a locked note's document,
+whichever path made it (save, rename, settle, concept and recipe
+edits, archive, Trash, kitchen, templates, grocery and links writers),
+and the paths that keep words on the device first (`save`,
+`holdName`, `holdInstructions`) refuse before keeping a wrong base.
+Archiving a locked note, or moving it to or from Trash, is refused
+until it opens. Kept writes
+(`goblin.pendingSaves`, `goblin.pendingNames`,
+`goblin.pendingInstructions`) for a locked note are neither replayed
+nor forgotten: they wait, and are checked against the note's opened
+text as soon as it opens, as on any load. Typing in a note before the
+notes load (the five-minute resume) is kept as the pending draft if
+the note turns out to be locked, and merges into its text when it
+opens, as typing before a note arrives does. Everything that is not
+locked writes as before, so no keystroke in capture, a plain note or
+an opened sealed note waits on the key.
+
+*History.* A kept version's body is a copy of the note's and opens
+with the note's own aad. History and Show changes open versions the
+same way; a version that will not open shows as sealed, with no
+Restore.
+
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,
 2026-11-12).

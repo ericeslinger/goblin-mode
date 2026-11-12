@@ -35,6 +35,12 @@ describe('lenses', () => {
     expect(ids('archived')).toEqual(['gone']);
   });
 
+  it('lists a sealed note this device cannot open under Recent, by its label (step 3a)', () => {
+    const sealed = n('sealed', { body: '', title: 'Sealed note', locked: true });
+    expect(inLens('recent', sealed)).toBe(true);
+    expect(inLens('journal', sealed)).toBe(false);
+  });
+
   it('keeps deleted notes out of every lens but Trash, archived or not (#217)', () => {
     expect(ids('trash')).toEqual(['deleted', 'deleted-archived']);
     for (const lens of ['recent', 'concepts', 'tags', 'journal', 'archived'] as const) {

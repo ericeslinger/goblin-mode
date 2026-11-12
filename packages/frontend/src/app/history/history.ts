@@ -9,12 +9,13 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
-import { type KeepReason, agentOf, paths } from '@mossgoblin/schema';
+import { type DataKey, type KeepReason, agentOf, isSealed, paths } from '@mossgoblin/schema';
 import { type Firestore, collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { CaptureService } from '../capture/capture.service';
 import { FIREBASE } from '../firebase';
-import { NotesService } from '../notes/notes.service';
+import { NoteKeyService } from '../notes/note-key.service';
+import { NotesService, openField } from '../notes/notes.service';
 import { HomeLink } from '../home/home-link';
 
 /** A kept version as History lists it; times in milliseconds. */
@@ -27,6 +28,12 @@ export interface VersionRecord {
   reason: KeepReason;
   updatedAt?: number;
   savedAt?: number;
+  /**
+   * Sealed, and this device cannot open it yet (note encryption step
+   * 3a): `body` is then '', never the sealed text, and it cannot be
+   * restored.
+   */
+  locked?: true;
 }
 
 /** The Firestore read History makes, as a seam for unit specs. */
@@ -57,10 +64,22 @@ export const HISTORY_API = new InjectionToken<HistoryApi>('history-api', {
 
 const millis = (v: unknown) => (v as { toMillis?: () => number } | undefined)?.toMillis?.();
 
-export function toVersion(id: string, data: Record<string, unknown>): VersionRecord {
+/**
+ * A kept version as History shows it. Its body is a copy of the note's,
+ * so a sealed one opens as the note's own does (step 3a): `open` is
+ * handed the sealed value and gives its text, or undefined.
+ */
+export function toVersion(
+  id: string,
+  data: Record<string, unknown>,
+  open: (value: string) => string | undefined = () => undefined,
+): VersionRecord {
+  const stored = String(data['body'] ?? '');
+  const body = isSealed(stored) ? open(stored) : stored;
   return {
     id,
-    body: String(data['body'] ?? ''),
+    body: body ?? '',
+    ...(body === undefined ? { locked: true as const } : {}),
     updatedBy: data['updatedBy'] === 'claude' ? 'claude' : 'user',
     agent: agentOf(data),
     reason: (data['reason'] as KeepReason) ?? 'interval',
@@ -117,14 +136,21 @@ export function reasonLabel(v: VersionRecord): string {
               >
                 <span class="when">{{ when(v) }}</span>
                 <span class="why">{{ label(v) }}</span>
-                <span class="snippet">{{ snippet(v.body) }}</span>
+                <span class="snippet">{{ v.locked ? 'Sealed' : snippet(v.body) }}</span>
               </button>
               @if (openId() === v.id) {
                 <div [id]="'version-' + v.id" class="open">
-                  <pre class="body">{{ v.body }}</pre>
-                  <button type="button" class="primary" (click)="restore(v)">
-                    Restore this version
-                  </button>
+                  @if (v.locked) {
+                    <p class="muted">
+                      This version is sealed, and its key is not on this device yet. It will open
+                      when this device is back online and signed in.
+                    </p>
+                  } @else {
+                    <pre class="body">{{ v.body }}</pre>
+                    <button type="button" class="primary" (click)="restore(v)">
+                      Restore this version
+                    </button>
+                  }
                 </div>
               }
             </li>
@@ -199,11 +225,30 @@ export class History {
   private readonly fb = inject(FIREBASE);
   private readonly auth = inject(AuthService);
   private readonly notes = inject(NotesService);
+  private readonly keys = inject(NoteKeyService);
   private readonly capture = inject(CaptureService);
   private readonly router = inject(Router);
 
   protected readonly noteId = signal('');
-  protected readonly versions = signal<VersionRecord[]>([]);
+  /**
+   * The versions as stored, and whose; shown opened with the key, so a
+   * key that arrives later opens them then (step 3a).
+   */
+  private readonly docs = signal<
+    { uid: string; id: string; docs: { id: string; data: Record<string, unknown> }[] } | undefined
+  >(undefined);
+  protected readonly versions = computed<VersionRecord[]>(() => {
+    const kept = this.docs();
+    if (!kept) return [];
+    let key: DataKey | undefined;
+    let read = false;
+    // The key is read only for a sealed version.
+    const open = (value: string) => {
+      if (!read) [key, read] = [this.keys.key(), true];
+      return openField(key, kept.uid, kept.id, 'body', value);
+    };
+    return kept.docs.map((d) => toVersion(d.id, d.data, open));
+  });
   protected readonly openId = signal<string | null>(null);
   /** A note in Trash keeps its History (#217). */
   protected readonly title = computed(
@@ -222,12 +267,12 @@ export class History {
       const id = this.noteId();
       stop?.();
       stop = undefined;
-      this.versions.set([]);
+      this.docs.set(undefined);
       if (!uid || !id) return;
       stop = this.api.listen(
         this.fb.db,
         paths.history(uid, id),
-        (docs) => this.versions.set(docs.map((d) => toVersion(d.id, d.data))),
+        (docs) => this.docs.set({ uid, id, docs }),
         (err) => console.error('history listener', err),
       );
     });
@@ -251,6 +296,7 @@ export class History {
   }
 
   protected restore(v: VersionRecord): void {
+    if (v.locked) return;
     this.capture.restore(this.noteId(), v.body);
     void this.router.navigate(['/n', this.noteId()]);
   }

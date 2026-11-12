@@ -1,9 +1,12 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { type DataKey, aadFor, newDataKey, sealText } from '@mossgoblin/schema';
 import { Router, provideRouter } from '@angular/router';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { CaptureService } from '../capture/capture.service';
 import { FIREBASE } from '../firebase';
+import { NoteKeyService } from '../notes/note-key.service';
 import { NotesService } from '../notes/notes.service';
 import { FakeAuthService, FakeNotes, fakeFirebase, noteRecord } from '../testing/fakes';
 import { HISTORY_API, History, type HistoryApi, reasonLabel } from './history';
@@ -23,6 +26,7 @@ async function render(noteId = 'n1') {
   const notes = new FakeNotes();
   notes.signIn([noteRecord('n1', 'Groceries now')]);
   const capture = { restore: vi.fn() };
+  const key = signal<DataKey | undefined>(undefined);
   await TestBed.configureTestingModule({
     imports: [History],
     providers: [
@@ -32,6 +36,7 @@ async function render(noteId = 'n1') {
       { provide: AuthService, useValue: auth },
       { provide: NotesService, useValue: notes },
       { provide: CaptureService, useValue: capture },
+      { provide: NoteKeyService, useValue: { key } },
     ],
   }).compileComponents();
   const router = TestBed.inject(Router);
@@ -44,6 +49,10 @@ async function render(noteId = 'n1') {
     api,
     capture,
     router,
+    async setKey(k: DataKey | undefined) {
+      key.set(k);
+      await fixture.whenStable();
+    },
     async push(docs: { id: string; data: Record<string, unknown> }[]) {
       push(docs);
       await fixture.whenStable();
@@ -107,5 +116,42 @@ describe('reasonLabel', () => {
     expect(reasonLabel({ ...v, updatedBy: 'user', reason: 'deleted' })).toBe(
       'Before the note was deleted',
     );
+  });
+
+  describe('a sealed version (note encryption step 3a)', () => {
+    const KEY = newDataKey();
+    // A version is a copy of the note's body: sealed with the note's aad.
+    const sealedVersion = {
+      id: 'v1',
+      data: {
+        body: sealText(KEY, aadFor('u1', 'n1', 'body'), 'Groceries: milk, eggs'),
+        updatedBy: 'user',
+        reason: 'device',
+        updatedAt: at(Date.UTC(2026, 9, 6, 10)),
+      },
+    };
+
+    it('shows as sealed, never as its sealed text, and cannot be restored', async () => {
+      const { el, push, capture, setKey } = await render();
+      await push([sealedVersion]);
+      expect(el.textContent).not.toContain('\uE000');
+      button(el, 'Sealed')!.click();
+      // Still no key: drawn again with the version open.
+      await setKey(undefined);
+      expect(el.textContent).toContain('This version is sealed');
+      expect(button(el, 'Restore this version')).toBeUndefined();
+      expect(capture.restore).not.toHaveBeenCalled();
+    });
+
+    it('opens with the note’s own key and aad once the key is here', async () => {
+      const { el, push, setKey, capture } = await render();
+      await push([sealedVersion]);
+      await setKey(KEY);
+      expect(el.textContent).toContain('Groceries: milk, eggs');
+      button(el, 'Groceries: milk, eggs')!.click();
+      await setKey(KEY);
+      button(el, 'Restore this version')!.click();
+      expect(capture.restore).toHaveBeenCalledWith('n1', 'Groceries: milk, eggs');
+    });
   });
 });
