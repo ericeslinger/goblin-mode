@@ -47,7 +47,9 @@ export type SealErrorCode =
   /** Did not authenticate: wrong key, wrong aad, or tampered with. */
   | 'failed'
   /** `sealText` was handed a value that is already sealed. */
-  | 'already-sealed';
+  | 'already-sealed'
+  /** `openSealedText` was handed plain text. */
+  | 'not-sealed';
 
 /** Why a value could not be sealed or opened. Never holds key or text. */
 export class SealError extends Error {
@@ -111,7 +113,9 @@ export function importDataKey(bytes: Uint8Array): DataKey {
  * to the user, the note and the field, so it cannot be moved to another
  * user's note, another note, or from title to body, and still open. Each
  * part is length-prefixed, so no two triples encode alike. It names no
- * format version, so a later format can bind the same triple.
+ * format version: `sealText` and `openText` bind the version tag
+ * themselves (`versionedAad`), so a later format binds the same triple
+ * under its own tag.
  */
 export function aadFor(uid: string, noteId: string, field: SealedField): Uint8Array<ArrayBuffer> {
   if (!uid) throw new RangeError('aadFor needs a uid');
@@ -120,6 +124,20 @@ export function aadFor(uid: string, noteId: string, field: SealedField): Uint8Ar
     throw new RangeError(`not a sealed field: ${field}`);
   }
   return lengthPrefixed(['mossgoblin/note-field', uid, noteId, field]);
+}
+
+/**
+ * What AES-GCM is given as authenticated data: the version tag, then
+ * `aad`. So a value sealed as one version never opens as another, even
+ * under the same key (review on #260): a later format may read the
+ * same bytes differently, and the tag sits outside the ciphertext.
+ */
+export function versionedAad(aad: Uint8Array): Uint8Array<ArrayBuffer> {
+  const tag = lengthPrefixed([SEAL_VERSION]);
+  const out = new Uint8Array(tag.length + aad.length);
+  out.set(tag, 0);
+  out.set(aad, tag.length);
+  return out;
 }
 
 /** Whether `value` is a sealed value (of any version, well formed or not). */
@@ -139,7 +157,7 @@ export function sealText(key: DataKey, aad: Uint8Array, plaintext: string): stri
   if (typeof plaintext !== 'string') throw new TypeError('sealText seals strings');
   if (isSealed(plaintext)) throw new SealError('already-sealed', 'value is already sealed');
   const nonce = randomBytes(NONCE_BYTES);
-  const sealed = gcm(bytesOf(key), nonce, aad).encrypt(utf8.encode(plaintext));
+  const sealed = gcm(bytesOf(key), nonce, versionedAad(aad)).encrypt(utf8.encode(plaintext));
   const out = new Uint8Array(NONCE_BYTES + sealed.length);
   out.set(nonce, 0);
   out.set(sealed, NONCE_BYTES);
@@ -164,7 +182,7 @@ export function openText(key: DataKey, aad: Uint8Array, value: string): string {
   }
   let plain: Uint8Array;
   try {
-    plain = gcm(bytesOf(key), bytes.subarray(0, NONCE_BYTES), aad).decrypt(
+    plain = gcm(bytesOf(key), bytes.subarray(0, NONCE_BYTES), versionedAad(aad)).decrypt(
       bytes.subarray(NONCE_BYTES),
     );
   } catch {
@@ -176,6 +194,18 @@ export function openText(key: DataKey, aad: Uint8Array, value: string): string {
     // Authenticated but not UTF-8: only a writer bug could seal that.
     throw new SealError('malformed', 'sealed value is not text');
   }
+}
+
+/**
+ * As `openText`, for a field that must be sealed: plain text throws
+ * `SealError` ('not-sealed') where `openText` would pass it through.
+ * `openText` cannot tell a note not yet migrated from one whose sealed
+ * text someone with write access swapped for plain (review on #260);
+ * once a gardener's notes are all sealed, readers use this.
+ */
+export function openSealedText(key: DataKey, aad: Uint8Array, value: string): string {
+  if (!isSealed(value)) throw new SealError('not-sealed', 'value is not sealed');
+  return openText(key, aad, value);
 }
 
 const utf8 = /* @__PURE__ */ new TextEncoder();

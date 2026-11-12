@@ -6,10 +6,12 @@ import {
   importDataKey,
   isSealed,
   newDataKey,
+  openSealedText,
   openText,
   SEAL_SENTINEL,
   SealError,
   sealText,
+  versionedAad,
 } from './sealed';
 
 const key = newDataKey();
@@ -150,6 +152,28 @@ describe('sealText and openText', () => {
     expect(sealText(key, body, openText(key, body, sealed))).not.toBe(sealed);
   });
 
+  it('binds the version tag, so the same bytes under another tag do not open (review on #260)', async () => {
+    const raw = exportDataKey(key);
+    const ck = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    // Sealed without the tag in its authenticated data, as before the review.
+    const ct = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonce, additionalData: body },
+        ck,
+        new TextEncoder().encode('untagged'),
+      ),
+    );
+    expect(code(() => openText(key, body, sealedFrom(new Uint8Array([...nonce, ...ct]))))).toBe(
+      'failed',
+    );
+  });
+
+  it('openSealedText refuses plain text, and opens sealed text as openText does', () => {
+    expect(code(() => openSealedText(key, body, 'plain'))).toBe('not-sealed');
+    expect(openSealedText(key, body, sealText(key, body, 'kept'))).toBe('kept');
+  });
+
   it('opens a history copy of a body with the note aad', () => {
     // The aad names uid, note and field, never the path, so text copied
     // to notes/{id}/history/{v} opens as it is.
@@ -164,7 +188,7 @@ describe('sealText and openText', () => {
     const bytes = payload(sealed);
     const ck = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt', 'encrypt']);
     const plain = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: bytes.subarray(0, 12), additionalData: body },
+      { name: 'AES-GCM', iv: bytes.subarray(0, 12), additionalData: versionedAad(body) },
       ck,
       bytes.subarray(12),
     );
@@ -173,7 +197,7 @@ describe('sealText and openText', () => {
     const nonce = crypto.getRandomValues(new Uint8Array(12));
     const ct = new Uint8Array(
       await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: nonce, additionalData: body },
+        { name: 'AES-GCM', iv: nonce, additionalData: versionedAad(body) },
         ck,
         new TextEncoder().encode('from webcrypto'),
       ),

@@ -3924,7 +3924,21 @@ not in, and plain and sealed notes coexist during the migration.
 Reading a plain value returns it unchanged; a value that starts with
 the sentinel and a version tag but does not open throws, and never
 reads as garbage. Sealing a value that is already sealed throws. The
-version tag leaves room for a second format.
+version tag leaves room for a second format, and is itself bound into
+the authenticated data, so a value sealed as one version never opens
+as another (review on #260). `mg1` names no key: rotating a
+gardener's data key means a new version that does, or trying each
+key the gardener has. With random nonces one key is good for about
+four billion seals, far past one gardener's saves.
+
+`openText` passes plain text through, which a migration needs, and
+which also means it cannot tell an unmigrated note from one whose
+sealed text was swapped for plain by someone with write access.
+`openSealedText` refuses plain text; readers move to it once a
+gardener's notes are all sealed. Neither can tell a current sealed
+value from an older one for the same note and field put back in its
+place. The write path, not this library, deals with text that itself
+starts with the sentinel, so no keystroke is refused (step 2).
 
 The authenticated data binds a value to the user, the note and the
 field (length-prefixed uid, note id, and `body` or `title`), so a
@@ -3937,8 +3951,9 @@ and sealed again under the new note id. A sealed value shows the
 length of its text, nothing else.
 
 **Synchronous.** The library is `packages/schema/src/sealed.ts`
-(`sealText`, `openText`, `isSealed`, `aadFor`, `newDataKey`,
-`exportDataKey`, `importDataKey`, `SealError`), shared by the app and
+(`sealText`, `openText`, `openSealedText`, `isSealed`, `aadFor`,
+`newDataKey`, `exportDataKey`, `importDataKey`, `SealError`), shared
+by the app and
 the functions. Notes flow through signals and computeds in the app and
 through many store helpers on the server, and WebCrypto's AES-GCM is
 async only, so the library uses `@noble/ciphers` (audited, no
