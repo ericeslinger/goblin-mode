@@ -29,6 +29,9 @@ afterAll(() => deleteApp(app));
 
 const tools = () => new NotesTools(db, 'u1', () => T);
 
+/** A search's hits: the list, or its `items` when it met sealed notes it could not open. */
+const listed = <T>(r: T[] | { items: T[] }): T[] => (Array.isArray(r) ? r : r.items);
+
 async function eric(id: string, body: string, over: Record<string, unknown> = {}) {
   await db.doc(`users/u1/notes/${id}`).set({
     kind: 'text',
@@ -181,9 +184,11 @@ describe('NotesTools', () => {
     await eric('b', 'Groceries\nask about [[plan a]]');
     await eric('c', 'Old hotswap plan', { archived: true });
     const t = tools();
-    expect((await t.searchNotes({ query: 'hotswap vikas' })).map((n) => n.id)).toEqual(['a']);
+    expect(listed(await t.searchNotes({ query: 'hotswap vikas' })).map((n) => n.id)).toEqual(['a']);
     expect(
-      (await t.searchNotes({ query: 'hotswap', includeArchived: true })).map((n) => n.id).sort(),
+      listed(await t.searchNotes({ query: 'hotswap', includeArchived: true }))
+        .map((n) => n.id)
+        .sort(),
     ).toEqual(['a', 'c']);
     expect((await t.listNotes({})).map((n) => n.id).sort()).toEqual(['a', 'b']);
     const note = await t.getNote({ id: 'a' });
@@ -328,7 +333,7 @@ describe('organizing tools', () => {
       { id: 'c-vikas', title: 'Vikas', type: 'person', synonyms: [], linkedFrom: 1 },
     ]);
     expect((await t.listConcepts({ type: 'person' })).map((c) => c.id)).toEqual(['c-vikas']);
-    const back = await t.getBacklinks({ id: 'c-kiln' });
+    const back = listed(await t.getBacklinks({ id: 'c-kiln' }));
     expect(back.map((b) => [b.id, b.sentence]).sort()).toEqual([
       ['a', 'Fire the [[kiln]].'],
       ['b', 'Ask [[Vikas]] about [[The kiln]].'],
@@ -426,7 +431,7 @@ describe('organizing tools', () => {
     expect((merged['createdAt'] as Timestamp).toMillis()).toBe(T - 5000);
     expect(await body('a')).toMatchObject({ archived: true, mergedInto: id });
     expect(await body('b')).toMatchObject({ archived: true, mergedInto: id });
-    expect((await t.getBacklinks({ id })).map((b) => b.id)).toEqual(['c']);
+    expect(listed(await t.getBacklinks({ id })).map((b) => b.id)).toEqual(['c']);
     await expect(t.mergeNotes({ ids: ['a', 'c'] })).rejects.toThrow('note a is archived');
     expect((await runs()).map((r) => r['summary'])).toEqual(['Merged 2 notes into one']);
   });
@@ -1046,7 +1051,9 @@ describe('recipes (#127)', () => {
     await expect(
       t.createRecipe({ name: 'shakshuka', ingredients: [], method: [] }),
     ).rejects.toThrow('already a name in the garden');
-    expect((await t.listNotes({ kind: 'recipe' })).map((n) => n.title)).toEqual(['Shakshuka']);
+    expect(
+      (await t.listNotes({ kind: 'recipe' })).map((n) => ('title' in n ? n.title : n.sealed)),
+    ).toEqual(['Shakshuka']);
     expect((await runs()).map((r) => r['summary'])).toContain('Made the recipe Shakshuka');
   });
 });
@@ -1426,15 +1433,15 @@ describe('the meal plan (#129)', () => {
     await t.updatePantry({ add: [{ item: 'lentils' }, { item: 'limes' }, { item: 'onions' }] });
     await t.planMeal({ date: '2026-10-19', slot: '[[Toast]]' });
     await t.checkItem({ id: 'meals-2026-10-19', item: 'Mon dinner' });
-    const ideas = await t.suggestRecipes({ date: '2026-10-21' });
+    const ideas = listed(await t.suggestRecipes({ date: '2026-10-21' }));
     // Toast was made two days ago; Dal is all on hand.
     expect(ideas.map((i) => [i.title, i.onHand, i.total, i.missing])).toEqual([
       ['Dal', 2, 2, []],
       ['Soup', 1, 2, ['stock']],
     ]);
-    expect((await t.suggestRecipes({ date: '2026-10-30', limit: 1 })).map((i) => i.title)).toEqual([
-      'Dal',
-    ]);
+    expect(
+      listed(await t.suggestRecipes({ date: '2026-10-30', limit: 1 })).map((i) => i.title),
+    ).toEqual(['Dal']);
   });
 
   it('notes how a dinner went on the plan and in the recipe', async () => {
@@ -1687,7 +1694,7 @@ describe('Trash (#217)', () => {
     ]);
     expect(await t.searchNotes({ query: 'hotswap', includeArchived: true })).toEqual([]);
     expect((await t.listConcepts({})).map((c) => [c.id, c.linkedFrom])).toEqual([['c-kiln', 1]]);
-    expect((await t.getBacklinks({ id: 'c-kiln' })).map((b) => b.id)).toEqual(['a']);
+    expect(listed(await t.getBacklinks({ id: 'c-kiln' })).map((b) => b.id)).toEqual(['a']);
     expect(await t.listQueue({})).toEqual([]);
     expect(await t.listTemplates()).toEqual([]);
     await expect(t.useTemplate({ id: 't1' })).rejects.toThrow('no template t1');
