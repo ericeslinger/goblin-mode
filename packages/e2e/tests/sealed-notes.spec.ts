@@ -103,11 +103,12 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
     .context()
     .route('**/api/note-key', (route) => route.fulfill({ status: 503, body: '' }));
   await page.evaluate((uid) => localStorage.removeItem(`goblin.noteKey.${uid}`), OWNER.uid);
-  // As it stands now, with the key gone: nothing may write to it from here on.
-  await letItSave(page);
-  const whileLocked = await storedDocument();
   await page.goto('/browse');
   await expect(list.getByRole('link', { name: 'Sealed note' })).toBeVisible();
+  // As it stands now, locked on this device, and after anything that
+  // leaving the opened note wrote: nothing may write to it from here on.
+  await letItSave(page);
+  const whileLocked = await storedDocument();
   await expect(list.getByRole('link', { name: /Kiln firing/ })).toHaveCount(0);
   await expect(page.locator('body')).not.toContainText('\uE000');
   await expectNoSeriousViolations(page);
