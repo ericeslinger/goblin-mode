@@ -434,9 +434,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
               type="checkbox"
               role="switch"
               [checked]="keys.digest().push"
-              (change)="
-                keys.setDigest({ push: $any($event.target).checked, hour: keys.digest().hour })
-              "
+              (change)="keys.setDigestPush($any($event.target).checked)"
             />
             A daily digest by push
           </label>
@@ -444,9 +442,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             at
             <select
               aria-label="Hour of the daily digest"
-              (change)="
-                keys.setDigest({ push: keys.digest().push, hour: +$any($event.target).value })
-              "
+              (change)="keys.setDigestHour(+$any($event.target).value)"
             >
               @for (h of hours; track h) {
                 <option [value]="h" [selected]="h === keys.digest().hour">{{ hourName(h) }}</option>

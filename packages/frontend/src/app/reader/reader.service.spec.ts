@@ -421,6 +421,52 @@ describe('ReaderService (#159)', () => {
     });
   });
 
+  it('shows a switch just set over a snapshot from before it, until its echo (#224)', async () => {
+    const { reader, settings } = setup();
+    let refuse: (err: unknown) => void = () => undefined;
+    const pending: (() => void)[] = [];
+    settings.set.mockImplementation(
+      () =>
+        new Promise<void>((done, fail) => {
+          pending.push(done);
+          refuse = fail;
+        }),
+    );
+    settings.push({ folderOrder: [], images: true, readOnScroll: true, updatedAt: 1 }, true);
+    reader.setReadOnScroll(false);
+    expect(reader.readOnScroll()).toBe(false);
+    // The server's answer, made before the write and heard after it.
+    settings.push({ folderOrder: [], images: true, readOnScroll: true, updatedAt: 1 });
+    expect(reader.readOnScroll()).toBe(false);
+    // A folder seen now is written with the switch as shown, not as stored.
+    reader.markSeen('Design', 5000);
+    expect(settings.set.mock.lastCall![2]).toMatchObject({
+      readOnScroll: false,
+      seenAt: { Design: 5000 },
+    });
+    // The first write's echo, made before the second: the switch is
+    // heard back, the folder not yet.
+    settings.push(
+      { folderOrder: [], images: true, readOnScroll: false, updatedAt: 1 },
+      false,
+      true,
+    );
+    expect(reader.readOnScroll()).toBe(false);
+    expect(reader.seenAt()).toEqual({ Design: 5000 });
+    pending.splice(0).forEach((done) => done());
+    await Promise.resolve();
+    await Promise.resolve();
+    // Heard back and acknowledged: another device's choice shows again.
+    settings.push({ folderOrder: [], images: true, readOnScroll: true, updatedAt: 2 });
+    expect(reader.readOnScroll()).toBe(true);
+    expect(reader.seenAt()).toEqual({});
+    // A refused write shows no longer.
+    reader.setImages(false);
+    expect(reader.images()).toBe(false);
+    refuse(new Error('permission-denied'));
+    await vi.waitFor(() => expect(reader.images()).toBe(true));
+  });
+
   it('keeps when each folder was seen (#173), as millis, reading a Timestamp too', () => {
     const { reader, settings } = setup();
     expect(reader.settingsLoaded()).toBe(false);

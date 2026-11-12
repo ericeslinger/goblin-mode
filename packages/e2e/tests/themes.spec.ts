@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
-import { expect, prepPage, signInAs, test, openMore } from '../src/fixtures';
+import { expect, letItSave, prepPage, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const THEMES = ['Herbarium', 'Night Garden', 'Moss and Lantern', 'Bog Goblin', 'Pixel Mossling'];
@@ -32,6 +32,22 @@ test('a theme chosen in Settings applies at once and survives a reload', async (
   await expect(html).toHaveAttribute('data-theme', 'night');
   await expect(page.getByRole('radio', { name: /^Night Garden/ })).toBeChecked();
   await expect(page.getByRole('radio', { name: 'Dark', exact: true })).toBeChecked();
+
+  // A choice and at once a reload, nothing waited for (#224): the doc
+  // now holds Night Garden, and the cache may not have taken the new
+  // choice yet. Once the doc has been heard and the writes are in, a
+  // second reload shows what the doc holds: the new choice, kept.
+  await letItSave(page);
+  await pick(page, 'Bog Goblin', 'Light');
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'bog');
+  await expect(html).toHaveAttribute('data-mode', 'light');
+  await letItSave(page);
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'bog');
+  await expect(html).toHaveAttribute('data-mode', 'light');
+  await expect(page.getByRole('radio', { name: /^Bog Goblin/ })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'Light', exact: true })).toBeChecked();
 });
 
 test('a theme chosen on one device follows the gardener to another', async ({ page, browser }) => {

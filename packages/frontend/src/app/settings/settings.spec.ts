@@ -39,7 +39,8 @@ function fakeKeys() {
     arrivalSkip: signal<{ templates: string[]; tags: string[] }>({ templates: [], tags: [] }),
     setArrivalSkip: vi.fn(),
     digest: signal({ push: false, hour: 8 }),
-    setDigest: vi.fn(),
+    setDigestPush: vi.fn(),
+    setDigestHour: vi.fn(),
   };
 }
 const keys = fakeKeys();
@@ -224,7 +225,8 @@ describe('Settings', () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
     keys.keys.set({});
-    keys.setDigest.mockClear();
+    keys.setDigestPush.mockClear();
+    keys.setDigestHour.mockClear();
     const el = await render(auth);
     expect(el.textContent).toContain('Daily digest');
     const toggle = [...el.querySelectorAll<HTMLInputElement>('input[role="switch"]')].find((i) =>
@@ -237,16 +239,21 @@ describe('Settings', () => {
     expect(hour.options).toHaveLength(24);
     expect(hour.selectedIndex).toBe(8);
     toggle.click();
-    expect(keys.setDigest).toHaveBeenLastCalledWith({ push: true, hour: 8 });
-    keys.digest.set({ push: true, hour: 8 });
-    TestBed.tick();
+    expect(keys.setDigestPush).toHaveBeenLastCalledWith(true);
+    // The hour is changed at once, before the switch shows on anywhere
+    // (a late snapshot, #224): it writes only the hour, never the
+    // switch's value read back from the signal.
     hour.value = '21';
     hour.dispatchEvent(new Event('change'));
-    expect(keys.setDigest).toHaveBeenLastCalledWith({ push: true, hour: 21 });
+    expect(keys.setDigestHour).toHaveBeenLastCalledWith(21);
+    expect(keys.setDigestPush).toHaveBeenCalledTimes(1);
     keys.digest.set({ push: true, hour: 21 });
     TestBed.tick();
     expect(toggle.checked).toBe(true);
     expect(hour.selectedIndex).toBe(21);
+    toggle.click();
+    expect(keys.setDigestPush).toHaveBeenLastCalledWith(false);
+    expect(keys.setDigestHour).toHaveBeenCalledTimes(1);
     keys.digest.set({ push: false, hour: 8 });
   });
 
