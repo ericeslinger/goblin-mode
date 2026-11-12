@@ -1,9 +1,21 @@
+import type { Page } from '@playwright/test';
 import { expect, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
+
+/**
+ * The owner's note key on localhost (note encryption step 2): the
+ * Worker's derivation over the development master, as the e2e static
+ * server's `/api/note-key` and the functions emulator's stand-in give it.
+ */
+const OWNER_NOTE_KEY = { v: 1, key: 'JUkfqWWWRviyLQOyRmd3TNdNb/4lN1AG39AXnh86vb4=' };
+const noteKeyOnDevice = (page: Page) =>
+  page.evaluate((uid) => localStorage.getItem(`goblin.noteKey.${uid}`), OWNER.uid);
 
 test('signing in shows the account and build in Settings', async ({ page }) => {
   await signInAs(page, OWNER);
   await expect(page.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
+  // Signed in and online, the app fetches its note key and keeps it here.
+  await expect.poll(() => noteKeyOnDevice(page)).toBe(JSON.stringify(OWNER_NOTE_KEY));
 
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByText(`Signed in as ${OWNER.email}`)).toBeVisible();
@@ -21,4 +33,6 @@ test('signing in shows the account and build in Settings', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByText('Not signed in.')).toBeVisible();
+  // Signing out forgets it.
+  await expect.poll(() => noteKeyOnDevice(page)).toBeNull();
 });

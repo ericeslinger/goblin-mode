@@ -3840,11 +3840,17 @@ them to `scripts/deploy.sh`:
   through `ng build --define`; local and e2e builds leave them null,
   and localhost always uses the emulators.
 - Functions get `OWNER_UID` and the `ANTHROPIC_*` federation ids from
-  a `.env.<project>` file the script writes for the deploy and deletes.
+  a `.env.<project>` file the script writes for the deploy and deletes,
+  and `APP_DOMAIN`, where they reach the Worker's note key service
+  (2026-11-12).
 - The Worker gets its custom domain from `APP_DOMAIN` (`--domain`),
   `FUNCTIONS_ORIGIN` from `FIREBASE_PROJECT_ID`, and, for the episode
   proxy's token check, `FIREBASE_PROJECT_ID` and `OWNER_UID` as they
   are (#180, 2026-11-07).
+- Not through the deploy at all: the note key service's secrets,
+  `NOTE_KEYS_MASTER` and `NOTE_KEYS_SERVICE` on the Worker and
+  `NOTE_KEYS_SERVICE` in Secret Manager, set once by hand (Note
+  encryption, Key custody, 2026-11-12).
 
 The deploy fails before building when a required variable is missing
 or the web config names another project. Optional ones leave their
@@ -3906,7 +3912,8 @@ settings.
 
 **Keys.** Each user has one 256-bit data key. Where the key that wraps
 it lives is not decided: Google Cloud KMS or a Cloudflare Worker
-secret. "User-held keys", where the data key comes from Eric's device
+secret. (Decided 2026-11-12: the Worker, by derivation rather than
+wrapping; Key custody below.) "User-held keys", where the data key comes from Eric's device
 or an OAuth token instead, is a possible later custody, not designed
 yet; it reuses this stored format, since only where the key comes from
 differs.
@@ -3938,7 +3945,8 @@ sealed text was swapped for plain by someone with write access.
 gardener's notes are all sealed. Neither can tell a current sealed
 value from an older one for the same note and field put back in its
 place. The write path, not this library, deals with text that itself
-starts with the sentinel, so no keystroke is refused (step 2).
+starts with the sentinel, so no keystroke is refused (the wiring
+step, after key custody).
 
 The authenticated data binds a value to the user, the note and the
 field (length-prefixed uid, note id, and `body` or `title`), so a
@@ -3968,6 +3976,88 @@ it, as it does zod, so the functions manifest does not list it.
 **This step changes no behaviour.** Step 1 is the format, the library
 and its tests; nothing in the app or the functions seals or opens text
 yet.
+
+**Key custody (Eric, 2026-11-12): Cloudflare.** Each gardener's data
+key is in the custody of the Cloudflare Worker, not Google Cloud KMS,
+so at rest the notes (Firestore, Google) and the key (Cloudflare) are
+with different providers. Eric chose this knowing its limit: the
+functions must be able to ask the Worker for keys, so it protects
+stored data and backups, not against a provider acting while the code
+runs. Step 2 builds the key service; nothing seals or opens note text
+yet.
+
+*Derived, nothing stored.* The Worker holds one master secret,
+`NOTE_KEYS_MASTER`, base64 of 32 random bytes, set by hand with
+`wrangler secret put`. A gardener's data key is HKDF-SHA-256 of the
+master, with no salt and as info the length-prefixed parts
+`mossgoblin/note-key`, `v1` and the uid
+(`packages/schema/src/note-key.ts`, WebCrypto, shared by the Worker
+and the localhost stand-ins so they cannot drift; a spec pins one
+output). No wrapped key is stored, so there is no key document to
+lose, race on or guard with rules, and no schema or rules change.
+Answers carry the version (`{ v: 1, key }`, the key as base64).
+
+*Two routes, both the Worker's own* (`infra/worker/src/note-key.ts`,
+under `/api/*`, which runs the Worker first):
+
+- `POST /api/note-key`, for the app: the gardener's Firebase ID token
+  as a bearer token, checked as `/api/episode` checks it
+  (`infra/worker/src/id-token.ts`), answered with that token's own
+  uid's key. The uid comes from the verified token alone, so an
+  account gets its own key and never another's.
+- `POST /api/note-key/for`, for the functions: `{ "uid": ... }` in the
+  body and the service secret `NOTE_KEYS_SERVICE` as a bearer token,
+  compared in constant time (both sides hashed, then every byte
+  compared). The Worker and the functions (a Secret Manager secret of
+  the same name) hold the same value. Without it, or with one under
+  32 characters, the Worker refuses every caller.
+
+Both answer `Cache-Control: no-store`, send no CORS headers, and refuse
+a request the browser marks as cross-site or same-site. Without the
+master both answer 503; the app carries on without a key.
+
+*The app* (`NoteKeyService`, started at launch with the other root
+services) asks once a load when a gardener is signed in and online,
+holds the key in memory as a signal, and keeps the raw key on the
+device under `goblin.noteKey.<uid>`, so a later start offline has it
+at once. A failure goes to the console and is tried again when the
+device is back online or on the next load; no key is simply none, and
+nothing waits on it. Signing out forgets every device copy. A copy on
+the device is as exposed as the notes in the device's Firestore cache
+it would open.
+
+*The functions* (`packages/functions/src/note-keys/client.ts`) call
+`dataKeyFor(uid)`, which asks `https://<APP_DOMAIN>/api/note-key/for`
+and keeps each key in memory for the instance; it throws
+`NoteKeysUnconfigured` when the domain or the secret is missing here
+or the Worker answers 503. The secret is declared in `secret.ts` but
+bound to no function yet: a function that lists a secret missing
+from Secret Manager does not deploy, so the step that first seals
+notes binds it, after the secret is set.
+
+*Localhost.* There is no Worker. The functions emulator build swaps in
+`note-keys/stand-in.emulator.ts`, which derives with a fixed, public
+development master (`dev-master.emulator.ts`). The e2e static server
+(`scripts/serve-static.mjs`) answers `POST /api/note-key` the same
+way for an Auth emulator token. `ng serve` has no `/api/*` at all, so
+there the app has no key, as it has no episode proxy.
+
+*What it protects.* A copy of Firestore, a backup or a console read
+shows ciphertext, and so does anything holding Google credentials
+alone. Anyone who can run code as the functions, or as the Worker, or
+who holds the master can read every note. The service secret lets its
+holder ask for any gardener's key, so it is as sensitive as the
+master while it is valid, but it can be replaced.
+
+*Losing the master loses the notes.* Cloudflare never shows a secret
+again once it is set, so Eric keeps the master in his own backup,
+apart from both providers, before any note is sealed (README, Run
+your own). Replacing it changes every key.
+
+*Rotation* means a new key version: `v2` derived from a new master
+(or the same one with the new version in its info), the routes
+answering for it, and every sealed value opened with the old key and
+sealed again with the new one before the old version is dropped.
 
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,

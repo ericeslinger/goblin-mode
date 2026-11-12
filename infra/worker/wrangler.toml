@@ -19,3 +19,7 @@ run_worker_first = ["/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/oauth/regist
 # FUNCTIONS_ORIGIN, FIREBASE_PROJECT_ID and OWNER_UID (the episode
 # proxy's token check, #180) are passed by scripts/deploy.sh with
 # --var, from the variables of those names.
+
+# NOTE_KEYS_MASTER and NOTE_KEYS_SERVICE (the note key service,
+# src/note-key.ts) are Worker secrets, set once by hand with `wrangler
+# secret put` (README, Run your own), never through the deploy.
