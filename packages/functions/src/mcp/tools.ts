@@ -657,10 +657,13 @@ export class NotesTools {
     forms: NoteForms,
   ): Promise<void> {
     const out: Data = { ...data };
+    // A title is never plainer than its body (review on #263): one
+    // made from the body's first words would say them in the clear.
+    const as: NoteForms = forms.body === 'sealed' ? { ...forms, title: 'sealed' } : forms;
     for (const field of ['body', 'title'] as const) {
       const value = out[field];
       if (typeof value === 'string') {
-        out[field] = await this.codec.seal(ref.id, field, value, forms[field]);
+        out[field] = await this.codec.seal(ref.id, field, value, as[field]);
       }
     }
     if (!w) {

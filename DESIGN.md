@@ -4152,7 +4152,10 @@ back, reads a project's filing directly and leaves a sealed title
 unsaid.
 
 *Preserve the form found.* A field a tool rewrites is sealed if and
-only if the value it replaces was. A new note is plain until the
+only if the value it replaces was, with one exception: a title
+written beside a sealed body is sealed too, since a title made from
+the body's first words would say them in the clear (review on #263).
+A new note is plain until the
 gardener's switch (a later step), but for one made from another note's
 text: split pieces, a merged note, a note from a template, a new
 week's grocery list, and an idea or question `capture` files (it names

@@ -91,4 +91,30 @@ describe('the note text boundary', () => {
     // writeNote writes; never straight to a read.
     expect(lines).not.toMatch(/this\.notes\(\)(\s*\.\w+\([^)]*\))*\s*\.get\(/);
   });
+  // The first check knows a write by its receiver's name, so the names
+  // are fixed here too (review on #263: `t.set(...)` and a write
+  // chained straight onto a note ref slipped past it).
+  it('names every transaction tx and every batch batch, so their writes are seen', () => {
+    const all = outsideBoundary().join('\n');
+    const params = [...all.matchAll(/runTransaction\(\s*(?:async\s*)?\(?\s*(\w+)/g)].map(
+      (m) => m[1],
+    );
+    expect(params.length).toBeGreaterThan(0);
+    expect(params.filter((p) => p !== 'tx')).toEqual([]);
+    const batches = [...all.matchAll(/(\w+)\s*=\s*this\.db\.batch\(\)/g)].map((m) => m[1]);
+    expect(batches.filter((b) => b !== 'batch')).toEqual([]);
+    expect(all).not.toMatch(/this\.db\.batch\(\)\s*\./);
+  });
+
+  it('leaves no read or write chained onto the note collection or a doc of it', () => {
+    const all = outsideBoundary().join('\n');
+    // `this.notes()` then anything up to the end of its statement,
+    // ending in a Firestore call made on it directly.
+    const chained = [
+      ...all.matchAll(
+        /this\.notes\(\)(?:\s*\.(?:doc|where|orderBy|select|limit)\((?:[^()]|\([^()]*\))*\))*\s*\.(get|set|update|create|delete)\(/g,
+      ),
+    ].map((m) => m[0].replace(/\s+/g, ' '));
+    expect(chained).toEqual([]);
+  });
 });

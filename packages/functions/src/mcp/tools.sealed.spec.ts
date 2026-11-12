@@ -337,12 +337,15 @@ describe('sealed notes, with the key', () => {
     expect(stored('a')['baseHash']).toBe(textHash(text));
   });
 
-  it('update_note keeps each field in its own form', async () => {
+  it('update_note keeps the body sealed, and a title written beside a sealed body is sealed too (review on #263)', async () => {
     putSealed('a', 'Old words', { titleSource: 'llm', title: 'Plain title' }, false);
     const t = tools();
-    await t.updateNote({ id: 'a', body: 'New words', title: 'Still plain' });
+    await t.updateNote({ id: 'a', body: 'New words', title: 'A new title' });
     expect(opened('a', 'body')).toBe('New words');
-    expect(stored('a')['title']).toBe('Still plain');
+    // Never plainer than its body: a title from the body's first words
+    // would otherwise say them in the clear.
+    expect(isSealed(stored('a')['title'])).toBe(true);
+    expect(opened('a', 'title')).toBe('A new title');
   });
 
   it("keeps Eric's text verbatim through a round trip", async () => {
