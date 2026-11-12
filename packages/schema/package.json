@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
+    "@noble/ciphers": "^2.4.0",
     "zod": "^4.6.5"
   }
 }

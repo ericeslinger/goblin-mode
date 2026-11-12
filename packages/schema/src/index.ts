@@ -30,3 +30,4 @@ export * from './digest';
 export * from './modes';
 export * from './corrections';
 export * from './diff';
+export * from './sealed';

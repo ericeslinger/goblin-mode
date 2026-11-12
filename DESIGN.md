@@ -3889,6 +3889,90 @@ Firestore point-in-time recovery (7 days) is the backstop for bad edits,
 and a weekly scheduled Firestore backup covers anything older (both set
 up by Eric, 2026-10-05).
 
+### Note encryption (Eric, 2026-11-12)
+
+Note text will be encrypted at rest, so a copy of the database, a
+backup or a console read shows ciphertext instead of Eric's words. With
+the server-side key custody below it is not end-to-end: the app and
+the functions hold the key and read the text, so MCP and search keep
+working, and "no end-to-end encryption" (2026-10-05) stands.
+
+**What is encrypted.** A note's `body` and `title`, then later its
+history versions, concept names and synonyms, the text held in what
+assistants changed, its diffs and suggestions, and attachment text.
+**What stays plain:** tags, kind, links between ids, dates, archived,
+project fields, reminder text, Reader and Podcasts items, and
+settings.
+
+**Keys.** Each user has one 256-bit data key. Where the key that wraps
+it lives is not decided: Google Cloud KMS or a Cloudflare Worker
+secret. "User-held keys", where the data key comes from Eric's device
+or an OAuth token instead, is a possible later custody, not designed
+yet; it reuses this stored format, since only where the key comes from
+differs.
+
+**Format.** A sealed value is still a string in the same field, so
+`Note.body: z.string()` and the rules (`body is string`, no length
+limit) need no change. It is the sentinel U+E000, a private-use code
+point no keyboard types, then the version tag `mg1.`, then base64url
+without padding of the 12-byte nonce followed by the AES-256-GCM
+ciphertext and its 16-byte tag. Every seal draws a fresh random nonce
+from `crypto.getRandomValues`. Each value says for itself whether it
+is sealed, and there is no document-level "encrypted" flag: a merge
+write of one field can never leave a document claiming a state it is
+not in, and plain and sealed notes coexist during the migration.
+Reading a plain value returns it unchanged; a value that starts with
+the sentinel and a version tag but does not open throws, and never
+reads as garbage. Sealing a value that is already sealed throws. The
+version tag leaves room for a second format, and is itself bound into
+the authenticated data, so a value sealed as one version never opens
+as another (review on #260). `mg1` names no key: rotating a
+gardener's data key means a new version that does, or trying each
+key the gardener has. With random nonces one key is good for about
+four billion seals, far past one gardener's saves.
+
+`openText` passes plain text through, which a migration needs, and
+which also means it cannot tell an unmigrated note from one whose
+sealed text was swapped for plain by someone with write access.
+`openSealedText` refuses plain text; readers move to it once a
+gardener's notes are all sealed. Neither can tell a current sealed
+value from an older one for the same note and field put back in its
+place. The write path, not this library, deals with text that itself
+starts with the sentinel, so no keystroke is refused (step 2).
+
+The authenticated data binds a value to the user, the note and the
+field (length-prefixed uid, note id, and `body` or `title`), so a
+value cannot be moved to another user, another note, or from title to
+body and still open. It omits the document path on purpose: a history
+version under `users/{uid}/notes/{id}/history/{v}` is a copy of the
+note's body and opens with the note's own authenticated data, with no
+re-encryption. Text moved to another note (a split or merge) is opened
+and sealed again under the new note id. A sealed value shows the
+length of its text, nothing else.
+
+**Synchronous.** The library is `packages/schema/src/sealed.ts`
+(`sealText`, `openText`, `openSealedText`, `isSealed`, `aadFor`,
+`newDataKey`, `exportDataKey`, `importDataKey`, `SealError`), shared
+by the app and
+the functions. Notes flow through signals and computeds in the app and
+through many store helpers on the server, and WebCrypto's AES-GCM is
+async only, so the library uses `@noble/ciphers` (audited, no
+dependencies), whose synchronous AES-GCM output is the standard one:
+the spec checks that WebCrypto opens what it seals and the other way
+round. In Node 22 it opens 5,000 short titles in about 100 to 175 ms
+and a 20 kB body in about 1 ms, much the same as WebCrypto for the
+titles; readers should cache opened text by its sealed value, so a new
+snapshot does not open every note again. The functions bundle inlines
+it, as it does zod, so the functions manifest does not list it.
+
+**This step changes no behaviour.** Step 1 is the format, the library
+and its tests; nothing in the app or the functions seals or opens text
+yet.
+
+**Backups.** Backups made before the migration hold plain text and are
+left to age out on their own schedule, not rewritten (Eric,
+2026-11-12).
+
 ## Delivery
 
 Per the playbook: `npm run gate` before each commit, `npm run e2e`
