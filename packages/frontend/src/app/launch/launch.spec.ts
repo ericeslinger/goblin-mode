@@ -4,7 +4,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { launchMatcher } from '../app.routes';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
-import { NotesService } from '../notes/notes.service';
+import { NotesService, SEALED_TITLE } from '../notes/notes.service';
 import {
   FakeAttachments,
   FakeAuthService,
@@ -140,6 +140,28 @@ describe('Launch', () => {
     await go('/?note=n7');
     expect(url()).toBe('/n/n7');
     expect(el.querySelector('.cm-content')?.textContent).toContain('From a push');
+  });
+
+  it('shows a sealed note it cannot open as one calm line, with no editor (step 3a)', async () => {
+    const notes = new FakeNotes();
+    const sealed = { ...noteRecord('s1', ''), title: SEALED_TITLE, locked: true as const };
+    notes.signIn([sealed, noteRecord('n1', 'Plain words')]);
+    const { el, fixture } = await render({ notes, url: '/n/s1' });
+    const line = [...el.querySelectorAll('[role="status"]')].find((p) =>
+      p.textContent?.includes('This note is sealed'),
+    );
+    expect(line?.textContent).toContain('its key is not on this device yet');
+    expect(line?.classList.contains('note-status')).toBe(true);
+    expect(el.querySelector('app-note-editor')?.classList.contains('hidden')).toBe(true);
+    expect(el.querySelector('.cm-content')?.getAttribute('contenteditable')).toBe('false');
+    expect(buttonNamed(el, 'Back')).toBeUndefined();
+    expect(buttonNamed(el, 'View')).toBeUndefined();
+    // It opens once the key is here.
+    notes.notes.set([noteRecord('s1', 'The sealed words'), noteRecord('n1', 'Plain words')]);
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('This note is sealed');
+    expect(el.querySelector('app-note-editor')?.classList.contains('hidden')).toBe(false);
+    expect(el.querySelector('.cm-content')?.textContent).toContain('The sealed words');
   });
 
   it('holds a linked note that has not arrived, read-only, until it does', async () => {

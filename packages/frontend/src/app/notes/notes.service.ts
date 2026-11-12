@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
@@ -43,6 +44,12 @@ import {
   SEND_ASK_MAX,
   NoteMode,
   takesInstructions,
+  type DataKey,
+  type SealedField,
+  SealError,
+  aadFor,
+  isSealed,
+  openText,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -62,6 +69,7 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { LocalStore } from '../platform/local-store';
 import { NOW, ONLINE, RANDOM_BYTES } from '../platform/platform';
+import { NoteKeyService } from './note-key.service';
 import { type PendingWrites, isPendingWrite, lost, nextPending } from './pending-writes';
 
 /** Names linked before their concept could be made (needs the server). */
@@ -168,6 +176,135 @@ export interface NoteRecord {
   agent?: string;
   /** `textHash` of the text the last body write replaced, when known (#241). */
   baseHash?: string;
+  /**
+   * Sealed, and this device cannot open it yet (note encryption step 3a):
+   * no key here, or not this note's key. `body` is then '' and `title`
+   * is `SEALED_TITLE`, never the sealed text, and nothing writes to it.
+   */
+  locked?: true;
+}
+
+/** What a note this device cannot open shows in place of its title. */
+export const SEALED_TITLE = 'Sealed note';
+
+/** A note document as a snapshot gives it. */
+export interface NoteDoc {
+  id: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Opens one sealed field of note `id`: its text, or undefined when this
+ * device cannot open it. Only called with sealed values.
+ */
+export type FieldOpener = (id: string, field: SealedField, value: string) => string | undefined;
+
+/** The opener with no key: every sealed value stays shut. */
+const NO_KEY: FieldOpener = () => undefined;
+
+/**
+ * The text of a sealed `value` in field `field` of note `noteId`, or
+ * undefined when `key` is missing or does not open it. A history
+ * version opens with its note's own id (DESIGN.md, Note encryption).
+ */
+export function openField(
+  key: DataKey | undefined,
+  uid: string,
+  noteId: string,
+  field: SealedField,
+  value: string,
+): string | undefined {
+  if (!key) return undefined;
+  try {
+    return openText(key, aadFor(uid, noteId, field), value);
+  } catch (err) {
+    if (err instanceof SealError) return undefined;
+    throw err;
+  }
+}
+
+/**
+ * Opened note text (step 3a), so a new snapshot opens only what changed:
+ * keyed by note, field and the sealed value itself, so a changed value
+ * is a new entry and never reads as the old text. Each pass keeps only
+ * the entries that pass used, so the cache holds at most the sealed
+ * fields of the latest snapshot and cannot grow without limit. A failed
+ * open is kept too, so a wrong key costs one try per value, not one per
+ * snapshot. A different key or gardener drops it all.
+ */
+export class OpenedTexts {
+  private key?: DataKey;
+  private uid?: string;
+  private kept = new Map<string, string | null>();
+  /** How many values were actually opened (tried), for specs. */
+  tries = 0;
+
+  /**
+   * A pass over one snapshot: the opener for it. `key` is read only on
+   * the first sealed value, so with only plain notes nothing depends on
+   * the key and its arrival recomputes nothing.
+   */
+  pass(key: () => DataKey | undefined, uid: string): FieldOpener {
+    const prev = this.kept;
+    const next = new Map<string, string | null>();
+    let started = false;
+    let held: DataKey | undefined;
+    this.kept = next;
+    return (id, field, value) => {
+      if (!started) {
+        started = true;
+        held = key();
+        if (held !== this.key || uid !== this.uid) {
+          this.key = held;
+          this.uid = uid;
+          prev.clear();
+        }
+      }
+      if (!held) return undefined;
+      const at = `${id}\u0000${field}\u0000${value}`;
+      let text = next.has(at) ? next.get(at) : prev.get(at);
+      if (text === undefined) {
+        this.tries++;
+        text = openField(held, uid, id, field, value) ?? null;
+      }
+      next.set(at, text);
+      return text ?? undefined;
+    };
+  }
+
+  /** Forgets everything opened: signed out. */
+  clear(): void {
+    this.kept = new Map();
+    this.key = this.uid = undefined;
+  }
+}
+
+/**
+ * Refused: a write to a note this device cannot open (step 3a). Its
+ * record holds placeholders, so anything written from it would be
+ * written over text this device has not seen.
+ */
+export class LockedNoteError extends Error {
+  override readonly name = 'LockedNoteError';
+}
+
+/**
+ * `api` with every write to a locked note refused, at the one seam all
+ * of NotesService's writes share: `locked` says whether a path is a
+ * locked note's document.
+ */
+function refusingLocked(api: NotesApi, locked: (path: string) => boolean): NotesApi {
+  const refuse = () =>
+    Promise.reject(
+      new LockedNoteError('not written: the note is sealed and its key is not on this device'),
+    );
+  return {
+    ...api,
+    set: (db, path, data, merge) => (locked(path) ? refuse() : api.set(db, path, data, merge)),
+    createIfAbsent: (db, path, data) =>
+      locked(path) ? refuse() : api.createIfAbsent(db, path, data),
+    remove: (db, path) => (locked(path) ? refuse() : api.remove(db, path)),
+  };
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -245,12 +382,27 @@ function recipeSource(value: unknown): NoteRecord['source'] {
   return Object.keys(out).length ? out : undefined;
 }
 
-function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
+/**
+ * A note as the app reads it, from its stored document: the one place
+ * the app decodes a note (step 3a). A sealed `body` or `title` is opened
+ * with `open`; plain text passes through as it always has. If either
+ * will not open the note is `locked`, its text the placeholders.
+ */
+export function toRecord(
+  id: string,
+  data: Record<string, unknown>,
+  open: FieldOpener = NO_KEY,
+): NoteRecord {
   const stamp = data['updatedAt'] as { toMillis?: () => number } | null | undefined;
+  const stored = { body: String(data['body'] ?? ''), title: String(data['title'] ?? '') };
+  const body = isSealed(stored.body) ? open(id, 'body', stored.body) : stored.body;
+  const title = isSealed(stored.title) ? open(id, 'title', stored.title) : stored.title;
+  const locked = body === undefined || title === undefined;
   return {
     id,
-    body: String(data['body'] ?? ''),
-    title: String(data['title'] ?? ''),
+    body: locked ? '' : body,
+    title: locked ? SEALED_TITLE : title,
+    ...(locked ? { locked: true as const } : {}),
     titleSource: (data['titleSource'] as TitleSource) ?? 'words',
     kind: typeof data['kind'] === 'string' ? data['kind'] : 'text',
     ...(Array.isArray(data['synonyms']) ? { synonyms: data['synonyms'].map(String) } : {}),
@@ -318,20 +470,54 @@ function toRecord(id: string, data: Record<string, unknown>): NoteRecord {
 @Injectable({ providedIn: 'root' })
 export class NotesService {
   private readonly fb = inject(FIREBASE);
-  private readonly api = inject(NOTES_API);
+  /** Every write goes through here, and none reaches a locked note (step 3a). */
+  private readonly api = refusingLocked(inject(NOTES_API), (path) => this.lockedAt(path));
   private readonly auth = inject(AuthService);
+  private readonly keys = inject(NoteKeyService);
   private readonly store = inject(LocalStore);
   private readonly random = inject(RANDOM_BYTES);
 
-  readonly notes = signal<NoteRecord[]>([]);
+  /**
+   * The documents as the latest snapshot gave them, and whose (step 3a).
+   * Records are derived from these and the gardener's key, so a key that
+   * arrives after the snapshot, or changes, opens the notes then.
+   */
+  private readonly snapshot = signal<{ uid: string; docs: NoteDoc[] } | undefined>(undefined);
+  private readonly opened = new OpenedTexts();
+  private readonly records = computed(() => {
+    const snap = this.snapshot();
+    if (!snap) {
+      this.opened.clear();
+      return [];
+    }
+    const open = this.opened.pass(() => this.keys.key(), snap.uid);
+    return snap.docs.map((d) => toRecord(d.id, d.data, open));
+  });
+  readonly notes = computed(() => this.records().filter((n) => n.deletedAt === undefined));
   /**
    * Notes in Trash (#217), the last deleted first. Kept apart from
    * `notes`, so every list, lens, count and link leaves them out, as
    * for a note that is not there.
    */
-  readonly trash = signal<NoteRecord[]>([]);
-  /** Names to ids, for resolving `[[links]]` (schema, concepts.ts). */
-  readonly names = computed(() => nameIndex(this.notes()));
+  readonly trash = computed(() =>
+    this.records()
+      .filter((n) => n.deletedAt !== undefined)
+      .sort((a, b) => b.deletedAt! - a.deletedAt!),
+  );
+  /** The ids of the notes this device cannot open yet, one per line. */
+  private readonly lockedIds = computed(() =>
+    this.records()
+      .filter((n) => n.locked)
+      .map((n) => n.id)
+      .join('\n'),
+  );
+  /**
+   * Names to ids, for resolving `[[links]]` (schema, concepts.ts). A
+   * locked note answers to its other names, never to the placeholder.
+   */
+  readonly names = computed(() =>
+    nameIndex(this.notes().map((n) => (n.locked ? { ...n, title: '' } : n))),
+  );
   /** When each recipe was made, by normalized name, from the meal plans (#129). */
   readonly made = computed(() =>
     madeHistory(this.notes().filter((n) => n.kind === 'mealplan' && !n.archived)),
@@ -362,8 +548,9 @@ export class NotesService {
       this.stop?.();
       this.stop = undefined;
       this.uid = uid;
-      this.notes.set([]);
-      this.trash.set([]);
+      this.snapshot.set(undefined);
+      // Text opened for the last gardener goes with them.
+      this.opened.clear();
       this.loaded.set(false);
       this.written.clear();
       this.replayed = false;
@@ -378,28 +565,30 @@ export class NotesService {
         this.fb.db,
         paths.notes(uid),
         (docs, fromCache) => {
-          const all = docs.map((d) => toRecord(d.id, d.data));
-          this.notes.set(all.filter((n) => n.deletedAt === undefined));
-          this.trash.set(
-            all
-              .filter((n) => n.deletedAt !== undefined)
-              .sort((a, b) => b.deletedAt! - a.deletedAt!),
-          );
+          this.snapshot.set({ uid, docs });
           // Kept writes are checked against the first snapshot from the
           // server, never the persisted cache: that can be stale, showing
           // the base while someone has written over it since (review on
           // #204). Offline, they wait on the device for the server.
           if (!fromCache && !this.replayed) {
             this.replayed = true;
-            this.replaySaves();
-            this.replayInstructions();
-            this.replayNames();
+            this.replayKept();
           }
           this.loaded.set(true);
           this.makePendingConcepts();
         },
         (err) => console.error('notes listener', err),
       );
+    });
+    // Kept writes for a note that was locked wait for it to open (step
+    // 3a): neither replayed over its placeholder nor forgotten.
+    effect(() => {
+      this.lockedIds();
+      untracked(() => {
+        if (this.replayed && Object.values(this.atLoad).some((e) => Object.keys(e).length)) {
+          this.replayKept();
+        }
+      });
     });
     // Concepts waiting for the server are made when it is back.
     const back = () => this.makePendingConcepts();
@@ -438,6 +627,34 @@ export class NotesService {
   }
 
   /**
+   * Whether `id` is sealed and this device cannot open it yet (step 3a),
+   * in the list or in Trash. Nothing writes to it until it opens.
+   */
+  locked(id: string): boolean {
+    return (this.find(id) ?? this.trashed(id))?.locked === true;
+  }
+
+  /** Whether `path` is the document of a locked note. */
+  private lockedAt(path: string): boolean {
+    if (!this.uid) return false;
+    const prefix = `${paths.notes(this.uid)}/`;
+    if (!path.startsWith(prefix)) return false;
+    const id = path.slice(prefix.length);
+    return !id.includes('/') && this.locked(id);
+  }
+
+  /**
+   * The kept writes this sign-in found, checked against the server's
+   * notes (#200). Each replay leaves in `atLoad` only the entries whose
+   * note is locked, to try again once it opens.
+   */
+  private replayKept(): void {
+    this.replaySaves();
+    this.replayInstructions();
+    this.replayNames();
+  }
+
+  /**
    * Writes a note's text: a full document first, then merged updates.
    * A restore writes as its own writer (`RESTORE_SUFFIX`), so noteHistory
    * keeps the text it replaces.
@@ -452,6 +669,9 @@ export class NotesService {
     }: { restore?: boolean; keep?: boolean; base?: string } = {},
   ): void {
     if (!this.uid) throw new Error('save before sign-in');
+    // Never over a note this device cannot open (step 3a): its record's
+    // text is a placeholder. Capture keeps typing for it on the device.
+    if (this.locked(id)) return;
     const path = paths.note(this.uid, id);
     const existing = this.find(id);
     const now = this.api.serverTime();
@@ -503,8 +723,16 @@ export class NotesService {
   private replaySaves(): void {
     const uid = this.uid;
     const atLoad = (this.atLoad[PENDING_SAVES_KEY] ?? {}) as PendingSaves;
+    const waiting: PendingSaves = {};
+    this.atLoad[PENDING_SAVES_KEY] = waiting;
     for (const [id, entry] of Object.entries(atLoad)) {
       if (!this.unchanged(PENDING_SAVES_KEY, id, entry)) continue;
+      // Locked: its text is not known here, so neither replayed nor
+      // dropped; it waits for the note to open.
+      if (this.locked(id)) {
+        waiting[id] = entry;
+        continue;
+      }
       if (!isPendingWrite(entry) || !uid) {
         this.forget(PENDING_SAVES_KEY, id);
         continue;
@@ -638,7 +866,7 @@ export class NotesService {
    */
   holdInstructions(id: string, instructions: string): boolean {
     const note = this.find(id);
-    if (!this.uid || !note || !takesInstructions(note.kind)) return false;
+    if (!this.uid || !note || note.locked || !takesInstructions(note.kind)) return false;
     const pending = this.store.get<PendingWrites>(PENDING_INSTRUCTIONS_KEY) ?? {};
     const prev = isPendingWrite(pending[id]) ? pending[id] : undefined;
     const entry = nextPending(prev, this.uid, instructions, note.instructions ?? null);
@@ -654,8 +882,14 @@ export class NotesService {
    */
   private replayInstructions(): void {
     const atLoad = this.atLoad[PENDING_INSTRUCTIONS_KEY] ?? {};
+    const waiting: PendingWrites = {};
+    this.atLoad[PENDING_INSTRUCTIONS_KEY] = waiting;
     for (const [id, entry] of Object.entries(atLoad)) {
       if (!this.unchanged(PENDING_INSTRUCTIONS_KEY, id, entry)) continue;
+      if (this.locked(id)) {
+        waiting[id] = entry;
+        continue;
+      }
       if (!isPendingWrite(entry)) {
         this.forget(PENDING_INSTRUCTIONS_KEY, id);
         continue;
@@ -705,7 +939,8 @@ export class NotesService {
     if (!this.uid || !title) return undefined;
     const owner = this.names().get(normalizeName(title));
     const stub = owner === undefined ? undefined : this.find(owner);
-    const foldable = stub?.kind === 'concept' && !stub.body.trim() && !stub.synonyms?.length;
+    const foldable =
+      stub?.kind === 'concept' && !stub.locked && !stub.body.trim() && !stub.synonyms?.length;
     if (owner !== undefined && !foldable) return undefined;
     const id = this.newId();
     const now = this.api.serverTime();
@@ -940,6 +1175,8 @@ export class NotesService {
     const note = this.find(id);
     const title = name.trim();
     if (!this.uid || (note?.kind !== 'recipe' && note?.kind !== 'concept')) return false;
+    // A locked note's name is not known here: nothing kept, nothing forgotten.
+    if (note.locked) return false;
     if (!title) {
       this.forget(PENDING_NAMES_KEY, id);
       return false;
@@ -984,8 +1221,14 @@ export class NotesService {
    */
   private replayNames(): void {
     const atLoad = this.atLoad[PENDING_NAMES_KEY] ?? {};
+    const waiting: PendingWrites = {};
+    this.atLoad[PENDING_NAMES_KEY] = waiting;
     for (const [id, entry] of Object.entries(atLoad)) {
       if (!this.unchanged(PENDING_NAMES_KEY, id, entry)) continue;
+      if (this.locked(id)) {
+        waiting[id] = entry;
+        continue;
+      }
       if (!isPendingWrite(entry)) {
         this.forget(PENDING_NAMES_KEY, id);
         continue;
@@ -1281,7 +1524,7 @@ export class NotesService {
       const owner = names.get(normalizeName(name));
       if (owner === undefined || owner === id) return true;
       const stub = this.find(owner);
-      if (stub?.kind === 'concept' && !stub.body.trim() && !stub.synonyms?.length) {
+      if (stub?.kind === 'concept' && !stub.locked && !stub.body.trim() && !stub.synonyms?.length) {
         folded.add(owner);
         return true;
       }
@@ -1342,7 +1585,8 @@ export class NotesService {
    * updatedAt are left alone.
    */
   settle(id: string, { edited = false }: { edited?: boolean } = {}): void {
-    if (!this.uid) return;
+    // A locked note asks no title of a text this device cannot read.
+    if (!this.uid || this.locked(id)) return;
     // A template keeps the name its first line gives it; the context note
     // keeps its own (#113).
     const kind = this.find(id)?.kind;
@@ -1363,13 +1607,14 @@ export class NotesService {
   }
 
   remove(id: string): void {
-    if (!this.uid) return;
+    // A locked note is never deleted for looking empty (step 3a).
+    if (!this.uid || this.locked(id)) return;
     this.written.delete(id);
     // Emptied or bare: nothing typed in it is left to keep.
     this.forget(PENDING_SAVES_KEY, id);
     this.forget(PENDING_INSTRUCTIONS_KEY, id);
     this.forget(PENDING_NAMES_KEY, id);
-    this.notes.update((list) => list.filter((n) => n.id !== id));
+    this.snapshot.update((snap) => snap && { ...snap, docs: snap.docs.filter((d) => d.id !== id) });
     this.api.remove(this.fb.db, paths.note(this.uid, id)).catch(report);
   }
 
@@ -1385,5 +1630,6 @@ export class NotesService {
 }
 
 function report(err: unknown): void {
-  console.error('note write failed', err);
+  if (err instanceof LockedNoteError) console.warn(err.message);
+  else console.error('note write failed', err);
 }

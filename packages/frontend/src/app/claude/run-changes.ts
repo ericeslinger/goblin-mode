@@ -12,7 +12,8 @@ import {
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { HISTORY_API, HISTORY_SHOWN, type VersionRecord, toVersion } from '../history/history';
-import { type NoteRecord, NotesService } from '../notes/notes.service';
+import { NoteKeyService } from '../notes/note-key.service';
+import { type NoteRecord, NotesService, openField } from '../notes/notes.service';
 import type { RunRecord } from './activity';
 
 /**
@@ -184,6 +185,11 @@ let seq = 0;
           <p role="status" class="muted">Could not read History: {{ error() }}</p>
         } @else if (!sides()) {
           <p role="status" class="muted">Loading the changes…</p>
+        } @else if (sealed()) {
+          <p role="status" class="muted">
+            This note is sealed, and its key is not on this device yet. Its changes show when this
+            device is back online and signed in.
+          </p>
         } @else {
           @let s = sides()!;
           @if (notes().length) {
@@ -346,6 +352,7 @@ export class RunChanges {
   private readonly fb = inject(FIREBASE);
   private readonly auth = inject(AuthService);
   private readonly notesService = inject(NotesService);
+  private readonly keys = inject(NoteKeyService);
 
   protected readonly panelId = `run-changes-${++seq}`;
   protected readonly open = signal(false);
@@ -360,6 +367,16 @@ export class RunChanges {
     const note = this.notesService.find(id);
     return runSides(this.run(), this.note(), versions, note);
   });
+
+  /**
+   * The note or a version of it is sealed and will not open here (note
+   * encryption step 3a): no diff of placeholders.
+   */
+  protected readonly sealed = computed(
+    () =>
+      !!this.versions()?.some((v) => v.locked) ||
+      this.notesService.find(this.note().id)?.locked === true,
+  );
 
   private readonly diff = computed(() => {
     const s = this.sides();
@@ -430,10 +447,13 @@ export class RunChanges {
       this.error.set('not signed in');
       return;
     }
+    const id = this.note().id;
+    // A version opens as its note does (step 3a), with the key held now.
+    const open = (value: string) => openField(this.keys.key(), uid, id, 'body', value);
     this.stop = this.api.listen(
       this.fb.db,
-      paths.history(uid, this.note().id),
-      (docs) => this.versions.set(docs.map((d) => toVersion(d.id, d.data))),
+      paths.history(uid, id),
+      (docs) => this.versions.set(docs.map((d) => toVersion(d.id, d.data, open))),
       (err) => this.error.set((err as Error).message || 'unknown error'),
     );
   }

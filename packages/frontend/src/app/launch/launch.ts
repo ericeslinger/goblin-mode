@@ -140,6 +140,12 @@ export class Launch {
   protected readonly linkStatus = signal('');
   /** The open note as stored, once it exists (a concept shows its header). */
   protected readonly record = computed(() => this.notes.find(this.capture.open().id));
+  /**
+   * The open note is sealed and this device cannot open it yet (note
+   * encryption step 3a): one calm line instead of its text, and no editor
+   * to type over it in. It opens when the key arrives.
+   */
+  protected readonly locked = computed(() => this.record()?.locked === true);
   /** A list made from a template (#39): it can be shopped from in the list view. */
   protected readonly listable = computed(
     () => !!this.record()?.fromTemplate && checklist(this.capture.current()).length > 0,
@@ -156,7 +162,11 @@ export class Launch {
   });
 
   /** Names a `[[` can complete to: concepts, synonyms, note titles. */
-  protected readonly suggest = (query: string) => suggestLinks(query, this.notes.notes());
+  protected readonly suggest = (query: string) =>
+    suggestLinks(
+      query,
+      this.notes.notes().filter((n) => !n.locked),
+    );
   /** Moods for a Moods line (#40): those starting with what is typed first. */
   protected readonly suggestMood = (query: string) => suggestMoods(query, this.notes.notes());
   private readonly editor = viewChild(NoteEditorComponent);
@@ -230,7 +240,7 @@ export class Launch {
           !n.archived &&
           n.kind !== 'template' &&
           n.kind !== 'context' &&
-          n.body.trim() &&
+          (n.body.trim() || n.locked) &&
           n.id !== this.capture.open().id,
       )
       .slice(0, 5),

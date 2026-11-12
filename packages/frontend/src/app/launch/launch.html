@@ -23,14 +23,18 @@
         </button>
       }
       <span class="spacer"></span>
-      @if (!back() && (viewing() || (capture.current().trim() && !(listable() && listMode())))) {
+      @if (
+        !locked() &&
+        !back() &&
+        (viewing() || (capture.current().trim() && !(listable() && listMode())))
+      ) {
         <!-- Viewing (2026-10-17): select and tick without the keyboard. The
              label names what a tap switches to, like Source or Preview. -->
         <button type="button" class="link quiet" (click)="toggleViewing()">
           {{ viewing() ? 'Edit' : 'View' }}
         </button>
       }
-      @if (record()) {
+      @if (record() && !locked()) {
         <!-- The back of the note (#112): what is about it, not in it. The
              label names the side a tap turns to. -->
         <button type="button" class="link quiet" (click)="back.set(!back())">
@@ -112,7 +116,16 @@
           [current]="tab === 'shopping' ? 'true' : 'page'"
         />
       }
-      @if (back() && record(); as note) {
+      @if (locked()) {
+        <!-- Sealed, and its key is not on this device yet (step 3a). -->
+        <p class="note-status" role="status">
+          This note is sealed, and its key is not on this device yet. It will open when this device
+          is back online and signed in.
+          @if (capture.current().trim()) {
+            What you typed in it is kept here and goes into it then.
+          }
+        </p>
+      } @else if (back() && record(); as note) {
         <!-- A note put in Trash is left for a fresh one (#217). -->
         <app-note-back class="back" [note]="note" (deleted)="newNote()" />
       } @else if (record(); as note) {
@@ -163,14 +176,14 @@
       }
       <app-note-editor
         class="editor"
-        [class.hidden]="(listable() && listMode()) || back()"
+        [class.hidden]="(listable() && listMode()) || back() || locked()"
         label="New note"
         placeholder="Plant a thought"
         autofocus
         [noteId]="capture.open().id"
         [text]="capture.open().text"
         [base]="capture.open().base"
-        [readOnly]="waiting()"
+        [readOnly]="waiting() || locked()"
         [viewOnly]="viewing()"
         [suggestLinks]="suggest"
         [suggestMoods]="suggestMood"

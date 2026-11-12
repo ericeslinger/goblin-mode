@@ -35,7 +35,8 @@ export function inLens(lens: LensId, n: NoteRecord): boolean {
   switch (lens) {
     case 'recent':
       // Notes with something written; empty stub concepts would be noise.
-      return note(n) && !!n.body.trim();
+      // A sealed note this device cannot open shows as one (step 3a).
+      return note(n) && (!!n.body.trim() || n.locked === true);
     case 'concepts':
       return concept(n);
     case 'people':

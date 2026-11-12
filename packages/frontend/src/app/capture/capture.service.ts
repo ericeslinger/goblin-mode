@@ -88,6 +88,8 @@ export class CaptureService {
   /** The text a restore just replaced, until a newer snapshot arrives. */
   private replaced?: { id: string; text: string };
   private dirty = false;
+  /** The pending draft waited for its note to open (step 3a). */
+  private draftWaited = false;
   /** True until the user types in the open note. */
   private untouched = true;
   private timer?: ReturnType<typeof setTimeout>;
@@ -112,25 +114,38 @@ export class CaptureService {
 
     // The open note changed elsewhere (another device, Claude), or a
     // resumed note's text arrived: merge it with anything typed since
-    // the last sync, so neither side's text is lost (#37).
+    // the last sync, so neither side's text is lost (#37). A locked
+    // note's placeholder is not its text (step 3a): nothing is merged
+    // from it, and once it opens its text merges in then.
     effect(() => {
       const list = this.notes.notes();
       untracked(() => {
         const { id } = this.open();
         const note = list.find((n) => n.id === id);
-        if (note) this.merge(id, note.body, note.deviceId);
+        if (note && !note.locked) this.merge(id, note.body, note.deviceId);
       });
     });
 
-    // Once the user is known, write any pending settle and draft.
+    // Once the user is known, write any pending settle and draft. A
+    // draft for a note this device cannot open yet stays on the device
+    // until it opens (step 3a), and then merges into its text, as
+    // typing before it arrived does.
     effect(() => {
       if (!this.notes.loaded()) return;
+      const list = this.notes.notes();
       untracked(() => {
         // The draft first, so the settle's title sees the final text.
         const pending = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
-        if (pending) {
-          if (pending.body.trim()) this.notes.save(pending.id, pending.body);
+        if (pending && this.notes.locked(pending.id)) {
+          this.draftWaited = true;
+        } else if (pending) {
+          const note = this.draftWaited ? list.find((n) => n.id === pending.id) : undefined;
+          if (note && pending.body.trim()) {
+            const text = merge3('', pending.body, note.body);
+            if (text !== note.body) this.notes.save(pending.id, text, { base: note.body });
+          } else if (pending.body.trim()) this.notes.save(pending.id, pending.body);
           this.store.remove(PENDING_DRAFT_KEY);
+          this.draftWaited = false;
         }
         const settle = this.store.get<string>(PENDING_SETTLE_KEY);
         if (settle) {
@@ -213,9 +228,16 @@ export class CaptureService {
       else this.store.remove(PENDING_DRAFT_KEY);
       return;
     }
+    // Typed before the note turned out to be one this device cannot
+    // open (step 3a): kept on the device as a draft, never written over
+    // it, and merged in once it opens.
+    if (this.notes.locked(id)) {
+      if (this.body.trim()) this.store.set(PENDING_DRAFT_KEY, { id, body: this.body });
+      return;
+    }
     // This text is newer than any pending draft, which must not land
     // on top of it later.
-    this.store.remove(PENDING_DRAFT_KEY);
+    this.dropDraft();
     const base = this.synced;
     this.synced = this.body;
     this.sent = [...this.sent, this.body].slice(-SENT_KEPT);
@@ -260,14 +282,14 @@ export class CaptureService {
    * first, so history keeps it too; the note opens with the old text.
    */
   restore(id: string, body: string): void {
-    if (!this.notes.ready) return;
+    if (!this.notes.ready || this.notes.locked(id)) return;
     const open = id === this.open().id;
     if (open) this.flush();
     else this.closeCurrent();
     // What the note says until the restore lands: the typing just saved,
     // or the note as this device has it.
     const replaced = open ? this.body : this.notes.find(id)?.body;
-    this.store.remove(PENDING_DRAFT_KEY);
+    this.dropDraft();
     this.notes.save(id, body, { restore: true });
     this.show({ id, text: body });
     // The restored text is the note now: a snapshot still carrying the
@@ -306,6 +328,8 @@ export class CaptureService {
   private closeCurrent(): void {
     this.flush();
     const { id } = this.open();
+    // A locked note is left as it is: never removed, settled or bare.
+    if (this.notes.locked(id)) return;
     // Only a note emptied by typing here is deleted: an untouched one may
     // simply not have loaded yet, and must never be removed.
     if (!this.untouched && !this.body.trim() && !this.isKept(id)) {
@@ -326,6 +350,16 @@ export class CaptureService {
       // New names linked here become concepts (#29).
       if (!this.untouched) this.notes.plantConcepts(this.body);
     } else if (this.notes.exists(id) || !this.untouched) this.store.set(PENDING_SETTLE_KEY, id);
+  }
+
+  /**
+   * Forgets the pending draft, which newer text replaces, unless it is
+   * another note's, waiting for that note to open (step 3a).
+   */
+  private dropDraft(): void {
+    const draft = this.store.get<PendingDraft>(PENDING_DRAFT_KEY);
+    if (draft && draft.id !== this.open().id && this.notes.locked(draft.id)) return;
+    this.store.remove(PENDING_DRAFT_KEY);
   }
 
   /** A note made from an entry template whose text is still the skeleton. */
