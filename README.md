@@ -198,9 +198,9 @@ backups hold only ciphertext, so save the master somewhere safe, apart
 from both, before any note is sealed. Losing it loses every sealed
 note, for good. Never replace the master outside a key rotation
 (DESIGN.md, Note encryption): every gardener's key would change, and
-sealed notes would no longer open. The service secret can be replaced at any time, on both sides
-together. To check the master is set: the app's request to
-`/api/note-key` answers 200, not 503.
+sealed notes would no longer open. The service secret can be replaced
+at any time, on both sides together. To check the master is set: the
+app's request to `/api/note-key` answers 200, not 503.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
