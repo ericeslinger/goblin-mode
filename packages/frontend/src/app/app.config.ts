@@ -10,6 +10,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { FIREBASE, initFirebase } from './firebase';
 import { rememberModules } from './home/start-on';
+import { NoteKeyService } from './notes/note-key.service';
 import { PushService } from './push/push.service';
 import { ThemeSync } from './theme/theme-sync.service';
 import { ThemeService } from './theme/theme.service';
@@ -32,5 +33,8 @@ export const appConfig: ApplicationConfig = {
     provideEnvironmentInitializer(rememberModules),
     // Refreshes this device's push token after each sign-in; never awaited.
     provideEnvironmentInitializer(() => void inject(PushService)),
+    // Fetches the gardener's note key after sign-in, for sealed notes
+    // (note encryption step 2); never awaited, never blocks.
+    provideEnvironmentInitializer(() => void inject(NoteKeyService)),
   ],
 };

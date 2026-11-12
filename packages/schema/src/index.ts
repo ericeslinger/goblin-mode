@@ -31,3 +31,4 @@ export * from './modes';
 export * from './corrections';
 export * from './diff';
 export * from './sealed';
+export * from './note-key';

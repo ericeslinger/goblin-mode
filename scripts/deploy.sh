@@ -19,6 +19,10 @@
 #                           and the episode proxy's (#180)
 #   ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID,
 #   ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_WORKSPACE_ID   Claude titles
+# Never passed through here: the note key service's Worker secrets
+# NOTE_KEYS_MASTER and NOTE_KEYS_SERVICE, and the functions' secret
+# NOTE_KEYS_SERVICE, are set once by hand (README, Run your own), so the
+# master exists only at Cloudflare and in the owner's own backup.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -64,10 +68,11 @@ npx firebase deploy --project "$FIREBASE_PROJECT_ID" --non-interactive \
 # Functions read their settings from .env.<project> in their source
 # directory, which the Firebase CLI deploys as environment variables.
 # Written here from the environment, removed afterwards, never committed.
+# APP_DOMAIN tells the functions where the Worker's note key service is.
 functions_env="packages/functions/.env.$FIREBASE_PROJECT_ID"
 trap 'rm -f "$functions_env"' EXIT
 : > "$functions_env"
-for name in OWNER_UID ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID \
+for name in APP_DOMAIN OWNER_UID ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID \
   ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_WORKSPACE_ID STORAGE_REGION; do
   if [ -n "${!name:-}" ]; then printf '%s=%s\n' "$name" "${!name}" >> "$functions_env"; fi
 done

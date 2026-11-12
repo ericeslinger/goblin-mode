@@ -32,7 +32,7 @@ and variables, Actions); nothing in the code names a deployment.
 | --- | --- | --- |
 | `FIREBASE_PROJECT_ID` | variable | The Firebase project id; the Worker also checks podcast downloads' ID tokens against it |
 | `FIREBASE_WEB_CONFIG` | variable | The web app's config as JSON (Project settings, Your apps) |
-| `APP_DOMAIN` | variable | The domain to serve, on your Cloudflare account |
+| `APP_DOMAIN` | variable | The domain to serve, on your Cloudflare account; the functions also reach the Worker's note key service there |
 | `CLOUDFLARE_ACCOUNT_ID` | variable | Your Cloudflare account id |
 | `CLOUDFLARE_API_TOKEN` | secret | Token that can deploy Workers and set custom domains |
 | `FIREBASE_SERVICE_ACCOUNT` | secret | JSON key of the deploy service account |
@@ -165,6 +165,42 @@ gcloud storage buckets update gs://<bucket> --cors-file=cors.json
 Without it a photo shows only on the device that took it, until that
 device's copy is gone; elsewhere its caption shows instead. To check:
 a photo taken on the phone shows in a browser tab on another device.
+
+Notes are to be sealed (encrypted at rest) with a key for each
+gardener that the Worker derives from one master secret (DESIGN.md,
+Note encryption). The master and a service secret, which lets the
+functions ask the Worker for keys, are set once by hand, never through
+GitHub or the deploy. Until they are, the app and the functions carry
+on without keys; nothing is sealed yet in any case. Set them before
+the step that first seals notes ships (the functions that seal will
+not deploy without the service secret). With Cloudflare credentials
+for `wrangler` (`npx wrangler login`, or `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`) and `firebase-tools` signed in to the project:
+
+```sh
+# The master: base64 of 32 random bytes.
+openssl rand -base64 32 | tr -d '\n' > note-keys-master.txt
+# Save note-keys-master.txt in your password manager now (see below).
+npx wrangler secret put NOTE_KEYS_MASTER --config infra/worker/wrangler.toml < note-keys-master.txt
+
+# The service secret: the same value at Cloudflare and in Secret Manager.
+openssl rand -base64 32 | tr -d '\n' > note-keys-service.txt
+npx wrangler secret put NOTE_KEYS_SERVICE --config infra/worker/wrangler.toml < note-keys-service.txt
+npx firebase functions:secrets:set NOTE_KEYS_SERVICE --project <project> \
+  --data-file note-keys-service.txt
+
+rm note-keys-master.txt note-keys-service.txt
+```
+
+**The master secret is the only way to read sealed notes.** Cloudflare
+never shows a secret again once it is set, and Firestore and its
+backups hold only ciphertext, so save the master somewhere safe, apart
+from both, before any note is sealed. Losing it loses every sealed
+note, for good. Never replace the master outside a key rotation
+(DESIGN.md, Note encryption): every gardener's key would change, and
+sealed notes would no longer open. The service secret can be replaced at any time, on both sides
+together. To check the master is set: the app's request to
+`/api/note-key` answers 200, not 503.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
