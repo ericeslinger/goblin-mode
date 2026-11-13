@@ -61,7 +61,7 @@ const sealedNote = (body: string, over: Data = {}) =>
 
 const noKey = () =>
   keyFor.mockImplementation(async () => {
-    throw new NoteKeysUnconfigured('NOTE_KEYS_SERVICE is not set');
+    throw new NoteKeysUnconfigured('no note keys here');
   });
 
 const runs = () => [...store.keys()].filter((p) => p.startsWith(`users/${UID}/runs/`));

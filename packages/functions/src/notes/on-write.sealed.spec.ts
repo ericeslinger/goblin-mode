@@ -180,7 +180,7 @@ describe('noteHistory, a sealed note with its key', () => {
 describe('noteHistory, a sealed note it cannot open', () => {
   beforeEach(() => {
     keyFor.mockImplementation(async () => {
-      throw new NoteKeysUnconfigured('NOTE_KEYS_SERVICE is not set');
+      throw new NoteKeysUnconfigured('no note keys here');
     });
   });
 
@@ -283,7 +283,7 @@ describe('noteTitle', () => {
 
   it('a note it cannot open gets no model title and is not written', async () => {
     keyFor.mockImplementation(async () => {
-      throw new NoteKeysUnconfigured('NOTE_KEYS_SERVICE is not set');
+      throw new NoteKeysUnconfigured('no note keys here');
     });
     const after = sealedNote(body, settled);
     store.set(NOTE, copy(after) as Data);

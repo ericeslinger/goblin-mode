@@ -18,8 +18,13 @@ run_worker_first = ["/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/oauth/regist
 
 # FUNCTIONS_ORIGIN, FIREBASE_PROJECT_ID and OWNER_UID (the episode
 # proxy's token check, #180) are passed by scripts/deploy.sh with
-# --var, from the variables of those names.
+# --var, from the variables of those names. So are APP_DOMAIN, the
+# audience the functions' identity tokens must name, and
+# NOTE_KEY_CALLERS, the service accounts allowed to ask the note key
+# service for a gardener's key (src/note-key.ts, 2026-11-13); neither
+# is confidential.
 
-# NOTE_KEYS_MASTER and NOTE_KEYS_SERVICE (the note key service,
-# src/note-key.ts) are Worker secrets, set once by hand with `wrangler
-# secret put` (README, Run your own), never through the deploy.
+# NOTE_KEYS_MASTER (the note key service's master) is a Worker secret,
+# set once by hand with `wrangler secret put` (README, Run your own),
+# never through the deploy. The functions hold no secret for it: they
+# present a Google-signed identity token instead (2026-11-13).

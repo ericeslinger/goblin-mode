@@ -2,23 +2,32 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { base64ToBytes, bytesToBase64, deriveNoteKey } from '../../../packages/schema/src/note-key';
 import type { KeyLookup } from './id-token';
 import worker, { type Env } from './index';
-import { appNoteKey, sameSecret, serviceNoteKey } from './note-key';
+import { appNoteKey, noteKeyCallers, serviceAudience, serviceNoteKey } from './note-key';
 
 const PROJECT = 'demo-project';
 const NOW = Date.parse('2026-11-12T12:00:00Z');
 const S = NOW / 1000;
 const RS256 = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const MASTER = new Uint8Array(32).map((_, i) => (i * 13 + 5) & 255);
-const SERVICE = 'a-service-secret-that-is-long-enough-1234';
+const AUD = 'https://notes.example/api/note-key/for';
+const CALLER = 'runner@demo-project.iam.gserviceaccount.com';
+const CALLERS = `${CALLER}, 123-compute@developer.gserviceaccount.com`;
 const env = {
   FIREBASE_PROJECT_ID: PROJECT,
   NOTE_KEYS_MASTER: bytesToBase64(MASTER),
-  NOTE_KEYS_SERVICE: SERVICE,
+  APP_DOMAIN: 'notes.example',
+  NOTE_KEY_CALLERS: CALLERS,
 };
 
 let pair: CryptoKeyPair;
+/** Signs the Google OIDC tokens here; in the OIDC key set as `g1`. */
+let google: CryptoKeyPair;
+/** A key in neither set. */
+let stranger: CryptoKeyPair;
 const keys: KeyLookup = async (kid) => (kid === 'k1' ? pair.publicKey : undefined);
+const oidcKeys: KeyLookup = async (kid) => (kid === 'g1' ? google.publicKey : undefined);
 const deps = () => ({ keys, now: NOW });
+const oidcDeps = () => ({ keys: oidcKeys, now: NOW });
 
 const b64url = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
@@ -47,6 +56,32 @@ async function token(claims: Record<string, unknown> = {}): Promise<string> {
   return `${head}.${body}.${b64url(new Uint8Array(sig))}`;
 }
 
+/** A Google OIDC identity token, shaped as the metadata server mints them (format=full). */
+async function identity(
+  claims: Record<string, unknown> = {},
+  header: Record<string, unknown> = {},
+  signer: CryptoKeyPair = google,
+): Promise<string> {
+  const head = part({ alg: 'RS256', kid: 'g1', typ: 'JWT', ...header });
+  const body = part({
+    iss: 'https://accounts.google.com',
+    aud: AUD,
+    azp: '1234567890',
+    sub: '1234567890',
+    email: CALLER,
+    email_verified: true,
+    iat: S - 60,
+    exp: S + 3540,
+    ...claims,
+  });
+  const sig = await crypto.subtle.sign(
+    RS256,
+    signer.privateKey,
+    new TextEncoder().encode(`${head}.${body}`),
+  );
+  return `${head}.${body}.${b64url(new Uint8Array(sig))}`;
+}
+
 function ask(headers: Record<string, string> = {}, init: RequestInit = {}): Request {
   return new Request('https://notes.example/api/note-key', { method: 'POST', headers, ...init });
 }
@@ -68,12 +103,15 @@ async function keyOf(res: Response): Promise<string> {
 
 const derived = async (uid: string) => bytesToBase64(await deriveNoteKey(MASTER, uid, 1));
 
-beforeAll(async () => {
-  pair = (await crypto.subtle.generateKey(
+const newPair = async () =>
+  (await crypto.subtle.generateKey(
     { ...RS256, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) },
     true,
     ['sign', 'verify'],
   )) as CryptoKeyPair;
+
+beforeAll(async () => {
+  [pair, google, stranger] = await Promise.all([newPair(), newPair(), newPair()]);
 });
 
 describe('POST /api/note-key (note encryption step 2)', () => {
@@ -156,61 +194,178 @@ describe('POST /api/note-key (note encryption step 2)', () => {
   });
 });
 
-describe('POST /api/note-key/for (note encryption step 2)', () => {
-  it("answers the service with the named uid's key", async () => {
+describe('POST /api/note-key/for (identity tokens, 2026-11-13)', () => {
+  const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+
+  it("answers an allowed service account with the named uid's key", async () => {
     const res = await serviceNoteKey(
-      askFor({ uid: 'u2' }, { authorization: `Bearer ${SERVICE}` }),
+      askFor({ uid: 'u2' }, bearer(await identity())),
       env,
+      oidcDeps(),
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(await keyOf(res)).toBe(await derived('u2'));
+    const bare = await identity({ iss: 'accounts.google.com', email: CALLER.toUpperCase() });
+    const two = await serviceNoteKey(askFor({ uid: 'u1' }, bearer(bare)), env, oidcDeps());
+    expect(await keyOf(two)).toBe(await derived('u1'));
   });
 
-  it('refuses a missing or wrong secret', async () => {
-    const wrong: Record<string, string>[] = [
-      {},
-      { authorization: 'Bearer wrong' },
-      { authorization: `Bearer ${SERVICE}x` },
-      { authorization: `Bearer ${SERVICE.slice(0, -1)}` },
-      { authorization: SERVICE },
+  it('refuses a missing token, or one that fails any check', async () => {
+    const good = await identity();
+    const [head, body] = good.split('.');
+    const unsigned = `${head}.${body}.`;
+    const none = `${part({ alg: 'none', kid: 'g1', typ: 'JWT' })}.${body}.`;
+    const hmac = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode('a shared secret'),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const hsHead = part({ alg: 'HS256', kid: 'g1', typ: 'JWT' });
+    const hsSig = await crypto.subtle.sign(
+      'HMAC',
+      hmac,
+      new TextEncoder().encode(`${hsHead}.${body}`),
+    );
+    const hs256 = `${hsHead}.${body}.${b64url(new Uint8Array(hsSig))}`;
+    const bad: [string, Record<string, string>][] = [
+      ['no token', {}],
+      ['not a token', bearer('nope')],
+      ['not bearer', { authorization: `Basic ${good}` }],
+      [
+        'wrong audience',
+        bearer(await identity({ aud: 'https://elsewhere.example/api/note-key/for' })),
+      ],
+      [
+        'the app route as audience',
+        bearer(await identity({ aud: 'https://notes.example/api/note-key' })),
+      ],
+      ['audience as a list', bearer(await identity({ aud: [AUD] }))],
+      ['wrong issuer', bearer(await identity({ iss: 'https://accounts.example.com' }))],
+      [
+        'Firebase issuer',
+        bearer(await identity({ iss: `https://securetoken.google.com/${PROJECT}` })),
+      ],
+      ['expired', bearer(await identity({ exp: S - 1, iat: S - 3601 }))],
+      ['not yet valid', bearer(await identity({ iat: S + 600, exp: S + 4200 }))],
+      ['lives too long', bearer(await identity({ exp: S + 86_400 }))],
+      ['no exp', bearer(await identity({ exp: undefined }))],
+      ['email not verified', bearer(await identity({ email_verified: false }))],
+      ['email verified as a string', bearer(await identity({ email_verified: 'true' }))],
+      ['no email', bearer(await identity({ email: undefined }))],
+      ['unsigned', bearer(unsigned)],
+      ['alg none', bearer(none)],
+      ['HS256', bearer(hs256)],
+      ['signature tampered', bearer(good.replace(/\.[^.]+$/, '.AAAA'))],
+      [
+        'claims tampered',
+        bearer(
+          `${head}.${part({ ...JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))), email: 'x@y.example' })}.${good.split('.')[2]}`,
+        ),
+      ],
+      ['a key not in the set', bearer(await identity({}, { kid: 'g2' }, stranger))],
+      ['a stranger signing as g1', bearer(await identity({}, {}, stranger))],
+      ['a Firebase ID token', bearer(await token())],
+      [
+        'a Firebase ID token for this audience',
+        bearer(await token({ aud: AUD, email: CALLER, email_verified: true })),
+      ],
     ];
-    for (const headers of wrong) {
-      expect((await serviceNoteKey(askFor({ uid: 'u1' }, headers), env)).status).toBe(401);
+    for (const [why, headers] of bad) {
+      const res = await serviceNoteKey(askFor({ uid: 'u1' }, headers), env, oidcDeps());
+      expect(res.status, why).toBe(401);
+      expect(await res.text()).not.toContain(env.NOTE_KEYS_MASTER);
     }
   });
 
-  it('refuses everything without a service secret, or with one too short', async () => {
-    for (const secret of [undefined, '', 'short']) {
+  it('refuses a Firebase ID token even when its signer is in the lookup', async () => {
+    // Right signer family, wrong key set and issuer: were the Firebase
+    // keys ever looked up here by mistake, the issuer still refuses it.
+    const both: KeyLookup = async (kid) => (await keys(kid)) ?? oidcKeys(kid);
+    const res = await serviceNoteKey(
+      askFor({ uid: 'u1' }, bearer(await token({ aud: AUD, email: CALLER, email_verified: true }))),
+      env,
+      { keys: both, now: NOW },
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it('refuses, 403, a good token for an account not on the list', async () => {
+    for (const email of [
+      'goblin-keys@demo-project.iam.gserviceaccount.com',
+      `${CALLER}.evil.example`,
+      `x${CALLER}`,
+      'someone@gmail.com',
+    ]) {
       const res = await serviceNoteKey(
-        askFor({ uid: 'u1' }, { authorization: `Bearer ${secret ?? ''}` }),
-        { ...env, NOTE_KEYS_SERVICE: secret },
+        askFor({ uid: 'u1' }, bearer(await identity({ email }))),
+        env,
+        oidcDeps(),
+      );
+      expect(res.status, email).toBe(403);
+    }
+  });
+
+  it('fixes the audience from APP_DOMAIN, whatever host the request names', async () => {
+    const t = await identity({ aud: 'https://attacker.example/api/note-key/for' });
+    const req = new Request('https://attacker.example/api/note-key/for', {
+      method: 'POST',
+      headers: { ...bearer(t), host: 'attacker.example', 'content-type': 'application/json' },
+      body: JSON.stringify({ uid: 'u1' }),
+    });
+    expect((await serviceNoteKey(req, env, oidcDeps())).status).toBe(401);
+    expect(serviceAudience({ APP_DOMAIN: ' Notes.Example ' })).toBe(AUD);
+    for (const APP_DOMAIN of [undefined, '', 'https://notes.example', 'notes.example/x']) {
+      expect(serviceAudience({ APP_DOMAIN })).toBeUndefined();
+    }
+  });
+
+  it('reads the allowlist as exact emails', () => {
+    expect([
+      ...noteKeyCallers({ NOTE_KEY_CALLERS: ` A@b.example,c@d.example\n e@f.example ,, nope ` }),
+    ]).toEqual(['a@b.example', 'c@d.example', 'e@f.example']);
+    expect(noteKeyCallers({}).size).toBe(0);
+  });
+
+  it('refuses everyone, 503, without an allowlist, a domain or the master', async () => {
+    const t = bearer(await identity());
+    for (const missing of [
+      { NOTE_KEY_CALLERS: undefined },
+      { NOTE_KEY_CALLERS: '' },
+      { NOTE_KEY_CALLERS: ' , ' },
+      { APP_DOMAIN: undefined },
+      { NOTE_KEYS_MASTER: undefined },
+    ]) {
+      const res = await serviceNoteKey(
+        askFor({ uid: 'u1' }, t),
+        { ...env, ...missing },
+        oidcDeps(),
       );
       expect(res.status).toBe(503);
     }
-    const noMaster = await serviceNoteKey(
-      askFor({ uid: 'u1' }, { authorization: `Bearer ${SERVICE}` }),
-      { ...env, NOTE_KEYS_MASTER: undefined },
+  });
+
+  it('answers POST only, and not to another site', async () => {
+    const t = bearer(await identity());
+    const get = new Request(AUD, { method: 'GET', headers: t });
+    expect((await serviceNoteKey(get, env, oidcDeps())).status).toBe(405);
+    const res = await serviceNoteKey(
+      askFor({ uid: 'u1' }, { ...t, 'sec-fetch-site': 'cross-site' }),
+      env,
+      oidcDeps(),
     );
-    expect(noMaster.status).toBe(503);
+    expect(res.status).toBe(403);
   });
 
   it('refuses a body without a uid', async () => {
-    const authorization = `Bearer ${SERVICE}`;
+    const headers = bearer(await identity());
     for (const body of ['nope', {}, { uid: '' }, { uid: 7 }, { uid: 'x'.repeat(129) }, 'null']) {
-      expect((await serviceNoteKey(askFor(body, { authorization }), env)).status).toBe(400);
+      expect((await serviceNoteKey(askFor(body, headers), env, oidcDeps())).status).toBe(400);
     }
-    const big = askFor({ uid: 'u1', pad: 'x'.repeat(2000) }, { authorization });
-    expect((await serviceNoteKey(big, env)).status).toBe(413);
-  });
-});
-
-describe('sameSecret', () => {
-  it('is equality, whatever the lengths', async () => {
-    expect(await sameSecret('abc', 'abc')).toBe(true);
-    expect(await sameSecret('abc', 'abd')).toBe(false);
-    expect(await sameSecret('abc', 'abcd')).toBe(false);
-    expect(await sameSecret('', 'a')).toBe(false);
+    const big = askFor({ uid: 'u1', pad: 'x'.repeat(2000) }, headers);
+    expect((await serviceNoteKey(big, env, oidcDeps())).status).toBe(413);
   });
 });
 
@@ -223,10 +378,9 @@ describe('the Worker routes note keys itself', () => {
     } as unknown as Env;
     const app = await worker.fetch(ask(), full);
     expect(app.status).toBe(401);
-    const svc = await worker.fetch(
-      askFor({ uid: 'u1' }, { authorization: `Bearer ${SERVICE}` }),
-      full,
-    );
-    expect(await keyOf(svc)).toBe(await derived('u1'));
+    const svc = await worker.fetch(askFor({ uid: 'u1' }, { authorization: 'Bearer nope' }), full);
+    expect(svc.status).toBe(401);
+    const off = await worker.fetch(askFor({ uid: 'u1' }), { ...full, NOTE_KEY_CALLERS: '' });
+    expect(off.status).toBe(503);
   });
 });

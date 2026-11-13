@@ -3846,11 +3846,15 @@ them to `scripts/deploy.sh`:
 - The Worker gets its custom domain from `APP_DOMAIN` (`--domain`),
   `FUNCTIONS_ORIGIN` from `FIREBASE_PROJECT_ID`, and, for the episode
   proxy's token check, `FIREBASE_PROJECT_ID` and `OWNER_UID` as they
-  are (#180, 2026-11-07).
-- Not through the deploy at all: the note key service's secrets,
-  `NOTE_KEYS_MASTER` and `NOTE_KEYS_SERVICE` on the Worker and
-  `NOTE_KEYS_SERVICE` in Secret Manager, set once by hand (Note
-  encryption, Key custody, 2026-11-12).
+  are (#180, 2026-11-07). For the note key service it also gets
+  `APP_DOMAIN` as a var, and `NOTE_KEY_CALLERS`, the service accounts
+  it answers: the variable of that name if set, else worked out from
+  `FIREBASE_PROJECT_ID` and the project number in the web config
+  (2026-11-13).
+- Not through the deploy at all: the note key service's master,
+  `NOTE_KEYS_MASTER` on the Worker, set once by hand (Note
+  encryption, Key custody, 2026-11-12). The service secret that
+  stood beside it is gone (2026-11-13).
 
 The deploy fails before building when a required variable is missing
 or the web config names another project. Optional ones leave their
@@ -4006,11 +4010,10 @@ under `/api/*`, which runs the Worker first):
   uid's key. The uid comes from the verified token alone, so an
   account gets its own key and never another's.
 - `POST /api/note-key/for`, for the functions: `{ "uid": ... }` in the
-  body and the service secret `NOTE_KEYS_SERVICE` as a bearer token,
-  compared in constant time (both sides hashed, then every byte
-  compared). The Worker and the functions (a Secret Manager secret of
-  the same name) hold the same value. Without it, or with one under
-  32 characters, the Worker refuses every caller.
+  body and, as a bearer token, a Google identity token for one of the
+  functions' service accounts (Identity tokens, 2026-11-13, below).
+  Until 2026-11-13 it took a shared service secret instead, which
+  was never set in production.
 
 Both answer `Cache-Control: no-store`, send no CORS headers, and refuse
 a request the browser marks as cross-site or same-site. Without the
@@ -4029,11 +4032,72 @@ it would open.
 *The functions* (`packages/functions/src/note-keys/client.ts`) call
 `dataKeyFor(uid)`, which asks `https://<APP_DOMAIN>/api/note-key/for`
 and keeps each key in memory for the instance; it throws
-`NoteKeysUnconfigured` when the domain or the secret is missing here
-or the Worker answers 503. The secret is declared in `secret.ts` but
-bound to no function yet: a function that lists a secret missing
-from Secret Manager does not deploy, so the step that first seals
-notes binds it, after the secret is set.
+`NoteKeysUnconfigured` when the domain or the metadata server is
+missing here or the Worker answers 503, and `NoteKeyServiceError`
+for any other failure.
+
+*Identity tokens (Eric, 2026-11-13).* The functions no longer share a
+secret with the Worker. A long-lived shared string, once leaked, lets
+anyone ask for any gardener's key until it is rotated on both sides;
+an identity token is minted only for the functions' own service
+account, expires within the hour and names the Worker as its
+audience. Cloudflare keeps custody of the master, as before.
+
+- The functions ask the metadata server for an OIDC identity token
+  for their runtime service account (its `identity` endpoint for the
+  `default` account, `format=full`, so the token carries `email` and
+  `email_verified`), with the route's full URL,
+  `https://<APP_DOMAIN>/api/note-key/for`, as the audience. Plain
+  `fetch`, no new dependency. The token is kept in memory until five
+  minutes before its `exp` (read, not verified, here), sent as
+  `Authorization: Bearer` with `redirect: 'error'` to that https
+  origin only, and minted afresh once if the Worker answers 401. No
+  message or log holds a token, a key or a uid. Off Google Cloud
+  there is no metadata server, so the ask fails as
+  `NoteKeysUnconfigured` and nothing weaker is tried. The secret's
+  declaration (`note-keys/secret.ts`) and every read of it are gone.
+- The Worker (`verifyGoogleIdentity`, `infra/worker/src/id-token.ts`)
+  accepts RS256 only, the `kid` looked up in Google's OIDC key set
+  (`https://www.googleapis.com/oauth2/v3/certs`, cached as the
+  Firebase set is, one cache per key set), `iss`
+  `https://accounts.google.com` or `accounts.google.com`, `aud`
+  exactly the route's URL, `exp` after now, `iat` no more than five
+  minutes ahead and a lifetime of at most an hour and five minutes,
+  `email_verified` true, and an `email` in `NOTE_KEY_CALLERS`. A
+  Firebase ID token fails on the issuer and on the key set, and an
+  OIDC token fails the Firebase check the same way; the app route's
+  check is unchanged.
+- *The audience comes from configuration.* The Worker builds it from
+  its own `APP_DOMAIN` var, the value the functions build it from,
+  never from the request's URL or `Host`. So a token minted for any
+  other audience (another site, or a host name sent to reach this
+  Worker some other way) is refused, and a request cannot make the
+  Worker expect a different one. Without `APP_DOMAIN` the route
+  answers 503.
+- *Who may ask* is a Worker var, `NOTE_KEY_CALLERS`, exact emails,
+  not a domain suffix. The functions that read notes run as three
+  accounts: `goblin-titles` (`noteTitle`, `recipeImport`),
+  `goblin-runner` (`agentRun`, `attachmentTranscribe`) and the
+  default compute account (`mcp`, `itemAssigned`, `noteArrived`,
+  `noteHistory`, `proposalAccepted`, `revertRun`, `rerouteRun`).
+  `goblin-keys` reads no notes and is not on it. `scripts/deploy.sh`
+  passes the variable of that name if set, else derives the three
+  from the project id and the project number in the web config
+  (`messagingSenderId`, which must agree with the middle of
+  `appId`). With no list the route answers 503 to everyone; a good
+  token for an account not on it gets 403.
+
+*What a stolen token is worth.* An hour, at most, of asking this one
+route for any gardener's key, as the account it was minted for. It
+opens nothing elsewhere and cannot be renewed without that account.
+*What this still does not protect:* Google, or anyone who can run
+code as one of those accounts or mint tokens for it (a deployer with
+`iam.serviceAccountUser` or `serviceAccountTokenCreator` on it), can
+ask for every key, as could the holder of the secret before. The
+default compute account is the widest of the three: any function,
+Cloud Run service or VM in the project left on the default runs as
+it. Moving the note-reading functions onto an account of their own
+would narrow that; it is not done.
 
 *Localhost.* There is no Worker. The functions emulator build swaps in
 `note-keys/stand-in.emulator.ts`, which derives with a fixed, public
@@ -4045,9 +4109,9 @@ there the app has no key, as it has no episode proxy.
 *What it protects.* A copy of Firestore, a backup or a console read
 shows ciphertext, and so does anything holding Google credentials
 alone. Anyone who can run code as the functions, or as the Worker, or
-who holds the master can read every note. The service secret lets its
-holder ask for any gardener's key, so it is as sensitive as the
-master while it is valid, but it can be replaced.
+who holds the master can read every note. Since 2026-11-13 the
+functions hold no long-lived credential for the Worker; a stolen
+identity token is good for an hour (Identity tokens, above).
 
 *Losing the master loses the notes.* Cloudflare never shows a secret
 again once it is set, so Eric keeps the master in his own backup,
@@ -4198,18 +4262,17 @@ request by its error's name and message, which hold no key or secret.
 activity entry keeps in `before` are still `textHash` of the opened
 text, stored in the clear; a keyed hash is a later step.
 
-*The secret is not bound yet.* `NOTE_KEYS_SERVICE` is bound to no
-function, and nothing reachable from `index.ts` imports
-`note-keys/secret.ts`: a function that lists a secret missing from
-Secret Manager does not deploy, and the secret is not set yet. Until
-it is, `dataKeyFor` throws `NoteKeysUnconfigured` and a sealed note
-reads as locked; with no sealed note anywhere that costs nothing. The
-follow-up change, once the secret is set, binds it to every function
-that builds `NotesTools`: `mcp`, `recipeImport`, `agentRun`,
-`itemAssigned`, `proposalAccepted` and `attachmentTranscribe`. The
-production functions bundle still holds no `EMULATOR_ONLY` marker, and
-the emulator build swaps in the stand-in, so the emulators open sealed
-notes with the development master.
+*No secret to bind (2026-11-13).* This step left the service secret
+bound to no function, with a follow-up to bind it to every function
+that builds `NotesTools` once it was set. That follow-up is gone: the
+functions now prove themselves with identity tokens (Key custody,
+Identity tokens), which need no binding. Until the Worker has its
+master and `NOTE_KEY_CALLERS`, `dataKeyFor` throws
+`NoteKeysUnconfigured` and a sealed note reads as locked; with no
+sealed note anywhere that costs nothing. The production functions
+bundle still holds no `EMULATOR_ONLY` marker, and the emulator build
+swaps in the stand-in, so the emulators open sealed notes with the
+development master.
 
 *Next: triggers and callables (step 3c).* They read and write `body`
 and `title` themselves, not through `NotesTools`: `noteHistory` (its
@@ -4320,12 +4383,9 @@ as stored on purpose goes through `storedText`. Like the tools'
 guard, it is not a proof: a raw value handed through a parameter is
 not followed.
 
-*What is left before sealing can be switched on.*
+*What is left before sealing can be switched on.* (Binding a service
+secret left this list on 2026-11-13: there is none to bind.)
 
-- Binding `NOTE_KEYS_SERVICE`, once the secret is set, to every
-  function that opens notes: those named above for the tools, and now
-  `noteHistory`, `noteTitle`, `noteArrived`, `revertRun` and
-  `rerouteRun`.
 - The gardener's switch, and the app writing sealed.
 - The other plain copies on a note document: `synonyms`,
   `instructions`, `sendAsk`, `sendOutcome`, `importError` and

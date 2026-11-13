@@ -277,7 +277,7 @@ describe('suggest_changes', () => {
 describe('sealed notes, without the key', () => {
   beforeEach(() => {
     keyFor.mockImplementation(async () => {
-      throw new NoteKeysUnconfigured('NOTE_KEYS_SERVICE is not set');
+      throw new NoteKeysUnconfigured('no note keys here');
     });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });

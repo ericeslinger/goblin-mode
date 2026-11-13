@@ -11,10 +11,13 @@
 //   a bearer token, answered with that token's own uid's key and no
 //   other. The uid comes from the verified token alone.
 // - `POST /api/note-key/for`, for the functions: any gardener's key,
-//   by uid in the body, to a caller holding the service secret
-//   NOTE_KEYS_SERVICE (the same value as the functions' secret).
+//   by uid in the body, to a caller presenting a Google-signed OIDC
+//   identity token for this route's own URL, minted for one of the
+//   service accounts in NOTE_KEY_CALLERS (2026-11-13; it replaced a
+//   shared service secret, DESIGN.md, Key custody).
 // Without the master both answer 503, and the app carries on without
-// a key. Neither answers another origin: no CORS, and a request a
+// a key; the functions' route also answers 503 without APP_DOMAIN or
+// an allowlist. Neither answers another origin: no CORS, and a request a
 // browser marks as cross-site or same-site is refused, as /share does.
 
 import {
@@ -23,7 +26,13 @@ import {
   deriveNoteKey,
   masterFromBase64,
 } from '../../../packages/schema/src/note-key';
-import { type KeyLookup, sharedGoogleKeys, verifyIdToken } from './id-token';
+import {
+  GOOGLE_OIDC_KEYS_URL,
+  type KeyLookup,
+  sharedGoogleKeys,
+  verifyGoogleIdentity,
+  verifyIdToken,
+} from './id-token';
 
 /** What the note key routes need from the Worker's bindings. */
 export interface NoteKeyEnv {
@@ -31,22 +40,26 @@ export interface NoteKeyEnv {
   FIREBASE_PROJECT_ID?: string;
   /** Base64 of 32 random bytes; a Worker secret set by hand (README, Run your own). */
   NOTE_KEYS_MASTER?: string;
-  /** What the functions present to ask for a key; a Worker secret set by hand. */
-  NOTE_KEYS_SERVICE?: string;
+  /** The domain this Worker serves (scripts/deploy.sh); fixes the functions' audience. */
+  APP_DOMAIN?: string;
+  /**
+   * The service accounts that may ask for any gardener's key, by
+   * email, separated by commas or spaces: a Worker var, not a secret,
+   * passed by scripts/deploy.sh.
+   */
+  NOTE_KEY_CALLERS?: string;
 }
 
 /** The app route, and the functions' route under it. */
 export const NOTE_KEY_PATH = '/api/note-key';
 export const NOTE_KEY_FOR_PATH = '/api/note-key/for';
 
-/** A service secret shorter than this is treated as not set. */
-export const MIN_SERVICE_SECRET = 32;
 /** The largest body the functions' route reads, in bytes. */
 const MAX_BODY = 1024;
 /** The longest uid Firebase Auth makes. */
 const MAX_UID = 128;
 
-/** What the app route checks tokens with, as a seam for specs. */
+/** What a route checks tokens with, as a seam for specs. */
 export interface NoteKeyDeps {
   keys: KeyLookup;
   now?: number;
@@ -103,25 +116,60 @@ export async function appNoteKey(
   return keyResponse(master, uid);
 }
 
+/** A bare host name, with a port at most: what APP_DOMAIN must be. */
+const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i;
+
+/**
+ * The audience a functions' token must name: this route's full URL on
+ * the configured app domain, the same string the functions build from
+ * their own APP_DOMAIN. Taken from configuration, never from the
+ * request, so no Host header or other request detail can change what
+ * is expected. Undefined when APP_DOMAIN is missing or not a domain.
+ */
+export function serviceAudience(env: NoteKeyEnv): string | undefined {
+  const domain = env.APP_DOMAIN?.trim().toLowerCase() ?? '';
+  return DOMAIN.test(domain) ? `https://${domain}${NOTE_KEY_FOR_PATH}` : undefined;
+}
+
+/** NOTE_KEY_CALLERS as a set of exact, lower-cased emails; empty when unset. */
+export function noteKeyCallers(env: NoteKeyEnv): Set<string> {
+  return new Set(
+    (env.NOTE_KEY_CALLERS ?? '')
+      .split(/[\s,]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => /^[^@\s]+@[^@\s]+$/.test(e)),
+  );
+}
+
 /**
  * `POST /api/note-key/for`: any gardener's data key, `{ v, key }`, for
- * `{ "uid": … }` in the body, to the functions alone: the service
- * secret in `Authorization: Bearer`, compared in constant time. With
- * no service secret set (or one too short to be one) it refuses every
- * caller.
+ * `{ "uid": … }` in the body, to the functions alone: a Google OIDC
+ * identity token in `Authorization: Bearer`, for this route's URL as
+ * its audience, whose verified email is in NOTE_KEY_CALLERS (401 for
+ * a token that fails, 403 for a good one from another account). With no
+ * master, app domain or allowlist it refuses every caller.
  */
-export async function serviceNoteKey(request: Request, env: NoteKeyEnv): Promise<Response> {
+export async function serviceNoteKey(
+  request: Request,
+  env: NoteKeyEnv,
+  deps: NoteKeyDeps = { keys: sharedGoogleKeys(GOOGLE_OIDC_KEYS_URL) },
+): Promise<Response> {
   if (request.method !== 'POST') return plain(405, 'POST only', { allow: 'POST' });
   if (fromAnotherSite(request)) return plain(403, 'not from another site');
   const master = masterFromBase64(env.NOTE_KEYS_MASTER);
-  const expected = env.NOTE_KEYS_SERVICE?.trim() ?? '';
-  if (!master || expected.length < MIN_SERVICE_SECRET) {
+  const audience = serviceAudience(env);
+  const callers = noteKeyCallers(env);
+  if (!master || !audience || callers.size === 0) {
     return plain(503, 'note keys are not configured');
   }
-  const presented = bearerOf(request);
-  if (!presented || !(await sameSecret(presented, expected))) {
-    return plain(401, 'not the service', { 'www-authenticate': 'Bearer' });
-  }
+  const bearer = bearerOf(request);
+  const email = bearer
+    ? await verifyGoogleIdentity(bearer, audience, deps.keys, deps.now)
+    : undefined;
+  if (!email) return plain(401, 'not the service', { 'www-authenticate': 'Bearer' });
+  // A token Google signed for another account: asking again with a
+  // fresh one would not help, so not a 401.
+  if (!callers.has(email)) return plain(403, 'not a caller of this service');
   if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY) {
     return plain(413, 'too large');
   }
@@ -135,19 +183,4 @@ export async function serviceNoteKey(request: Request, env: NoteKeyEnv): Promise
   }
   if (typeof uid !== 'string' || !uid || uid.length > MAX_UID) return plain(400, 'no uid');
   return keyResponse(master, uid);
-}
-
-/**
- * Whether two secrets are equal, in time that depends on neither: each
- * is hashed with SHA-256 first, so the comparison is always over 32
- * bytes and leaks no length, and every byte is compared.
- */
-export async function sameSecret(a: string, b: string): Promise<boolean> {
-  const utf8 = new TextEncoder();
-  const [x, y] = await Promise.all(
-    [a, b].map(async (s) => new Uint8Array(await crypto.subtle.digest('SHA-256', utf8.encode(s)))),
-  );
-  let diff = 0;
-  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
-  return diff === 0;
 }
