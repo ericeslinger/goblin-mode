@@ -4418,10 +4418,11 @@ its type, so the rules needed nothing, and `npm run rules:gen --
 is longer than its text (a full ask seals to some 700 characters or
 more), and put back checks the note as stored with `Note.parse`, so a
 sealed ask or outcome would have failed every put back that touched
-its note. The limits left the stored fields; `SEND_ASK_MAX` and
-`SEND_OUTCOME_MAX` stay the limits on the plain text, which every
-writer cuts to before sealing (the app's Send to, `finish_queued`, the
-MCP input schema).
+its note. The limits now hold only for a plain stored value (a sealed
+one may be longer), so the schema is still the last check behind the
+writers (review on #266); `SEND_ASK_MAX` and `SEND_OUTCOME_MAX` stay
+the limits on the plain text, which every writer cuts to before
+sealing (the app's Send to, `finish_queued`, the MCP input schema).
 
 *One rule for the form a write keeps* (`writtenForms`,
 `packages/schema/src/sealed-note.ts`, used by the app and the

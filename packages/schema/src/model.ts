@@ -28,6 +28,7 @@
 // schemas into firestore.rules; that generator lands with the first
 // real client write (build order step 3). Claude's MCP writes go through
 // functions and are validated against the same schemas there.
+import { isSealed } from './sealed';
 import { z } from 'zod';
 
 /**
@@ -153,6 +154,12 @@ export function trashDaysLeft(deletedAt: number, now: number): number {
  */
 export const SEND_ASK_MAX = 500;
 export const SEND_OUTCOME_MAX = 300;
+/** A stored value that is sealed, or plain and at most `max` characters. */
+const plainWithin = (max: number) => (value: string) => {
+  // isSealed narrows what it is given; asked of a copy, `value` stays a string.
+  const stored: unknown = value;
+  return isSealed(stored) || value.length <= max;
+};
 
 export const Note = z.object({
   kind: NoteKind,
@@ -234,20 +241,21 @@ export const Note = z.object({
   sendState: z.enum(['queued', 'done']).optional(),
   /**
    * At most SEND_ASK_MAX characters of plain text, cut so by its writer
-   * (the app's Send to). No limit here since 2026-11-13: it may be
-   * stored sealed (sealed-note.ts), and a sealed value is longer than
-   * its text, so a limit on the stored value would refuse a full ask
-   * once sealed, and put back, which checks the note as stored, with
-   * it.
+   * (the app's Send to). Since 2026-11-13 the limit holds only for a
+   * plain value: it may be stored sealed (sealed-note.ts), and a sealed
+   * value is longer than its text, so a limit on every stored value
+   * would refuse a full ask once sealed, and put back, which checks
+   * the note as stored, with it. A plain value is still held to it
+   * here (review on #266), as the last check behind its writers.
    */
-  sendAsk: z.string().optional(),
+  sendAsk: z.string().refine(plainWithin(SEND_ASK_MAX)).optional(),
   sentAt: Timestamp.optional(),
   /**
    * At most SEND_OUTCOME_MAX characters of plain text, cut so by its
-   * writer (finish_queued); no limit on the stored value, as for
+   * writer (finish_queued); a sealed value may be longer, as for
    * `sendAsk` (2026-11-13).
    */
-  sendOutcome: z.string().optional(),
+  sendOutcome: z.string().refine(plainWithin(SEND_OUTCOME_MAX)).optional(),
   /** The run doing it now (#144 step 3), under `runs`, if Eric asked for one. */
   sendRun: z.string().optional(),
   /**

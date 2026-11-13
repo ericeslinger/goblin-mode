@@ -45,7 +45,7 @@ const sourceOf = (file: string) => readFileSync(new URL(`./${file}`, import.meta
 const FIELDS = [...new Set(SEALED_FIELDS.map((f) => f.split('.')[0]))];
 const FIELD = `(?:${FIELDS.join('|')})`;
 /** A snapshot's own field read: `.get('body')`. */
-const GET = new RegExp(`\\.get\\(\\s*'${FIELD}'\\s*\\)`);
+const GET = new RegExp(`\\.get\\(\\s*'${FIELD}(?:\\.[\\w.]+)?'\\s*\\)`);
 /** A field read chained onto `data()`: `.data()?.['body']`, `.data()!.title`. */
 const CHAINED = new RegExp(`\\.data\\(\\)[!?]?\\.?(?:\\[\\s*'${FIELD}'\\s*\\]|${FIELD}\\b)`);
 
@@ -113,6 +113,7 @@ describe('the note text boundary in triggers and callables', () => {
 
   it('catches the raw reads it is for', () => {
     const bad = [
+      "const doc = await ref.get();\nreturn doc.get('source.text');",
       'const { body, kind } = snap.data()!;\nreturn body;',
       "const doc = await db.doc(paths.note(uid, id)).get();\nreturn String(doc.get('body') ?? '');",
       "const after = event.data?.after.data();\nconst items = assignedItems(String(after['body'] ?? ''));",

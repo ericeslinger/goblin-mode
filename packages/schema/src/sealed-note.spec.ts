@@ -113,4 +113,23 @@ describe('a sealed note against the stored schema (2026-11-13)', () => {
       outcome,
     );
   });
+  it('still holds a plain ask and outcome to their limits (review on #266)', () => {
+    const base = {
+      kind: 'text',
+      body: 'text',
+      title: 'A note',
+      titleSource: 'words',
+      links: [],
+      tags: [],
+      archived: false,
+      createdAt: { seconds: 0, nanoseconds: 0 },
+      updatedAt: { seconds: 0, nanoseconds: 0 },
+      updatedBy: 'user',
+      deviceId: 'd',
+    };
+    const at = { sendAsk: 'a'.repeat(SEND_ASK_MAX), sendOutcome: 'o'.repeat(SEND_OUTCOME_MAX) };
+    expect(Note.safeParse({ ...base, ...at }).success).toBe(true);
+    expect(Note.safeParse({ ...base, sendAsk: `${at.sendAsk}a` }).success).toBe(false);
+    expect(Note.safeParse({ ...base, sendOutcome: `${at.sendOutcome}o` }).success).toBe(false);
+  });
 });
