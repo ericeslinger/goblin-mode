@@ -3,45 +3,33 @@ import { logger } from 'firebase-functions/v2';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { claudeTitler, federationFromEnv } from './claude-titler';
-import { firestoreNotesStore, noteState } from './firestore-store';
-import { recordHistory } from './history';
-import { mergeConflict, rememberReplaced } from './merge';
-import { type Titler, titleNote } from './title';
+import { NoteCodec } from '../mcp/note-text';
+import { dataKeyFor } from '../note-keys/client';
+import { historyOnWrite, titleOnWrite } from './on-write';
+import type { Titler } from './title';
 import { firestoreTrashStore, sweepTrash } from './trash';
 
 const NOTE = 'users/{uid}/notes/{noteId}';
 
-/** On every note write: keep the version it replaced, when the rules say so. */
+/**
+ * On every note write: keep the version it replaced, when the rules say
+ * so, remember the text it replaced, and merge a write over text its
+ * writer had not seen (on-write.ts). A sealed note is opened with one
+ * codec for the event; one that cannot be opened here is left as stored.
+ */
 export const noteHistory = onDocumentWritten(NOTE, async (event) => {
   const { uid, noteId } = event.params;
-  const reason = await recordHistory(
-    firestoreNotesStore(getFirestore()),
+  await historyOnWrite(
+    getFirestore(),
+    new NoteCodec(uid, dataKeyFor),
     uid,
     noteId,
     event.id,
-    noteState(event.data?.before),
-    noteState(event.data?.after),
+    event.data?.before,
+    event.data?.after,
     Date.now(),
+    logger,
   );
-  if (reason) logger.debug('noteHistory kept a version', { noteId, reason });
-  // The text this write replaced, for a later merge to start from.
-  await rememberReplaced(
-    firestoreNotesStore(getFirestore()),
-    uid,
-    noteId,
-    noteState(event.data?.before),
-    noteState(event.data?.after),
-    (message, err) => logger.warn(message, err),
-  );
-  // A write over text its writer had not seen: merge the two (#37).
-  const merged = await mergeConflict(
-    firestoreNotesStore(getFirestore()),
-    uid,
-    noteId,
-    noteState(event.data?.before),
-    noteState(event.data?.after),
-  );
-  if (merged !== 'clean') logger.info('noteHistory merge', { noteId, merged });
 });
 
 let titler: Titler | null | undefined;
@@ -49,7 +37,9 @@ let titler: Titler | null | undefined;
 /**
  * On every note write: a Claude title when the finished first line
  * changed. Runs as its own Google service account (`goblin-titles`),
- * the identity the Claude federation rule trusts.
+ * the identity the Claude federation rule trusts. A sealed body is
+ * opened for the model and its title written sealed; a note that cannot
+ * be opened here gets no title and is not written (on-write.ts).
  */
 export const noteTitle = onDocumentWritten(
   { document: NOTE, serviceAccount: 'goblin-titles@' },
@@ -59,14 +49,15 @@ export const noteTitle = onDocumentWritten(
       titler = config ? claudeTitler(config) : null;
     }
     const { uid, noteId } = event.params;
-    const outcome = await titleNote(
-      firestoreNotesStore(getFirestore()),
+    const outcome = await titleOnWrite(
+      getFirestore(),
+      new NoteCodec(uid, dataKeyFor),
       titler,
       uid,
       noteId,
-      noteState(event.data?.before),
-      noteState(event.data?.after),
-      (message, err) => logger.warn(message, err),
+      event.data?.before,
+      event.data?.after,
+      logger,
     );
     if (outcome !== 'skipped') logger.debug('noteTitle', { noteId, outcome });
   },

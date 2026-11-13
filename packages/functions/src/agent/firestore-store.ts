@@ -1,5 +1,6 @@
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { paths } from '@mossgoblin/schema';
+import { formsOf, shownTitle, storedText } from '../mcp/note-text';
 import type { RunStore } from './core';
 
 const iso = (v: unknown) => (v instanceof Timestamp ? v.toDate().toISOString() : undefined);
@@ -47,7 +48,9 @@ export function firestoreRunStore(db: Firestore): RunStore {
       if (!doc.exists || doc.get('deletedAt') !== undefined) return undefined;
       const d = doc.data()!;
       return {
-        title: String(d['title'] ?? ''),
+        // Not opened: nothing here reads it, and a sealed one is never
+        // carried in the clear (2026-11-13).
+        title: shownTitle(storedText(d, 'title'), formsOf(d).title),
         sendState: typeof d['sendState'] === 'string' ? d['sendState'] : undefined,
         sentAt: iso(d['sentAt']),
         sendAsk: typeof d['sendAsk'] === 'string' && d['sendAsk'] ? d['sendAsk'] : undefined,

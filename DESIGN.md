@@ -4220,6 +4220,124 @@ from the tools' answer, and put back (`revertRun`, `rerouteRun`).
 Each moves onto the same codec, and the copies in history keep the
 note's form.
 
+**Triggers and callables (step 3c, 2026-11-13).** The functions that
+read or write a note's text outside the tools now open it and write
+it back as the tools do, with the same `NoteCodec`, one per trigger
+event or call, so the key is asked for lazily and at most once. A
+field is sealed for a write only through `sealFields`
+(`mcp/note-text.ts`), which `NotesTools.writeNote` uses too, so a
+title beside a sealed body is sealed here as there. Still nothing
+seals a note that was not sealed, so with plain notes every path
+below behaves as before and asks for no key.
+
+*Which, and how.*
+
+- `noteHistory` (`notes/on-write.ts`): the before and after are read
+  as stored (`storedState`), then opened (`openState`) to decide; a
+  write that leaves the stored body as it was opens nothing. A kept
+  version is the stored body and title as they are, never opened and
+  stored again, so it opens with the note's own aad. The settle merge
+  opens the note, its replaced texts and its History in one
+  transaction and writes the merged body, its words title and
+  `baseHash` in the note's form.
+- `noteTitle`: opens the body for the model only when a settle could
+  ask for a title, and writes the title sealed when the note's body
+  or title is stored sealed. So a sealed note's opened body goes to
+  the title model, as a plain note's does; sealing changes what is
+  stored, not what a model the gardener uses is shown (review on
+  #264). It opens before it knows whether a title is wanted, so a
+  sealed note titled by its gardener asks for the key needlessly.
+- `itemAssigned` (`agent/assigned.ts`) opens the body to find its
+  `@goblin` items. `agentRun`'s item reads the note through the run's
+  own `NotesTools` (`noteBody`), so the findings go in through the
+  same codec. `noteArrived` opens a sealed body only once the rest
+  says the note arrives, to see whether it has words. `agentRun`'s
+  note state carries a sealed title as "Sealed note"; nothing reads
+  it.
+- `proposalAccepted`: the outcome it stores on a proposal (`Linked
+  ...`, `Merged into ...`) names a sealed note "Sealed note", as an
+  activity entry does: `linkNotes` and `mergeNotes` take `recorded`,
+  a second argument the MCP server never passes, so the tools'
+  answers to the model are unchanged.
+- `revertRun` and `rerouteRun` (`putback/firestore.ts`): every note,
+  replaced text and History version is opened under its note's id;
+  the text put back, or the "See also" line a reroute adds, is
+  written in the note's form; a record names a sealed note "Sealed
+  note" and a summary "a sealed note"; the fields before are stored
+  as they were, the body by the hash of its opened text. A correction
+  line goes into the context note in that note's own form, so a
+  sealed note's title may go into a plain context note, as a link
+  Eric types does (2026-11-12).
+- `recipeImport` and `attachmentTranscribe` already went through the
+  tools, and `digestPush` reads only activity, which is labelled:
+  nothing raw was left there.
+
+*Replaced texts.* A text a write replaced (`notes/{id}/replaced`) is
+kept in the note's stored form, a copy of the sealed value, which
+opens with the note's aad; a sealed note's text is never kept there
+in the clear. The document id is still `textHash` of the plaintext,
+stored in the clear like `baseHash`; a keyed hash is a later step.
+
+*A note a trigger cannot open* (no key, or a value that does not
+open) is left exactly as stored, and the log says so once, with the
+note id and why, never text. Nothing is merged, retitled, started or
+put back over it. One thing is still kept: when such a write was a
+delete, or another device or author wrote over the note, noteHistory
+keeps what it replaced in History as stored (`keepUnopened`), so a
+device's text is not lost while nothing here can merge it; the merge
+waits for a reader that can open the note, as the kept writes on the
+device do. A History copy that does not open with the note's key is
+no shared text for a merge, and no text for put back, rather than a
+reason to stop. No trigger throws for a sealed note, and none sets
+`retry`, so a missing key never loops; an item run on a note that
+cannot be opened fails as retryable, and the next settle tries again.
+Put back and reroute refuse with a plain `failed-precondition`, which
+the app already shows ("A note it changed is sealed and cannot be
+opened here yet, so nothing was changed; try again later."), and
+write nothing.
+
+*Locked notes have no name (review of step 3b).* A note that did not
+open answers to no name, so two things are guarded. When a note's
+links are worked out again from its text (update_note, add_lines and
+the other line edits, link_notes, split, merge, an import, put back,
+reroute, the context note), a stored link to a note that did not open
+is kept, not dropped. It is kept even when the text no longer names
+that note, since the name cannot be read to tell; the next edit after
+the note opens puts it right (review on #264). And while a live sealed concept or recipe
+whose title did not open is in the garden, create_concept,
+create_recipe and import_recipe refuse with a message saying so; an
+import the app asked for keeps its placeholder name; a new week's
+plan does not make the "Fish of the week" placeholder. Concepts and
+recipes both count for either create, since a name reaches across
+kinds; a sealed text note with an unread title does not block them,
+as create_note checks no names. Bringing a concept back from Trash
+is not refused: it takes no new name.
+
+*A source guard* (`trigger-boundary.spec.ts`) reads these files and
+fails on a raw `get('body')` or `get('title')`, or a field read off a
+raw snapshot's `data()`, unless the snapshot is a NoteSnap's; reading
+as stored on purpose goes through `storedText`. Like the tools'
+guard, it is not a proof: a raw value handed through a parameter is
+not followed.
+
+*What is left before sealing can be switched on.*
+
+- Binding `NOTE_KEYS_SERVICE`, once the secret is set, to every
+  function that opens notes: those named above for the tools, and now
+  `noteHistory`, `noteTitle`, `noteArrived`, `revertRun` and
+  `rerouteRun`.
+- The gardener's switch, and the app writing sealed.
+- The other plain copies on a note document: `synonyms`,
+  `instructions`, `sendAsk`, `sendOutcome`, `importError` and
+  `source.text`; and off it, an `@goblin` run's `itemText` and
+  `itemKey`.
+- Keyed hashes in place of `textHash` for `baseHash`, the replaced
+  texts' ids, the body hash in an activity entry's `before`, and the
+  hash in an item run's id.
+- Activity, proposal and attachment text, the Show changes panel's
+  diffs, and the context note's correction lines.
+- The migration of existing notes.
+
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,
 2026-11-12).

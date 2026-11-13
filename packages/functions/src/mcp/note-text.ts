@@ -9,6 +9,10 @@
 // The gardener's key is asked for lazily, the first time a sealed value
 // is met or a seal is needed, and once per codec at most, so with only
 // plain notes nothing asks the key service at all.
+//
+// The triggers and callables that touch note text (step 3c, 2026-11-13)
+// use the same codec, one per event or call: `sealFields` is the one way
+// a field is sealed for a write, here and in NotesTools.writeNote.
 import {
   type DataKey,
   SEALED_FIELDS,
@@ -203,6 +207,62 @@ export class NoteSnap {
  */
 export function formFrom(sources: readonly (NoteSnap | undefined)[]): NoteForms {
   return sources.some((s) => s?.sealed) ? { body: 'sealed', title: 'sealed' } : PLAIN;
+}
+
+/**
+ * Field `field` of a stored note document, as stored: a sealed value as
+ * it is, '' when absent. The one raw read of note text outside
+ * `NoteSnap`, for a trigger that opens it with `NoteCodec.open` or
+ * keeps it as stored on the same note (trigger-boundary.spec.ts).
+ */
+export function storedText(d: Data | undefined, field: SealedField): string {
+  return String(d?.[field] ?? '');
+}
+
+/** How `values`' body and title are stored, read off the values themselves. */
+export function formsOf(values: { body?: unknown; title?: unknown } | undefined): NoteForms {
+  return {
+    body: isSealed(values?.body) ? 'sealed' : 'plain',
+    title: isSealed(values?.title) ? 'sealed' : 'plain',
+  };
+}
+
+/**
+ * `data` for a write to note `noteId`, a `body` or `title` in it stored
+ * as `forms` says: the note's own forms when it rewrites a note, PLAIN
+ * or `formFrom` its sources for a new one. A title is never plainer than
+ * its body (review on #263): one made from the body's first words would
+ * say them in the clear. Every write of note text goes through here.
+ */
+export async function sealFields(
+  codec: NoteCodec,
+  noteId: string,
+  data: Data,
+  forms: NoteForms,
+): Promise<Data> {
+  const out: Data = { ...data };
+  const as: NoteForms = forms.body === 'sealed' ? { ...forms, title: 'sealed' } : forms;
+  for (const field of SEALED_FIELDS) {
+    const value = out[field];
+    if (typeof value === 'string') out[field] = await codec.seal(noteId, field, value, as[field]);
+  }
+  return out;
+}
+
+/**
+ * The one log line a trigger or callable writes when it leaves a sealed
+ * note as stored because it cannot open it: the note id and why, never
+ * text or a key.
+ */
+export function logLeftSealed(
+  log: { warn(message: string, fields: Record<string, unknown>): void },
+  where: string,
+  err: SealedNoteError,
+): void {
+  log.warn(`${where} left a sealed note as stored: it cannot be opened here`, {
+    noteId: err.noteId,
+    reason: err.reason,
+  });
 }
 
 /** A title as an activity entry or summary may hold it: a sealed one is not written out. */

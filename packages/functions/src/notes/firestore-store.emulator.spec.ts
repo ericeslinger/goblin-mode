@@ -2,6 +2,7 @@ import { textHash } from '@mossgoblin/schema';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { NoteCodec } from '../mcp/note-text';
 import { firestoreNotesStore } from './firestore-store';
 import { REPLACED_KEPT, REPLACED_TTL_MS } from './merge';
 
@@ -26,10 +27,13 @@ beforeEach(async () => {
 afterAll(() => deleteApp(app));
 
 const T = Date.parse('2026-10-06T13:00:00Z');
+// Plain notes only here: a key is never asked for (tools.sealed.spec.ts
+// and the sealed trigger specs cover sealed text).
+const plainOnly = new NoteCodec('u1', () => Promise.reject(new Error('no key asked for')));
 
 describe('firestoreNotesStore', () => {
   it('keeps every replaced text from saves arriving all at once, newest read first', async () => {
-    const store = firestoreNotesStore(db);
+    const store = firestoreNotesStore(db, plainOnly);
     const n = REPLACED_KEPT + 5;
     await Promise.all(
       Array.from({ length: n }, (_, i) => store.rememberReplaced('u1', 'n2', `t${i}`, T + i)),
@@ -46,7 +50,7 @@ describe('firestoreNotesStore', () => {
   });
 
   it('keeps versions and reports when the newest was kept', async () => {
-    const store = firestoreNotesStore(db);
+    const store = firestoreNotesStore(db, plainOnly);
     expect(await store.lastKept('u1', 'n1')).toBeUndefined();
     const version = {
       body: 'first',
@@ -77,7 +81,7 @@ describe('firestoreNotesStore', () => {
   });
 
   it('writes a title only while the note is at that settle and the title is not Eric’s', async () => {
-    const store = firestoreNotesStore(db);
+    const store = firestoreNotesStore(db, plainOnly);
     const ref = db.doc('users/u1/notes/n1');
     const updatedAt = Timestamp.fromMillis(T);
     const settledAt = Timestamp.fromMillis(T + 1000);
@@ -105,7 +109,7 @@ describe('firestoreNotesStore', () => {
   });
 
   it('reads kept bodies newest first, and writes a merge only over the text it merged', async () => {
-    const store = firestoreNotesStore(db);
+    const store = firestoreNotesStore(db, plainOnly);
     const v = (body: string) => ({
       body,
       title: 'T',

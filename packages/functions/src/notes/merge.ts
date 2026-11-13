@@ -34,17 +34,26 @@ export interface CurrentNote {
 export interface MergeStore {
   /**
    * Texts to find a shared one among: those writes recently replaced,
-   * then the newest `limit` kept versions; each newest first.
+   * then the newest `limit` kept versions; each newest first, opened.
    */
   keptBodies(uid: string, noteId: string, limit: number): Promise<string[]>;
   /**
    * Keeps a text a write replaced, as of when it was written (ms),
-   * until a TTL policy removes it (`REPLACED_TTL_MS`).
+   * until a TTL policy removes it (`REPLACED_TTL_MS`): under the hash of
+   * `body`, the text, and as `stored`, the note's own stored form of it
+   * (sealed when the note's body was), which opens with the note's aad.
    */
-  rememberReplaced(uid: string, noteId: string, body: string, writtenAt?: number): Promise<void>;
+  rememberReplaced(
+    uid: string,
+    noteId: string,
+    body: string,
+    writtenAt?: number,
+    stored?: string,
+  ): Promise<void>;
   /**
-   * In a transaction: reads the note, and writes what `decide` returns
-   * for it (a body and the text it was written over), or nothing.
+   * In a transaction: reads the note, its text opened, and writes what
+   * `decide` returns for it (a body and the text it was written over),
+   * or nothing, in the note's own form.
    */
   writeMerged(
     uid: string,
@@ -57,7 +66,9 @@ export type MergeOutcome = 'merged' | 'kept-both' | 'clean' | 'moved-on';
 
 /**
  * Remembers the text a write replaced, so a later merge can start from
- * it. Never throws: a merge must run whether or not this worked.
+ * it, in the note's stored form: a sealed note's replaced text is never
+ * kept in the clear. Never throws: a merge must run whether or not this
+ * worked.
  */
 export async function rememberReplaced(
   store: MergeStore,
@@ -68,9 +79,11 @@ export async function rememberReplaced(
   warn: (message: string, err: unknown) => void = () => undefined,
 ): Promise<boolean> {
   if (!before || !after || before.body === after.body || !before.body.trim()) return false;
-  if (before.body.length > REPLACED_CHARS) return false;
+  // The stored form is what must fit in a document.
+  const stored = before.stored?.body ?? before.body;
+  if (stored.length > REPLACED_CHARS) return false;
   try {
-    await store.rememberReplaced(uid, noteId, before.body, before.updatedAt);
+    await store.rememberReplaced(uid, noteId, before.body, before.updatedAt, stored);
     return true;
   } catch (err) {
     warn('rememberReplaced failed', err);

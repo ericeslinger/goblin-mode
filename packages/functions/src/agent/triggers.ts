@@ -1,16 +1,19 @@
-import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { GARDEN_AGENT, RUN_STALE_MS, assignedItems, paths } from '@mossgoblin/schema';
+import { GARDEN_AGENT } from '@mossgoblin/schema';
+import { NoteCodec } from '../mcp/note-text';
+import { dataKeyFor } from '../note-keys/client';
 import { firestoreKeyStore } from '../keys/firestore-store';
 import { sealerFromEnv } from '../keys/sealer';
 import { withKey } from '../keys/use';
 import { contextOrNone, modulesOrNone } from '../mcp/http';
 import { NotesTools } from '../mcp/tools';
+import { assignedOnWrite } from './assigned';
 import { executeRun, runRequested } from './core';
 import { firestoreRunStore } from './firestore-store';
 import { gardenTools } from './garden-tools';
-import { executeItemRun, itemRunId } from './items';
+import { executeItemRun } from './items';
 import { gardenOnArrival } from './request';
 import { type AgentModel, anthropicModel } from './model';
 import { standInModel } from './stand-in';
@@ -47,19 +50,17 @@ export const agentRun = onDocumentWritten(
     };
     // An item assigned with @goblin (step 4): research, then written under it.
     if (event.data?.after.data()?.['kind'] === 'item') {
+      // One set of tools, so one codec, for the run: the item's note is
+      // read through them, its text opened when sealed (2026-11-13).
+      const tools = new NotesTools(db, uid).as(GARDEN_AGENT);
       const outcome = await executeItemRun(
         {
           store,
           withModel,
           now: () => Date.now(),
-          tools: (owner) => new NotesTools(db, owner).as(GARDEN_AGENT),
-          body: async (owner, noteId) => {
-            const doc = await db.doc(paths.note(owner, noteId)).get();
-            // A note in Trash (#217) takes no findings.
-            return doc.exists && doc.get('deletedAt') === undefined
-              ? String(doc.get('body') ?? '')
-              : undefined;
-          },
+          tools: () => tools,
+          // A note in Trash (#217) takes no findings.
+          body: (_owner, noteId) => tools.noteBody(noteId),
         },
         uid,
         runId,
@@ -97,46 +98,18 @@ export const agentRun = onDocumentWritten(
 export const itemAssigned = onDocumentWritten(
   { document: 'users/{uid}/notes/{noteId}' },
   async (event) => {
-    const after = event.data?.after.data();
-    if (!after || after['archived'] === true || after['deletedAt'] !== undefined) return;
-    const settled = after['settledAt'];
-    const was = event.data?.before.data()?.['settledAt'];
-    const ms = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
-    if (ms(settled) === undefined || ms(settled) === ms(was)) return;
-    const items = assignedItems(String(after['body'] ?? '')).filter((i) => !i.done);
-    if (!items.length) return;
     const { uid, noteId } = event.params;
-    const db = getFirestore();
-    let started = 0;
-    for (const item of items) {
-      const ref = db.doc(paths.run(uid, itemRunId(noteId, item.key)));
-      const made = await db.runTransaction(async (tx) => {
-        const had = (await tx.get(ref)).data();
-        if (had) {
-          // Started again only when it failed for a reason a later settle
-          // can mend, or was lost with its function (review on #158).
-          const since = had['startedAt'] ?? had['createdAt'];
-          const age = since instanceof Timestamp ? Date.now() - since.toMillis() : Infinity;
-          const lost =
-            (had['status'] === 'requested' || had['status'] === 'working') && age > RUN_STALE_MS;
-          const mendable = had['status'] === 'failed' && had['retryable'] === true;
-          if (!lost && !mendable) return false;
-        }
-        tx.set(ref, {
-          kind: 'item',
-          noteId,
-          itemText: item.text,
-          itemKey: item.key,
-          status: 'requested',
-          attempt: (typeof had?.['attempt'] === 'number' ? had['attempt'] : 0) + 1,
-          steps: [],
-          createdAt: FieldValue.serverTimestamp(),
-        });
-        return true;
-      });
-      if (made) started++;
-    }
-    if (started) logger.info('itemAssigned', { noteId, started });
+    const started = await assignedOnWrite(
+      getFirestore(),
+      new NoteCodec(uid, dataKeyFor),
+      uid,
+      noteId,
+      event.data?.before.data(),
+      event.data?.after.data(),
+      Date.now(),
+      logger,
+    );
+    if (typeof started === 'number' && started) logger.info('itemAssigned', { noteId, started });
   },
 );
 
@@ -157,7 +130,11 @@ export const noteArrived = onDocumentWritten(
       event.data?.before.data(),
       event.data?.after.data(),
     );
-    if (outcome !== 'not-arrival') logger.info('noteArrived', { noteId, outcome });
+    if (outcome === 'sealed') {
+      logger.warn('noteArrived left a sealed note as stored: it cannot be opened here', {
+        noteId,
+      });
+    } else if (outcome !== 'not-arrival') logger.info('noteArrived', { noteId, outcome });
   },
 );
 
