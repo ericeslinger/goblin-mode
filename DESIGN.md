@@ -4122,6 +4122,104 @@ with the note's own aad. History and Show changes open versions the
 same way; a version that will not open shows as sealed, with no
 Restore.
 
+**The tools read sealed notes (step 3b, 2026-11-12).** The MCP tools
+open sealed text, and keep each note in the form they found it. Still
+nothing seals a note that was not sealed before, so with only plain
+notes, which is every note today, the tools behave as they did.
+
+*The codec* (`packages/functions/src/mcp/note-text.ts`). One
+`NoteCodec` per `NotesTools`, which is one per MCP request or trigger
+event, for its gardener: `open(noteId, field, value)` passes plain
+text through and opens a sealed value with `aadFor(uid, noteId,
+field)`; `seal(noteId, field, text, as)` gives the text back plain or
+sealed under that note's id. The key comes from `dataKeyFor(uid)`,
+injected so specs pass a fake, and is asked for lazily: the first time
+a sealed value is met or a seal is needed, and at most once per codec,
+a failed ask included. With only plain notes the Worker is never
+asked.
+
+*One boundary.* Every note document the tools read comes through
+`readNote`, `readNotes` or `queryNotes` in `NotesTools`, which wrap
+each snapshot as a `NoteSnap` whose `data()` and `get()` give the text
+opened; every write to one goes through `writeNote`, which seals
+`body` and `title` as the note's forms say. The forty or so tool paths
+above work on plain strings. `suggest_changes` hands its checks the
+garden it read this way, rather than letting `organize/store.ts` read
+the notes itself. `note-boundary.spec.ts` reads `tools.ts` and fails
+on any Firestore read or write outside the boundary that is not
+plainly about another collection; `parentTitle`, exported for put
+back, reads a project's filing directly and leaves a sealed title
+unsaid.
+
+*Preserve the form found.* A field a tool rewrites is sealed if and
+only if the value it replaces was, with one exception: a title
+written beside a sealed body is sealed too, since a title made from
+the body's first words would say them in the clear (review on #263).
+A new note is plain until the
+gardener's switch (a later step), but for one made from another note's
+text: split pieces, a merged note, a note from a template, a new
+week's grocery list, and an idea or question `capture` files (it names
+its project) are sealed, both fields, when any field of any source is
+sealed. Each source's text is opened under its own id and sealed again
+under the new note's; a sealed string is never copied to another id.
+An existing target keeps its own form, even when words from a sealed
+note go into a plain one (link_notes writing a sealed note's name, a
+sealed recipe's ingredients going onto a plain grocery list): while
+plain and sealed notes coexist a plain note can hold a sealed one's
+words, as it can when Eric types a link, and once all are sealed none
+can. Clippings are a page's words and stay plain. Text that would
+itself read as a sealed value is refused, never stored plain.
+
+*What assistants changed* never holds a sealed field's text in the
+clear: an entry names a note whose title is sealed "Sealed note" (the
+app shows the note's own title), a summary calls it "a sealed note",
+and a run that rewrote a sealed body says only "Changed a sealed
+note". A proposal from `suggest_changes` names it the same way. A
+field's value before, kept for put back, is the stored one, sealed if
+it was, which opens again on the same note.
+
+*A note the tools cannot open* (no key, or a value that does not open)
+is locked. No tool returns its sealed text, reads it as empty, or
+writes over it. `get_note`, and every write that needs it, fail with
+`SealedNoteError`, a `ToolError` that says "note {id} is sealed and
+cannot be opened here (its key is not available), so it is left as it
+is", or "its sealed text did not open". Lists (list_notes,
+list_concepts, list_queue, list_templates, and clip_feed_item's note
+filed already) show it with `sealed` in place of the text that did not
+open, keeping a title that is plain. A search or scan skips it and
+counts it: `get_note` gains `sealedSkipped` and `sealed` beside its
+backlinks, and search_notes, get_backlinks and suggest_recipes, which
+answer with a list, answer `{ items, sealedSkipped, sealed }` instead
+when they skipped one, as search_feed_items says `truncated` (#197).
+No tool's name or input changed. A failed key ask is logged once per
+request by its error's name and message, which hold no key or secret.
+
+*Hashes stay plaintext hashes.* `baseHash` and the body hash an
+activity entry keeps in `before` are still `textHash` of the opened
+text, stored in the clear; a keyed hash is a later step.
+
+*The secret is not bound yet.* `NOTE_KEYS_SERVICE` is bound to no
+function, and nothing reachable from `index.ts` imports
+`note-keys/secret.ts`: a function that lists a secret missing from
+Secret Manager does not deploy, and the secret is not set yet. Until
+it is, `dataKeyFor` throws `NoteKeysUnconfigured` and a sealed note
+reads as locked; with no sealed note anywhere that costs nothing. The
+follow-up change, once the secret is set, binds it to every function
+that builds `NotesTools`: `mcp`, `recipeImport`, `agentRun`,
+`itemAssigned`, `proposalAccepted` and `attachmentTranscribe`. The
+production functions bundle still holds no `EMULATOR_ONLY` marker, and
+the emulator build swaps in the stand-in, so the emulators open sealed
+notes with the development master.
+
+*Next: triggers and callables (step 3c).* They read and write `body`
+and `title` themselves, not through `NotesTools`: `noteHistory` (its
+kept versions, replaced texts and settle merge), `noteTitle`, the
+agent's item body (`itemAssigned`), note state and arrival check
+(`agentRun`, `noteArrived`), the outcome `proposalAccepted` writes
+from the tools' answer, and put back (`revertRun`, `rerouteRun`).
+Each moves onto the same codec, and the copies in history keep the
+note's form.
+
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,
 2026-11-12).

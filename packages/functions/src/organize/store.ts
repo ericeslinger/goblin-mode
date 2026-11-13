@@ -9,6 +9,7 @@ import {
   type RawProposal,
   checkProposals,
 } from './proposals';
+import { SEALED_TITLE } from '../mcp/note-text';
 
 const DAY = 86_400_000;
 /** A claim this old was cut off partway; the next round says so. */
@@ -47,6 +48,14 @@ export async function sweepProposals(db: Firestore, uid: string, now: number): P
   return n;
 }
 
+/** The garden as the checks see it, read by the caller. */
+export interface StoredGarden {
+  /** Every note not in Trash, its text opened; one that did not open as archived. */
+  notes: GardenNote[];
+  /** The notes whose title is stored sealed. */
+  sealedTitles: ReadonlySet<string>;
+}
+
 /** What a round of suggestions came to. */
 export interface Stored {
   /** The suggestions stored, as the gardener will see them. */
@@ -62,30 +71,21 @@ export interface Stored {
  * tidies the proposals, checks each suggestion against the garden as it
  * is and every earlier proposal, and stores the survivors as open, up
  * to PER_ROUND at a time and MAX_OPEN waiting. Changes no notes.
+ *
+ * The garden is the caller's: the MCP tools read it through their note
+ * text boundary, so sealed text is opened (2026-11-12). A title in
+ * `sealedTitles` is stored in a proposal as "Sealed note", never in
+ * the clear.
  */
 export async function storeSuggestions(
   db: Firestore,
   uid: string,
   raw: readonly RawProposal[],
   now: number,
+  read: StoredGarden,
 ): Promise<Stored> {
   await sweepProposals(db, uid, now);
-  const snap = await db.collection(paths.notes(uid)).get();
-  // A note in Trash (#217) is not in the garden to suggest about.
-  const garden: GardenNote[] = snap.docs
-    .filter((doc) => doc.get('deletedAt') === undefined)
-    .map((doc) => {
-      const d = doc.data();
-      return {
-        id: doc.id,
-        kind: String(d['kind'] ?? 'text'),
-        title: String(d['title'] ?? ''),
-        body: String(d['body'] ?? ''),
-        synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
-        conceptType: typeof d['conceptType'] === 'string' ? d['conceptType'] : undefined,
-        archived: d['archived'] === true,
-      };
-    });
+  const garden = read.notes;
   const proposals = db.collection(paths.proposals(uid));
   const known = await proposals.select('key', 'status').get();
   const waiting = known.docs.filter((d) => d.get('status') === 'open').length;
@@ -97,7 +97,11 @@ export async function storeSuggestions(
     room,
   );
   const batch = db.batch();
-  const stored = checked.map((c) => {
+  const shown = (c: Checked): Checked => ({
+    ...c,
+    notes: c.notes.map((n) => (read.sealedTitles.has(n.id) ? { ...n, title: SEALED_TITLE } : n)),
+  });
+  const stored = checked.map(shown).map((c) => {
     const id = autoId((bytes) => void randomFillSync(bytes));
     batch.set(
       proposals.doc(id),

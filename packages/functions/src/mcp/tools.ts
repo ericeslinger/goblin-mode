@@ -97,6 +97,7 @@ import {
   UNCATEGORIZED,
   clippingBody,
   isWebLink,
+  isSealed,
   byQueue,
   isQueueOrder,
   effectiveMode,
@@ -109,8 +110,10 @@ import {
   type DocumentReference,
   FieldValue,
   type Firestore,
+  type Query,
   type Transaction,
   Timestamp,
+  type WriteBatch,
 } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { publicFetch } from '../attachments/import';
@@ -121,8 +124,24 @@ import type { RawProposal } from '../organize/proposals';
 import { storeSuggestions } from '../organize/store';
 import { searchItems } from '../reader/firestore-store';
 import { queryTerms } from '../reader/terms';
+import { dataKeyFor } from '../note-keys/client';
 import { addLines, setItem } from './lines';
+import {
+  type KeyFor,
+  NoteCodec,
+  type NoteForms,
+  NoteSnap,
+  PLAIN,
+  SEALED_LEFT_OUT,
+  SEALED_TITLE,
+  formFrom,
+  shownTitle,
+} from './note-text';
+import { ToolError } from './tool-error';
 import { cutsOf, joined } from './verbatim';
+
+export { ToolError } from './tool-error';
+export { SealedNoteError } from './note-text';
 
 export const CLAUDE_DEVICE = 'claude';
 /** Who writes when no assistant is named: the server's own Claude calls. */
@@ -137,9 +156,6 @@ const LIST_LIMIT = 50;
 const QUEUE_LIMIT = 20;
 /** The most notes one split or merge may make or take. */
 const MAX_PIECES = 20;
-
-/** A tool failed for a reason Claude should see and can act on. */
-export class ToolError extends Error {}
 
 const millis = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
 const iso = (v: unknown) => {
@@ -186,9 +202,23 @@ const targetsOf = (body: string) => wikiLinkTargets(parseNote(body));
 
 const newId = () => autoId((bytes) => void randomFillSync(bytes));
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const touched = (id: string, d: Data): Touched => ({ id, title: String(d['title'] ?? '') });
+/**
+ * A note the run touched, as its activity entry names it. A sealed
+ * title is not written out there in the clear (2026-11-12): the entry
+ * says "Sealed note", and the app shows the note's own title.
+ */
+const touched = (id: string, d: Data, forms: NoteForms = PLAIN): Touched => ({
+  id,
+  title: shownTitle(d['title'], forms.title),
+});
 /** A note the run made, so putting the run back archives it (#211). */
-const touchedNew = (id: string, d: Data): Touched => ({ ...touched(id, d), made: true });
+const touchedNew = (id: string, d: Data, forms: NoteForms = PLAIN): Touched => ({
+  ...touched(id, d, forms),
+  made: true,
+});
+/** A note as a run's summary names it: a sealed title as "a sealed note". */
+const titleIn = (title: unknown, forms: NoteForms) =>
+  shownTitle(title, forms.title, 'a sealed note');
 /**
  * A note whose fields the run changed, with the value each had before,
  * null where it was absent, so putting the run back restores them
@@ -250,7 +280,8 @@ export async function parentTitle(
       if (at === parent) throw new ToolError(`no project ${parent}`);
       break;
     }
-    if (at === parent) title = String(data['title'] ?? '');
+    // A plain title only: a sealed one is left unsaid (2026-11-12).
+    if (at === parent && !isSealed(data['title'])) title = String(data['title'] ?? '');
     at = data['parent'] as string | undefined;
   }
   return title;
@@ -428,6 +459,47 @@ function noteSummary(id: string, d: Data) {
   };
 }
 
+/**
+ * A sealed note a list met but could not open (2026-11-12): what is
+ * stored plain, and `sealed` in place of the text that did not open.
+ */
+function sealedSummary(doc: NoteSnap) {
+  const d = doc.known()!;
+  return {
+    id: doc.id,
+    // Its title when that is plain, or opened; never the sealed one.
+    ...(typeof d['title'] === 'string' ? { title: d['title'] } : {}),
+    kind: String(d['kind'] ?? 'text'),
+    sealed: SEALED_LEFT_OUT,
+    tags: (d['tags'] as string[]) ?? [],
+    updatedAt: iso(d['updatedAt']),
+    updatedBy: d['updatedBy'],
+    archived: d['archived'] === true,
+  };
+}
+
+/** A list entry's title for sorting; a sealed one left out sorts first. */
+const nameOf = (entry: object) => ('title' in entry ? String(entry.title) : '');
+
+/** How many sealed notes a search or scan could not open, said beside its result. */
+function skippedNote(n: number, what: string) {
+  return {
+    sealedSkipped: n,
+    sealed:
+      `${plural(n, 'sealed note')} could not be opened here, so ${n === 1 ? 'its' : 'their'} ` +
+      `text was not ${what}.`,
+  };
+}
+
+/**
+ * A search's hits, as before; when it met sealed notes it could not
+ * open, `{ items, sealedSkipped, sealed }` instead, as search_feed_items
+ * says `truncated` (#197).
+ */
+function withSkipped<T>(items: T[], skipped: number, what = 'searched') {
+  return skipped ? { items, ...skippedNote(skipped, what) } : items;
+}
+
 function reminderView(id: string, d: Data) {
   const times = {
     status: d['status'] as 'open' | 'done' | 'snoozed',
@@ -535,7 +607,92 @@ export class NotesTools {
      */
     private readonly fetchRecipe: (url: string) => Promise<ImportedRecipe> = (url) =>
       readRecipe(url, publicFetch, null),
-  ) {}
+    /**
+     * The gardener's data key, for sealed notes (2026-11-12): asked for
+     * only when one is met, once per NotesTools (one request) at most.
+     */
+    keyFor: KeyFor = dataKeyFor,
+  ) {
+    this.codec = new NoteCodec(uid, keyFor);
+  }
+
+  /** Opens and seals note text for this request (DESIGN.md, Note encryption). */
+  private readonly codec: NoteCodec;
+
+  // The note text boundary (2026-11-12). Every note document the tools
+  // read comes through readNote, readNotes or queryNotes, which open its
+  // text; every write to one goes through writeNote, which seals body
+  // and title as `forms` says. No other code here reads or writes a
+  // note document (note-boundary.spec.ts checks the source).
+
+  /** Note `id`, its text opened; in `tx` when given. */
+  private async readNote(id: string, tx?: Transaction): Promise<NoteSnap> {
+    const ref = this.notes().doc(id);
+    return NoteSnap.open(this.codec, tx ? await tx.get(ref) : await ref.get());
+  }
+
+  /** Notes `ids` in `tx`, in order, their text opened. */
+  private async readNotes(ids: readonly string[], tx: Transaction): Promise<NoteSnap[]> {
+    const snaps = await tx.getAll(...ids.map((id) => this.notes().doc(id)));
+    return Promise.all(snaps.map((s) => NoteSnap.open(this.codec, s)));
+  }
+
+  /** The notes `q` (over this gardener's notes) finds, their text opened. */
+  private async queryNotes(q: Query = this.notes()): Promise<NoteSnap[]> {
+    const snap = await q.get();
+    return Promise.all(snap.docs.map((d) => NoteSnap.open(this.codec, d)));
+  }
+
+  /**
+   * Writes `data` to note `ref` in `w` (a transaction or batch; none for
+   * a direct update), a `body` or `title` in it stored as `forms` says:
+   * the note's own forms when it rewrites a note, PLAIN or `formFrom`
+   * its sources for a new one.
+   */
+  private async writeNote(
+    w: Transaction | WriteBatch | null,
+    how: 'set' | 'update',
+    ref: DocumentReference,
+    data: Data,
+    forms: NoteForms,
+  ): Promise<void> {
+    const out: Data = { ...data };
+    // A title is never plainer than its body (review on #263): one
+    // made from the body's first words would say them in the clear.
+    const as: NoteForms = forms.body === 'sealed' ? { ...forms, title: 'sealed' } : forms;
+    for (const field of ['body', 'title'] as const) {
+      const value = out[field];
+      if (typeof value === 'string') {
+        out[field] = await this.codec.seal(ref.id, field, value, as[field]);
+      }
+    }
+    if (!w) {
+      if (how === 'set') await ref.set(out);
+      else await ref.update(out);
+      return;
+    }
+    const writer = w as unknown as { set(r: DocumentReference, d: Data): unknown } & {
+      update(r: DocumentReference, d: Data): unknown;
+    };
+    if (how === 'set') writer.set(ref, out);
+    else writer.update(ref, out);
+  }
+
+  /**
+   * touchedFields for a note read here: the text hash of its opened
+   * body, other fields' values before as stored (a sealed value goes
+   * back to the same note, where it opens), its title as touched names
+   * it.
+   */
+  private touchedFieldsOf(note: NoteSnap, update: Data): Touched {
+    const d = note.data()!;
+    return {
+      ...touchedFields(note.id, { ...note.stored(), body: d['body'] }, update),
+      title: shownTitle(d['title'], note.forms.title),
+    };
+  }
+
+  // End of the note text boundary.
 
   /** The assistant these tools write as (#142); Claude unless named. */
   private agent = DEFAULT_AGENT;
@@ -560,11 +717,12 @@ export class NotesTools {
   }
   /** Names to ids across the gardener's notes (schema, concepts.ts). */
   private async names(): Promise<Map<string, string>> {
-    // Names only: no bodies.
-    const snap = await this.notes()
-      .select('title', 'kind', 'synonyms', 'archived', 'deletedAt')
-      .get();
-    return nameIndex(snap.docs.map((doc) => named(doc.id, doc.data())));
+    // Names only: no bodies. A sealed title that does not open answers
+    // to no name here, as in the app; its other names still do.
+    const notes = await this.queryNotes(
+      this.notes().select('title', 'kind', 'synonyms', 'archived', 'deletedAt'),
+    );
+    return nameIndex(notes.map((n) => named(n.id, n.known()!)));
   }
 
   private reminders() {
@@ -582,16 +740,15 @@ export class NotesTools {
     tags?: string[],
   ) {
     if (!parent) throw new ToolError('a stage is a place in a project’s stages; give its project');
-    const ref = this.notes().doc(parent);
-    const doc = tx ? await tx.get(ref) : await ref.get();
-    const itemTags = (doc.data()?.['itemTags'] as string[] | undefined) ?? [];
+    const doc = await this.readNote(parent, tx);
+    const itemTags = (doc.get('itemTags') as string[] | undefined) ?? [];
     const unknown = (tags ?? []).filter((t) => !itemTags.includes(t));
     if (unknown.length)
       throw new ToolError(
         `${parent} has the item tags ${itemTags.join(', ') || '(none)'}; add ${unknown.join(', ')} with refile first`,
       );
     if (stage === undefined) return;
-    const stages = (doc.data()?.['stages'] as string[] | undefined) ?? [];
+    const stages = (doc.get('stages') as string[] | undefined) ?? [];
     if (!stages.includes(stage))
       throw new ToolError(
         stages.length
@@ -600,11 +757,15 @@ export class NotesTools {
       );
   }
 
-  /** Every note but those in Trash, with the name index over them (bodies included). */
+  /**
+   * Every note but those in Trash, with the name index over them (bodies
+   * included). A sealed note that does not open is `locked`, its text
+   * left out of `data`.
+   */
   private async garden() {
-    const snap = await this.notes().get();
-    const docs = snap.docs
-      .map((doc) => ({ id: doc.id, data: doc.data() as Data }))
+    const notes = await this.queryNotes();
+    const docs = notes
+      .map((n) => ({ id: n.id, data: n.known()!, locked: n.locked }))
       .filter((d) => !inTrash(d.data));
     return { docs, index: nameIndex(docs.map((d) => named(d.id, d.data))) };
   }
@@ -639,17 +800,30 @@ export class NotesTools {
   }
 
   async searchNotes(args: { query: string; includeArchived?: boolean; limit?: number }) {
-    const snap = await this.notes().orderBy('updatedAt', 'desc').get();
-    const hits = snap.docs.filter((doc) => {
-      const d = doc.data();
+    const notes = await this.queryNotes(this.notes().orderBy('updatedAt', 'desc'));
+    let skipped = 0;
+    const hits = notes.filter((doc) => {
+      const d = doc.known()!;
       if (inTrash(d)) return false;
       if (d['archived'] === true && !args.includeArchived) return false;
+      // A sealed note that does not open is not searched, and is counted.
+      if (doc.locked) {
+        skipped++;
+        return false;
+      }
       return matchesSearch(
-        { title: String(d['title'] ?? ''), body: String(d['body'] ?? ''), synonyms: d['synonyms'] },
+        {
+          title: String(d['title'] ?? ''),
+          body: String(d['body'] ?? ''),
+          synonyms: d['synonyms'] as string[] | undefined,
+        },
         args.query,
       );
     });
-    return hits.slice(0, args.limit ?? LIST_LIMIT).map((doc) => noteSummary(doc.id, doc.data()));
+    const items = hits
+      .slice(0, args.limit ?? LIST_LIMIT)
+      .map((doc) => noteSummary(doc.id, doc.data()!));
+    return withSkipped(items, skipped);
   }
 
   async listNotes(args: {
@@ -662,33 +836,37 @@ export class NotesTools {
     let q = this.notes().orderBy('updatedAt', 'desc');
     if (args.since)
       q = q.where('updatedAt', '>=', Timestamp.fromMillis(parseTime(args.since, 'since')));
-    const snap = await q.get();
-    return snap.docs
-      .filter((doc) => !inTrash(doc.data()))
+    const notes = await this.queryNotes(q);
+    return notes
+      .filter((doc) => !inTrash(doc.known()))
       .filter((doc) => args.includeArchived || doc.get('archived') !== true)
       .filter((doc) => !args.kind || (doc.get('kind') ?? 'text') === args.kind)
       .slice(0, args.limit ?? LIST_LIMIT)
-      .map((doc) => noteSummary(doc.id, doc.data()));
+      .map((doc) => (doc.locked ? sealedSummary(doc) : noteSummary(doc.id, doc.data()!)));
   }
 
   async getNote(args: { id: string }) {
-    const doc = await this.notes().doc(args.id).get();
+    const doc = await this.readNote(args.id);
     if (!doc.exists) throw new ToolError(`no note ${args.id}`);
+    if (inTrash(doc.known())) throw trashError(args.id);
+    // A sealed note that does not open says so: never its sealed text, never empty.
     const d = doc.data()!;
-    if (inTrash(d)) throw trashError(args.id);
     // Read from bodies, not stored links, so notes written before links
     // were stored (#28) count too. Every body is parsed: fine for one
     // gardener's notes; once all notes carry links, an array-contains
     // query on `links` can replace the scan.
-    const all = await this.notes().get();
-    const index = nameIndex(all.docs.map((n) => named(n.id, n.data())));
-    const backlinks = all.docs.filter(
-      (n) =>
-        n.id !== args.id &&
-        !inTrash(n.data()) &&
-        resolveLinks(targetsOf(String(n.get('body') ?? '')), index).includes(args.id),
-    );
-    const template = all.docs.find((n) => n.id === d['fromTemplate']);
+    const all = await this.queryNotes();
+    const index = nameIndex(all.map((n) => named(n.id, n.known()!)));
+    let skipped = 0;
+    const backlinks = all.filter((n) => {
+      if (n.id === args.id || inTrash(n.known())) return false;
+      if (n.locked) {
+        skipped++;
+        return false;
+      }
+      return resolveLinks(targetsOf(String(n.get('body') ?? '')), index).includes(args.id);
+    });
+    const template = all.find((n) => n.id === d['fromTemplate'] && !n.locked);
     const takes = effectiveMode(
       { id: doc.id, ...d },
       template && { id: template.id, ...template.data() },
@@ -704,6 +882,8 @@ export class NotesTools {
       // Google Drive connector.
       driveFiles: driveFiles(parseNote(String(d['body'] ?? ''))),
       backlinks: backlinks.map((b) => ({ id: b.id, title: b.get('title') })),
+      // Sealed notes that did not open, so were not read for links to this one.
+      ...(skipped ? skippedNote(skipped, 'read for links to this note') : {}),
       archived: d['archived'] === true,
       createdAt: iso(d['createdAt']),
       updatedAt: iso(d['updatedAt']),
@@ -724,11 +904,11 @@ export class NotesTools {
 
   /** How note `id` takes new material (#231), read with its template; none if absent. */
   private async takesOf(id: string): Promise<Takes | undefined> {
-    const doc = await this.notes().doc(id).get();
+    const doc = await this.readNote(id);
     const d = doc.data();
     if (!d) return undefined;
     const from = typeof d['fromTemplate'] === 'string' ? d['fromTemplate'] : undefined;
-    const template = from ? await this.notes().doc(from).get() : undefined;
+    const template = from ? await this.readNote(from) : undefined;
     return effectiveMode(
       { id, ...d },
       template?.exists ? { id: template.id, ...template.data() } : undefined,
@@ -752,7 +932,8 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    batch.set(this.notes().doc(id), data);
+    // A new note is plain until the gardener's switch (a later step).
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
     batch.set(...this.activity('create_note', 'Wrote a new note', [touchedNew(id, data)]));
     await batch.commit();
     return { id, title: data.title };
@@ -828,31 +1009,38 @@ export class NotesTools {
     });
     const ref = this.notes().doc(id);
     return this.db.runTransaction(async (tx) => {
-      const had = await tx.get(ref);
-      const current = had.data();
+      const had = await this.readNote(id, tx);
       // Naming a deleted concept again brings it back from Trash (review
       // on #230): its text, type and filing as they were, as Restore
       // does; what was given here is not applied.
-      if (had.exists && inTrash(current)) {
-        const { deletedAt: _gone, ...kept } = current!;
+      if (had.exists && inTrash(had.known())) {
+        const { deletedAt: _gone, ...kept } = had.data()!;
         const update = {
           ...this.stamp(),
           // Its own text, so a put back of this run finds nothing to change.
           baseHash: textHash(String(kept['body'] ?? '')),
         };
         Note.parse({ ...kept, ...update });
-        tx.update(ref, { ...update, deletedAt: FieldValue.delete() });
+        await this.writeNote(
+          tx,
+          'update',
+          ref,
+          { ...update, deletedAt: FieldValue.delete() },
+          had.forms,
+        );
         const title = String(kept['title'] ?? name);
         tx.set(
-          ...this.activity('create_concept', `Brought back ${title} from Trash`, [
-            touched(id, kept),
-          ]),
+          ...this.activity(
+            'create_concept',
+            `Brought back ${titleIn(title, had.forms)} from Trash`,
+            [touched(id, kept, had.forms)],
+          ),
         );
         const type = (kept['conceptType'] as string | undefined) ?? 'other';
         return { id, title, type, broughtBack: true };
       }
       if (had.exists) throw new ToolError(`${name} is already a concept (${id})`);
-      tx.set(ref, data);
+      await this.writeNote(tx, 'set', ref, data, PLAIN);
       tx.set(
         ...this.activity(
           'create_concept',
@@ -885,8 +1073,9 @@ export class NotesTools {
     const owner = names.get(normalizeName(name));
     // An empty stub concept (a link written before the recipe) is folded
     // in, archived with mergedInto, as the app does; anything else refuses.
-    const stubDoc = owner === undefined ? undefined : await this.notes().doc(owner).get();
-    const stub = stubDoc?.data();
+    const stubDoc = owner === undefined ? undefined : await this.readNote(owner);
+    // A sealed stub that does not open is not known to be empty: not folded.
+    const stub = stubDoc?.locked ? undefined : stubDoc?.data();
     const foldable =
       stub?.['kind'] === 'concept' &&
       !String(stub['body'] ?? '').trim() &&
@@ -916,9 +1105,15 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    batch.set(this.notes().doc(id), data);
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
     if (owner !== undefined) {
-      batch.update(this.notes().doc(owner), { archived: true, mergedInto: id, ...this.stamp() });
+      await this.writeNote(
+        batch,
+        'update',
+        this.notes().doc(owner),
+        { archived: true, mergedInto: id, ...this.stamp() },
+        stubDoc!.forms,
+      );
     }
     batch.set(...this.activity('create_recipe', `Made the recipe ${name}`, [touchedNew(id, data)]));
     await batch.commit();
@@ -944,7 +1139,8 @@ export class NotesTools {
     for (const title of [name.slice(0, MAX_NAME), `${name} (${hostOf(url)})`.slice(0, MAX_NAME)]) {
       const owner = names.get(normalizeName(title));
       if (owner === undefined || owner === self) return { title };
-      const stub = (await this.notes().doc(owner).get()).data();
+      const found = await this.readNote(owner);
+      const stub = found.locked ? undefined : found.data();
       if (
         stub?.['kind'] === 'concept' &&
         !String(stub['body'] ?? '').trim() &&
@@ -989,7 +1185,7 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    batch.set(this.notes().doc(id), data);
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
     batch.set(
       ...this.activity('import_recipe', `Asked to import a recipe from ${hostOf(url)}`, [
         touchedNew(id, data),
@@ -1019,11 +1215,12 @@ export class NotesTools {
   ): Promise<'done' | 'failed' | 'skipped'> {
     const ref = this.notes().doc(id);
     const url = await this.db.runTransaction(async (tx) => {
-      const data = (await tx.get(ref)).data();
+      const found = await this.readNote(id, tx);
+      const data = found.known();
       const source = data?.['source'] as { url?: unknown } | undefined;
       if (data?.['kind'] !== 'recipe' || data['importState'] !== 'requested') return undefined;
       if (typeof source?.url !== 'string') return undefined;
-      tx.update(ref, { importState: 'working' });
+      await this.writeNote(tx, 'update', ref, { importState: 'working' }, found.forms);
       return source.url;
     });
     if (url === undefined) return 'skipped';
@@ -1034,8 +1231,15 @@ export class NotesTools {
       return 'done';
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err);
-      if ((await ref.get()).exists) {
-        await ref.update({ importState: 'failed', importError: why.slice(0, 500) });
+      const still = await this.readNote(id);
+      if (still.exists) {
+        await this.writeNote(
+          null,
+          'update',
+          ref,
+          { importState: 'failed', importError: why.slice(0, 500) },
+          still.forms,
+        );
       }
       return 'failed';
     }
@@ -1060,7 +1264,7 @@ export class NotesTools {
       ? [SET_ASIDE_HEADING, ...setAside.map((l) => `- ${l}`)].join('\n')
       : '';
     await this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(id, tx);
       if (!doc.exists) return;
       const current = doc.data()!;
       const update: Data = {
@@ -1087,21 +1291,25 @@ export class NotesTools {
       }
       const { importError: _, ...shown } = update;
       Note.parse({ ...current, ...shown });
-      tx.update(ref, update);
+      // The recipe keeps the form its text was found in.
+      await this.writeNote(tx, 'update', ref, update, doc.forms);
       if (rename?.stub) {
-        tx.update(this.notes().doc(rename.stub), {
-          archived: true,
-          mergedInto: id,
-          ...this.stamp(),
-        });
+        // No text in this write, so no form to keep.
+        await this.writeNote(
+          tx,
+          'update',
+          this.notes().doc(rename.stub),
+          { archived: true, mergedInto: id, ...this.stamp() },
+          PLAIN,
+        );
       }
       const after = { ...current, ...shown } as Data;
       tx.set(
         ...this.activity(
           'import_recipe',
-          `Imported the recipe ${String(after['title'])} from ${hostOf(url)}` +
+          `Imported the recipe ${titleIn(after['title'], doc.forms)} from ${hostOf(url)}` +
             (setAside.length ? `, setting aside ${plural(setAside.length, 'line')}` : ''),
-          [touched(id, after)],
+          [touched(id, after, doc.forms)],
         ),
       );
     });
@@ -1117,8 +1325,10 @@ export class NotesTools {
   private async week(date: string): Promise<{ start: string; config: KitchenConfig }> {
     if (!isIsoDate(date)) throw new ToolError('date must be a calendar date, YYYY-MM-DD');
     const config = await this.kitchenConfig();
-    const plans = await this.notes().where('kind', '==', 'mealplan').select('periodStart').get();
-    const starts = plans.docs.map((d) => d.get('periodStart')).filter((v) => typeof v === 'string');
+    const plans = await this.queryNotes(
+      this.notes().where('kind', '==', 'mealplan').select('periodStart'),
+    );
+    const starts = plans.map((d) => d.get('periodStart')).filter((v) => typeof v === 'string');
     return { start: planStartFor(date, config.weekStart, starts), config };
   }
 
@@ -1137,7 +1347,7 @@ export class NotesTools {
     const made = await this.db.runTransaction(async (tx) => {
       const ref = this.notes().doc(id);
       const fish = this.notes().doc(FISH_ID);
-      const [plan, placeholder] = await Promise.all([tx.get(ref), tx.get(fish)]);
+      const [plan, placeholder] = await this.readNotes([id, FISH_ID], tx);
       if (plan.exists) return false;
       const now = Timestamp.fromMillis(this.now());
       const base = { links: [], tags: [], archived: false, createdAt: now, updatedAt: now };
@@ -1145,7 +1355,9 @@ export class NotesTools {
       const body = planBody(start, config);
       const fishNamed = names.get(normalizeName(FISH_NAME));
       if (body.includes(`[[${FISH_NAME}]]`) && !placeholder.exists && fishNamed === undefined) {
-        tx.set(
+        await this.writeNote(
+          tx,
+          'set',
           fish,
           Note.parse({
             ...base,
@@ -1155,10 +1367,13 @@ export class NotesTools {
             title: FISH_NAME,
             titleSource: 'user',
           }),
+          PLAIN,
         );
         names.set(normalizeName(FISH_NAME), FISH_ID);
       }
-      tx.set(
+      await this.writeNote(
+        tx,
+        'set',
         ref,
         Note.parse({
           ...base,
@@ -1170,6 +1385,7 @@ export class NotesTools {
           periodStart: start,
           links: resolveLinks(targetsOf(body), names),
         }),
+        PLAIN,
       );
       return true;
     });
@@ -1186,7 +1402,7 @@ export class NotesTools {
     await this.requireModule('kitchen', 'reading the meal plan');
     const { start, config } = await this.week(args.date);
     const id = planId(start);
-    const doc = await this.notes().doc(id).get();
+    const doc = await this.readNote(id);
     const body = doc.exists ? String(doc.get('body') ?? '') : planBody(start, config);
     const names = await this.names();
     return {
@@ -1214,8 +1430,7 @@ export class NotesTools {
     const link = /^\[\[([^\]|]+)/.exec(text)?.[1]?.trim();
     if (link) {
       const owner = (await this.names()).get(normalizeName(link));
-      const kind =
-        owner === undefined ? undefined : (await this.notes().doc(owner).get()).get('kind');
+      const kind = owner === undefined ? undefined : (await this.readNote(owner)).get('kind');
       if (kind !== 'recipe') {
         throw new ToolError(`no recipe named ${link}; make it with create_recipe or import_recipe`);
       }
@@ -1252,24 +1467,27 @@ export class NotesTools {
    */
   private async groceryList(config: KitchenConfig): Promise<string | undefined> {
     if (config.groceryList) {
-      const named = await this.notes().doc(config.groceryList).get();
-      if (named.exists && named.get('archived') !== true && !inTrash(named.data())) return named.id;
+      const named = await this.readNote(config.groceryList);
+      if (named.exists && named.get('archived') !== true && !inTrash(named.known()))
+        return named.id;
     }
     const shopping = await this.shoppingTemplate();
     if (!shopping) return undefined;
-    const living = await this.notes().where('fromTemplate', '==', shopping.id).get();
-    const newest = living.docs
-      .filter((d) => d.get('archived') !== true && !inTrash(d.data()))
+    const living = await this.queryNotes(this.notes().where('fromTemplate', '==', shopping.id));
+    const newest = living
+      .filter((d) => d.get('archived') !== true && !inTrash(d.known()))
       .sort((a, b) => (millis(b.get('updatedAt')) ?? 0) - (millis(a.get('updatedAt')) ?? 0))[0];
     return newest?.id;
   }
 
   /** The Shopping list template, if there is one. */
   private async shoppingTemplate() {
-    const templates = await this.notes().where('kind', '==', 'template').get();
-    return templates.docs.find(
+    const templates = await this.queryNotes(this.notes().where('kind', '==', 'template'));
+    return templates.find(
       (d) =>
-        d.get('title') === SHOPPING_LIST_NAME && d.get('archived') !== true && !inTrash(d.data()),
+        d.known()!['title'] === SHOPPING_LIST_NAME &&
+        d.get('archived') !== true &&
+        !inTrash(d.known()),
     );
   }
 
@@ -1291,36 +1509,39 @@ export class NotesTools {
     const [names, shopping] = await Promise.all([this.names(), this.shoppingTemplate()]);
     return this.db.runTransaction(async (tx) => {
       const oldRef = this.notes().doc(current);
-      const old = await tx.get(oldRef);
+      const old = await this.readNote(current, tx);
       const raw = old.get('periodStart');
       const was = typeof raw === 'string' ? raw : undefined;
       const stay = { id: current, start: was };
-      if (!old.exists || old.get('archived') === true || inTrash(old.data())) return stay;
-      const title = String(old.get('title') ?? '') || 'the grocery list';
+      if (!old.exists || old.get('archived') === true || inTrash(old.known())) return stay;
+      const title = titleIn(old.get('title'), old.forms) || 'the grocery list';
       if (was === undefined) {
         const update = { ...this.stamp(), periodStart: start };
         Note.parse({ ...old.data(), ...update });
-        tx.update(oldRef, update);
+        await this.writeNote(tx, 'update', oldRef, update, old.forms);
         tx.set(
           ...this.activity(
             'plan_meal',
             `Made ${title} the list for the week of ${shortDate(start)}`,
-            [touched(current, old.data()!)],
+            [touched(current, old.data()!, old.forms)],
           ),
         );
         return { id: current, start };
       }
       if (!listIsOlder(was, start)) return stay;
       const own = old.get('fromTemplate');
-      const templateRef = typeof own === 'string' ? this.notes().doc(own) : shopping?.ref;
-      const template = templateRef ? await tx.get(templateRef) : undefined;
-      if (!template?.exists || template.get('kind') !== 'template' || inTrash(template.data()))
+      const templateId = typeof own === 'string' ? own : shopping?.id;
+      const template = templateId ? await this.readNote(templateId, tx) : undefined;
+      if (!template?.exists || template.get('kind') !== 'template' || inTrash(template.known()))
         return stay;
       // The phone may have started the week's list already, offline.
       let ref = this.notes().doc(shoppingListId(start));
-      const derived = await tx.get(ref);
+      const derived = await this.readNote(ref.id, tx);
       const name = shoppingListTitle(start);
-      if (!derived.exists || derived.get('archived') === true || inTrash(derived.data())) {
+      // A new list holds the template's and the old list's text: their form.
+      let forms = derived.forms;
+      if (!derived.exists || derived.get('archived') === true || inTrash(derived.known())) {
+        forms = formFrom([template, old]);
         if (derived.exists) ref = this.notes().doc(newId());
         const body = shoppingListBody(
           String(template.get('body') ?? ''),
@@ -1342,15 +1563,15 @@ export class NotesTools {
           updatedAt: now,
           ...this.by(),
         });
-        tx.set(ref, data);
+        await this.writeNote(tx, 'set', ref, data, forms);
       }
       const archived = { ...this.stamp(), archived: true };
       Note.parse({ ...old.data(), ...archived });
-      tx.update(oldRef, archived);
+      await this.writeNote(tx, 'update', oldRef, archived, old.forms);
       tx.set(
-        ...this.activity('plan_meal', `Started ${name} and archived ${title}`, [
-          touched(ref.id, { title: name }),
-          touched(current, old.data()!),
+        ...this.activity('plan_meal', `Started ${titleIn(name, forms)} and archived ${title}`, [
+          touched(ref.id, { title: name }, forms),
+          touched(current, old.data()!, old.forms),
         ]),
       );
       return { id: ref.id, start };
@@ -1366,8 +1587,10 @@ export class NotesTools {
   ): Promise<PlannedDinner | undefined> {
     if (!slot?.recipe) return undefined;
     const id = (await this.names()).get(normalizeName(slot.recipe));
-    const recipe = id === undefined ? undefined : (await this.notes().doc(id).get()).data();
-    if (recipe?.['kind'] !== 'recipe') return undefined;
+    const found = id === undefined ? undefined : await this.readNote(id);
+    if (found?.get('kind') !== 'recipe') return undefined;
+    // A sealed recipe that does not open says so, rather than shopping for nothing.
+    const recipe = found.data()!;
     return {
       recipe: slot.recipe,
       recipeBody: String(recipe['body'] ?? ''),
@@ -1401,7 +1624,7 @@ export class NotesTools {
     ]);
     if (!current || (!from && !to)) return { list: current ?? null, added: 0, removed: 0 };
     // A dinner in a week older than the list's feeds no list (#207, 2026-11-09).
-    const held = (await this.notes().doc(current).get()).get('periodStart');
+    const held = (await this.readNote(current)).get('periodStart');
     if (!feedsList(typeof held === 'string' ? held : undefined, start)) {
       return { list: current, added: 0, removed: 0 };
     }
@@ -1429,7 +1652,7 @@ export class NotesTools {
       return { body: next.body, summary: `${title}: ${parts.join(' and ')} for ${label}` };
     });
     if (week === undefined) {
-      const was = (await this.notes().doc(list).get()).get('periodStart');
+      const was = (await this.readNote(list)).get('periodStart');
       week = typeof was === 'string' ? was : undefined;
     }
     const learned = { ...config.sections, ...sections };
@@ -1455,7 +1678,7 @@ export class NotesTools {
     const note = args.note.trim();
     if (!note) throw new ToolError('note must have some text');
     const id = planId(start);
-    const plan = await this.notes().doc(id).get();
+    const plan = await this.readNote(id);
     if (!plan.exists) throw new ToolError(`no plan for the week of ${start}`);
     const slot = planSlots(String(plan.get('body') ?? ''), start).find(
       (s) => s.date === args.date && s.meal === meal,
@@ -1466,7 +1689,7 @@ export class NotesTools {
       summary: `Noted ${slot.day} ${meal} (${shortDate(args.date)}) on the plan`,
     }));
     const recipe = slot.recipe && (await this.names()).get(normalizeName(slot.recipe));
-    if (recipe && (await this.notes().doc(recipe).get()).get('kind') === 'recipe') {
+    if (recipe && (await this.readNote(recipe)).get('kind') === 'recipe') {
       await this.editBody(recipe, 'log_meal', (body, title) => ({
         body: addRecipeNote(body, `- ${shortDate(args.date)}: ${note}`),
         summary: `Noted how ${title} went`,
@@ -1487,10 +1710,10 @@ export class NotesTools {
     const ref = this.notes().doc(args.id);
     const names = args.body === undefined ? undefined : await this.names();
     return this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(args.id, tx);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
+      if (inTrash(doc.known())) throw trashError(args.id);
       const current = doc.data()!;
-      if (inTrash(current)) throw trashError(args.id);
       const update: Data = {
         updatedAt: Timestamp.fromMillis(this.now()),
         ...this.by(),
@@ -1521,7 +1744,8 @@ export class NotesTools {
         update['instructions'] = args.instructions.trim();
       }
       Note.parse({ ...current, ...update });
-      tx.update(ref, update);
+      // Each field stays in the form it was found in.
+      await this.writeNote(tx, 'update', ref, update, doc.forms);
       const changed = [
         args.body !== undefined && 'text',
         args.title !== undefined && 'title',
@@ -1536,7 +1760,7 @@ export class NotesTools {
       ].filter((x): x is string => !!x);
       tx.set(
         ...this.activity('update_note', parts.join('; ') || 'Touched a note', [
-          touched(args.id, { ...current, ...update }),
+          touched(args.id, { ...current, ...update }, doc.forms),
         ]),
       );
       return {
@@ -1560,7 +1784,10 @@ export class NotesTools {
       .filter((d) => !args.type || (d.data['conceptType'] ?? 'other') === args.type)
       .map((d) => ({
         id: d.id,
-        title: String(d.data['title'] ?? ''),
+        // A sealed name that does not open is left out, and said (2026-11-12).
+        ...(d.data['title'] === undefined && d.locked
+          ? { sealed: SEALED_LEFT_OUT }
+          : { title: String(d.data['title'] ?? '') }),
         type: (d.data['conceptType'] as string | undefined) ?? 'other',
         synonyms: (d.data['synonyms'] as string[] | undefined) ?? [],
         ...(d.data['conceptType'] === 'project'
@@ -1575,13 +1802,16 @@ export class NotesTools {
           : {}),
         linkedFrom: counts.get(d.id) ?? 0,
       }))
-      .sort((a, b) => b.linkedFrom - a.linkedFrom || a.title.localeCompare(b.title));
+      .sort((a, b) => b.linkedFrom - a.linkedFrom || nameOf(a).localeCompare(nameOf(b)));
   }
 
   async getBacklinks(args: { id: string }) {
     const { docs, index } = await this.garden();
-    return docs
-      .filter((d) => d.id !== args.id && d.data['archived'] !== true)
+    const live = docs.filter((d) => d.id !== args.id && d.data['archived'] !== true);
+    // A sealed note that does not open is not read for links, and is counted.
+    const skipped = live.filter((d) => d.locked).length;
+    const found = live
+      .filter((d) => !d.locked)
       .flatMap((d) => {
         const body = String(d.data['body'] ?? '');
         if (!resolveLinks(targetsOf(body), index).includes(args.id)) return [];
@@ -1598,16 +1828,16 @@ export class NotesTools {
         ];
       })
       .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+    return withSkipped(found, skipped, 'read for links');
   }
 
   async linkNotes(args: { from: string; to: string[] }) {
     const { index } = await this.garden();
-    const refs = [args.from, ...args.to].map((id) => this.notes().doc(id));
     return this.db.runTransaction(async (tx) => {
-      const snaps = await tx.getAll(...refs);
+      const snaps = await this.readNotes([args.from, ...args.to], tx);
       for (const snap of snaps) {
         if (!snap.exists) throw new ToolError(`no note ${snap.id}`);
-        if (inTrash(snap.data())) throw trashError(snap.id);
+        if (inTrash(snap.known())) throw trashError(snap.id);
         if (snap.get('archived') === true) throw new ToolError(`note ${snap.id} is archived`);
       }
       const [from, ...tos] = snaps;
@@ -1616,6 +1846,7 @@ export class NotesTools {
       const linked = new Set(resolveLinks(targetsOf(body), index));
       const names: string[] = [];
       const added: Touched[] = [];
+      const linkedTo: Touched[] = [];
       for (const to of tos) {
         if (to.id === from.id) throw new ToolError('a note cannot link to itself');
         if (linked.has(to.id)) continue;
@@ -1629,7 +1860,8 @@ export class NotesTools {
           );
         }
         names.push(name);
-        added.push(touched(to.id, d));
+        added.push(touched(to.id, d, to.forms));
+        linkedTo.push(touched(to.id, d));
       }
       if (names.length === 0) return { id: from.id, linked: [] };
       // Claude's own line, under the gardener's text, which stays as it is.
@@ -1641,14 +1873,14 @@ export class NotesTools {
         links: resolveLinks(targetsOf(next), index),
       };
       Note.parse({ ...current, ...update });
-      tx.update(from.ref, update);
+      await this.writeNote(tx, 'update', from.ref, update, from.forms);
       tx.set(
         ...this.activity('link_notes', `Linked a note to ${plural(names.length, 'other')}`, [
-          touched(from.id, current),
+          touched(from.id, current, from.forms),
           ...added,
         ]),
       );
-      return { id: from.id, linked: added };
+      return { id: from.id, linked: linkedTo };
     });
   }
 
@@ -1658,10 +1890,10 @@ export class NotesTools {
     const { docs } = await this.garden();
     const ref = this.notes().doc(args.id);
     return this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(args.id, tx);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
+      if (inTrash(doc.known())) throw trashError(args.id);
       const current = doc.data()!;
-      if (inTrash(current)) throw trashError(args.id);
       if (current['archived'] === true) throw new ToolError(`note ${args.id} is archived`);
       if (current['kind'] !== 'text') throw new ToolError('only a text note can be split');
       const cuts = cutsOf(String(current['body'] ?? ''), args.parts);
@@ -1710,15 +1942,18 @@ export class NotesTools {
       }
       update['links'] = resolveLinks(targetsOf(body), after);
       Note.parse({ ...current, ...update });
-      tx.update(ref, update);
+      // What is left keeps its form; each piece, the source's text opened
+      // under its id and sealed again under the piece's own, takes it too.
+      const pieceForms = formFrom([doc]);
+      await this.writeNote(tx, 'update', ref, update, doc.forms);
       for (const p of pieces) {
         p.data['links'] = resolveLinks(targetsOf(String(p.data['body'])), after);
-        tx.set(this.notes().doc(p.id), Note.parse(p.data));
+        await this.writeNote(tx, 'set', this.notes().doc(p.id), Note.parse(p.data), pieceForms);
       }
       tx.set(
         ...this.activity('split_note', `Split a note into ${cuts.length}`, [
-          touched(args.id, { ...current, ...update }),
-          ...pieces.map((p) => touchedNew(p.id, p.data)),
+          touched(args.id, { ...current, ...update }, doc.forms),
+          ...pieces.map((p) => touchedNew(p.id, p.data, pieceForms)),
         ]),
       );
       return {
@@ -1733,16 +1968,15 @@ export class NotesTools {
     if (ids.length < 2 || ids.length > MAX_PIECES)
       throw new ToolError(`merge 2 to ${MAX_PIECES} different notes`);
     const { docs } = await this.garden();
-    const refs = ids.map((id) => this.notes().doc(id));
     return this.db.runTransaction(async (tx) => {
-      const snaps = await tx.getAll(...refs);
+      const snaps = await this.readNotes(ids, tx);
       for (const snap of snaps) {
         if (!snap.exists) throw new ToolError(`no note ${snap.id}`);
-        if (inTrash(snap.data())) throw trashError(snap.id);
+        if (inTrash(snap.known())) throw trashError(snap.id);
         if (snap.get('archived') === true) throw new ToolError(`note ${snap.id} is archived`);
         if (snap.get('kind') !== 'text') throw new ToolError('only text notes can be merged');
       }
-      const originals = snaps.map((s) => ({ id: s.id, data: s.data()! }));
+      const originals = snaps.map((s) => ({ id: s.id, data: s.data()!, forms: s.forms }));
       const first = originals[0].data;
       const body = joined(originals.map((o) => String(o.data['body'] ?? '')));
       const title = args.title?.trim()
@@ -1784,16 +2018,19 @@ export class NotesTools {
       ]);
       // One original linking another now names the merged note itself.
       merged['links'] = resolveLinks(targetsOf(body), index).filter((l) => l !== id);
-      tx.set(this.notes().doc(id), Note.parse(merged));
+      // The originals' text, each opened under its own id, sealed again
+      // under the merged note's when any of them was sealed.
+      const forms = formFrom(snaps);
+      await this.writeNote(tx, 'set', this.notes().doc(id), Note.parse(merged), forms);
       for (const o of originals) {
         const update = { ...this.stamp(), archived: true, mergedInto: id };
         Note.parse({ ...o.data, ...update });
-        tx.update(this.notes().doc(o.id), update);
+        await this.writeNote(tx, 'update', this.notes().doc(o.id), update, o.forms);
       }
       tx.set(
         ...this.activity('merge_notes', `Merged ${plural(ids.length, 'note')} into one`, [
-          touchedNew(id, merged),
-          ...originals.map((o) => touched(o.id, o.data)),
+          touchedNew(id, merged, forms),
+          ...originals.map((o) => touched(o.id, o.data, o.forms)),
         ]),
       );
       return { id, title: merged['title'], archived: ids };
@@ -1828,10 +2065,10 @@ export class NotesTools {
     const { index } = await this.garden();
     const ref = this.notes().doc(args.id);
     return this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(args.id, tx);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
+      if (inTrash(doc.known())) throw trashError(args.id);
       const current = doc.data()!;
-      if (inTrash(current)) throw trashError(args.id);
       const concept = current['kind'] === 'concept';
       if (!concept && (args.type || args.addSynonyms?.length))
         throw new ToolError('only a concept has a type and other names');
@@ -1951,11 +2188,11 @@ export class NotesTools {
         }
       }
       if (said.length === 0) return { id: args.id, changed: [], refused };
-      const entry = touchedFields(args.id, current, update);
+      const entry = this.touchedFieldsOf(doc, update);
       Object.assign(update, this.stamp());
       Note.parse(withoutDeletes({ ...current, ...update }));
-      tx.update(ref, update);
-      const what = `Refiled ${String(current['title'] ?? '') || 'a note'}: ${said.join('; ')}`;
+      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      const what = `Refiled ${titleIn(current['title'], doc.forms) || 'a note'}: ${said.join('; ')}`;
       tx.set(...this.activity('refile', what, [entry]));
       return { id: args.id, changed: said, refused };
     });
@@ -1965,17 +2202,18 @@ export class NotesTools {
     const archived = args.archived ?? true;
     const ref = this.notes().doc(args.id);
     return this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(args.id, tx);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
+      if (inTrash(doc.known())) throw trashError(args.id);
+      // A sealed note that does not open is not archived either, as in the app.
       const current = doc.data()!;
-      if (inTrash(current)) throw trashError(args.id);
       if ((current['archived'] === true) === archived) return { id: args.id, archived };
       const update = { ...this.stamp(), archived };
       Note.parse({ ...current, ...update });
-      tx.update(ref, update);
+      await this.writeNote(tx, 'update', ref, update, doc.forms);
       tx.set(
         ...this.activity('archive_note', archived ? 'Archived a note' : 'Restored a note', [
-          touched(args.id, current),
+          touched(args.id, current, doc.forms),
         ]),
       );
       return { id: args.id, archived };
@@ -1988,17 +2226,20 @@ export class NotesTools {
    * each with get_note, does it, and calls finishQueued.
    */
   async listQueue(args: { limit?: number }) {
-    const snap = await this.notes().where('sendState', '==', 'queued').get();
+    const queued = await this.queryNotes(this.notes().where('sendState', '==', 'queued'));
     const at = (d: Data) => (d['sentAt'] instanceof Timestamp ? d['sentAt'].toMillis() : 0);
-    return snap.docs
-      .filter((doc) => doc.get('archived') !== true && !inTrash(doc.data()))
-      .sort((a, b) => at(a.data()) - at(b.data()))
+    return queued
+      .filter((doc) => doc.get('archived') !== true && !inTrash(doc.known()))
+      .sort((a, b) => at(a.known()!) - at(b.known()!))
       .slice(0, args.limit ?? QUEUE_LIMIT)
       .map((doc) => {
-        const d = doc.data();
+        const d = doc.known()!;
         return {
           id: doc.id,
-          title: String(d['title'] ?? ''),
+          // A sealed title that does not open is left out, and said.
+          ...(d['title'] === undefined && doc.locked
+            ? { sealed: SEALED_LEFT_OUT }
+            : { title: String(d['title'] ?? '') }),
           kind: String(d['kind'] ?? 'text'),
           ...(typeof d['sendAsk'] === 'string' && d['sendAsk'] ? { ask: d['sendAsk'] } : {}),
           sentAt: iso(d['sentAt']),
@@ -2020,10 +2261,10 @@ export class NotesTools {
     if (!outcome) throw new ToolError('outcome must say what was done');
     const ref = this.notes().doc(args.id);
     return this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(args.id, tx);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
+      if (inTrash(doc.known())) throw trashError(args.id);
       const current = doc.data()!;
-      if (inTrash(current)) throw trashError(args.id);
       if (current['sendState'] !== 'queued') {
         throw new ToolError(`note ${args.id} is not waiting in the queue`);
       }
@@ -2034,10 +2275,10 @@ export class NotesTools {
       }
       const update = { sendState: 'done', sendOutcome: outcome };
       Note.parse({ ...current, ...update });
-      tx.update(ref, update);
+      await this.writeNote(tx, 'update', ref, update, doc.forms);
       tx.set(
         ...this.activity('finish_queued', `Did a note sent to it: ${outcome}`, [
-          touchedFields(args.id, current, update),
+          this.touchedFieldsOf(doc, update),
         ]),
       );
       return { id: args.id, done: true };
@@ -2049,11 +2290,29 @@ export class NotesTools {
    * changes until he accepts. Checked and stored as proposals.
    */
   async suggestChanges(args: { proposals: RawProposal[] }) {
+    // The garden as the checks need it, read through the boundary: a
+    // sealed note that does not open is out of reach, as if archived,
+    // so nothing is proposed for it.
+    const notes = (await this.queryNotes()).filter((n) => !inTrash(n.known()));
+    const garden = notes.map((n) => {
+      const d = n.known()!;
+      return {
+        id: n.id,
+        kind: String(d['kind'] ?? 'text'),
+        title: String(d['title'] ?? ''),
+        body: String(d['body'] ?? ''),
+        synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
+        conceptType: typeof d['conceptType'] === 'string' ? d['conceptType'] : undefined,
+        archived: d['archived'] === true || n.locked,
+      };
+    });
+    const sealedTitles = new Set(notes.filter((n) => n.forms.title === 'sealed').map((n) => n.id));
     const { stored, dropped, open } = await storeSuggestions(
       this.db,
       this.uid,
       args.proposals,
       this.now(),
+      { notes: garden, sealedTitles },
     );
     return {
       stored: stored.map((p) => ({ id: p.id, kind: p.kind, notes: p.notes, reason: p.reason })),
@@ -2067,8 +2326,8 @@ export class NotesTools {
    * is given it, cut at CONTEXT_MAX; empty when there is none yet.
    */
   async getContext(_args: object = {}) {
-    const doc = await this.notes().doc(CONTEXT_ID).get();
-    const live = doc.exists && doc.get('archived') !== true && !inTrash(doc.data());
+    const doc = await this.readNote(CONTEXT_ID);
+    const live = doc.exists && doc.get('archived') !== true && !inTrash(doc.known());
     const body = live ? String(doc.get('body') ?? '') : '';
     return {
       id: CONTEXT_ID,
@@ -2097,11 +2356,24 @@ export class NotesTools {
 
   /** The templates, each with its instructions, mode and schedule (#38). */
   async listTemplates(_args: object = {}) {
-    const snap = await this.notes().where('kind', '==', 'template').get();
+    const templates = await this.queryNotes(this.notes().where('kind', '==', 'template'));
     const schedules = await this.reminders().where('template', '!=', '').get();
-    return snap.docs
-      .filter((d) => d.get('archived') !== true && !inTrash(d.data()))
+    const scheduleOf = (id: string) =>
+      schedules.docs
+        .filter((r) => r.get('template') === id)
+        .map((r) => reminderView(r.id, r.data()));
+    return templates
+      .filter((d) => d.get('archived') !== true && !inTrash(d.known()))
       .map((d) => {
+        // A sealed template that does not open: its name and text left out, and said.
+        if (d.locked) {
+          return {
+            id: d.id,
+            sealed: SEALED_LEFT_OUT,
+            mode: d.get('templateMode') === 'living' ? 'living' : 'entry',
+            schedule: scheduleOf(d.id),
+          };
+        }
         const field = d.get('instructions') as string | undefined;
         const { skeleton, instructions } = templateParts(String(d.get('body') ?? ''), field);
         return {
@@ -2112,12 +2384,10 @@ export class NotesTools {
           // How its living note takes new material (#231), when set.
           ...(d.get('mode') ? takesView(effectiveMode({ id: d.id, ...d.data() })) : {}),
           skeleton,
-          schedule: schedules.docs
-            .filter((r) => r.get('template') === d.id)
-            .map((r) => reminderView(r.id, r.data())),
+          schedule: scheduleOf(d.id),
         };
       })
-      .sort((a, b) => a.title.localeCompare(b.title));
+      .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
   }
 
   /**
@@ -2126,12 +2396,12 @@ export class NotesTools {
    * from the skeleton. Notes made here record the template.
    */
   async useTemplate(args: { id: string }) {
-    const doc = await this.notes().doc(args.id).get();
+    const doc = await this.readNote(args.id);
     if (
       !doc.exists ||
       doc.get('kind') !== 'template' ||
       doc.get('archived') === true ||
-      inTrash(doc.data())
+      inTrash(doc.known())
     )
       throw new ToolError(`no template ${args.id}`);
     const template = doc.data()!;
@@ -2142,9 +2412,9 @@ export class NotesTools {
     const mode = template['templateMode'] === 'living' ? 'living' : 'entry';
     const about = { id: doc.id, title: String(template['title'] ?? ''), mode };
     if (mode === 'living') {
-      const made = await this.notes().where('fromTemplate', '==', doc.id).get();
-      const living = made.docs
-        .filter((d) => d.get('archived') !== true && !inTrash(d.data()))
+      const made = await this.queryNotes(this.notes().where('fromTemplate', '==', doc.id));
+      const living = made
+        .filter((d) => d.get('archived') !== true && !inTrash(d.known()))
         .sort((a, b) => (millis(b.get('updatedAt')) ?? 0) - (millis(a.get('updatedAt')) ?? 0))[0];
       if (living) {
         return {
@@ -2178,11 +2448,16 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    batch.set(this.notes().doc(id), data);
+    // The template's text, opened under its id, sealed again under the
+    // new note's when the template was sealed.
+    const forms = formFrom([doc]);
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
     batch.set(
-      ...this.activity('use_template', `Started a note from ${about.title || 'a template'}`, [
-        touchedNew(id, data),
-      ]),
+      ...this.activity(
+        'use_template',
+        `Started a note from ${titleIn(about.title, doc.forms) || 'a template'}`,
+        [touchedNew(id, data, forms)],
+      ),
     );
     await batch.commit();
     return {
@@ -2207,17 +2482,22 @@ export class NotesTools {
      * Names known before the run, writes that land with it (capture),
      * and whether the run made the note (a week's plan, the pantry).
      */
-    opts: { names?: Map<string, string>; also?: (tx: Transaction) => void; made?: boolean } = {},
+    opts: {
+      names?: Map<string, string>;
+      also?: (tx: Transaction) => Promise<void>;
+      made?: boolean;
+    } = {},
   ) {
     const ref = this.notes().doc(id);
     const names = opts.names ?? (await this.names());
     return this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(id, tx);
       if (!doc.exists) throw new ToolError(`no note ${id}`);
+      if (inTrash(doc.known())) throw trashError(id);
       const current = doc.data()!;
-      if (inTrash(current)) throw trashError(id);
       if (current['archived'] === true) throw new ToolError(`note ${id} is archived`);
-      const result = edit(String(current['body'] ?? ''), String(current['title'] ?? ''));
+      // The title is the summary's only: a sealed one goes in as "a sealed note".
+      const result = edit(String(current['body'] ?? ''), titleIn(current['title'], doc.forms));
       if (!result) return { id, changed: false };
       const update: Data = {
         ...this.stamp(),
@@ -2227,10 +2507,15 @@ export class NotesTools {
       };
       if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(result.body);
       Note.parse({ ...current, ...update });
-      opts.also?.(tx);
-      tx.update(ref, update);
-      const entry = opts.made ? touchedNew(id, current) : touched(id, current);
-      tx.set(...this.activity(tool, result.summary, [entry]));
+      await opts.also?.(tx);
+      // The text stays in the form it was found in.
+      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      const entry = opts.made
+        ? touchedNew(id, current, doc.forms)
+        : touched(id, current, doc.forms);
+      // A summary can quote the lines it wrote: for a sealed note it says only that.
+      const summary = doc.forms.body === 'sealed' ? 'Changed a sealed note' : result.summary;
+      tx.set(...this.activity(tool, summary, [entry]));
       return { id, changed: true, body: result.body };
     });
   }
@@ -2299,15 +2584,16 @@ export class NotesTools {
     const index = await this.names();
     await this.requireModule('projects', 'filing under a project');
     const projectId = index.get(normalizeName(args.project)) ?? args.project;
-    const snap = await this.notes().doc(projectId).get();
-    const project = snap.data();
+    const snap = await this.readNote(projectId);
+    const known = snap.known();
     if (
       !snap.exists ||
-      project?.['conceptType'] !== 'project' ||
-      project['archived'] === true ||
-      inTrash(project)
+      known?.['conceptType'] !== 'project' ||
+      known['archived'] === true ||
+      inTrash(known)
     )
       throw new ToolError(`no project ${args.project}; list_concepts with type project names them`);
+    const project = snap.data()!;
     const projectTitle = String(project['title'] ?? '');
     const done: Data = { project: { id: projectId, title: projectTitle } };
     if (args.kind === 'idea' || args.kind === 'question') {
@@ -2349,20 +2635,22 @@ export class NotesTools {
         ...this.by(),
       });
       // The note and its line under the heading land together, or neither
-      // does, so a retry never makes a second copy (review on #97).
+      // does, so a retry never makes a second copy (review on #97). It
+      // names the project, so it takes a sealed project's form.
       const names = new Map(index).set(normalizeName(title), id);
+      const forms = formFrom([snap]);
       await this.editBody(
         projectId,
         'capture',
-        (current) => ({
+        (current, shown) => ({
           body: addLines(current, [`- [[${title}]]`], heading),
-          summary: `Gardened ${args.kind === 'idea' ? 'an idea' : 'a question'} under ${projectTitle}: ${title}`,
+          summary: `Gardened ${args.kind === 'idea' ? 'an idea' : 'a question'} under ${shown}: ${titleIn(title, forms)}`,
         }),
         {
           names,
-          also: (tx) => {
-            tx.set(this.notes().doc(id), data);
-            tx.set(...this.activity('capture', 'Wrote a new note', [touchedNew(id, data)]));
+          also: async (tx) => {
+            await this.writeNote(tx, 'set', this.notes().doc(id), data, forms);
+            tx.set(...this.activity('capture', 'Wrote a new note', [touchedNew(id, data, forms)]));
           },
         },
       );
@@ -2414,9 +2702,9 @@ export class NotesTools {
     if (url.protocol !== 'http:' && url.protocol !== 'https:')
       throw new ToolError('url must be a full http(s) link');
     if (args.noteId) {
-      const note = await this.notes().doc(args.noteId).get();
+      const note = await this.readNote(args.noteId);
       if (!note.exists) throw new ToolError(`no note ${args.noteId}`);
-      if (inTrash(note.data())) throw trashError(args.noteId);
+      if (inTrash(note.known())) throw trashError(args.noteId);
     }
     const now = Timestamp.fromMillis(this.now());
     const data = Attachment.parse({
@@ -2714,10 +3002,14 @@ export class NotesTools {
     if (!doc.exists) throw new ToolError(`no article ${args.id}`);
     const d = doc.data()!;
     if (typeof d['noteId'] === 'string' && d['noteId']) {
-      const note = await this.notes().doc(d['noteId']).get();
+      const note = await this.readNote(d['noteId']);
       // Filed into a note now in Trash (#217): filed again, as for one not there.
-      if (note.exists && !inTrash(note.data()))
-        return { id: note.id, title: note.get('title'), alreadyFiled: true };
+      if (note.exists && !inTrash(note.known())) {
+        const title = note.known()!['title'];
+        return title === undefined && note.locked
+          ? { id: note.id, sealed: SEALED_LEFT_OUT, alreadyFiled: true }
+          : { id: note.id, title, alreadyFiled: true };
+      }
     }
     const feeds = await this.feedIndex();
     // Only a web link is kept, in the body and in `source` (review on #168).
@@ -2746,7 +3038,8 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    batch.set(this.notes().doc(id), data);
+    // A page's words, not a note's: plain, as every new note is for now.
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
     batch.update(ref, { noteId: id, updatedAt: now });
     batch.set(
       ...this.activity('clip_feed_item', `Filed “${data.title}” from the Reader`, [
@@ -2762,7 +3055,7 @@ export class NotesTools {
     const result = await this.setItem(args, true, (body) => (before = body));
     // A dinner ticked made on a meal plan uses up what is on hand (#131).
     if (result.changed && result.body !== undefined) {
-      const plan = await this.notes().doc(args.id).get();
+      const plan = await this.readNote(args.id);
       const start = plan.get('periodStart');
       if (plan.get('kind') === 'mealplan' && typeof start === 'string') {
         const was = new Set(
@@ -2796,8 +3089,8 @@ export class NotesTools {
 
   /** The pantry's text, or '' while there is none. */
   private async pantryBody(): Promise<string> {
-    const doc = await this.notes().doc(PANTRY_ID).get();
-    const live = doc.exists && doc.get('archived') !== true && !inTrash(doc.data());
+    const doc = await this.readNote(PANTRY_ID);
+    const live = doc.exists && doc.get('archived') !== true && !inTrash(doc.known());
     return live ? String(doc.get('body') ?? '') : '';
   }
 
@@ -2809,13 +3102,17 @@ export class NotesTools {
   private async ensurePantry(): Promise<boolean> {
     return this.db.runTransaction(async (tx) => {
       const ref = this.notes().doc(PANTRY_ID);
-      const doc = await tx.get(ref);
+      const doc = await this.readNote(PANTRY_ID, tx);
       if (doc.exists) {
-        if (doc.get('archived') === true) tx.update(ref, { archived: false, ...this.stamp() });
+        if (doc.get('archived') === true) {
+          await this.writeNote(tx, 'update', ref, { archived: false, ...this.stamp() }, doc.forms);
+        }
         return false;
       }
       const now = Timestamp.fromMillis(this.now());
-      tx.set(
+      await this.writeNote(
+        tx,
+        'set',
         ref,
         Note.parse({
           kind: 'pantry',
@@ -2829,6 +3126,7 @@ export class NotesTools {
           updatedAt: now,
           ...this.by(),
         }),
+        PLAIN,
       );
       return true;
     });
@@ -2843,20 +3141,22 @@ export class NotesTools {
     await this.requireModule('kitchen', 'suggesting recipes');
     if (!isIsoDate(args.date)) throw new ToolError('date must be a calendar date, YYYY-MM-DD');
     const [recipes, plans, pantry] = await Promise.all([
-      this.notes().where('kind', '==', 'recipe').get(),
-      this.notes().where('kind', '==', 'mealplan').get(),
+      this.queryNotes(this.notes().where('kind', '==', 'recipe')),
+      this.queryNotes(this.notes().where('kind', '==', 'mealplan')),
       this.pantryBody(),
     ]);
-    const live = (d: { get: (k: string) => unknown }) =>
-      d.get('archived') !== true && d.get('deletedAt') === undefined;
+    const live = (d: NoteSnap) => d.get('archived') !== true && d.get('deletedAt') === undefined;
+    // Sealed recipes and plans that do not open are left out, and counted.
+    const skipped = [...recipes, ...plans].filter((d) => live(d) && d.locked).length;
+    const open = (d: NoteSnap) => live(d) && !d.locked;
     const made = madeHistory(
-      plans.docs.filter(live).map((d) => ({
+      plans.filter(open).map((d) => ({
         body: String(d.get('body') ?? ''),
         periodStart: d.get('periodStart') as string | undefined,
       })),
     );
-    return suggestRecipes(
-      recipes.docs.filter(live).map((d) => ({
+    const suggested = suggestRecipes(
+      recipes.filter(open).map((d) => ({
         id: d.id,
         title: String(d.get('title') ?? ''),
         body: String(d.get('body') ?? ''),
@@ -2866,6 +3166,7 @@ export class NotesTools {
       args.date,
       Math.min(Math.max(1, args.limit ?? 5), 20),
     );
+    return withSkipped(suggested, skipped, 'read');
   }
 
   /** What is on hand (#131): each item, its amount as written, always, its section. */

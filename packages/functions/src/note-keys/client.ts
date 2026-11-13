@@ -2,8 +2,10 @@
 // step 2; DESIGN.md, "Note encryption", Key custody). A gardener's data
 // key is in the Worker's custody; the functions ask it by uid at
 // `POST https://<APP_DOMAIN>/api/note-key/for` with the service secret,
-// and keep each key in memory for the life of the instance. Nothing
-// calls this yet but its specs.
+// and keep each key in memory for the life of the instance. The MCP
+// tools ask for one only when they meet a sealed note (step 3b,
+// mcp/note-text.ts); with the secret not yet bound to any function,
+// that ask fails as NoteKeysUnconfigured and the note reads as sealed.
 //
 // Configuration comes from the deploy, never from code: APP_DOMAIN is
 // written to the functions' environment by scripts/deploy.sh, and

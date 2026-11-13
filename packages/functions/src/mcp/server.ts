@@ -14,6 +14,9 @@ export const INSTRUCTIONS = [
   'Prefer archiving to deleting; there is no delete tool. A note Eric deleted is in Trash, ' +
     'gone for good 30 days later: no tool lists, reads or changes it, and get_note says so; ' +
     "create_concept with a deleted concept's name brings it back.",
+  'A note or a result marked sealed holds text that could not be opened here. Leave it as it ' +
+    'is, do not make a new note in its place, and tell Eric which note it was; sealedSkipped ' +
+    'in a search says how many such notes it could not look in.',
   "In Eric's notes *single stars* mean bold and _underscores_ mean italic; " +
     'write emphasis the same way.',
   'Times are ISO 8601 with an offset. Ask Eric for his time zone if you need one and do not know it.',
