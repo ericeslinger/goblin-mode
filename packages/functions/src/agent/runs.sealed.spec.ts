@@ -187,6 +187,29 @@ describe("a sent note's run", () => {
     expect(keyFor).not.toHaveBeenCalled();
   });
 
+  it('a note gone since the run began: its outcome is sealed where there is a key', async () => {
+    queued('r1', note('Glaze notes'));
+    store.delete(NOTE);
+    await firestoreRunStore(fakeDb(store), keyFor).update(UID, 'r1', {
+      status: 'done',
+      outcome: 'Filed Glaze notes under Pottery',
+    });
+    expect(runField('r1', 'outcome', runDoc('r1')['outcome'])).toBe(
+      'Filed Glaze notes under Pottery',
+    );
+  });
+
+  it('a note gone and no key: the outcome is stored plain, as before', async () => {
+    queued('r1', note('Glaze notes'));
+    store.delete(NOTE);
+    noKey();
+    await firestoreRunStore(fakeDb(store), keyFor).update(UID, 'r1', {
+      status: 'done',
+      outcome: 'Filed under Pottery',
+    });
+    expect(runDoc('r1')['outcome']).toBe('Filed under Pottery');
+  });
+
   it('stores its outcome sealed under the run when the note is sealed', async () => {
     // A plain title beside a sealed body: the note is sealed (recordForm).
     queued('r1', note(seal('body', 'Glaze notes')));

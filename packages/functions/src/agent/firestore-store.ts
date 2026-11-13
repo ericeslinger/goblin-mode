@@ -27,13 +27,30 @@ export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): R
     if (!codec) codecs.set(uid, (codec = new NoteCodec(uid, keyFor)));
     return codec;
   };
-  /** The form a run's outcome is stored in: its item's, else its note's now. */
-  const outcomeForm = async (uid: string, runId: string): Promise<NoteForm> => {
+  /**
+   * The form a run's outcome is stored in: its item's, else its note's
+   * now. A note gone since the run began cannot say, so its outcome is
+   * sealed where there is a key ('if-keyed', review on #267).
+   */
+  const outcomeForm = async (uid: string, runId: string): Promise<NoteForm | 'if-keyed'> => {
     const run = (await db.doc(paths.run(uid, runId)).get()).data();
     if (isSealed(run?.['itemKey']) || isSealed(run?.['itemText'])) return 'sealed';
     const noteId = run?.['noteId'];
     if (typeof noteId !== 'string' || !noteId) return 'plain';
-    return recordForm(formsFound((await db.doc(paths.note(uid, noteId)).get()).data()));
+    const note = await db.doc(paths.note(uid, noteId)).get();
+    return note.exists ? recordForm(formsFound(note.data())) : 'if-keyed';
+  };
+  const sealOutcome = async (uid: string, runId: string, outcome: string) => {
+    const as = await outcomeForm(uid, runId);
+    const seal = (form: NoteForm) =>
+      codecFor(uid).sealRecord('runs', runId, 'outcome', outcome, form);
+    if (as !== 'if-keyed') return seal(as);
+    try {
+      return await seal('sealed');
+    } catch (err) {
+      if (!(err instanceof SealedRecordError) || err.reason !== 'no-key') throw err;
+      return seal('plain');
+    }
   };
   /** A claimed run with its item's text opened; one that did not open says why. */
   const opened = async (uid: string, runId: string, run: Record<string, unknown>) => {
@@ -81,17 +98,7 @@ export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): R
       const done = fields['status'] === 'done' || fields['status'] === 'failed';
       const outcome = fields['outcome'];
       const sealed =
-        typeof outcome === 'string'
-          ? {
-              outcome: await codecFor(uid).sealRecord(
-                'runs',
-                runId,
-                'outcome',
-                outcome,
-                await outcomeForm(uid, runId),
-              ),
-            }
-          : {};
+        typeof outcome === 'string' ? { outcome: await sealOutcome(uid, runId, outcome) } : {};
       await db
         .doc(paths.run(uid, runId))
         .set(
