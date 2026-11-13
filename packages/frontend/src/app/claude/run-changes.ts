@@ -1,5 +1,6 @@
 import { Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import {
+  type DataKey,
   type DiffLine,
   PUT_BACK_TOOL,
   REROUTE_TOOL,
@@ -60,6 +61,12 @@ export interface Side {
   at?: number;
   /** The note as it is now, not a kept version. */
   now: boolean;
+  /**
+   * Sealed, and this device cannot open it yet (step 3e, 2026-11-13):
+   * `body` is then '', and this side shows a calm line instead, while
+   * the other side shows as it is.
+   */
+  locked?: true;
 }
 
 /** The text before and after a run, or why one is missing (#241). */
@@ -89,6 +96,11 @@ type Written = {
  * version written before the run that is not its own. After: the note
  * now, while nothing has written it since; else the run's own text if
  * History kept it, else the next version it kept, else the note now.
+ *
+ * A version or note that is sealed and did not open here (`locked`)
+ * still takes its place, so each side says for itself that it is
+ * sealed (step 3e, 2026-11-13); it is never matched by hash, which its
+ * placeholder body cannot be.
  */
 export function runSides(
   run: Pick<RunRecord, 'at' | 'agent'>,
@@ -112,7 +124,7 @@ export function runSides(
   if (touched.made) {
     out.noBefore = 'made';
   } else {
-    const byHash = hash ? versions.find((v) => textHash(v.body) === hash) : undefined;
+    const byHash = hash ? versions.find((v) => !v.locked && textHash(v.body) === hash) : undefined;
     const byTime = byHash
       ? undefined
       : stamped
@@ -120,11 +132,16 @@ export function runSides(
           .sort((a, b) => b.updatedAt! - a.updatedAt!)[0];
     const found = byHash ?? byTime;
     if (found) {
-      out.before = { body: found.body, at: found.updatedAt, now: false };
+      out.before = {
+        body: found.body,
+        at: found.updatedAt,
+        now: false,
+        ...(found.locked ? { locked: true as const } : {}),
+      };
       // A time match may hold other changes made since: an assistant's
       // write within ten minutes of another is not kept as its own
       // version, so this is said to be approximate (review on #243).
-      if (byTime) out.beforeApprox = true;
+      if (byTime && !found.locked) out.beforeApprox = true;
     } else if (
       versions.length === 0 &&
       note?.createdAt !== undefined &&
@@ -137,18 +154,28 @@ export function runSides(
   }
 
   // After.
+  const nowSide = (n: NoteRecord): Side => ({
+    body: n.body,
+    now: true,
+    ...(n.locked ? { locked: true as const } : {}),
+  });
   if (note && (note.updatedAt === undefined || note.updatedAt <= at + RUN_SLACK_MS)) {
-    out.after = { body: note.body, now: true };
+    out.after = nowSide(note);
     return out;
   }
   const later = stamped
     .filter((v) => v.updatedAt! >= at - RUN_SLACK_MS && (own(v) || v.updatedAt! > at))
     .sort((a, b) => Number(own(b)) - Number(own(a)) || a.updatedAt! - b.updatedAt!)[0];
   if (later) {
-    out.after = { body: later.body, at: later.updatedAt, now: false };
+    out.after = {
+      body: later.body,
+      at: later.updatedAt,
+      now: false,
+      ...(later.locked ? { locked: true as const } : {}),
+    };
     if (!own(later)) out.afterLater = true;
   } else if (note) {
-    out.after = { body: note.body, now: true };
+    out.after = nowSide(note);
     out.afterLater = true;
   }
   return out;
@@ -185,11 +212,6 @@ let seq = 0;
           <p role="status" class="muted">Could not read History: {{ error() }}</p>
         } @else if (!sides()) {
           <p role="status" class="muted">Loading the changes…</p>
-        } @else if (sealed()) {
-          <p role="status" class="muted">
-            This note is sealed, and its key is not on this device yet. Its changes show when this
-            device is back online and signed in.
-          </p>
         } @else {
           @let s = sides()!;
           @if (notes().length) {
@@ -202,7 +224,10 @@ let seq = 0;
           <div class="sides">
             <div class="side" role="group" [attr.aria-labelledby]="panelId + '-before'">
               <h3 [id]="panelId + '-before'">Before</h3>
-              @if (s.before) {
+              @if (s.before?.locked) {
+                <p class="muted from">{{ from(s.before!) }}</p>
+                <p class="muted">{{ sealedLine }}</p>
+              } @else if (s.before) {
                 <p class="muted from">{{ from(s.before) }}</p>
                 <div class="text">
                   @for (l of beforeLines(); track $index) {
@@ -228,7 +253,10 @@ let seq = 0;
             </div>
             <div class="side" role="group" [attr.aria-labelledby]="panelId + '-after'">
               <h3 [id]="panelId + '-after'">After</h3>
-              @if (s.after) {
+              @if (s.after?.locked) {
+                <p class="muted from">{{ from(s.after!) }}</p>
+                <p class="muted">{{ sealedLine }}</p>
+              } @else if (s.after) {
                 <p class="muted from">{{ from(s.after) }}</p>
                 <div class="text">
                   @for (l of afterLines(); track $index) {
@@ -356,7 +384,30 @@ export class RunChanges {
 
   protected readonly panelId = `run-changes-${++seq}`;
   protected readonly open = signal(false);
-  private readonly versions = signal<VersionRecord[] | undefined>(undefined);
+  /** What a side says when its text is sealed and does not open here (step 3e). */
+  protected readonly sealedLine =
+    'This text is sealed, and its key is not on this device yet. It shows when this device is back online and signed in.';
+  /** The note's kept versions as stored, and whose. */
+  private readonly docs = signal<
+    { uid: string; id: string; docs: { id: string; data: Record<string, unknown> }[] } | undefined
+  >(undefined);
+  /**
+   * The versions, opened as the note's own text is (step 3a), derived
+   * from the stored ones and the key as History does (step 3e,
+   * 2026-11-13), so a key that arrives after the panel opened opens
+   * them then. The key is read only for a sealed version.
+   */
+  private readonly versions = computed<VersionRecord[] | undefined>(() => {
+    const kept = this.docs();
+    if (!kept) return undefined;
+    let key: DataKey | undefined;
+    let read = false;
+    const open = (value: string) => {
+      if (!read) [key, read] = [this.keys.key(), true];
+      return openField(key, kept.uid, kept.id, 'body', value);
+    };
+    return kept.docs.map((d) => toVersion(d.id, d.data, open));
+  });
   protected readonly error = signal('');
   private stop: (() => void) | undefined;
 
@@ -368,19 +419,12 @@ export class RunChanges {
     return runSides(this.run(), this.note(), versions, note);
   });
 
-  /**
-   * The note or a version of it is sealed and will not open here (note
-   * encryption step 3a): no diff of placeholders.
-   */
-  protected readonly sealed = computed(
-    () =>
-      !!this.versions()?.some((v) => v.locked) ||
-      this.notesService.find(this.note().id)?.locked === true,
-  );
-
+  /** A diff of the two sides, only when both opened here: never of a placeholder. */
   private readonly diff = computed(() => {
     const s = this.sides();
-    return s?.before && s.after ? lineDiff(s.before.body, s.after.body) : undefined;
+    return s?.before && s.after && !s.before.locked && !s.after.locked
+      ? lineDiff(s.before.body, s.after.body)
+      : undefined;
   });
 
   protected readonly beforeLines = computed(() => {
@@ -442,18 +486,16 @@ export class RunChanges {
   private load(): void {
     const uid = this.auth.user()?.uid;
     this.error.set('');
-    this.versions.set(undefined);
     if (!uid) {
       this.error.set('not signed in');
       return;
     }
+    this.docs.set(undefined);
     const id = this.note().id;
-    // A version opens as its note does (step 3a), with the key held now.
-    const open = (value: string) => openField(this.keys.key(), uid, id, 'body', value);
     this.stop = this.api.listen(
       this.fb.db,
       paths.history(uid, id),
-      (docs) => this.versions.set(docs.map((d) => toVersion(d.id, d.data, open))),
+      (docs) => this.docs.set({ uid, id, docs }),
       (err) => this.error.set((err as Error).message || 'unknown error'),
     );
   }

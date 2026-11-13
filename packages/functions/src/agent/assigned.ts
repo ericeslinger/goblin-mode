@@ -4,7 +4,12 @@
 // 2026-11-13); one that cannot be opened here starts nothing, is left
 // as stored, and its next settle looks again. Nothing here throws for a
 // sealed note, and the trigger sets no `retry`, so it never loops.
-import { RUN_STALE_MS, assignedItems, paths } from '@mossgoblin/schema';
+//
+// A run's item text and key are the note's words, so they are stored
+// sealed when the note is (`recordForm`, step 3e, 2026-11-13), under the
+// run's own id. That id is a hash of the item's key, made before the
+// text is sealed under it: a hash site, left for the keyed hashes.
+import { RUN_STALE_MS, assignedItems, formsFound, paths, recordForm } from '@mossgoblin/schema';
 import { type Firestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { type NoteCodec, SealedNoteError, logLeftSealed, storedText } from '../mcp/note-text';
 import { itemRunId } from './items';
@@ -39,9 +44,14 @@ export async function assignedOnWrite(
     return 'sealed';
   }
   const items = assignedItems(body).filter((i) => !i.done);
+  const as = recordForm(formsFound(after));
   let started = 0;
   for (const item of items) {
-    const ref = db.doc(paths.run(uid, itemRunId(noteId, item.key)));
+    const runId = itemRunId(noteId, item.key);
+    const ref = db.doc(paths.run(uid, runId));
+    // Sealed before the transaction, which may run more than once.
+    const itemText = await codec.sealRecord('runs', runId, 'itemText', item.text, as);
+    const itemKey = await codec.sealRecord('runs', runId, 'itemKey', item.key, as);
     const made = await db.runTransaction(async (tx) => {
       const had = (await tx.get(ref)).data();
       if (had) {
@@ -57,8 +67,8 @@ export async function assignedOnWrite(
       tx.set(ref, {
         kind: 'item',
         noteId,
-        itemText: item.text,
-        itemKey: item.key,
+        itemText,
+        itemKey,
         status: 'requested',
         attempt: (typeof had?.['attempt'] === 'number' ? had['attempt'] : 0) + 1,
         steps: [],

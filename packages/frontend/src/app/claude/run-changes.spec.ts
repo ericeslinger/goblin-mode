@@ -1,10 +1,11 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { textHash } from '@mossgoblin/schema';
+import { type DataKey, aadFor, newDataKey, sealText, textHash } from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { HISTORY_API, type VersionRecord } from '../history/history';
+import { NoteKeyService } from '../notes/note-key.service';
 import { type NoteRecord, NotesService } from '../notes/notes.service';
 import {
   FakeAuthService,
@@ -173,6 +174,7 @@ class Host {
 async function render(
   versions: { id: string; data: Record<string, unknown> }[],
   notes: NoteRecord[],
+  key?: ReturnType<typeof signal<DataKey | undefined>>,
 ) {
   const api = new FakeHistoryApi();
   api.versions.set('users/u1/notes/k/history', versions);
@@ -187,6 +189,7 @@ async function render(
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: AuthService, useValue: auth },
       { provide: NotesService, useValue: fakeNotes },
+      ...(key ? [{ provide: NoteKeyService, useValue: { key } }] : []),
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Host);
@@ -277,5 +280,100 @@ describe('RunChanges', () => {
     api.fail = new Error('offline');
     await click();
     expect(el.textContent).toContain('Could not read History: offline');
+  });
+});
+
+describe('runSides, a version or note that does not open here (step 3e, 2026-11-13)', () => {
+  it('never matches a locked version by hash, and marks a side it takes locked', () => {
+    const hash = textHash('');
+    const touched = { id: 'k', title: 'Kiln log', before: { body: hash } };
+    const locked = version('v1', '', { updatedAt: AT - 600_000, locked: true });
+    const sides = runSides(run(), touched, [locked], { ...noteRecord('k', 'after'), ...theRun });
+    // Found by time, not by the empty placeholder's hash, and said to be sealed.
+    expect(sides.before).toMatchObject({ locked: true, body: '' });
+    expect(sides.beforeApprox).toBeUndefined();
+    expect(sides.after).toMatchObject({ body: 'after', now: true });
+    expect(sides.after?.locked).toBeUndefined();
+  });
+
+  it('marks the note now locked when it is, leaving the version before as it is', () => {
+    const note = { ...noteRecord('k', ''), ...theRun, locked: true as const };
+    const sides = runSides(
+      run(),
+      run().notes[0],
+      [version('v1', 'one', { updatedAt: AT - 600_000 })],
+      note,
+    );
+    expect(sides.before).toMatchObject({ body: 'one' });
+    expect(sides.before?.locked).toBeUndefined();
+    expect(sides.after).toMatchObject({ now: true, locked: true });
+  });
+});
+
+describe('RunChanges, sealed versions (step 3e)', () => {
+  const dataKey = newDataKey();
+  const sealedKept = (body: string, ms: number) => ({
+    id: `v${ms}`,
+    data: {
+      body: sealText(dataKey, aadFor('u1', 'k', 'body'), body),
+      updatedBy: 'user',
+      updatedAt: at(ms),
+      savedAt: at(ms + 1),
+      reason: 'author',
+    },
+  });
+
+  it('shows the side that opens, and a calm line for the one that does not', async () => {
+    const key = signal<DataKey | undefined>(undefined);
+    const note = { ...noteRecord('k', 'Kiln log\n- bisque\n- glaze'), ...theRun };
+    const { el, click } = await render(
+      [sealedKept('Kiln log\n- bisque', AT - 600_000)],
+      [note],
+      key,
+    );
+    await click();
+    const [before, after] = [...el.querySelectorAll('[role=group]')];
+    expect(before.textContent).toContain('This text is sealed');
+    expect(after.textContent).toContain('- glaze');
+    expect(after.textContent).not.toContain('sealed');
+    // No diff of a placeholder.
+    expect(el.querySelectorAll('ins').length).toBe(0);
+    expect(el.textContent).not.toContain('\uE000');
+  });
+
+  it('opens a version when the key arrives after the panel opened', async () => {
+    const key = signal<DataKey | undefined>(undefined);
+    const note = { ...noteRecord('k', 'Kiln log\n- bisque\n- glaze'), ...theRun };
+    const { el, click, fixture } = await render(
+      [sealedKept('Kiln log\n- bisque', AT - 600_000)],
+      [note],
+      key,
+    );
+    await click();
+    expect(el.textContent).toContain('This text is sealed');
+    key.set(dataKey);
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('This text is sealed');
+    expect([...el.querySelectorAll('ins')].map((i) => i.textContent)).toEqual(['+Added: - glaze']);
+  });
+
+  it('one version that does not open hides nothing else', async () => {
+    const key = signal<DataKey | undefined>(dataKey);
+    const note = { ...noteRecord('k', 'one\ntwo'), ...theRun };
+    // A copy sealed for another note never opens here; the plain one before it still shows.
+    const foreign = {
+      id: 'vx',
+      data: {
+        body: sealText(dataKey, aadFor('u1', 'other', 'body'), 'elsewhere'),
+        updatedBy: 'user',
+        updatedAt: at(AT - 1_200_000),
+        savedAt: at(AT - 1_199_999),
+        reason: 'author',
+      },
+    };
+    const { el, click } = await render([kept('one', AT - 600_000), foreign], [note], key);
+    await click();
+    expect(el.textContent).not.toContain('This text is sealed');
+    expect([...el.querySelectorAll('ins')].map((i) => i.textContent)).toEqual(['+Added: two']);
   });
 });

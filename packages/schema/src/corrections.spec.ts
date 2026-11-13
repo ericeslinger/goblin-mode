@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CORRECTIONS_MAX, correctionLine, withCorrection } from './corrections';
+import {
+  CORRECTIONS_MAX,
+  SEALED_PROJECT_NAME,
+  correctionLine,
+  withCorrection,
+} from './corrections';
 
 const DAY = '2026-11-10';
 const put = (tool: string, summary: string, titles: string[], more: object = {}) =>
@@ -99,6 +104,49 @@ describe('correctionLine, a put back', () => {
         day: DAY,
       }),
     ).toBe('- Put back: Linked an imported recipe to Baking (2026-11-10).');
+  });
+});
+
+describe('correctionLine, a sealed note (step 3e, 2026-11-13)', () => {
+  it('never says its title, in a name or in the summary', () => {
+    expect(
+      correctionLine({
+        kind: 'put-back',
+        tool: 'link_notes',
+        summary: 'Linked a note to 1 other',
+        notes: [{ title: 'Kiln log' }, { title: 'Private plans', sealed: true }],
+        day: DAY,
+      }),
+    ).toBe('- Put back: Linked Kiln log to a sealed note (2026-11-10).');
+    const line = correctionLine({
+      kind: 'put-back',
+      tool: 'update_note',
+      summary: 'Changed Private plans and a note',
+      notes: [{ title: 'Private plans', was: 'Private plans', sealed: true }],
+      day: DAY,
+    });
+    expect(line).not.toContain('Private');
+    expect(line).toContain('a sealed note');
+  });
+
+  it('says a note it made as a new sealed note, and a sealed project as such', () => {
+    expect(
+      correctionLine({
+        kind: 'put-back',
+        tool: 'create_note',
+        summary: 'Wrote a new note',
+        notes: [{ title: 'Private plans', sealed: true }],
+        day: DAY,
+      }),
+    ).toBe('- Put back: Wrote a new sealed note (2026-11-10).');
+    expect(
+      correctionLine({
+        kind: 'reroute',
+        notes: [{ title: 'x', sealed: true }],
+        to: SEALED_PROJECT_NAME,
+        day: DAY,
+      }),
+    ).toBe('- Filed a sealed note under a sealed project (2026-11-10).');
   });
 });
 

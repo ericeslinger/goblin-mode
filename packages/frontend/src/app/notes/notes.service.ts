@@ -46,9 +46,12 @@ import {
   takesInstructions,
   type DataKey,
   type SealedField,
+  type SealedRecordCollection,
+  type SealedRecordField,
   SEALED_FIELDS,
   SealError,
   aadFor,
+  recordAadFor,
   fieldValue,
   formsFound,
   isSealed,
@@ -224,6 +227,30 @@ export function openField(
   if (!key) return undefined;
   try {
     return openText(key, aadFor(uid, noteId, field), value);
+  } catch (err) {
+    if (err instanceof SealError) return undefined;
+    throw err;
+  }
+}
+
+/**
+ * The text of a sealed `value` in field `field` of record `docId` in
+ * `collection` (a suggestion or a run, step 3e, 2026-11-13), or
+ * undefined when `key` is missing or does not open it. Bound to the
+ * record, never to a note (`recordAadFor`), so a value moved from a
+ * note or another record does not open.
+ */
+export function openRecordField<C extends SealedRecordCollection>(
+  key: DataKey | undefined,
+  uid: string,
+  collection: C,
+  docId: string,
+  field: SealedRecordField<C>,
+  value: string,
+): string | undefined {
+  if (!key) return undefined;
+  try {
+    return openText(key, recordAadFor(uid, collection, docId, field), value);
   } catch (err) {
     if (err instanceof SealError) return undefined;
     throw err;
