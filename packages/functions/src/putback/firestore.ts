@@ -1,6 +1,10 @@
 // Put back (#154 step 1) over Firestore: reads the run, its notes and
 // the texts its writes replaced, and writes the put back with its own
-// record in one transaction (DESIGN.md, Trust, step 1).
+// record in one transaction (DESIGN.md, Trust, step 1). A sealed note's
+// text, and the copies of it in History and its replaced texts, are
+// opened with one codec for the call and written back in the note's
+// own form (note encryption step 3c, 2026-11-13); a note that cannot be
+// opened here refuses the whole put back, leaving every note as stored.
 import { parseNote, wikiLinkTargets } from '@mossgoblin/editor/grammar';
 import {
   Activity,
@@ -34,14 +38,27 @@ import {
   Timestamp,
   type Transaction,
 } from 'firebase-admin/firestore';
+import { logger } from 'firebase-functions/v2';
+import {
+  type KeyFor,
+  NoteCodec,
+  NoteSnap,
+  SealedNoteError,
+  logLeftSealed,
+  sealFields,
+  shownTitle,
+  storedText,
+} from '../mcp/note-text';
 import {
   ToolError,
   agentDevice,
+  keepLockedLinks,
   linkName,
   parentTitle,
   touchedFields,
   withSeeAlso,
 } from '../mcp/tools';
+import { dataKeyFor } from '../note-keys/client';
 import {
   type NoteFacts,
   type RunFacts,
@@ -79,6 +96,34 @@ export interface PutBackResult {
 
 const millis = (v: unknown) => (v instanceof Timestamp ? v.toMillis() : undefined);
 
+type Data = Record<string, unknown>;
+
+/** What the app is told when a note the call needs is sealed and cannot be opened here. */
+export const SEALED_REFUSAL =
+  'A note it changed is sealed and cannot be opened here yet, so nothing was changed; ' +
+  'try again later.';
+
+/**
+ * Runs `work`; a sealed note it met that cannot be opened here refuses
+ * the call (the transaction wrote nothing), said once in the log with
+ * the note id and why.
+ */
+async function refusingSealed<T>(where: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if (!(err instanceof SealedNoteError)) throw err;
+    logLeftSealed(logger, where, err);
+    throw new PutBackRefused('failed-precondition', SEALED_REFUSAL);
+  }
+}
+
+/** A title as a record or summary holds it: sealed when the note's title or body is. */
+function recordTitle(title: string, snap: NoteSnap, sealed?: string): string {
+  const form = snap.forms.body === 'sealed' ? 'sealed' : snap.forms.title;
+  return shownTitle(title, form, sealed);
+}
+
 /** The deviceId a put back's note writes carry: its own, so History keeps what it replaced. */
 export function putBackDevice(recordId: string): string {
   return `${agentDevice(GARDEN_AGENT)}~${recordId}`;
@@ -107,7 +152,12 @@ function webOf(d: Record<string, unknown> | undefined): CorrectionNote['web'] {
   return undefined;
 }
 
-/** A note as a correction names it: its title now, if it is there, else the record's. */
+/**
+ * A note as a correction names it: its title now (`d`, opened), if it
+ * is there, else the record's. The context note keeps its own form, so
+ * a sealed note's opened title may go into a plain one, as a link Eric
+ * types does (2026-11-12).
+ */
 function correctionNote(
   t: { id: string; title: string },
   d: Record<string, unknown> | undefined,
@@ -135,14 +185,16 @@ type Stamp = {
  * as the app makes it when there is none; left alone when Eric
  * archived it or put it in Trash.
  */
-function writeCorrection(
+async function writeCorrection(
   tx: Transaction,
   ref: DocumentReference,
-  snap: DocumentSnapshot,
+  snap: NoteSnap,
   line: string,
   stamp: Stamp,
   index: Map<string, string>,
-): void {
+  locked: ReadonlySet<string>,
+  codec: NoteCodec,
+): Promise<void> {
   if (!snap.exists) {
     const body = withCorrection('', line);
     tx.create(
@@ -162,6 +214,14 @@ function writeCorrection(
     );
     return;
   }
+  // A sealed context note that did not open takes no line: it is left
+  // as stored, and the put back goes ahead without it.
+  if (snap.locked) {
+    logger.warn('put back left a sealed context note as stored: it cannot be opened here', {
+      noteId: snap.id,
+    });
+    return;
+  }
   const current = snap.data()!;
   if (current['archived'] === true || current['deletedAt'] !== undefined) return;
   const before = String(current['body'] ?? '');
@@ -170,10 +230,14 @@ function writeCorrection(
     ...stamp,
     body,
     baseHash: textHash(before),
-    links: resolveLinks(wikiLinkTargets(parseNote(body)), index),
+    links: keepLockedLinks(
+      resolveLinks(wikiLinkTargets(parseNote(body)), index),
+      current['links'],
+      locked,
+    ),
   };
   Note.parse({ ...current, ...update });
-  tx.update(ref, update);
+  tx.update(ref, await sealFields(codec, ref.id, update, snap.forms));
 }
 
 function runFacts(id: string, d: Record<string, unknown>): RunFacts {
@@ -204,29 +268,47 @@ function runFacts(id: string, d: Record<string, unknown>): RunFacts {
   };
 }
 
-/** Names to ids across the gardener's notes, titles and other names only. */
-async function namesOf(db: Firestore, uid: string): Promise<Map<string, string>> {
+/**
+ * Names to ids across the gardener's notes, titles and other names only,
+ * a sealed title opened; and the notes whose sealed title did not open
+ * here, which answer to no name, so a link to one is kept as stored.
+ */
+async function namesOf(
+  db: Firestore,
+  uid: string,
+  codec: NoteCodec,
+): Promise<{ index: Map<string, string>; locked: Set<string> }> {
   const named = await db
     .collection(paths.notes(uid))
     .select('title', 'kind', 'synonyms', 'archived', 'deletedAt')
     .get();
-  return nameIndex(
-    named.docs.map((d) => ({
-      id: d.id,
-      title: String(d.get('title') ?? ''),
-      kind: typeof d.get('kind') === 'string' ? d.get('kind') : 'text',
-      synonyms: Array.isArray(d.get('synonyms')) ? d.get('synonyms').map(String) : undefined,
-      // A note in Trash answers to no name (#217).
-      archived: d.get('archived') === true || d.get('deletedAt') !== undefined,
-    })),
+  const snaps = await Promise.all(named.docs.map((d) => NoteSnap.open(codec, d)));
+  const locked = new Set(snaps.filter((n) => n.locked).map((n) => n.id));
+  const index = nameIndex(
+    snaps.map((n) => {
+      const d = n.known() ?? {};
+      return {
+        id: n.id,
+        title: String(d['title'] ?? ''),
+        kind: typeof d['kind'] === 'string' ? d['kind'] : 'text',
+        synonyms: Array.isArray(d['synonyms']) ? d['synonyms'].map(String) : undefined,
+        // A note in Trash answers to no name (#217).
+        archived: d['archived'] === true || d['deletedAt'] !== undefined,
+      };
+    }),
   );
+  return { index, locked };
 }
 
-/** A note as it stands, or undefined when it is not there or in Trash (#217): gone. */
-function noteFacts(snap: DocumentSnapshot): NoteFacts | undefined {
+/**
+ * A note as it stands, its text opened, or undefined when it is not there
+ * or in Trash (#217): gone. Throws SealedNoteError when it is sealed and
+ * did not open: nothing is put back over text not seen here.
+ */
+function noteFacts(snap: NoteSnap): NoteFacts | undefined {
   if (!snap.exists) return undefined;
+  if (snap.known()?.['deletedAt'] !== undefined) return undefined;
   const d = snap.data() ?? {};
-  if (d['deletedAt'] !== undefined) return undefined;
   return {
     id: snap.id,
     body: String(d['body'] ?? ''),
@@ -237,8 +319,28 @@ function noteFacts(snap: DocumentSnapshot): NoteFacts | undefined {
     updatedAt: millis(d['updatedAt']),
     deviceId: String(d['deviceId'] ?? ''),
     ...(typeof d['baseHash'] === 'string' && d['baseHash'] ? { baseHash: d['baseHash'] } : {}),
-    fields: d,
+    // As stored: a field put back goes back to the same note.
+    fields: snap.stored(),
   };
+}
+
+/**
+ * A copy of note `noteId`'s body (a replaced text or a History version),
+ * opened under the note's own id; undefined when it is sealed and does
+ * not open with this key. No key at all throws, refusing the put back.
+ */
+async function openCopy(
+  codec: NoteCodec,
+  noteId: string,
+  d: Data | undefined,
+): Promise<string | undefined> {
+  if (typeof d?.['body'] !== 'string') return undefined;
+  try {
+    return await codec.open(noteId, 'body', storedText(d, 'body'));
+  } catch (err) {
+    if (err instanceof SealedNoteError && err.reason === 'did-not-open') return undefined;
+    throw err;
+  }
 }
 
 /**
@@ -259,16 +361,29 @@ export async function putBack(
   runId: string,
   now: number = Date.now(),
   timeZone?: string,
+  keyFor: KeyFor = dataKeyFor,
 ): Promise<PutBackResult> {
   if (!runId || runId.includes('/')) throw new PutBackRefused('invalid-argument', 'Which run?');
+  return refusingSealed('revertRun', () => putBackRun(db, uid, runId, now, timeZone, keyFor));
+}
+
+async function putBackRun(
+  db: Firestore,
+  uid: string,
+  runId: string,
+  now: number,
+  timeZone: string | undefined,
+  keyFor: KeyFor,
+): Promise<PutBackResult> {
   const recordId = putBackId(runId);
+  const codec = new NoteCodec(uid, keyFor);
   // Names only, for the links of a text put back; read before the transaction.
-  const index = await namesOf(db, uid);
+  const { index, locked } = await namesOf(db, uid, codec);
   const activity = db.collection(paths.activity(uid));
   const usageRef = db.doc(paths.usage(uid, new Date(now).toISOString().slice(0, 10)));
   const contextRef = db.doc(paths.note(uid, CONTEXT_ID));
   return db.runTransaction(async (tx) => {
-    const [runDoc, doneDoc, usage, contextDoc] = await tx.getAll(
+    const [runDoc, doneDoc, usage, contextRaw] = await tx.getAll(
       activity.doc(runId),
       activity.doc(recordId),
       usageRef,
@@ -285,14 +400,18 @@ export async function putBack(
       throw new PutBackRefused('failed-precondition', 'History cannot put this change back.');
 
     const ids = [...new Set([...base.notes, ...run.notes].map((t) => t.id))].filter(Boolean);
-    const snaps = ids.length
-      ? await tx.getAll(...ids.map((id) => db.doc(paths.note(uid, id))))
-      : [];
+    const raw = ids.length ? await tx.getAll(...ids.map((id) => db.doc(paths.note(uid, id)))) : [];
+    const snaps = await Promise.all(raw.map((s) => NoteSnap.open(codec, s)));
     const notes = new Map<string, NoteFacts>();
     for (const s of snaps) {
       const n = noteFacts(s);
       if (n) notes.set(n.id, n);
     }
+    /** A live note's text opened, for the correction line. */
+    const openedOf = (id: string) => {
+      const s = snaps.find((n) => n.id === id);
+      return notes.has(id) ? s?.data() : undefined;
+    };
     // The text each of the run's notes was written over, by its hash:
     // the replaced texts first (every one, for two days), then History.
     const textBefore = new Map<string, string>();
@@ -306,19 +425,24 @@ export async function putBack(
           : undefined
         : notes.get(t.id)?.baseHash;
       if (!hash) continue;
+      // Copies of the note's own body, in its stored form: each opens
+      // with the note's aad, and the hash is of the opened text.
       const replaced = await tx.get(db.doc(`${paths.replaced(uid, t.id)}/${hash}`));
-      const body = replaced.get('body');
-      if (typeof body === 'string' && textHash(body) === hash) {
+      const body = await openCopy(codec, t.id, replaced.data());
+      if (body !== undefined && textHash(body) === hash) {
         textBefore.set(t.id, body);
         continue;
       }
       const kept = await tx.get(
         db.collection(paths.history(uid, t.id)).orderBy('savedAt', 'desc').limit(VERSIONS_SEARCHED),
       );
-      const match = kept.docs
-        .map((d) => d.get('body'))
-        .find((b): b is string => typeof b === 'string' && textHash(b) === hash);
-      if (match !== undefined) textBefore.set(t.id, match);
+      for (const d of kept.docs) {
+        const b = await openCopy(codec, t.id, d.data());
+        if (b !== undefined && textHash(b) === hash) {
+          textBefore.set(t.id, b);
+          break;
+        }
+      }
     }
 
     const plan = planPutBack({ run, base, depth, notes, textBefore });
@@ -340,14 +464,18 @@ export async function putBack(
       const filedUnder = run.tool === 'refile' ? plan.writes[0]?.before?.['parent'] : undefined;
       const projectDoc =
         typeof filedUnder === 'string' && filedUnder && !filedUnder.includes('/')
-          ? await tx.get(db.doc(paths.note(uid, filedUnder)))
+          ? await NoteSnap.open(codec, await tx.get(db.doc(paths.note(uid, filedUnder))))
           : undefined;
-      const project = projectDoc?.exists ? String(projectDoc.get('title') ?? '') : undefined;
+      // A sealed project that did not open goes unnamed in the line.
+      const project =
+        projectDoc?.exists && !projectDoc.locked
+          ? String(projectDoc.data()?.['title'] ?? '')
+          : undefined;
       line = correctionLine({
         kind: 'put-back',
         tool: run.tool,
         summary: run.summary,
-        notes: run.notes.map((t) => correctionNote(t, notes.get(t.id)?.fields)),
+        notes: run.notes.map((t) => correctionNote(t, openedOf(t.id))),
         ...(project ? { project } : {}),
         day: dayIn(now, timeZone),
       });
@@ -359,8 +487,10 @@ export async function putBack(
       agent: GARDEN_AGENT,
       deviceId: putBackDevice(recordId),
     };
+    const recorded: { id: string; title: string; before?: Record<string, FieldBefore> }[] = [];
     for (const w of plan.writes) {
-      const current = snaps.find((s) => s.id === w.id)!.data()!;
+      const snap = snaps.find((s) => s.id === w.id)!;
+      const current = snap.stored()!;
       const note = notes.get(w.id)!;
       const update: Record<string, unknown> = {
         ...stamp,
@@ -371,7 +501,12 @@ export async function putBack(
       if (w.archived !== undefined) update['archived'] = w.archived;
       if (w.body !== undefined) {
         update['body'] = w.body;
-        update['links'] = resolveLinks(wikiLinkTargets(parseNote(w.body)), index);
+        // A link to a sealed note that did not open here is kept.
+        update['links'] = keepLockedLinks(
+          resolveLinks(wikiLinkTargets(parseNote(w.body)), index),
+          current['links'],
+          locked,
+        );
       }
       if (w.newTitle !== undefined) update['title'] = w.newTitle;
       const next = { ...current, ...update };
@@ -388,7 +523,13 @@ export async function putBack(
       Note.parse(next);
       if (w.mergedInto === null) update['mergedInto'] = FieldValue.delete();
       for (const k of gone) update[k] = FieldValue.delete();
-      tx.update(db.doc(paths.note(uid, w.id)), update);
+      // The text put back takes the note's form: sealed again under its id.
+      tx.update(db.doc(paths.note(uid, w.id)), await sealFields(codec, w.id, update, snap.forms));
+      recorded.push({
+        id: w.id,
+        title: recordTitle(w.title, snap),
+        ...(w.before ? { before: w.before } : {}),
+      });
     }
     tx.set(
       activity.doc(recordId),
@@ -396,17 +537,16 @@ export async function putBack(
         at: Timestamp.fromMillis(now),
         tool: PUT_BACK_TOOL,
         summary: putBackSummary(run, plan),
-        notes: plan.writes.map((w) => ({
-          id: w.id,
-          title: w.title,
-          ...(w.before ? { before: w.before } : {}),
-        })),
+        notes: recorded,
         reminders: [],
         agent: GARDEN_AGENT,
       }),
     );
     tx.set(usageRef, { putBacks: used + 1 }, { merge: true });
-    if (line) writeCorrection(tx, contextRef, contextDoc, line, stamp, index);
+    if (line) {
+      const contextDoc = await NoteSnap.open(codec, contextRaw);
+      await writeCorrection(tx, contextRef, contextDoc, line, stamp, index, locked, codec);
+    }
     return { status: 'done', id: recordId, notes: plan.writes.length };
   });
 }
@@ -433,6 +573,21 @@ export async function reroute(
   projectId: string,
   now: number = Date.now(),
   timeZone?: string,
+  keyFor: KeyFor = dataKeyFor,
+): Promise<PutBackResult> {
+  return refusingSealed('rerouteRun', () =>
+    rerouteRun(db, uid, putBackRunId, projectId, now, timeZone, keyFor),
+  );
+}
+
+async function rerouteRun(
+  db: Firestore,
+  uid: string,
+  putBackRunId: string,
+  projectId: string,
+  now: number,
+  timeZone: string | undefined,
+  keyFor: KeyFor,
 ): Promise<PutBackResult> {
   if (!putBackRunId || putBackRunId.includes('/'))
     throw new PutBackRefused('invalid-argument', 'Which put back?');
@@ -445,13 +600,14 @@ export async function reroute(
   const modules = await db.doc(paths.modules(uid)).get();
   if (!moduleOn(modules.data() as Parameters<typeof moduleOn>[0], 'projects'))
     throw new PutBackRefused('failed-precondition', 'Projects is switched off in Settings.');
-  const index = await namesOf(db, uid);
+  const codec = new NoteCodec(uid, keyFor);
+  const { index, locked } = await namesOf(db, uid, codec);
   const activity = db.collection(paths.activity(uid));
   const notesCol = db.collection(paths.notes(uid));
   const usageRef = db.doc(paths.usage(uid, new Date(now).toISOString().slice(0, 10)));
   const contextRef = notesCol.doc(CONTEXT_ID);
   return db.runTransaction(async (tx) => {
-    const [putBackDoc, baseDoc, doneDoc, projectDoc, usage, contextDoc] = await tx.getAll(
+    const [putBackDoc, baseDoc, doneDoc, projectRaw, usage, contextRaw] = await tx.getAll(
       activity.doc(putBackRunId),
       activity.doc(baseId),
       activity.doc(recordId),
@@ -465,19 +621,23 @@ export async function reroute(
     if (!baseDoc.exists) throw new PutBackRefused('not-found', 'The change it put back is gone.');
     const base = runFacts(baseId, baseDoc.data()!);
     const putBackRun = runFacts(putBackRunId, putBackDoc.data()!);
-    const project = projectDoc.data();
+    const projectDoc = await NoteSnap.open(codec, projectRaw);
+    const known = projectDoc.known();
     if (
       !projectDoc.exists ||
-      project?.['conceptType'] !== 'project' ||
-      project['archived'] === true ||
-      project['deletedAt'] !== undefined
+      known?.['conceptType'] !== 'project' ||
+      known['archived'] === true ||
+      known['deletedAt'] !== undefined
     )
       throw new PutBackRefused('not-found', 'That project is gone.');
+    // Its name is needed to link to it: a sealed one that did not open refuses.
+    const project = projectDoc.data()!;
     const projectTitle = String(project['title'] ?? '');
 
-    const baseSnaps = base.notes.length
+    const baseRaw = base.notes.length
       ? await tx.getAll(...base.notes.map((t) => notesCol.doc(t.id)))
       : [];
+    const baseSnaps = await Promise.all(baseRaw.map((s) => NoteSnap.open(codec, s)));
     const isProject = (id: string) =>
       baseSnaps.find((s) => s.id === id)?.get('conceptType') === 'project';
     const wrote = new Set(putBackRun.notes.map((t) => t.id));
@@ -494,18 +654,17 @@ export async function reroute(
     const writes: {
       id: string;
       update: Record<string, unknown>;
+      /** Opened. */
       current: Record<string, unknown>;
+      snap: NoteSnap;
     }[] = [];
     for (const id of ids) {
       const snap = baseSnaps.find((s) => s.id === id)!;
-      const current = snap.data();
-      if (
-        !snap.exists ||
-        !current ||
-        current['archived'] === true ||
-        current['deletedAt'] !== undefined
-      )
+      const known = snap.known();
+      if (!snap.exists || !known || known['archived'] === true || known['deletedAt'] !== undefined)
         continue;
+      // Throws SealedNoteError when it did not open: nothing is filed.
+      const current = snap.data()!;
       const update: Record<string, unknown> = {};
       if (current['conceptType'] === 'project') {
         if (current['parent'] === projectId) continue;
@@ -519,7 +678,11 @@ export async function reroute(
         update['parent'] = projectId;
       } else {
         const body = String(current['body'] ?? '');
-        const links = resolveLinks(wikiLinkTargets(parseNote(body)), index);
+        const links = keepLockedLinks(
+          resolveLinks(wikiLinkTargets(parseNote(body)), index),
+          current['links'],
+          locked,
+        );
         if (links.includes(projectId)) continue;
         const name = linkName(projectId, project, index);
         if (!name)
@@ -530,9 +693,13 @@ export async function reroute(
         const next = withSeeAlso(body, [name]);
         update['body'] = next;
         update['baseHash'] = textHash(body);
-        update['links'] = resolveLinks(wikiLinkTargets(parseNote(next)), index);
+        update['links'] = keepLockedLinks(
+          resolveLinks(wikiLinkTargets(parseNote(next)), index),
+          current['links'],
+          locked,
+        );
       }
-      writes.push({ id, update, current });
+      writes.push({ id, update, current, snap });
     }
     if (!writes.length)
       throw new PutBackRefused(
@@ -553,12 +720,17 @@ export async function reroute(
     if (base.tool !== REROUTE_TOOL && !writes.some((w) => w.id === CONTEXT_ID)) {
       let from: string | undefined;
       let mergedInto: CorrectionNote | undefined;
-      const dataOf = (id: string) => baseSnaps.find((s) => s.id === id)?.data();
+      /** A note's text opened; a sealed one that did not open, none. */
+      const dataOf = (id: string) => {
+        const s = baseSnaps.find((n) => n.id === id);
+        return s?.locked ? undefined : s?.data();
+      };
       if (base.tool === 'refile') {
         const was = putBackRun.notes.find((t) => t.id === writes[0].id)?.before?.['parent'];
         if (typeof was === 'string' && was && !was.includes('/')) {
-          const doc = await tx.get(notesCol.doc(was));
-          if (doc.exists) from = String(doc.get('title') ?? '') || undefined;
+          const doc = await NoteSnap.open(codec, await tx.get(notesCol.doc(was)));
+          // A sealed project that did not open goes unnamed in the line.
+          if (doc.exists && !doc.locked) from = String(doc.data()?.['title'] ?? '') || undefined;
         }
       } else if (base.tool === 'link_notes') {
         const target = base.notes.slice(1).find((t) => isProject(t.id));
@@ -581,29 +753,40 @@ export async function reroute(
         day: dayIn(now, timeZone),
       });
     }
-    const touched = writes.map((w) => touchedFields(w.id, w.current, w.update));
+    // Each note's fields before, as stored (a value goes back to the same
+    // note), its body by the hash of its text; its title as a record
+    // names it.
+    const touched = writes.map((w) => ({
+      ...touchedFields(w.id, { ...w.snap.stored(), body: w.current['body'] }, w.update),
+      title: recordTitle(String(w.current['title'] ?? ''), w.snap),
+    }));
     for (const w of writes) {
       const update = { ...w.update, ...stamp };
       Note.parse({ ...w.current, ...update });
-      tx.update(notesCol.doc(w.id), update);
+      // Text written keeps the note's form: sealed again under its id.
+      tx.update(notesCol.doc(w.id), await sealFields(codec, w.id, update, w.snap.forms));
     }
     const what =
       writes.length === 1
-        ? String(writes[0].current['title'] ?? '') || 'a note'
+        ? recordTitle(String(writes[0].current['title'] ?? ''), writes[0].snap, 'a sealed note') ||
+          'a note'
         : `${writes.length} notes`;
     tx.set(
       activity.doc(recordId),
       Activity.parse({
         at: Timestamp.fromMillis(now),
         tool: REROUTE_TOOL,
-        summary: `Filed ${what} under ${projectTitle || 'a project'}`,
+        summary: `Filed ${what} under ${recordTitle(projectTitle, projectDoc, 'a sealed project') || 'a project'}`,
         notes: touched,
         reminders: [],
         agent: GARDEN_AGENT,
       }),
     );
     tx.set(usageRef, { putBacks: used + 1 }, { merge: true });
-    if (line) writeCorrection(tx, contextRef, contextDoc, line, stamp, index);
+    if (line) {
+      const contextDoc = await NoteSnap.open(codec, contextRaw);
+      await writeCorrection(tx, contextRef, contextDoc, line, stamp, index, locked, codec);
+    }
     return { status: 'done', id: recordId, notes: writes.length };
   });
 }

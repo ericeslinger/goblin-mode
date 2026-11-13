@@ -135,6 +135,7 @@ import {
   SEALED_LEFT_OUT,
   SEALED_TITLE,
   formFrom,
+  sealFields,
   shownTitle,
 } from './note-text';
 import { ToolError } from './tool-error';
@@ -245,6 +246,26 @@ export function linkName(id: string, d: Data, index: Map<string, string>): strin
   return [String(d['title'] ?? ''), ...((d['synonyms'] as string[]) ?? [])].find(
     (n) => linkable(n) && index.get(normalizeName(n)) === id,
   );
+}
+
+/** The kinds whose names a new concept or recipe could take. */
+const NAMED_KINDS: readonly string[] = ['concept', 'recipe'];
+
+/**
+ * `links` with every id in `stored` (a note's links as stored) whose
+ * note is in `locked` added back: a sealed note that did not open has no
+ * name to resolve, so a link to it is kept rather than dropped (step 3c,
+ * 2026-11-13). Put back uses it too.
+ */
+export function keepLockedLinks(
+  links: readonly string[],
+  stored: unknown,
+  locked: { has(id: string): boolean },
+): string[] {
+  const kept = Array.isArray(stored)
+    ? stored.filter((id): id is string => typeof id === 'string' && locked.has(id))
+    : [];
+  return [...new Set([...links, ...kept])];
 }
 
 /** The assistant's own line linking `names`, under the gardener's text, which stays as it is. */
@@ -628,19 +649,41 @@ export class NotesTools {
   /** Note `id`, its text opened; in `tx` when given. */
   private async readNote(id: string, tx?: Transaction): Promise<NoteSnap> {
     const ref = this.notes().doc(id);
-    return NoteSnap.open(this.codec, tx ? await tx.get(ref) : await ref.get());
+    return this.seen(await NoteSnap.open(this.codec, tx ? await tx.get(ref) : await ref.get()));
   }
 
   /** Notes `ids` in `tx`, in order, their text opened. */
   private async readNotes(ids: readonly string[], tx: Transaction): Promise<NoteSnap[]> {
     const snaps = await tx.getAll(...ids.map((id) => this.notes().doc(id)));
-    return Promise.all(snaps.map((s) => NoteSnap.open(this.codec, s)));
+    return Promise.all(snaps.map(async (s) => this.seen(await NoteSnap.open(this.codec, s))));
   }
 
   /** The notes `q` (over this gardener's notes) finds, their text opened. */
   private async queryNotes(q: Query = this.notes()): Promise<NoteSnap[]> {
     const snap = await q.get();
-    return Promise.all(snap.docs.map((d) => NoteSnap.open(this.codec, d)));
+    return Promise.all(snap.docs.map(async (d) => this.seen(await NoteSnap.open(this.codec, d))));
+  }
+
+  /**
+   * Notes read in this request that are sealed and did not open, by id:
+   * their kind, and whether their name is unknown here (a live note
+   * whose title did not open). Links to them are kept, never dropped,
+   * and a concept or recipe is not made while one's name is unknown
+   * (step 3c, 2026-11-13).
+   */
+  private readonly lockedSeen = new Map<string, { kind: string; unnamed: boolean }>();
+
+  /** Notes `snap` among the locked ones when it is; gives it back. */
+  private seen(snap: NoteSnap): NoteSnap {
+    if (!snap.locked) return snap;
+    const d = snap.known() ?? {};
+    const kind = typeof d['kind'] === 'string' ? d['kind'] : 'text';
+    const live = d['archived'] !== true && !inTrash(d);
+    const had = this.lockedSeen.get(snap.id);
+    // A field select may leave the title out: unknown once is unknown.
+    const unnamed = (live && d['title'] === undefined) || had?.unnamed === true;
+    this.lockedSeen.set(snap.id, { kind, unnamed });
+    return snap;
   }
 
   /**
@@ -656,16 +699,8 @@ export class NotesTools {
     data: Data,
     forms: NoteForms,
   ): Promise<void> {
-    const out: Data = { ...data };
-    // A title is never plainer than its body (review on #263): one
-    // made from the body's first words would say them in the clear.
-    const as: NoteForms = forms.body === 'sealed' ? { ...forms, title: 'sealed' } : forms;
-    for (const field of ['body', 'title'] as const) {
-      const value = out[field];
-      if (typeof value === 'string') {
-        out[field] = await this.codec.seal(ref.id, field, value, as[field]);
-      }
-    }
+    // A title is never plainer than its body (review on #263): sealFields.
+    const out = await sealFields(this.codec, ref.id, data, forms);
     if (!w) {
       if (how === 'set') await ref.set(out);
       else await ref.update(out);
@@ -715,6 +750,39 @@ export class NotesTools {
   private notes() {
     return this.db.collection(paths.notes(this.uid));
   }
+  /**
+   * The links of `body` as `index` resolves them, keeping any link in
+   * `stored` (the note's links now) to a note this request could not
+   * open: its name cannot be read here, so the link cannot be checked,
+   * and it is kept rather than dropped (review of step 3b).
+   */
+  private relink(body: string, index: Map<string, string>, stored: unknown): string[] {
+    return keepLockedLinks(resolveLinks(targetsOf(body), index), stored, this.lockedSeen);
+  }
+
+  /**
+   * Refuses to make a concept or recipe (`what`) while a sealed one that
+   * did not open here has a name nothing can read: the new note might
+   * take its name. Called after names() or garden(), which read every
+   * note. The model is told to make no note in a sealed note's place.
+   */
+  private refuseWhileUnnamed(what: string): void {
+    const n = this.unnamedKnown();
+    if (!n) return;
+    throw new ToolError(
+      `${what} is refused for now: ${
+        n === 1 ? 'a sealed concept or recipe' : `${n} sealed concepts or recipes`
+      } cannot be opened here (its key is not available), so whether the name is taken ` +
+        'cannot be checked. Make no note in its place; try again once it opens.',
+    );
+  }
+
+  /** How many sealed concepts or recipes seen here have a name that did not open. */
+  private unnamedKnown(): number {
+    return [...this.lockedSeen.values()].filter((l) => l.unnamed && NAMED_KINDS.includes(l.kind))
+      .length;
+  }
+
   /** Names to ids across the gardener's notes (schema, concepts.ts). */
   private async names(): Promise<Map<string, string>> {
     // Names only: no bodies. A sealed title that does not open answers
@@ -902,6 +970,18 @@ export class NotesTools {
     };
   }
 
+  /**
+   * Note `id`'s text, opened, for a trigger working on the note with
+   * these tools (agentRun's assigned item): undefined when it is not
+   * there or in Trash (#217); throws SealedNoteError when it is sealed
+   * and did not open.
+   */
+  async noteBody(id: string): Promise<string | undefined> {
+    const doc = await this.readNote(id);
+    if (!doc.exists || inTrash(doc.known())) return undefined;
+    return String(doc.get('body') ?? '');
+  }
+
   /** How note `id` takes new material (#231), read with its template; none if absent. */
   private async takesOf(id: string): Promise<Takes | undefined> {
     const doc = await this.readNote(id);
@@ -1040,6 +1120,8 @@ export class NotesTools {
         return { id, title, type, broughtBack: true };
       }
       if (had.exists) throw new ToolError(`${name} is already a concept (${id})`);
+      // A sealed concept or recipe that did not open may have this name.
+      this.refuseWhileUnnamed(`making the concept ${name}`);
       await this.writeNote(tx, 'set', ref, data, PLAIN);
       tx.set(
         ...this.activity(
@@ -1083,6 +1165,8 @@ export class NotesTools {
     if (owner !== undefined && !foldable) {
       throw new ToolError(`already a name in the garden: ${name} (${owner})`);
     }
+    // A sealed concept or recipe that did not open may have this name.
+    this.refuseWhileUnnamed(`making the recipe ${name}`);
     const body = recipeBody(args);
     const source = Object.fromEntries(
       Object.entries(args.source ?? {}).filter(([, v]) => typeof v === 'string' && v.trim()),
@@ -1136,6 +1220,9 @@ export class NotesTools {
     self?: string,
   ): Promise<{ title: string; stub?: string } | undefined> {
     const names = await this.names();
+    // A sealed concept or recipe that did not open may have the name:
+    // the import keeps its placeholder name rather than take it.
+    if (this.unnamedKnown()) return undefined;
     for (const title of [name.slice(0, MAX_NAME), `${name} (${hostOf(url)})`.slice(0, MAX_NAME)]) {
       const owner = names.get(normalizeName(title));
       if (owner === undefined || owner === self) return { title };
@@ -1164,6 +1251,8 @@ export class NotesTools {
     const url = args.url.trim();
     if (!/^https?:\/\/[^/\s]+/i.test(url)) throw new ToolError('url must be an http or https link');
     const names = await this.names();
+    // Its placeholder name may be a sealed recipe's that did not open.
+    this.refuseWhileUnnamed('importing a recipe');
     let n = 1;
     while (names.has(normalizeName(importPlaceholder(url, n)))) n++;
     const title = importPlaceholder(url, n);
@@ -1277,7 +1366,7 @@ export class NotesTools {
       if (untouchedRecipe(text)) {
         update['body'] = body;
         update['baseHash'] = textHash(text);
-        update['links'] = resolveLinks(targetsOf(body), names);
+        update['links'] = this.relink(body, names, current['links']);
         if (aside) source['text'] = aside;
       } else {
         source['text'] = [body, aside].filter(Boolean).join('\n\n');
@@ -1354,7 +1443,14 @@ export class NotesTools {
       const by = this.by();
       const body = planBody(start, config);
       const fishNamed = names.get(normalizeName(FISH_NAME));
-      if (body.includes(`[[${FISH_NAME}]]`) && !placeholder.exists && fishNamed === undefined) {
+      // Not while a sealed concept or recipe's name is unknown here: it
+      // may be the placeholder's own, made with another id.
+      if (
+        body.includes(`[[${FISH_NAME}]]`) &&
+        !placeholder.exists &&
+        fishNamed === undefined &&
+        !this.unnamedKnown()
+      ) {
         await this.writeNote(
           tx,
           'set',
@@ -1723,7 +1819,7 @@ export class NotesTools {
           throw new ToolError('body must not be empty; archive the note instead');
         update['body'] = args.body;
         update['baseHash'] = textHash(String(current['body'] ?? ''));
-        update['links'] = resolveLinks(targetsOf(args.body), names!);
+        update['links'] = this.relink(args.body, names!, current['links']);
         if (current['titleSource'] === 'words' && args.title === undefined) {
           update['title'] = firstWordsTitle(args.body);
         }
@@ -1831,7 +1927,12 @@ export class NotesTools {
     return withSkipped(found, skipped, 'read for links');
   }
 
-  async linkNotes(args: { from: string; to: string[] }) {
+  /**
+   * `recorded`: the titles in the answer as an activity entry holds them,
+   * a sealed one as "Sealed note", for a caller that stores the answer
+   * (proposalAccepted's outcome line); the tool's own answer is opened.
+   */
+  async linkNotes(args: { from: string; to: string[] }, opts: { recorded?: boolean } = {}) {
     const { index } = await this.garden();
     return this.db.runTransaction(async (tx) => {
       const snaps = await this.readNotes([args.from, ...args.to], tx);
@@ -1861,7 +1962,7 @@ export class NotesTools {
         }
         names.push(name);
         added.push(touched(to.id, d, to.forms));
-        linkedTo.push(touched(to.id, d));
+        linkedTo.push(touched(to.id, d, opts.recorded ? to.forms : PLAIN));
       }
       if (names.length === 0) return { id: from.id, linked: [] };
       // Claude's own line, under the gardener's text, which stays as it is.
@@ -1870,7 +1971,7 @@ export class NotesTools {
         ...this.stamp(),
         body: next,
         baseHash: textHash(body),
-        links: resolveLinks(targetsOf(next), index),
+        links: this.relink(next, index, current['links']),
       };
       Note.parse({ ...current, ...update });
       await this.writeNote(tx, 'update', from.ref, update, from.forms);
@@ -1940,7 +2041,7 @@ export class NotesTools {
       if (linkable(from) && after.get(normalizeName(from)) === args.id) {
         for (const p of pieces) p.data['body'] = `${p.data['body']}\n\nSplit from: [[${from}]]`;
       }
-      update['links'] = resolveLinks(targetsOf(body), after);
+      update['links'] = this.relink(body, after, current['links']);
       Note.parse({ ...current, ...update });
       // What is left keeps its form; each piece, the source's text opened
       // under its id and sealed again under the piece's own, takes it too.
@@ -1963,7 +2064,8 @@ export class NotesTools {
     });
   }
 
-  async mergeNotes(args: { ids: string[]; title?: string }) {
+  /** `recorded`: the merged note's title as an activity entry holds it (linkNotes). */
+  async mergeNotes(args: { ids: string[]; title?: string }, opts: { recorded?: boolean } = {}) {
     const ids = [...new Set(args.ids)];
     if (ids.length < 2 || ids.length > MAX_PIECES)
       throw new ToolError(`merge 2 to ${MAX_PIECES} different notes`);
@@ -2017,7 +2119,12 @@ export class NotesTools {
         named(id, merged),
       ]);
       // One original linking another now names the merged note itself.
-      merged['links'] = resolveLinks(targetsOf(body), index).filter((l) => l !== id);
+      // Links the originals kept to a sealed note that did not open stay.
+      merged['links'] = this.relink(
+        body,
+        index,
+        originals.flatMap((o) => (o.data['links'] as string[] | undefined) ?? []),
+      ).filter((l) => l !== id);
       // The originals' text, each opened under its own id, sealed again
       // under the merged note's when any of them was sealed.
       const forms = formFrom(snaps);
@@ -2033,7 +2140,11 @@ export class NotesTools {
           ...originals.map((o) => touched(o.id, o.data, o.forms)),
         ]),
       );
-      return { id, title: merged['title'], archived: ids };
+      return {
+        id,
+        title: opts.recorded ? shownTitle(merged['title'], forms.title) : merged['title'],
+        archived: ids,
+      };
     });
   }
 
@@ -2503,7 +2614,7 @@ export class NotesTools {
         ...this.stamp(),
         body: result.body,
         baseHash: textHash(String(current['body'] ?? '')),
-        links: resolveLinks(targetsOf(result.body), names),
+        links: this.relink(result.body, names, current['links']),
       };
       if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(result.body);
       Note.parse({ ...current, ...update });

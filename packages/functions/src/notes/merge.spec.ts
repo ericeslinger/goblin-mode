@@ -57,7 +57,7 @@ describe('rememberReplaced', () => {
     expect(await rememberReplaced(s, 'u1', 'n1', state(S, { updatedAt: 5 }), state(ERIC))).toBe(
       true,
     );
-    expect(s.rememberReplaced).toHaveBeenCalledWith('u1', 'n1', S, 5);
+    expect(s.rememberReplaced).toHaveBeenCalledWith('u1', 'n1', S, 5, S);
     expect(await rememberReplaced(s, 'u1', 'n1', state(S), state(S))).toBe(false);
     expect(await rememberReplaced(s, 'u1', 'n1', state(''), state(S))).toBe(false);
     expect(await rememberReplaced(s, 'u1', 'n1', undefined, state(S))).toBe(false);

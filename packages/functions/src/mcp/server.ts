@@ -158,9 +158,12 @@ const time = z.string().describe('ISO 8601 with an offset, e.g. 2026-10-07T21:00
 /**
  * The tools as the server calls them: any result goes back as JSON.
  * Finishing an import is the trigger's (#128); naming the assistant is
- * the handler's (#142).
+ * the handler's (#142); reading an item's note is agentRun's (2026-11-13).
  */
-type ToolMethods = Exclude<keyof NotesTools, 'finishRecipeImport' | 'as' | 'answerItem'>;
+type ToolMethods = Exclude<
+  keyof NotesTools,
+  'finishRecipeImport' | 'as' | 'answerItem' | 'noteBody'
+>;
 export type ToolsApi = {
   [K in ToolMethods]: (args: Parameters<NotesTools[K]>[0]) => Promise<unknown>;
 };

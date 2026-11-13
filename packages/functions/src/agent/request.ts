@@ -5,7 +5,9 @@
 // app, the trigger logs them.
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { RUN_STALE_MS, paths } from '@mossgoblin/schema';
+import { RUN_STALE_MS, isSealed, paths } from '@mossgoblin/schema';
+import { NoteCodec, SealedNoteError } from '../mcp/note-text';
+import { dataKeyFor } from '../note-keys/client';
 import { firestoreKeyStore } from '../keys/firestore-store';
 import { DAILY_RUNS, dayOf } from './core';
 
@@ -179,7 +181,16 @@ export async function requestRun(
 
 /** What a note's write came to under Garden on arrival (#214). */
 export type ArrivalOutcome =
-  'sent' | 'not-arrival' | 'off' | 'skipped' | 'no-key' | 'capped' | 'already' | 'gone';
+  | 'sent'
+  | 'not-arrival'
+  | 'off'
+  | 'skipped'
+  | 'no-key'
+  | 'capped'
+  | 'already'
+  | 'gone'
+  /** Its body is sealed and cannot be opened here, so it is left as it is. */
+  | 'sealed';
 
 /**
  * Garden on arrival (#214, step 1 of #155): on a note's arrival, with
@@ -187,15 +198,30 @@ export type ArrivalOutcome =
  * ask and starts its run, as Send to an assistant and Do it now would
  * together. A note held back, or made from a template or carrying a
  * tag Settings skips (#229), is left as it is, as is everything else.
+ * A sealed body is opened with `codec` to see whether it has words in
+ * it, only once the rest says it arrives (2026-11-13); one that cannot
+ * be opened here is left as it is ('sealed').
  */
 export async function gardenOnArrival(
   db: Firestore,
   uid: string,
   noteId: string,
   before: NoteFields | undefined,
-  after: NoteFields | undefined,
+  raw: NoteFields | undefined,
+  codec: NoteCodec = new NoteCodec(uid, dataKeyFor),
 ): Promise<ArrivalOutcome> {
-  if (!arrives(noteId, before, after)) return 'not-arrival';
+  // A sealed value is never blank, so this says nothing yet of its words.
+  if (!arrives(noteId, before, raw)) return 'not-arrival';
+  let after = raw;
+  if (isSealed(raw?.body)) {
+    try {
+      after = { ...raw, body: await codec.open(noteId, 'body', raw.body) };
+    } catch (err) {
+      if (err instanceof SealedNoteError) return 'sealed';
+      throw err;
+    }
+    if (!arrives(noteId, before, after)) return 'not-arrival';
+  }
   const settings = await db.doc(paths.assistant(uid)).get();
   if (settings.get('gardenOnArrival') !== true) return 'off';
   if (!arrives(noteId, before, after, arrivalSkipOf(settings.get('arrivalSkip')))) {

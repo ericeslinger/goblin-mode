@@ -4,6 +4,7 @@
 // item, as the agent Mossgoblin, and ticks it.
 import { createHash } from 'node:crypto';
 import { FINDINGS_MARK, STATUS_MARK, assignedItems, findingsLines } from '@mossgoblin/schema';
+import { SealedNoteError } from '../mcp/note-text';
 import type { NotesTools } from '../mcp/tools';
 import { DAILY_RUNS, type RunDeps, type RunOutcome, type RunStore } from './core';
 import { research } from './research';
@@ -92,11 +93,16 @@ export async function executeItemRun(
     return 'done';
   } catch (err) {
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
-    if (!(err instanceof ItemGoneError)) {
+    // A sealed note that cannot be opened here takes no line either: it
+    // is left as stored (2026-11-13).
+    if (!(err instanceof ItemGoneError) && !(err instanceof SealedNoteError)) {
       await sayUnder(`Could not do it: ${message}`).catch(() => undefined);
     }
-    // No key yet: retried at the next settle once one is saved.
-    const retryable = /Add an? \w+ key in Settings/.test(message);
+    // No key yet (an Anthropic key, or the note's own): retried at the
+    // next settle once there is one.
+    const retryable =
+      /Add an? \w+ key in Settings/.test(message) ||
+      (err instanceof SealedNoteError && err.reason === 'no-key');
     await deps.store.update(uid, runId, {
       status: 'failed',
       error: message,

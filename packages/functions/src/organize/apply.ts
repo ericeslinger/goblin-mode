@@ -5,16 +5,23 @@ import { type NotesTools, ToolError } from '../mcp/tools';
 
 type Tools = Pick<NotesTools, 'linkNotes' | 'mergeNotes' | 'refile'>;
 
-/** Runs the organize tool a proposal names; returns what it did. */
+const RECORDED = { recorded: true } as const;
+
+/**
+ * Runs the organize tool a proposal names; returns what it did. The
+ * outcome is stored on the proposal, so the titles it quotes are as an
+ * activity entry holds them (`recorded`): a sealed one is "Sealed note",
+ * never its text in the clear (note encryption, 2026-11-13).
+ */
 async function carryOut(p: Proposal, tools: Tools): Promise<string> {
   const ids = p.notes.map((n) => n.id);
   switch (p.kind) {
     case 'link': {
-      const { linked } = await tools.linkNotes({ from: ids[0], to: ids.slice(1) });
+      const { linked } = await tools.linkNotes({ from: ids[0], to: ids.slice(1) }, RECORDED);
       return linked.length ? `Linked ${linked.map((n) => n.title).join(', ')}` : 'Already linked';
     }
     case 'merge': {
-      const merged = await tools.mergeNotes({ ids, title: p.title });
+      const merged = await tools.mergeNotes({ ids, title: p.title }, RECORDED);
       return `Merged into ${String(merged.title)}`;
     }
     case 'refile': {
