@@ -523,8 +523,14 @@ async function putBackRun(
       Note.parse(next);
       if (w.mergedInto === null) update['mergedInto'] = FieldValue.delete();
       for (const k of gone) update[k] = FieldValue.delete();
-      // The text put back takes the note's form: sealed again under its id.
-      tx.update(db.doc(paths.note(uid, w.id)), await sealFields(codec, w.id, update, snap.forms));
+      // The text put back takes the note's form: sealed again under its
+      // id. A field before that was stored sealed goes back as it was,
+      // once it opens as that field of this note (2026-11-13).
+      const restored = new Set(Object.keys(w.fields ?? {}));
+      tx.update(
+        db.doc(paths.note(uid, w.id)),
+        await sealFields(codec, w.id, update, snap.forms, restored),
+      );
       recorded.push({
         id: w.id,
         title: recordTitle(w.title, snap),

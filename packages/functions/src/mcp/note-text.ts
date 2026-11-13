@@ -13,25 +13,42 @@
 // The triggers and callables that touch note text (step 3c, 2026-11-13)
 // use the same codec, one per event or call: `sealFields` is the one way
 // a field is sealed for a write, here and in NotesTools.writeNote.
+//
+// Since step 3d (2026-11-13) every sealed field of a note goes the same
+// way, not only body and title: the other names, the instructions, the
+// Send to ask and outcome, a recipe's import error and its source text
+// (SEALED_FIELDS). The form a write keeps is `writtenForms`, shared with
+// the app (packages/schema/src/sealed-note.ts).
 import {
   type DataKey,
+  type NoteForm,
+  type NoteForms,
+  PLAIN_FORMS,
   SEALED_FIELDS,
+  SEALED_FORMS,
   SealError,
   type SealedField,
+  type SealedFieldValue,
+  type SealedListField,
   aadFor,
+  anySealed,
+  fieldValue,
+  formsFound,
   isSealed,
+  isSealedValue,
   openText,
   sealText,
+  withFieldValue,
+  writtenForms,
 } from '@mossgoblin/schema';
 import type { DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore';
 import { ToolError } from './tool-error';
 
 type Data = Record<string, unknown>;
 
-/** Whether a field is stored plain or sealed. */
-export type NoteForm = 'plain' | 'sealed';
-export type NoteForms = Record<SealedField, NoteForm>;
-export const PLAIN: NoteForms = Object.freeze({ body: 'plain', title: 'plain' });
+export type { NoteForm, NoteForms };
+/** Every field plain: a new note, or one with nothing sealed. */
+export const PLAIN: NoteForms = PLAIN_FORMS;
 
 /** Where the gardener's data key comes from: `dataKeyFor` in production. */
 export type KeyFor = (uid: string) => Promise<DataKey>;
@@ -99,6 +116,16 @@ export class NoteCodec {
   }
 
   /**
+   * Whether `value`, stored sealed, opens as field `field` of note
+   * `noteId`: it does, or this throws `SealedNoteError`. For a value put
+   * back as it was stored (`sealFields`, `restored`), so a sealed string
+   * recorded on one note or field never lands on another.
+   */
+  async check(noteId: string, field: SealedField, value: string): Promise<void> {
+    await this.open(noteId, field, value);
+  }
+
+  /**
    * `text` as stored in field `field` of note `noteId`: sealed under that
    * note's id when `as` is 'sealed', else as it is. Text that would read
    * as a sealed value is refused either way: stored plain it would lock
@@ -124,23 +151,29 @@ export class NoteCodec {
 export class NoteSnap {
   private constructor(
     private readonly snap: DocumentSnapshot,
-    private readonly opened: Partial<Record<SealedField, string>>,
+    private readonly opened: Partial<Record<SealedField, SealedFieldValue>>,
     /** How each text field is stored. */
     readonly forms: NoteForms,
     private readonly unreadable?: SealedNoteError,
   ) {}
 
-  /** Opens `snap`'s body and title; asks for the key only if one is sealed. */
+  /**
+   * Opens `snap`'s sealed fields, a list element by element; asks for
+   * the key only if one is sealed. Any that does not open locks the
+   * note.
+   */
   static async open(codec: NoteCodec, snap: DocumentSnapshot): Promise<NoteSnap> {
-    const opened: Partial<Record<SealedField, string>> = {};
-    const forms: NoteForms = { ...PLAIN };
+    const opened: Partial<Record<SealedField, SealedFieldValue>> = {};
+    const stored = snap.exists ? snap.data() : undefined;
+    const forms = formsFound(stored);
     let unreadable: SealedNoteError | undefined;
     for (const field of SEALED_FIELDS) {
-      const value: unknown = snap.exists ? snap.get(field) : undefined;
-      if (!isSealed(value)) continue;
-      forms[field] = 'sealed';
+      if (forms[field] !== 'sealed') continue;
+      const value = fieldValue(stored, field)!;
       try {
-        opened[field] = await codec.open(snap.id, field, value);
+        opened[field] = Array.isArray(value)
+          ? await Promise.all(value.map((v) => codec.open(snap.id, field, v)))
+          : await codec.open(snap.id, field, value);
       } catch (err) {
         if (!(err instanceof SealedNoteError)) throw err;
         unreadable ??= err;
@@ -164,7 +197,12 @@ export class NoteSnap {
   }
   /** Any text field is stored sealed (opened or not). */
   get sealed(): boolean {
-    return SEALED_FIELDS.some((f) => this.forms[f] === 'sealed');
+    return anySealed(this.forms);
+  }
+
+  /** Field `field` is stored sealed and did not open here. */
+  unopened(field: SealedField): boolean {
+    return this.forms[field] === 'sealed' && !(field in this.opened);
   }
 
   /** The note with its text opened; throws when it is locked. */
@@ -173,12 +211,19 @@ export class NoteSnap {
     return this.known();
   }
 
-  /** One field; a text field opened, throwing when it did not open. */
+  /**
+   * One field; a text field opened, throwing when it did not open. The
+   * `source` map comes with its text opened, as `source.text` does.
+   */
   get(field: string): unknown {
     if ((SEALED_FIELDS as readonly string[]).includes(field)) {
       const f = field as SealedField;
       if (f in this.opened) return this.opened[f];
       if (this.forms[f] === 'sealed') throw this.unreadable;
+    }
+    if (field === 'source' && this.forms['source.text'] === 'sealed') {
+      if (this.unopened('source.text')) throw this.unreadable;
+      return this.known()?.['source'];
     }
     return this.snap.get(field);
   }
@@ -187,9 +232,11 @@ export class NoteSnap {
   known(): Data | undefined {
     const d = this.snap.data();
     if (!d) return undefined;
-    const out: Data = { ...d, ...this.opened };
-    for (const f of SEALED_FIELDS)
-      if (this.forms[f] === 'sealed' && !(f in this.opened)) delete out[f];
+    let out: Data = { ...d };
+    for (const f of SEALED_FIELDS) {
+      if (this.forms[f] !== 'sealed') continue;
+      out = withFieldValue(out, f, this.opened[f]);
+    }
     return out;
   }
 
@@ -206,7 +253,7 @@ export class NoteSnap {
  * opened under its own id and sealed again under the new note's.
  */
 export function formFrom(sources: readonly (NoteSnap | undefined)[]): NoteForms {
-  return sources.some((s) => s?.sealed) ? { body: 'sealed', title: 'sealed' } : PLAIN;
+  return sources.some((s) => s?.sealed) ? SEALED_FORMS : PLAIN;
 }
 
 /**
@@ -215,39 +262,65 @@ export function formFrom(sources: readonly (NoteSnap | undefined)[]): NoteForms 
  * `NoteSnap`, for a trigger that opens it with `NoteCodec.open` or
  * keeps it as stored on the same note (trigger-boundary.spec.ts).
  */
-export function storedText(d: Data | undefined, field: SealedField): string {
-  return String(d?.[field] ?? '');
+export function storedText(
+  d: Data | undefined,
+  field: Exclude<SealedField, SealedListField>,
+): string {
+  if (field === 'body' || field === 'title') return String(d?.[field] ?? '');
+  const value = fieldValue(d, field);
+  return typeof value === 'string' ? value : '';
 }
 
-/** How `values`' body and title are stored, read off the values themselves. */
-export function formsOf(values: { body?: unknown; title?: unknown } | undefined): NoteForms {
-  return {
-    body: isSealed(values?.body) ? 'sealed' : 'plain',
-    title: isSealed(values?.title) ? 'sealed' : 'plain',
-  };
+/** How each sealed field of `values` is stored, read off the values themselves. */
+export function formsOf(values: Record<string, unknown> | undefined): NoteForms {
+  return formsFound(values);
 }
 
 /**
- * `data` for a write to note `noteId`, a `body` or `title` in it stored
- * as `forms` says: the note's own forms when it rewrites a note, PLAIN
- * or `formFrom` its sources for a new one. A title is never plainer than
- * its body (review on #263): one made from the body's first words would
- * say them in the clear. Every write of note text goes through here.
+ * `data` for a write to note `noteId`, each sealed field in it (a list
+ * element by element, `source.text` inside its map) stored as
+ * `writtenForms(forms)` says: `forms` is the note's own when it
+ * rewrites a note, PLAIN or `formFrom` its sources for a new one. So a
+ * field keeps the form it was found in, and no field is plainer than a
+ * sealed body (sealed-note.ts, the one rule). Every write of note text
+ * goes through here.
+ *
+ * `restored` names the fields that put back writes as they were stored
+ * before (`Touched.before`). A sealed value there is written back as it
+ * is, never sealed again, once it is shown to open as that field of this
+ * note (`NoteCodec.check`), so a value recorded on another note or field
+ * is refused; a plain one is written in the form the rule gives.
  */
 export async function sealFields(
   codec: NoteCodec,
   noteId: string,
   data: Data,
   forms: NoteForms,
+  restored: ReadonlySet<string> = NONE,
 ): Promise<Data> {
-  const out: Data = { ...data };
-  const as: NoteForms = forms.body === 'sealed' ? { ...forms, title: 'sealed' } : forms;
+  let out: Data = { ...data };
+  const as = writtenForms(forms);
   for (const field of SEALED_FIELDS) {
-    const value = out[field];
-    if (typeof value === 'string') out[field] = await codec.seal(noteId, field, value, as[field]);
+    const value = fieldValue(out, field);
+    if (value === undefined) continue;
+    const asStored = restored.has(field.split('.')[0]) && isSealedValue(value);
+    const one = async (text: string) => {
+      if (asStored && isSealed(text)) {
+        await codec.check(noteId, field, text);
+        return text;
+      }
+      return codec.seal(noteId, field, text, as[field]);
+    };
+    out = withFieldValue(
+      out,
+      field,
+      Array.isArray(value) ? await Promise.all(value.map(one)) : await one(value),
+    );
   }
   return out;
 }
+
+const NONE: ReadonlySet<string> = new Set();
 
 /**
  * The one log line a trigger or callable writes when it leaves a sealed

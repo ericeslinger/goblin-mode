@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest';
 // Note encryption step 3b (2026-11-12): the tools read and write note
 // documents only through the note text boundary in tools.ts (readNote,
 // readNotes, queryNotes, writeNote), which opens and seals body and
-// title. This reads the source and fails on a Firestore read or write
-// outside it that is not plainly about another collection, so a new
-// tool cannot reach a note's raw text by accident. A guard, not a proof:
-// the specs in note-text.spec.ts check what the boundary does.
+// title, and since 2026-11-13 every sealed field (SEALED_FIELDS). This
+// reads the source and fails on a Firestore read or write outside it
+// that is not plainly about another collection, or a stored value read
+// off a NoteSnap, so a new tool cannot reach a note's raw text by
+// accident. A guard, not a proof: the specs in note-text.spec.ts check
+// what the boundary does.
 const source = readFileSync(new URL('./tools.ts', import.meta.url), 'utf8');
 
 /** tools.ts without the boundary itself, and without parentTitle (below). */
@@ -69,7 +71,27 @@ function target(lines: string[], i: number): string {
   return name && name !== 'this' ? definition(lines, name, j) : lines[j];
 }
 
+/**
+ * A stored value read off a NoteSnap: `stored()` gives sealed fields as
+ * they are, so outside the boundary a sealed field's raw value would be
+ * read as its text (step 3d, 2026-11-13: every sealed field, not only
+ * body and title). The boundary's own `touchedFieldsOf` keeps values
+ * before as stored on purpose.
+ */
+const STORED = /\.stored\(\)/;
+
 describe('the note text boundary', () => {
+  it('reads no stored value off a NoteSnap outside the boundary', () => {
+    expect(outsideBoundary().filter((line) => STORED.test(line))).toEqual([]);
+    // What it is for: a planted raw read of a sealed field is caught.
+    for (const planted of [
+      "const ask = doc.stored()!['sendAsk'];",
+      'const names = (note.stored()?.synonyms as string[]) ?? [];',
+      "return String(found.stored()?.['instructions'] ?? '');",
+    ])
+      expect(STORED.test(planted)).toBe(true);
+  });
+
   it('is the only place the tools read or write a note document', () => {
     const lines = outsideBoundary();
     const raw = lines.flatMap((line, i) => {

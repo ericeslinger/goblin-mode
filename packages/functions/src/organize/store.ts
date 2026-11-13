@@ -54,6 +54,12 @@ export interface StoredGarden {
   notes: GardenNote[];
   /** The notes whose title is stored sealed. */
   sealedTitles: ReadonlySet<string>;
+  /**
+   * The concepts whose other names a write keeps sealed (`writtenForms`,
+   * 2026-11-13): a name proposed for one is not stored, in the proposal
+   * or its key, since it would sit there in the clear.
+   */
+  sealedNames?: ReadonlySet<string>;
 }
 
 /** What a round of suggestions came to. */
@@ -75,7 +81,8 @@ export interface Stored {
  * The garden is the caller's: the MCP tools read it through their note
  * text boundary, so sealed text is opened (2026-11-12). A title in
  * `sealedTitles` is stored in a proposal as "Sealed note", never in
- * the clear.
+ * the clear, and a refile of a concept in `sealedNames` keeps its type
+ * and leaves out the names proposed for it, which go in with refile.
  */
 export async function storeSuggestions(
   db: Firestore,
@@ -90,8 +97,14 @@ export async function storeSuggestions(
   const known = await proposals.select('key', 'status').get();
   const waiting = known.docs.filter((d) => d.get('status') === 'open').length;
   const room = Math.max(0, Math.min(PER_ROUND, MAX_OPEN - waiting));
+  const sealedNames = read.sealedNames ?? new Set<string>();
+  const proposed = raw.map((p) =>
+    p.kind === 'refile' && p.synonyms?.length && sealedNames.has(p.id)
+      ? { ...p, synonyms: undefined }
+      : p,
+  );
   const checked = checkProposals(
-    raw,
+    proposed,
     garden,
     new Set(known.docs.map((d) => String(d.get('key')))),
     room,

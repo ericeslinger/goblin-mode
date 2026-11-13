@@ -10,7 +10,9 @@ import { OWNER } from '../src/personas';
 // note sealed with the owner's development key, as the e2e static
 // server's `/api/note-key` derives it, is put straight into the
 // emulator; the app opens it with the key, and without one shows it
-// locked and never writes over it.
+// locked and never writes over it. Since step 3d (2026-11-13) a
+// concept's other names and its instructions are sealed too, and open
+// the same way.
 
 const SEALED_ID = 'SealedJourneyNote001';
 const BODY = 'Kiln firing\nCone 6, slow cool over the night';
@@ -138,4 +140,61 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
   // on #262).
   expect(await storedSealedNote()).toEqual(seeded);
   expect(await storedDocument()).toEqual(whileLocked);
+});
+
+const CONCEPT_ID = 'c-sealed-kiln';
+const CONCEPT_DOC = DOC.replace(SEALED_ID, CONCEPT_ID);
+
+test('a sealed concept shows its sealed other names and instructions, opened', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await expect.poll(() => noteKeyOnDevice(page)).not.toBeNull();
+  const key = await ownerKey();
+  const seal = (field: Parameters<typeof aadFor>[2], text: string) =>
+    sealText(key, aadFor(OWNER.uid, CONCEPT_ID, field), text);
+  const now = new Date().toISOString();
+  const res = await fetch(CONCEPT_DOC, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+    body: JSON.stringify({
+      fields: {
+        kind: { stringValue: 'concept' },
+        conceptType: { stringValue: 'other' },
+        body: { stringValue: seal('body', '') },
+        title: { stringValue: seal('title', 'Sealed kiln') },
+        titleSource: { stringValue: 'user' },
+        synonyms: {
+          arrayValue: {
+            values: [
+              { stringValue: seal('synonyms', 'Big oven') },
+              { stringValue: seal('synonyms', 'The beast') },
+            ],
+          },
+        },
+        instructions: { stringValue: seal('instructions', 'Keep firing notes short.') },
+        links: { arrayValue: {} },
+        tags: { arrayValue: {} },
+        archived: { booleanValue: false },
+        createdAt: { timestampValue: now },
+        updatedAt: { timestampValue: now },
+        updatedBy: { stringValue: 'user' },
+        deviceId: { stringValue: 'seed' },
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`could not seed the sealed concept: ${await res.text()}`);
+
+  await page.goto(`/n/${CONCEPT_ID}`);
+  const concept = page.getByRole('region', { name: 'Concept' });
+  await expect(concept.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
+    'Sealed kiln',
+  );
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  const also = concept.getByRole('list', { name: 'Also called' });
+  await expect(also).toContainText('Big oven');
+  await expect(also).toContainText('The beast');
+  await expect(page.getByRole('textbox', { name: 'Instructions for Claude' })).toHaveValue(
+    'Keep firing notes short.',
+  );
+  await expect(page.locator('body')).not.toContainText('\uE000');
+  await expectNoSeriousViolations(page);
 });

@@ -145,7 +145,12 @@ export function trashDaysLeft(deletedAt: number, now: number): number {
   return Math.max(0, Math.ceil((deletedAt + TRASH_MS - now) / (24 * 60 * 60_000)));
 }
 
-/** How long a Send to an assistant ask, and its outcome, may be (#143). */
+/**
+ * How long a Send to an assistant ask, and its outcome, may be (#143),
+ * in plain text. Each writer cuts its text to this before sealing it;
+ * the stored fields carry no limit (2026-11-13), since a sealed value
+ * is longer than its text.
+ */
 export const SEND_ASK_MAX = 500;
 export const SEND_OUTCOME_MAX = 300;
 
@@ -227,9 +232,22 @@ export const Note = z.object({
    * marks it `done` with one line in `sendOutcome` (finish_queued).
    */
   sendState: z.enum(['queued', 'done']).optional(),
-  sendAsk: z.string().max(SEND_ASK_MAX).optional(),
+  /**
+   * At most SEND_ASK_MAX characters of plain text, cut so by its writer
+   * (the app's Send to). No limit here since 2026-11-13: it may be
+   * stored sealed (sealed-note.ts), and a sealed value is longer than
+   * its text, so a limit on the stored value would refuse a full ask
+   * once sealed, and put back, which checks the note as stored, with
+   * it.
+   */
+  sendAsk: z.string().optional(),
   sentAt: Timestamp.optional(),
-  sendOutcome: z.string().max(SEND_OUTCOME_MAX).optional(),
+  /**
+   * At most SEND_OUTCOME_MAX characters of plain text, cut so by its
+   * writer (finish_queued); no limit on the stored value, as for
+   * `sendAsk` (2026-11-13).
+   */
+  sendOutcome: z.string().optional(),
   /** The run doing it now (#144 step 3), under `runs`, if Eric asked for one. */
   sendRun: z.string().optional(),
   /**

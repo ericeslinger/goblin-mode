@@ -104,6 +104,7 @@ import {
   modeBrief,
   takesInstructions,
   type Takes,
+  writtenForms,
 } from '@mossgoblin/schema';
 import {
   type CollectionReference,
@@ -642,8 +643,9 @@ export class NotesTools {
 
   // The note text boundary (2026-11-12). Every note document the tools
   // read comes through readNote, readNotes or queryNotes, which open its
-  // text; every write to one goes through writeNote, which seals body
-  // and title as `forms` says. No other code here reads or writes a
+  // text; every write to one goes through writeNote, which seals its
+  // sealed fields (body, title and, since 2026-11-13, the rest) as
+  // `forms` says. No other code here reads or writes a
   // note document (note-boundary.spec.ts checks the source).
 
   /** Note `id`, its text opened; in `tx` when given. */
@@ -667,7 +669,7 @@ export class NotesTools {
   /**
    * Notes read in this request that are sealed and did not open, by id:
    * their kind, and whether their name is unknown here (a live note
-   * whose title did not open). Links to them are kept, never dropped,
+   * whose title or other names did not open). Links to them are kept, never dropped,
    * and a concept or recipe is not made while one's name is unknown
    * (step 3c, 2026-11-13).
    */
@@ -681,14 +683,16 @@ export class NotesTools {
     const live = d['archived'] !== true && !inTrash(d);
     const had = this.lockedSeen.get(snap.id);
     // A field select may leave the title out: unknown once is unknown.
-    const unnamed = (live && d['title'] === undefined) || had?.unnamed === true;
+    // Other names that did not open leave its names unknown too (step 3d).
+    const unnamed =
+      (live && (d['title'] === undefined || snap.unopened('synonyms'))) || had?.unnamed === true;
     this.lockedSeen.set(snap.id, { kind, unnamed });
     return snap;
   }
 
   /**
    * Writes `data` to note `ref` in `w` (a transaction or batch; none for
-   * a direct update), a `body` or `title` in it stored as `forms` says:
+   * a direct update), each sealed field in it stored as `forms` says:
    * the note's own forms when it rewrites a note, PLAIN or `formFrom`
    * its sources for a new one.
    */
@@ -699,7 +703,7 @@ export class NotesTools {
     data: Data,
     forms: NoteForms,
   ): Promise<void> {
-    // A title is never plainer than its body (review on #263): sealFields.
+    // No field is plainer than its body (review on #263): sealFields.
     const out = await sealFields(this.codec, ref.id, data, forms);
     if (!w) {
       if (how === 'set') await ref.set(out);
@@ -833,7 +837,12 @@ export class NotesTools {
   private async garden() {
     const notes = await this.queryNotes();
     const docs = notes
-      .map((n) => ({ id: n.id, data: n.known()!, locked: n.locked }))
+      .map((n) => ({
+        id: n.id,
+        data: n.known()!,
+        locked: n.locked,
+        namesLeftOut: n.unopened('title') || n.unopened('synonyms'),
+      }))
       .filter((d) => !inTrash(d.data));
     return { docs, index: nameIndex(docs.map((d) => named(d.id, d.data))) };
   }
@@ -1880,9 +1889,11 @@ export class NotesTools {
       .filter((d) => !args.type || (d.data['conceptType'] ?? 'other') === args.type)
       .map((d) => ({
         id: d.id,
-        // A sealed name that does not open is left out, and said (2026-11-12).
+        // A sealed name that does not open is left out, and said
+        // (2026-11-12); other names too (2026-11-13).
+        ...(d.namesLeftOut ? { sealed: SEALED_LEFT_OUT } : {}),
         ...(d.data['title'] === undefined && d.locked
-          ? { sealed: SEALED_LEFT_OUT }
+          ? {}
           : { title: String(d.data['title'] ?? '') }),
         type: (d.data['conceptType'] as string | undefined) ?? 'other',
         synonyms: (d.data['synonyms'] as string[] | undefined) ?? [],
@@ -2279,8 +2290,11 @@ export class NotesTools {
         }
         if (added.length) {
           update['synonyms'] = synonyms;
+          // Names a write keeps sealed are not said in the clear (2026-11-13).
           said.push(
-            `added ${added.length === 1 ? 'another name' : 'other names'}: ${added.join(', ')}`,
+            writtenForms(doc.forms).synonyms === 'sealed'
+              ? `added ${added.length === 1 ? 'another name' : plural(added.length, 'other name')}`
+              : `added ${added.length === 1 ? 'another name' : 'other names'}: ${added.join(', ')}`,
           );
         }
       }
@@ -2347,10 +2361,11 @@ export class NotesTools {
         const d = doc.known()!;
         return {
           id: doc.id,
-          // A sealed title that does not open is left out, and said.
-          ...(d['title'] === undefined && doc.locked
+          // A sealed title or ask that does not open is left out, and said.
+          ...((d['title'] === undefined || doc.unopened('sendAsk')) && doc.locked
             ? { sealed: SEALED_LEFT_OUT }
-            : { title: String(d['title'] ?? '') }),
+            : {}),
+          ...(d['title'] === undefined && doc.locked ? {} : { title: String(d['title'] ?? '') }),
           kind: String(d['kind'] ?? 'text'),
           ...(typeof d['sendAsk'] === 'string' && d['sendAsk'] ? { ask: d['sendAsk'] } : {}),
           sentAt: iso(d['sentAt']),
@@ -2387,11 +2402,12 @@ export class NotesTools {
       const update = { sendState: 'done', sendOutcome: outcome };
       Note.parse({ ...current, ...update });
       await this.writeNote(tx, 'update', ref, update, doc.forms);
-      tx.set(
-        ...this.activity('finish_queued', `Did a note sent to it: ${outcome}`, [
-          this.touchedFieldsOf(doc, update),
-        ]),
-      );
+      // An outcome a write keeps sealed is not said in the clear (2026-11-13).
+      const what =
+        writtenForms(doc.forms).sendOutcome === 'sealed'
+          ? 'Did a sealed note sent to it'
+          : `Did a note sent to it: ${outcome}`;
+      tx.set(...this.activity('finish_queued', what, [this.touchedFieldsOf(doc, update)]));
       return { id: args.id, done: true };
     });
   }
@@ -2418,12 +2434,15 @@ export class NotesTools {
       };
     });
     const sealedTitles = new Set(notes.filter((n) => n.forms.title === 'sealed').map((n) => n.id));
+    const sealedNames = new Set(
+      notes.filter((n) => writtenForms(n.forms).synonyms === 'sealed').map((n) => n.id),
+    );
     const { stored, dropped, open } = await storeSuggestions(
       this.db,
       this.uid,
       args.proposals,
       this.now(),
-      { notes: garden, sealedTitles },
+      { notes: garden, sealedTitles, sealedNames },
     );
     return {
       stored: stored.map((p) => ({ id: p.id, kind: p.kind, notes: p.notes, reason: p.reason })),
