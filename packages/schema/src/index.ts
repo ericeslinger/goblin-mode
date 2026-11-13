@@ -31,4 +31,5 @@ export * from './modes';
 export * from './corrections';
 export * from './diff';
 export * from './sealed';
+export * from './sealed-note';
 export * from './note-key';

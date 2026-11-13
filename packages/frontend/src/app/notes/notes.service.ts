@@ -46,10 +46,17 @@ import {
   takesInstructions,
   type DataKey,
   type SealedField,
+  SEALED_FIELDS,
   SealError,
   aadFor,
+  fieldValue,
+  formsFound,
   isSealed,
+  isSealedValue,
   openText,
+  sealText,
+  withFieldValue,
+  writtenForms,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -383,21 +390,51 @@ function recipeSource(value: unknown): NoteRecord['source'] {
 }
 
 /**
+ * `data` with its other sealed fields (every one but body and title,
+ * step 3d, 2026-11-13) opened with `open`, a list element by element; a
+ * field that will not open is left out. Plain values pass through, and
+ * with none sealed `data` comes back as it is.
+ */
+function openOthers(
+  id: string,
+  data: Record<string, unknown>,
+  open: FieldOpener,
+): { data: Record<string, unknown>; unopened: boolean } {
+  let out = data;
+  let unopened = false;
+  for (const field of SEALED_FIELDS) {
+    if (field === 'body' || field === 'title') continue;
+    const value = fieldValue(data, field);
+    if (!isSealedValue(value)) continue;
+    const one = (v: string) => (isSealed(v) ? open(id, field, v) : v);
+    const text = Array.isArray(value) ? value.map(one) : one(value as string);
+    const shut = Array.isArray(text) ? text.some((t) => t === undefined) : text === undefined;
+    if (shut) unopened = true;
+    out = withFieldValue(out, field, shut ? undefined : (text as string | string[]));
+  }
+  return { data: out, unopened };
+}
+
+/**
  * A note as the app reads it, from its stored document: the one place
  * the app decodes a note (step 3a). A sealed `body` or `title` is opened
- * with `open`; plain text passes through as it always has. If either
- * will not open the note is `locked`, its text the placeholders.
+ * with `open`, and since step 3d (2026-11-13) every other sealed field
+ * too (the other names, instructions, the Send to ask and outcome, an
+ * import error, a recipe's source text); plain text passes through as
+ * it always has. If any will not open the note is `locked`: its body
+ * and title the placeholders, and a field that did not open left out.
  */
 export function toRecord(
   id: string,
-  data: Record<string, unknown>,
+  raw: Record<string, unknown>,
   open: FieldOpener = NO_KEY,
 ): NoteRecord {
-  const stamp = data['updatedAt'] as { toMillis?: () => number } | null | undefined;
-  const stored = { body: String(data['body'] ?? ''), title: String(data['title'] ?? '') };
+  const stamp = raw['updatedAt'] as { toMillis?: () => number } | null | undefined;
+  const stored = { body: String(raw['body'] ?? ''), title: String(raw['title'] ?? '') };
   const body = isSealed(stored.body) ? open(id, 'body', stored.body) : stored.body;
   const title = isSealed(stored.title) ? open(id, 'title', stored.title) : stored.title;
-  const locked = body === undefined || title === undefined;
+  const { data, unopened } = openOthers(id, raw, open);
+  const locked = body === undefined || title === undefined || unopened;
   return {
     id,
     body: locked ? '' : body,
@@ -634,6 +671,50 @@ export class NotesService {
     return (this.find(id) ?? this.trashed(id))?.locked === true;
   }
 
+  /** Note `id`'s document as the latest snapshot stored it, sealed values as they are. */
+  private storedDoc(id: string): Record<string, unknown> | undefined {
+    return this.snapshot()?.docs.find((d) => d.id === id)?.data;
+  }
+
+  /**
+   * `text` as the app writes field `field` of note `id` (step 3d,
+   * 2026-11-13): sealed under the note's id when the rule gives that
+   * field sealed for the note as stored (`writtenForms`: sealed where
+   * it was found sealed, or beside a sealed body), else as it is, which
+   * for every note today is plain. Sealing takes the key this device
+   * opened the note with; without it this throws LockedNoteError, so
+   * the write is refused and a kept write waits: a sealed value is
+   * never written over with plain text.
+   */
+  private inForm<T extends string | string[]>(id: string, field: SealedField, text: T): T {
+    if (writtenForms(formsFound(this.storedDoc(id)))[field] === 'plain') return text;
+    const key = this.keys.key();
+    if (!this.uid || !key) {
+      throw new LockedNoteError(
+        'not written: the note is sealed and its key is not on this device',
+      );
+    }
+    const aad = aadFor(this.uid, id, field);
+    return (
+      Array.isArray(text) ? text.map((t) => sealText(key, aad, t)) : sealText(key, aad, text)
+    ) as T;
+  }
+
+  /**
+   * A merged write to note `id` of what `build` gives; a write it cannot
+   * build (a field it cannot seal, `inForm`) is refused, as a rejected
+   * write, so its caller keeps what it kept.
+   */
+  private writeFields(id: string, build: () => Record<string, unknown>): Promise<void> {
+    let data: Record<string, unknown>;
+    try {
+      data = build();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    return this.api.set(this.fb.db, paths.note(this.uid!, id), data, true);
+  }
+
   /** Whether `path` is the document of a locked note. */
   private lockedAt(path: string): boolean {
     if (!this.uid) return false;
@@ -845,14 +926,13 @@ export class NotesService {
    */
   setInstructions(id: string, instructions: string): void {
     if (!this.holdInstructions(id, instructions) || !this.uid) return;
-    const update = {
-      instructions,
+    // In the form the note keeps them (step 3d); kept until written.
+    this.writeFields(id, () => ({
+      instructions: this.inForm(id, 'instructions', instructions),
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),
-    };
-    this.api
-      .set(this.fb.db, paths.note(this.uid, id), update, true)
+    }))
       .then(() => this.acknowledged(PENDING_INSTRUCTIONS_KEY, id, instructions))
       .catch(report);
   }
@@ -1098,16 +1178,17 @@ export class NotesService {
    */
   sendToAssistant(id: string, ask: string): void {
     if (!this.uid || !this.exists(id)) return;
+    // Cut to its limit as plain text, before any sealing (2026-11-13).
     const text = ask.replace(/\s+/g, ' ').trim().slice(0, SEND_ASK_MAX);
-    const update = {
+    this.writeFields(id, () => ({
       sendState: 'queued',
-      sendAsk: text || this.api.removeField(),
+      // In the form the note keeps it (step 3d).
+      sendAsk: text ? this.inForm(id, 'sendAsk', text) : this.api.removeField(),
       sentAt: this.api.serverTime(),
       sendOutcome: this.api.removeField(),
       // Sent by Eric now, not on its arrival (#214).
       sentOnArrival: this.api.removeField(),
-    };
-    this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
+    })).catch(report);
   }
 
   /** Takes a sent note out of the queue, or clears what was done (#143). */
@@ -1152,7 +1233,11 @@ export class NotesService {
       update['servings'] = change.servings;
     }
     if (change.url !== undefined) {
-      update['source'] = { ...this.find(id)?.source, url: change.url.trim() };
+      // The rest of the source as stored: its text, sealed or not, is
+      // written back as it was, never as this device read it (step 3d).
+      const source = this.storedDoc(id)?.['source'];
+      const kept = source && typeof source === 'object' ? (source as Record<string, unknown>) : {};
+      update['source'] = { ...kept, url: change.url.trim() };
     }
     if (Object.keys(update).length === 0) return undefined;
     const stamp = {
@@ -1545,7 +1630,16 @@ export class NotesService {
     const clean = [...new Map(synonyms.map((s) => [normalizeName(s), s.trim()])).values()].filter(
       (s) => s && normalizeName(s) !== normalizeName(named) && free(s),
     );
-    if (change.synonyms || update['title']) update['synonyms'] = clean;
+    let unsealable: unknown;
+    if (change.synonyms || update['title']) {
+      // In the form the note keeps them (step 3d): sealed beside a sealed
+      // title too, since a rename keeps the old title among them.
+      try {
+        update['synonyms'] = this.inForm(id, 'synonyms', clean);
+      } catch (err) {
+        unsealable = err;
+      }
+    }
     if (change.conceptType) update['conceptType'] = change.conceptType;
     if (change.parent === null) update['parent'] = this.api.removeField();
     else if (change.parent !== undefined) {
@@ -1562,6 +1656,9 @@ export class NotesService {
     if (change.stage === null) update['stage'] = this.api.removeField();
     else if (change.stage !== undefined) update['stage'] = change.stage;
     if (change.tags) update['tags'] = tidy(change.tags);
+    // Not written at all rather than without its other names; a rename
+    // stays kept (rename) until it can be.
+    if (unsealable) return { refused, written: Promise.reject(unsealable) };
     if (Object.keys(update).length === 0) return { refused };
     const path = paths.note(this.uid, id);
     const stamp = {

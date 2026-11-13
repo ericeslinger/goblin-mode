@@ -5,10 +5,12 @@ import {
   exportDataKey,
   importDataKey,
   isSealed,
+  isSealedListField,
   newDataKey,
   openSealedText,
   openText,
   SEAL_SENTINEL,
+  SEALED_FIELDS,
   SealError,
   sealText,
   versionedAad,
@@ -241,5 +243,62 @@ describe('aadFor', () => {
     expect(() => aadFor('', 'n', 'body')).toThrow(RangeError);
     expect(() => aadFor('u', '', 'body')).toThrow(RangeError);
     expect(() => aadFor('u', 'n', 'tags' as 'body')).toThrow(RangeError);
+  });
+});
+
+describe('the other text fields of a note (step 3d, 2026-11-13)', () => {
+  const fields = [
+    'synonyms',
+    'instructions',
+    'sendAsk',
+    'sendOutcome',
+    'importError',
+    'source.text',
+  ] as const;
+
+  it('are sealed fields, each with an aad of its own', () => {
+    for (const field of fields) expect(SEALED_FIELDS).toContain(field);
+    const aads = SEALED_FIELDS.map((f) => [...aadFor('uid-1', 'note-1', f)].join(','));
+    expect(new Set(aads).size).toBe(SEALED_FIELDS.length);
+  });
+
+  it('round-trip under their own field, and open under no other', () => {
+    for (const field of fields) {
+      const sealed = sealText(key, aadFor('uid-1', 'note-1', field), `words for ${field}`);
+      expect(openText(key, aadFor('uid-1', 'note-1', field), sealed)).toBe(`words for ${field}`);
+      for (const other of SEALED_FIELDS.filter((f) => f !== field)) {
+        expect(code(() => openText(key, aadFor('uid-1', 'note-1', other), sealed))).toBe('failed');
+      }
+    }
+  });
+
+  it('binds the nested source text by its path', () => {
+    const sealed = sealText(key, aadFor('uid-1', 'note-1', 'source.text'), 'the page');
+    expect(code(() => openText(key, aadFor('uid-1', 'note-1', 'body'), sealed))).toBe('failed');
+    expect(() => aadFor('uid-1', 'note-1', 'source' as 'body')).toThrow(RangeError);
+    expect(() => aadFor('uid-1', 'note-1', 'text' as 'body')).toThrow(RangeError);
+  });
+
+  it('seals a list element by element, each bound to the field, not its place', () => {
+    const aad = aadFor('uid-1', 'note-1', 'synonyms');
+    expect(isSealedListField('synonyms')).toBe(true);
+    expect(isSealedListField('instructions')).toBe(false);
+    const names = ['Moss', 'The goblin', 'MG'].map((n) => sealText(key, aad, n));
+    // Reordered, or with a name taken out, the list still opens.
+    const reordered = [names[2], names[0]];
+    expect(reordered.map((v) => openText(key, aad, v))).toEqual(['MG', 'Moss']);
+  });
+
+  it('will not open a list element moved to another note, field or user', () => {
+    const element = sealText(key, aadFor('uid-1', 'note-1', 'synonyms'), 'Moss');
+    expect(code(() => openText(key, aadFor('uid-1', 'note-2', 'synonyms'), element))).toBe(
+      'failed',
+    );
+    expect(code(() => openText(key, aadFor('uid-2', 'note-1', 'synonyms'), element))).toBe(
+      'failed',
+    );
+    for (const other of ['title', 'body', 'instructions'] as const) {
+      expect(code(() => openText(key, aadFor('uid-1', 'note-1', other), element))).toBe('failed');
+    }
   });
 });

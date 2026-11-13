@@ -4168,7 +4168,9 @@ the note is sealed, its key is not on this device yet, and it will
 open once the device is back online and signed in. The editor is
 hidden and read-only there. `names` leaves the placeholder out, so
 `[[Sealed note]]` never resolves to a locked note; a locked concept
-still answers to its other names, which are not sealed yet.
+still answers to its other names, which are not sealed yet. (Since
+2026-11-13 they may be: a locked concept answers to the ones that are
+plain, step 3d below.)
 
 *Never written over.* A locked note's record holds placeholders, so
 any write made from it would be made over text this device has not
@@ -4392,14 +4394,101 @@ as stored on purpose goes through `storedText`. Like the tools'
 guard, it is not a proof: a raw value handed through a parameter is
 not followed.
 
-*What is left before sealing can be switched on.* (Binding a service
-secret left this list on 2026-11-13: there is none to bind.)
+**The other text fields (step 3d, 2026-11-13).** Body and title were
+not the only words on a note document. Its other names (`synonyms`),
+its Instructions for Claude, the Send to ask and outcome (`sendAsk`,
+`sendOutcome`), a recipe's import error and its source text
+(`source.text`) now open and seal as body and title do, on both sides.
+Still nothing starts sealing a field that was plain.
 
-- The gardener's switch, and the app writing sealed.
-- The other plain copies on a note document: `synonyms`,
-  `instructions`, `sendAsk`, `sendOutcome`, `importError` and
-  `source.text`; and off it, an `@goblin` run's `itemText` and
-  `itemKey`.
+*Format.* The same `mg1` with more field names: `SEALED_FIELDS` names
+each by what its aad binds, so a value sealed for one field opens as
+no other, and nothing already specified changed. The nested source
+text is named by its path, `source.text`. A list is sealed element by
+element, each a sealed string under the field's aad, which binds the
+field and not the element's place: the other names are a set (any one
+reaches the note), so a list reordered, or with a name taken out,
+still opens, and taking one out seals nothing again. An element still
+cannot move to another note, field or user and open. Every field kept
+its type, so the rules needed nothing, and `npm run rules:gen --
+--check` found no drift.
+
+*A stored-schema change (Eric to read).* The stored `Note` limited
+`sendAsk` to 500 characters and `sendOutcome` to 300. A sealed value
+is longer than its text (a full ask seals to some 700 characters or
+more), and put back checks the note as stored with `Note.parse`, so a
+sealed ask or outcome would have failed every put back that touched
+its note. The limits now hold only for a plain stored value (a sealed
+one may be longer), so the schema is still the last check behind the
+writers (review on #266); `SEND_ASK_MAX` and `SEND_OUTCOME_MAX` stay
+the limits on the plain text, which every writer cuts to before
+sealing (the app's Send to, `finish_queued`, the MCP input schema).
+
+*One rule for the form a write keeps* (`writtenForms`,
+`packages/schema/src/sealed-note.ts`, used by the app and the
+functions alike). A field is written in the form it was found in; no
+field is plainer than a sealed body (the title rule of #263, widened
+to every field, so a sealed note is sealed throughout); and the other
+names are never plainer than a sealed title, since a concept's rename
+keeps its old title among them.
+
+*The app.* `toRecord` opens the other fields beside body and title,
+with the same cache, and a note with any sealed field it cannot open
+is locked: placeholders for body and title, and a field that did not
+open left out, so its names, instructions or ask never show as
+ciphertext. Every place that shows or uses them reads the record. The
+app writes these fields in the rule's form where it already holds the
+key (it opened the note): Instructions for Claude, a concept's other
+names (a rename included), and Send to's ask. A recipe's new link
+writes the rest of its source back as stored, never as read. Without
+the key the write is refused like a write to a locked note, and a kept
+write (`goblin.pendingInstructions`, `goblin.pendingNames`) waits, as
+it does for a locked note; a sealed value is never written over with
+plain text. The kept writes hold plain text on the device, as kept
+saves of a body do. The app still writes body and title plain.
+
+*The server.* `NoteSnap` opens every sealed field, a list element by
+element, and `sealFields` seals every one, a list element by element
+and the source text inside its map, so the tools read and write them
+through the boundary as before: the name index, `get_note`'s
+instructions and takes, `list_queue`'s ask, `finish_queued`'s outcome,
+recipe import's error and source text, and put back. agentRun's note
+state opens the ask for its brief; one it cannot open fails the run
+saying the note is sealed, rather than running without the ask. An
+activity entry says no sealed field's text: `refile` says "added
+another name" without the names, and `finish_queued` "Did a sealed
+note sent to it" without the outcome. A suggestion holds no name
+proposed for a concept whose names are sealed: the refile keeps its
+type, and the names go in with `refile`.
+
+*Put back restores a field as stored.* A field's value before, kept in
+an entry, is the stored one, sealed if it was. Put back writes a
+sealed one back as it is, never sealed again, once it opens as that
+field of that note, so a value recorded on another note or field (an
+entry tampered with) refuses the put back and writes nothing; a plain
+one is written in the rule's form.
+
+*Unopenable.* As for body and title. A sealed other name that does not
+open leaves the note's names unknown, so the locked-names handling of
+step 3c applies: links to it are kept, and creates are refused while
+it is in the garden. Lists say `sealed` where a name or an ask is left
+out.
+
+*The guards* cover the new fields: `trigger-boundary.spec.ts` fails on
+a raw read of any of them, and `note-boundary.spec.ts` on a stored
+value read off a NoteSnap outside the tools' boundary.
+
+*What is left before sealing can be switched on.* (Binding a service
+secret left this list on 2026-11-13: there is none to bind. Step 3d
+took the other text fields off it the same day.)
+
+- The gardener's switch, and the app writing sealed: it still writes
+  body and title plain, and the other fields sealed only where it
+  found them sealed.
+- On a note document, `source.url`, a recipe's or clipping's page
+  link: plain or sealed is not decided (for Eric). Off it, an
+  `@goblin` run's `itemText` and `itemKey`, and a queued note's run
+  `outcome`, which repeats what `sendOutcome` says.
 - Keyed hashes in place of `textHash` for `baseHash`, the replaced
   texts' ids, the body hash in an activity entry's `before`, and the
   hash in an item run's id.

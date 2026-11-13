@@ -1,8 +1,12 @@
 import {
   type DataKey,
   RESTORE_SUFFIX,
+  SEND_ASK_MAX,
+  type SealedField,
   aadFor,
+  isSealed,
   newDataKey,
+  openSealedText,
   sealText,
   textHash,
 } from '@mossgoblin/schema';
@@ -1702,10 +1706,217 @@ describe('NotesService', () => {
         [
           {},
           'users/u1/notes/c-kiln',
-          expect.objectContaining({ title: 'Big kiln', synonyms: ['Kiln'] }),
+          expect.objectContaining({ title: 'Big kiln', synonyms: [expect.any(String)] }),
           true,
         ],
       ]);
+      // The old title, sealed, goes among the other names sealed (step 3d):
+      // never in the clear.
+      const synonyms = writesTo(next.api, 'c-kiln')[0][2]!['synonyms'] as string[];
+      expect(
+        synonyms.map((s) => openSealedText(KEY, aadFor(UID, 'c-kiln', 'synonyms'), s)),
+      ).toEqual(['Kiln']);
+    });
+  });
+
+  describe('the other sealed fields (note encryption step 3d, 2026-11-13)', () => {
+    const UID = 'u1';
+    const KEY = newDataKey();
+    const seal = (id: string, field: SealedField, text: string, key: DataKey = KEY) =>
+      sealText(key, aadFor(UID, id, field), text);
+    /** The text of a sealed value; plain text throws, so a spec sees it was sealed. */
+    const open = (id: string, field: SealedField, value: unknown) =>
+      openSealedText(KEY, aadFor(UID, id, field), String(value));
+    const writesTo = (api: ReturnType<typeof setup>['api'], id: string) =>
+      api.set.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`);
+    const opener = (key?: DataKey) => new OpenedTexts().pass(() => key, UID);
+
+    describe('toRecord', () => {
+      const doc = {
+        kind: 'recipe',
+        body: 'Soup',
+        title: 'Soup',
+        synonyms: [seal('r1', 'synonyms', 'Broth'), 'Stock', seal('r1', 'synonyms', 'Bouillon')],
+        instructions: seal('r1', 'instructions', 'Keep it short.'),
+        sendAsk: seal('r1', 'sendAsk', 'Tidy the method'),
+        sendOutcome: seal('r1', 'sendOutcome', 'Tidied it'),
+        importError: seal('r1', 'importError', 'no recipe there'),
+        source: { url: 'https://a.b/soup', text: seal('r1', 'source.text', 'The page') },
+      };
+
+      it('opens every sealed field at the one decode point, a list element by element', () => {
+        const note = toRecord('r1', doc, opener(KEY));
+        expect(note.locked).toBeUndefined();
+        expect(note).toMatchObject({
+          synonyms: ['Broth', 'Stock', 'Bouillon'],
+          instructions: 'Keep it short.',
+          sendAsk: 'Tidy the method',
+          sendOutcome: 'Tidied it',
+          importError: 'no recipe there',
+          source: { url: 'https://a.b/soup', text: 'The page' },
+        });
+        expect(JSON.stringify(note)).not.toContain('\uE000');
+      });
+
+      it('opens a list reordered, since an element is bound to the field, not its place', () => {
+        const names = [seal('c1', 'synonyms', 'One'), seal('c1', 'synonyms', 'Two')];
+        const note = toRecord(
+          'c1',
+          { kind: 'concept', synonyms: [names[1], names[0]] },
+          opener(KEY),
+        );
+        expect(note.synonyms).toEqual(['Two', 'One']);
+      });
+
+      it('locks a note when any of them will not open, and leaves that field out', () => {
+        for (const key of [undefined, newDataKey()]) {
+          const note = toRecord('r1', doc, opener(key));
+          expect(note.locked).toBe(true);
+          expect(note.body).toBe('');
+          expect(note.title).toBe(SEALED_TITLE);
+          expect(note.instructions).toBeUndefined();
+          expect(note.synonyms).toBeUndefined();
+          expect(note.source).toEqual({ url: 'https://a.b/soup' });
+          expect(JSON.stringify(note)).not.toContain('\uE000');
+        }
+      });
+
+      it('will not open a name moved from another note', () => {
+        const moved = { kind: 'concept', synonyms: [seal('c2', 'synonyms', 'Moved')] };
+        expect(toRecord('c1', moved, opener(KEY)).locked).toBe(true);
+      });
+
+      it('leaves plain fields as they were, asking for no key', () => {
+        const key = vi.fn(() => KEY);
+        const plain = { kind: 'concept', synonyms: ['Oven'], instructions: 'Short.' };
+        expect(toRecord('c1', plain, new OpenedTexts().pass(key, UID))).toMatchObject(plain);
+        expect(key).not.toHaveBeenCalled();
+      });
+    });
+
+    it('answers to a sealed other name once opened, and to none of them while locked', () => {
+      const { notes, signIn, push, key } = setup();
+      signIn(UID);
+      push([
+        {
+          id: 'c-kiln',
+          data: { kind: 'concept', title: 'Kiln', synonyms: [seal('c-kiln', 'synonyms', 'Oven')] },
+        },
+      ]);
+      expect(notes.locked('c-kiln')).toBe(true);
+      expect(notes.names().has('oven')).toBe(false);
+      key.set(KEY);
+      expect(notes.names().get('oven')).toBe('c-kiln');
+      expect(notes.find('c-kiln')?.synonyms).toEqual(['Oven']);
+    });
+
+    describe('writes keep the form found', () => {
+      it('instructions found sealed are written sealed; plain ones plain', () => {
+        const { notes, api, signIn, push, key } = setup();
+        key.set(KEY);
+        signIn(UID);
+        push([
+          { id: 'a', data: { kind: 'text', instructions: seal('a', 'instructions', 'Old') } },
+          { id: 'b', data: { kind: 'text', instructions: 'Plain' } },
+        ]);
+        notes.setInstructions('a', 'New way');
+        notes.setInstructions('b', 'Still plain');
+        const [[, , a]] = writesTo(api, 'a');
+        expect(isSealed(a['instructions'])).toBe(true);
+        expect(open('a', 'instructions', a['instructions'])).toBe('New way');
+        expect(writesTo(api, 'b')[0][2]['instructions']).toBe('Still plain');
+      });
+
+      it('instructions beside a sealed body are sealed, as the server writes them', () => {
+        const { notes, api, signIn, push, key } = setup();
+        key.set(KEY);
+        signIn(UID);
+        push([{ id: 'a', data: { kind: 'text', body: seal('a', 'body', 'Private') } }]);
+        notes.setInstructions('a', 'Tidy it');
+        expect(open('a', 'instructions', writesTo(api, 'a')[0][2]['instructions'])).toBe('Tidy it');
+      });
+
+      it('other names found sealed are written sealed, each under the note and field', () => {
+        const { notes, api, signIn, push, key } = setup();
+        key.set(KEY);
+        signIn(UID);
+        push([
+          {
+            id: 'c-kiln',
+            data: {
+              kind: 'concept',
+              title: 'Kiln',
+              synonyms: [seal('c-kiln', 'synonyms', 'Oven')],
+            },
+          },
+        ]);
+        notes.updateConcept('c-kiln', { synonyms: ['Oven', 'Furnace'] });
+        const names = writesTo(api, 'c-kiln')[0][2]['synonyms'] as string[];
+        expect(names.every(isSealed)).toBe(true);
+        expect(names.map((n) => open('c-kiln', 'synonyms', n))).toEqual(['Oven', 'Furnace']);
+      });
+
+      it('an ask found sealed is cut to its limit as plain text, then sealed', () => {
+        const { notes, api, signIn, push, key } = setup();
+        key.set(KEY);
+        signIn(UID);
+        push([{ id: 'a', data: { kind: 'text', sendAsk: seal('a', 'sendAsk', 'Earlier') } }]);
+        notes.sendToAssistant('a', 'x'.repeat(SEND_ASK_MAX + 50));
+        const [[, , update]] = writesTo(api, 'a');
+        expect(open('a', 'sendAsk', update['sendAsk'])).toBe('x'.repeat(SEND_ASK_MAX));
+        expect(update['sendOutcome']).toBe('REMOVED');
+      });
+
+      it('a plain ask is still cut to its limit, and written plain', () => {
+        const { notes, api, signIn, push } = setup();
+        signIn(UID);
+        push([{ id: 'a', data: { kind: 'text' } }]);
+        notes.sendToAssistant('a', 'y'.repeat(SEND_ASK_MAX + 50));
+        expect(writesTo(api, 'a')[0][2]['sendAsk']).toBe('y'.repeat(SEND_ASK_MAX));
+      });
+
+      it('a new link for a recipe writes its source text back as stored, never as read', () => {
+        const { notes, api, signIn, push, key } = setup();
+        key.set(KEY);
+        signIn(UID);
+        const text = seal('r1', 'source.text', 'The page');
+        push([
+          {
+            id: 'r1',
+            data: { kind: 'recipe', title: 'Soup', source: { url: 'https://a.b/', text } },
+          },
+        ]);
+        notes.updateRecipe('r1', { url: 'https://c.d/' });
+        expect(writesTo(api, 'r1')[0][2]['source']).toEqual({ url: 'https://c.d/', text });
+      });
+    });
+
+    it('keeps kept instructions for a note whose sealed instructions do not open, and writes them sealed once it opens', () => {
+      const first = setup();
+      first.key.set(KEY);
+      first.signIn(UID);
+      const docs = [
+        { id: 'a', data: { kind: 'text', instructions: seal('a', 'instructions', 'Old') } },
+      ];
+      first.push(docs);
+      first.api.set.mockReturnValue(new Promise<void>(() => undefined));
+      first.notes.setInstructions('a', 'Typed before the page closed');
+      // The next load has no key yet: the note is locked, the write waits.
+      const next = setup({ reload: true });
+      next.signIn(UID);
+      next.push(docs);
+      TestBed.tick();
+      expect(next.notes.locked('a')).toBe(true);
+      expect(writesTo(next.api, 'a')).toEqual([]);
+      expect(JSON.parse(localStorage.getItem(PENDING_INSTRUCTIONS_KEY)!)).toMatchObject({
+        a: { value: 'Typed before the page closed' },
+      });
+      next.key.set(KEY);
+      TestBed.tick();
+      const [[, , update]] = writesTo(next.api, 'a');
+      expect(open('a', 'instructions', update['instructions'])).toBe(
+        'Typed before the page closed',
+      );
     });
   });
 });

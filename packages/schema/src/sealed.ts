@@ -5,7 +5,8 @@
 // base64url(nonce || ciphertext || tag) of AES-256-GCM. Plain and sealed
 // values coexist, so a migration can go note by note and field by field.
 //
-// Nothing reads or writes these yet: this module is the format alone.
+// This module is the format alone; `sealed-note.ts` says which fields of
+// a note document hold sealed text, and in which form a write keeps them.
 //
 // Synchronous on purpose: notes flow through signals and computeds in
 // the app and through many store helpers on the server, and WebCrypto's
@@ -31,13 +32,47 @@ const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 
 /**
- * The note fields that may hold sealed text. A history version of a
- * note's body is sealed as `body`: the authenticated data names the note
- * and the field, not the document path, so a copy under
- * `notes/{id}/history/{v}` opens with the note's own aad.
+ * The note fields that may hold sealed text, each by the name its
+ * authenticated data binds, so a value sealed for one field never opens
+ * as another. A history version of a note's body is sealed as `body`:
+ * the authenticated data names the note and the field, not the document
+ * path, so a copy under `notes/{id}/history/{v}` opens with the note's
+ * own aad.
+ *
+ * `body` and `title` since step 1 (2026-11-12); the rest since step 3d
+ * (2026-11-13). `source.text` is the nested `text` of a note's `source`
+ * map, named by its path. `synonyms` is a list: each element is a sealed
+ * string of its own under the field's aad, which binds the field and not
+ * the element's place, so a list reordered, or with a name taken out,
+ * still opens (SEALED_LIST_FIELDS).
  */
-export const SEALED_FIELDS = ['body', 'title'] as const;
+export const SEALED_FIELDS = [
+  'body',
+  'title',
+  'synonyms',
+  'instructions',
+  'sendAsk',
+  'sendOutcome',
+  'importError',
+  'source.text',
+] as const;
 export type SealedField = (typeof SEALED_FIELDS)[number];
+
+/**
+ * The sealed fields that hold a list, each element sealed on its own.
+ * An element's aad is the field's, without its position: the other
+ * names are a set to the garden (any one of them reaches the note), so
+ * their order means nothing, and binding it would mean sealing every
+ * later name again when one is taken out. An element still cannot move
+ * to another note, another field or another user and open.
+ */
+export const SEALED_LIST_FIELDS = ['synonyms'] as const satisfies readonly SealedField[];
+export type SealedListField = (typeof SEALED_LIST_FIELDS)[number];
+
+/** Whether `field` holds a list of sealed strings rather than one. */
+export function isSealedListField(field: SealedField): field is SealedListField {
+  return (SEALED_LIST_FIELDS as readonly string[]).includes(field);
+}
 
 export type SealErrorCode =
   /** Starts like a sealed value but is not one: bad base64url, too short. */
@@ -111,7 +146,8 @@ export function importDataKey(bytes: Uint8Array): DataKey {
 /**
  * The authenticated data for one field of one note: binds a sealed value
  * to the user, the note and the field, so it cannot be moved to another
- * user's note, another note, or from title to body, and still open. Each
+ * user's note, another note, or from one field to another (title to
+ * body, a synonym to the instructions), and still open. Each
  * part is length-prefixed, so no two triples encode alike. It names no
  * format version: `sealText` and `openText` bind the version tag
  * themselves (`versionedAad`), so a later format binds the same triple

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { SEALED_FIELDS } from '@mossgoblin/schema';
 import { describe, expect, it } from 'vitest';
 
 // Note encryption step 3c (2026-11-13): the triggers and callables read
@@ -10,6 +11,11 @@ import { describe, expect, it } from 'vitest';
 // variable, unless that snapshot is a NoteSnap's. A guard, not a proof
 // (a raw value passed through a function parameter is not followed);
 // the sealed specs beside each store check what the paths do.
+//
+// Since step 3d (2026-11-13) the other sealed fields count as note text
+// too: the other names, the instructions, the Send to ask and outcome,
+// the import error and the `source` map that holds a recipe's source
+// text (SEALED_FIELDS).
 
 const FILES = [
   'notes/triggers.ts',
@@ -35,9 +41,11 @@ const FILES = [
 
 const sourceOf = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
 
-const FIELD = `(?:body|title)`;
+/** Every top-level field that holds a sealed field: `source` holds `source.text`. */
+const FIELDS = [...new Set(SEALED_FIELDS.map((f) => f.split('.')[0]))];
+const FIELD = `(?:${FIELDS.join('|')})`;
 /** A snapshot's own field read: `.get('body')`. */
-const GET = new RegExp(`\\.get\\(\\s*'${FIELD}'\\s*\\)`);
+const GET = new RegExp(`\\.get\\(\\s*'${FIELD}(?:\\.[\\w.]+)?'\\s*\\)`);
 /** A field read chained onto `data()`: `.data()?.['body']`, `.data()!.title`. */
 const CHAINED = new RegExp(`\\.data\\(\\)[!?]?\\.?(?:\\[\\s*'${FIELD}'\\s*\\]|${FIELD}\\b)`);
 
@@ -66,12 +74,12 @@ function rawReads(source: string): string[] {
   lines.forEach((line, i) => {
     if (/^\s*(\/\/|\*)/.test(line)) return;
     if (GET.test(line)) {
-      const receiver = /(\w+(?:\.\w+)*)\.get\(\s*'(?:body|title)'/.exec(line)?.[1] ?? '';
+      const receiver = new RegExp(`(\\w+(?:\\.\\w+)*)\\.get\\(\\s*'${FIELD}`).exec(line)?.[1] ?? '';
       if (!isNoteSnap(lines, receiver, i)) found.push(line.trim());
     }
-    const chained = /([\w.]+)\.data\(\)[!?]?\.?(?:\[\s*'(?:body|title)'|(?:body|title)\b)/.exec(
-      line,
-    );
+    const chained = new RegExp(
+      `([\\w.]+)\\.data\\(\\)[!?]?\\.?(?:\\[\\s*'${FIELD}'|${FIELD}\\b)`,
+    ).exec(line);
     if (chained && CHAINED.test(line) && !isNoteSnap(lines, chained[1], i)) {
       found.push(line.trim());
     }
@@ -80,7 +88,7 @@ function rawReads(source: string): string[] {
     const apart = /\b(?:const|let)\s*\{([^}]*)\}\s*=\s*(?:await\s+)?([\w.?!]+?)\.data\(\)/.exec(
       line,
     );
-    if (apart && /\b(?:body|title)\b/.test(apart[1]) && !isNoteSnap(lines, apart[2], i)) {
+    if (apart && new RegExp(`\\b${FIELD}\\b`).test(apart[1]) && !isNoteSnap(lines, apart[2], i)) {
       found.push(line.trim());
     }
     // `const d = raw.data()`: then no `d['body']` in the same function.
@@ -105,6 +113,7 @@ describe('the note text boundary in triggers and callables', () => {
 
   it('catches the raw reads it is for', () => {
     const bad = [
+      "const doc = await ref.get();\nreturn doc.get('source.text');",
       'const { body, kind } = snap.data()!;\nreturn body;',
       "const doc = await db.doc(paths.note(uid, id)).get();\nreturn String(doc.get('body') ?? '');",
       "const after = event.data?.after.data();\nconst items = assignedItems(String(after['body'] ?? ''));",
@@ -117,6 +126,25 @@ describe('the note text boundary in triggers and callables', () => {
         "const body = String(note.get('body') ?? '');",
       "const d = doc.data()!;\nreturn { title: storedText(d, 'title') };",
       "function f(snap: NoteSnap) {\n  const d = snap.data() ?? {};\n  return d['body'];\n}",
+    ];
+    for (const source of fine) expect(rawReads(source)).toEqual([]);
+  });
+
+  it('catches a raw read of the other sealed fields (step 3d)', () => {
+    const bad = [
+      "const doc = await db.doc(paths.note(uid, id)).get();\nreturn doc.get('synonyms');",
+      "return String(snap.data()?.['sendAsk'] ?? '');",
+      "const d = doc.data()!;\nconst ask = typeof d['sendAsk'] === 'string' ? d['sendAsk'] : '';",
+      "const d = doc.data()!;\nreturn d['instructions'];",
+      'const { sendOutcome } = snap.data()!;\nreturn sendOutcome;',
+      "const d = raw.data();\nreturn (d['source'] as { text?: string }).text;",
+      'const d = raw.data()!;\nreturn d.importError;',
+    ];
+    for (const source of bad) expect(rawReads(source)).not.toEqual([]);
+    const fine = [
+      "const d = doc.data()!;\nconst ask = storedText(d, 'sendAsk');",
+      "const note = await NoteSnap.open(codec, snap);\nreturn note.get('synonyms');",
+      "const d = doc.data()!;\nreturn d['sendState'];",
     ];
     for (const source of fine) expect(rawReads(source)).toEqual([]);
   });
