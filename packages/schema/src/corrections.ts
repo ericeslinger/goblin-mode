@@ -29,7 +29,18 @@ export interface CorrectionNote {
    * (CLAUDE.md, page text). Said as what it is instead.
    */
   web?: 'clipping' | 'recipe';
+  /**
+   * The note is sealed and the line goes into a context note stored
+   * plain (step 3e, 2026-11-13): its title is never put in the line,
+   * which would say it in the clear. Said as "a sealed note" instead.
+   */
+  sealed?: true;
 }
+
+/** How a correction line names a sealed note it may not quote (step 3e). */
+export const SEALED_NAME = 'a sealed note';
+/** How a correction line names a sealed project it may not quote (step 3e). */
+export const SEALED_PROJECT_NAME = 'a sealed project';
 
 /** A put back of an assistant's run, or a reroute after one. */
 export type Correction =
@@ -69,6 +80,7 @@ const WEB_NAME = { clipping: 'a clipping', recipe: 'an imported recipe' } as con
 
 /** A note's name in the line: its title, cut and escaped, or what it is when it is a page's. */
 function name(n: CorrectionNote): string {
+  if (n.sealed) return SEALED_NAME;
   if (n.web) return WEB_NAME[n.web];
   return escapeMarkdown(cut(oneLine(n.title) || 'Untitled', TITLE_MAX));
 }
@@ -99,16 +111,19 @@ function summaryOf(summary: string, notes: readonly CorrectionNote[]): string {
     return `\u0000${marks.length - 1}\u0000`;
   };
   for (const n of notes) {
-    if (!n.web) continue;
+    if (!n.web && !n.sealed) continue;
     for (const t of [n.was, n.title]) {
       const words = oneLine(t ?? '');
-      if (words) text = text.split(words).join(mark(WEB_NAME[n.web]));
+      if (words) text = text.split(words).join(mark(name(n)));
     }
   }
   const [first] = notes;
   if (notes.length === 1 && first) {
     if (/\ba new note\b/.test(text))
-      text = text.replace(/\ba new note\b/, mark(`the note ${name(first)}`));
+      text = text.replace(
+        /\ba new note\b/,
+        mark(first.sealed ? 'a new sealed note' : `the note ${name(first)}`),
+      );
     else text = text.replace(/\ba note\b/, mark(name(first)));
   }
   const said = escapeMarkdown(text).replace(/\u0000(\d+)\u0000/g, (_, i: string) => marks[+i]);

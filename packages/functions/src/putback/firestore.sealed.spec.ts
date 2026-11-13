@@ -163,6 +163,43 @@ describe('putBack', () => {
   });
 });
 
+describe('the correction line (step 3e, 2026-11-13)', () => {
+  async function linkedAndPutBack() {
+    const text = 'Plain note';
+    put('a', text);
+    putSealed('b', 'Private plans');
+    await tools().linkNotes({ from: 'a', to: ['b'] });
+    remember('a', text, text);
+    await putBack(db(), UID, runOf('link_notes'), T + 60_000, undefined, keyFor);
+  }
+  const contextBody = () => String(stored(CONTEXT_ID)['body']);
+
+  it("says a sealed note's title as 'a sealed note' in a plain context note", async () => {
+    await linkedAndPutBack();
+    expect(contextBody()).toContain('Put back: Linked Plain note to a sealed note');
+    expect(contextBody()).not.toContain('Private');
+  });
+
+  it('names it in a sealed context note, sealed with the line', async () => {
+    store.set(notePath(CONTEXT_ID), {
+      kind: 'context',
+      body: seal(CONTEXT_ID, 'body', 'Be brief.'),
+      title: seal(CONTEXT_ID, 'title', 'Context for Claude'),
+      titleSource: 'user',
+      links: [],
+      tags: [],
+      archived: false,
+      createdAt: Timestamp.fromMillis(T - 86_400_000),
+      updatedAt: Timestamp.fromMillis(T - 86_400_000),
+      updatedBy: 'user',
+      deviceId: 'phone',
+    });
+    await linkedAndPutBack();
+    expect(isSealed(contextBody())).toBe(true);
+    expect(opened(CONTEXT_ID, 'body')).toContain('Put back: Linked Plain note to Private plans');
+  });
+});
+
 describe('reroute', () => {
   function mergedAndPutBack() {
     put('p', 'Garden', { kind: 'concept', conceptType: 'project', titleSource: 'user' });
@@ -194,6 +231,14 @@ describe('reroute', () => {
     const before = (record['notes'] as { before: Data }[])[0].before;
     expect(before['body']).toBe(textHash('Sow the kale'));
     expect(JSON.stringify(record)).not.toContain('kale');
+  });
+
+  it("keeps the sealed notes' titles out of a plain context note's line", async () => {
+    const putBackRun = await mergedAndPutBack();
+    await reroute(db(), UID, putBackRun, 'p', T + 120_000, undefined, keyFor);
+    const body = String(stored(CONTEXT_ID)['body']);
+    expect(body).toContain('Filed a sealed note and a sealed note under Garden');
+    expect(body).not.toMatch(/kale|Mulch|Sow/);
   });
 
   it('a note it cannot open refuses, writing nothing', async () => {

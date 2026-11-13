@@ -82,11 +82,15 @@ class Ref {
   async get() {
     return new Snap(this, this.store.get(this.path));
   }
-  async set(data: Data) {
-    this.store.set(
-      this.path,
-      Object.fromEntries(Object.entries(data).map(([k, v]) => [k, resolved(v)])),
-    );
+  async set(data: Data, opts?: { merge?: boolean }) {
+    const had = opts?.merge ? this.store.get(this.path) : undefined;
+    // A merge keeps the fields it does not name (top level only).
+    const out: Data = had ? { ...had } : {};
+    for (const [k, v] of Object.entries(data)) {
+      if (v instanceof FieldValue && v.isEqual(DELETE)) delete out[k];
+      else out[k] = resolved(v);
+    }
+    this.store.set(this.path, out);
   }
   async create(data: Data) {
     if (this.store.has(this.path)) throw new Error(`already a document ${this.path}`);
@@ -167,8 +171,8 @@ class Coll {
 
 class Writes {
   private readonly ops: (() => Promise<void>)[] = [];
-  set(ref: Ref, data: Data) {
-    this.ops.push(() => ref.set(data));
+  set(ref: Ref, data: Data, opts?: { merge?: boolean }) {
+    this.ops.push(() => ref.set(data, opts));
     return this;
   }
   create(ref: Ref, data: Data) {

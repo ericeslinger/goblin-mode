@@ -9,7 +9,9 @@ import {
   newDataKey,
   openSealedText,
   openText,
+  recordAadFor,
   SEAL_SENTINEL,
+  SEALED_RECORD_FIELDS,
   SEALED_FIELDS,
   SealError,
   sealText,
@@ -300,5 +302,64 @@ describe('the other text fields of a note (step 3d, 2026-11-13)', () => {
     for (const other of ['title', 'body', 'instructions'] as const) {
       expect(code(() => openText(key, aadFor('uid-1', 'note-1', other), element))).toBe('failed');
     }
+  });
+});
+
+describe('fields of records about notes (step 3e, 2026-11-13)', () => {
+  const aad = recordAadFor('uid-1', 'proposals', 'prop-1', 'title');
+
+  it('round-trip under their own user, collection, document and field', () => {
+    const sealed = sealText(key, aad, 'Moss and goblins');
+    expect(sealed.startsWith(PREFIX)).toBe(true);
+    expect(openText(key, recordAadFor('uid-1', 'proposals', 'prop-1', 'title'), sealed)).toBe(
+      'Moss and goblins',
+    );
+  });
+
+  it('do not open under another user, collection, document or field', () => {
+    const sealed = sealText(key, recordAadFor('uid-1', 'runs', 'run-1', 'outcome'), 'Filed it');
+    const wrong = [
+      recordAadFor('uid-2', 'runs', 'run-1', 'outcome'),
+      recordAadFor('uid-1', 'runs', 'run-2', 'outcome'),
+      recordAadFor('uid-1', 'runs', 'run-1', 'itemText'),
+      // The same document id and a field of the same name elsewhere.
+      recordAadFor('uid-1', 'proposals', 'run-1', 'title'),
+    ];
+    for (const other of wrong) expect(code(() => openText(key, other, sealed))).toBe('failed');
+    const reason = sealText(key, recordAadFor('uid-1', 'proposals', 'p', 'reason'), 'Because');
+    expect(
+      code(() => openText(key, recordAadFor('uid-1', 'proposals', 'p', 'title'), reason)),
+    ).toBe('failed');
+  });
+
+  it('never open as a note field, nor a note field as one of them', () => {
+    // A note and a record with the same id, and a field of the same name.
+    const asRecord = sealText(key, recordAadFor('uid-1', 'proposals', 'n1', 'title'), 'Moss');
+    const asNote = sealText(key, aadFor('uid-1', 'n1', 'title'), 'Moss');
+    expect(code(() => openText(key, aadFor('uid-1', 'n1', 'title'), asRecord))).toBe('failed');
+    for (const [collection, fields] of Object.entries(SEALED_RECORD_FIELDS)) {
+      for (const field of fields) {
+        const at = recordAadFor('uid-1', collection as 'runs', 'n1', field as 'outcome');
+        expect(code(() => openText(key, at, asNote))).toBe('failed');
+      }
+    }
+  });
+
+  it("have an aad unlike any note field's", () => {
+    const notes = new Set(SEALED_FIELDS.map((f) => [...aadFor('uid-1', 'n1', f)].join(',')));
+    const records = Object.entries(SEALED_RECORD_FIELDS).flatMap(([c, fields]) =>
+      fields.map((f) => [...recordAadFor('uid-1', c as 'runs', 'n1', f as 'outcome')].join(',')),
+    );
+    expect(new Set(records).size).toBe(records.length);
+    for (const r of records) expect(notes.has(r)).toBe(false);
+  });
+
+  it('need a uid, a document id, a known collection and one of its fields', () => {
+    expect(() => recordAadFor('', 'runs', 'r', 'outcome')).toThrow(RangeError);
+    expect(() => recordAadFor('u', 'runs', '', 'outcome')).toThrow(RangeError);
+    expect(() => recordAadFor('u', 'notes' as 'runs', 'r', 'outcome')).toThrow(RangeError);
+    expect(() => recordAadFor('u', 'toString' as 'runs', 'r', 'outcome')).toThrow(RangeError);
+    expect(() => recordAadFor('u', 'runs', 'r', 'title' as 'outcome')).toThrow(RangeError);
+    expect(() => recordAadFor('u', 'proposals', 'r', 'outcome' as 'title')).toThrow(RangeError);
   });
 });

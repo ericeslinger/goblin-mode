@@ -4,7 +4,7 @@
 // item, as the agent Mossgoblin, and ticks it.
 import { createHash } from 'node:crypto';
 import { FINDINGS_MARK, STATUS_MARK, assignedItems, findingsLines } from '@mossgoblin/schema';
-import { SealedNoteError } from '../mcp/note-text';
+import { SealedNoteError, SealedRecordError } from '../mcp/note-text';
 import type { NotesTools } from '../mcp/tools';
 import { DAILY_RUNS, type RunDeps, type RunOutcome, type RunStore } from './core';
 import { research } from './research';
@@ -52,6 +52,11 @@ export async function executeItemRun(
     return 'capped';
   }
   try {
+    // The run's own sealed item text did not open here (step 3e): it is
+    // left as stored, and a missing key is mended at the next settle.
+    if (run?.unopened === 'no-key' || run?.unopened === 'did-not-open') {
+      throw new SealedRecordError('runs', runId, run.unopened);
+    }
     const body = await deps.body(uid, noteId);
     const item = body === undefined ? undefined : assignedItems(body).find((i) => i.key === key);
     if (!item) throw new ItemGoneError('the item is gone, or changed');
@@ -95,14 +100,19 @@ export async function executeItemRun(
     const message = (err instanceof Error ? err.message : String(err)).slice(0, 500);
     // A sealed note that cannot be opened here takes no line either: it
     // is left as stored (2026-11-13).
-    if (!(err instanceof ItemGoneError) && !(err instanceof SealedNoteError)) {
+    if (
+      !(err instanceof ItemGoneError) &&
+      !(err instanceof SealedNoteError) &&
+      !(err instanceof SealedRecordError)
+    ) {
       await sayUnder(`Could not do it: ${message}`).catch(() => undefined);
     }
     // No key yet (an Anthropic key, or the note's own): retried at the
     // next settle once there is one.
     const retryable =
       /Add an? \w+ key in Settings/.test(message) ||
-      (err instanceof SealedNoteError && err.reason === 'no-key');
+      ((err instanceof SealedNoteError || err instanceof SealedRecordError) &&
+        err.reason === 'no-key');
     await deps.store.update(uid, runId, {
       status: 'failed',
       error: message,

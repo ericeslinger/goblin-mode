@@ -27,7 +27,7 @@ import {
   takesInstructions,
   templateParts,
 } from '@mossgoblin/schema';
-import { RunsService, type RunView } from '../agent/runs.service';
+import { RunsService, type RunView, SEALED_OUTCOME } from '../agent/runs.service';
 import { AuthService } from '../auth.service';
 import { KeysService } from '../keys/keys.service';
 import { ACTIVITY_API, putBackState, toRun, type RunRecord } from '../claude/activity';
@@ -200,10 +200,10 @@ function stamp(ms: number | undefined): string {
                 }
               }
               @case ('failed') {
-                Could not do it now: {{ r.error || r.outcome }}
+                Could not do it now: {{ r.error || r.outcome || (r.sealed ? sealedOutcome : '') }}
               }
               @case ('done') {
-                Done: {{ r.outcome }}
+                Done: {{ r.sealed ? sealedOutcome : r.outcome }}
               }
               @default {
                 Starting…
@@ -568,6 +568,8 @@ export class NoteBack {
   protected readonly starting = signal(false);
   protected readonly runStatus = signal('');
   private readonly watched = signal<RunView | undefined>(undefined);
+  /** What a run outcome that is sealed and did not open here says (step 3e). */
+  protected readonly sealedOutcome = SEALED_OUTCOME;
   protected readonly run = computed(() => (this.note().sendRun ? this.watched() : undefined));
 
   protected async doItNow(): Promise<void> {

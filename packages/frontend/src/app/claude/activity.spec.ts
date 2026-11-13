@@ -269,6 +269,28 @@ describe('Activity', () => {
     expect(items[1].querySelector('button')).toBeNull();
   });
 
+  it('shows a sealed suggestion with a calm line in place of its reason (step 3e)', async () => {
+    const { el } = await render([
+      {
+        id: 'p1',
+        kind: 'merge',
+        reason: '',
+        notes: [
+          { id: 'm1', title: 'Sealed note' },
+          { id: 'a', title: 'Sealed note' },
+        ],
+        status: 'open',
+        sealed: true,
+      },
+    ]);
+    const item = el.querySelector('[aria-label="Suggestions"] > li')!;
+    const flat = item.textContent!.replace(/\s+/g, ' ').trim();
+    // The notes by their own titles, the reason as sealed, no sealed text.
+    expect(flat).toContain('Merge Kiln log, Firing notes into one note');
+    expect(flat).toContain('This suggestion is sealed, and its key is not on this device yet.');
+    expect(flat).not.toContain('\uE000');
+  });
+
   it("says yesterday's gardening in one line above the changes, not today's (#237)", async () => {
     // 2026-11-09 09:00 in New York.
     const { el, push } = await render([], Date.parse('2026-11-09T14:00:00Z'));

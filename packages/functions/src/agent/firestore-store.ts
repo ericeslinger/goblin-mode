@@ -1,6 +1,13 @@
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
-import { paths } from '@mossgoblin/schema';
-import { type KeyFor, NoteCodec, formsOf, shownTitle, storedText } from '../mcp/note-text';
+import { type NoteForm, formsFound, isSealed, paths, recordForm } from '@mossgoblin/schema';
+import {
+  type KeyFor,
+  NoteCodec,
+  SealedRecordError,
+  formsOf,
+  shownTitle,
+  storedText,
+} from '../mcp/note-text';
 import { dataKeyFor } from '../note-keys/client';
 import type { RunStore } from './core';
 
@@ -8,7 +15,10 @@ const iso = (v: unknown) => (v instanceof Timestamp ? v.toDate().toISOString() :
 
 /**
  * Runs under `users/{uid}/runs`, counted in the day's `usage` doc like
- * transcriptions. One codec a gardener, for the run's note state.
+ * transcriptions. One codec a gardener, for the run's note state and
+ * the run's own text (step 3e, 2026-11-13): a claimed item run comes
+ * back with its key and text opened, and an outcome is stored sealed
+ * when its item was, or its note is (`recordForm`).
  */
 export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): RunStore {
   const codecs = new Map<string, NoteCodec>();
@@ -17,9 +27,51 @@ export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): R
     if (!codec) codecs.set(uid, (codec = new NoteCodec(uid, keyFor)));
     return codec;
   };
+  /**
+   * The form a run's outcome is stored in: its item's, else its note's
+   * now. A note gone since the run began cannot say, so its outcome is
+   * sealed where there is a key ('if-keyed', review on #267).
+   */
+  const outcomeForm = async (uid: string, runId: string): Promise<NoteForm | 'if-keyed'> => {
+    const run = (await db.doc(paths.run(uid, runId)).get()).data();
+    if (isSealed(run?.['itemKey']) || isSealed(run?.['itemText'])) return 'sealed';
+    const noteId = run?.['noteId'];
+    if (typeof noteId !== 'string' || !noteId) return 'plain';
+    const note = await db.doc(paths.note(uid, noteId)).get();
+    return note.exists ? recordForm(formsFound(note.data())) : 'if-keyed';
+  };
+  const sealOutcome = async (uid: string, runId: string, outcome: string) => {
+    const as = await outcomeForm(uid, runId);
+    const seal = (form: NoteForm) =>
+      codecFor(uid).sealRecord('runs', runId, 'outcome', outcome, form);
+    if (as !== 'if-keyed') return seal(as);
+    try {
+      return await seal('sealed');
+    } catch (err) {
+      if (!(err instanceof SealedRecordError) || err.reason !== 'no-key') throw err;
+      return seal('plain');
+    }
+  };
+  /** A claimed run with its item's text opened; one that did not open says why. */
+  const opened = async (uid: string, runId: string, run: Record<string, unknown>) => {
+    const out: Record<string, unknown> = { ...run };
+    try {
+      for (const field of ['itemKey', 'itemText'] as const) {
+        const v = run[field];
+        if (typeof v === 'string')
+          out[field] = await codecFor(uid).openRecord('runs', runId, field, v);
+      }
+    } catch (err) {
+      if (!(err instanceof SealedRecordError)) throw err;
+      delete out['itemKey'];
+      delete out['itemText'];
+      out['unopened'] = err.reason;
+    }
+    return out;
+  };
   return {
-    claim: (uid, runId, day, cap) =>
-      db.runTransaction(async (tx) => {
+    claim: async (uid, runId, day, cap) => {
+      const claim = await db.runTransaction(async (tx) => {
         const ref = db.doc(paths.run(uid, runId));
         const usageRef = db.doc(paths.usage(uid, day));
         const [doc, usage] = await Promise.all([tx.get(ref), tx.get(usageRef)]);
@@ -37,13 +89,20 @@ export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): R
           status: 'claimed' as const,
           run: { ...data, sentAt: iso(data['sentAt']) },
         };
-      }),
+      });
+      return claim.status === 'claimed'
+        ? { status: 'claimed' as const, run: await opened(uid, runId, claim.run) }
+        : claim;
+    },
     update: async (uid, runId, fields) => {
       const done = fields['status'] === 'done' || fields['status'] === 'failed';
+      const outcome = fields['outcome'];
+      const sealed =
+        typeof outcome === 'string' ? { outcome: await sealOutcome(uid, runId, outcome) } : {};
       await db
         .doc(paths.run(uid, runId))
         .set(
-          { ...fields, ...(done ? { finishedAt: FieldValue.serverTimestamp() } : {}) },
+          { ...fields, ...sealed, ...(done ? { finishedAt: FieldValue.serverTimestamp() } : {}) },
           { merge: true },
         );
     },
@@ -65,7 +124,7 @@ export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): R
       return {
         // Not opened: nothing here reads it, and a sealed one is never
         // carried in the clear (2026-11-13).
-        title: shownTitle(storedText(d, 'title'), formsOf(d).title),
+        title: shownTitle(storedText(d, 'title'), recordForm(formsOf(d))),
         sendState: typeof d['sendState'] === 'string' ? d['sendState'] : undefined,
         sentAt: iso(d['sentAt']),
         sendAsk: ask || undefined,
