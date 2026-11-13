@@ -4043,6 +4043,15 @@ an identity token is minted only for the functions' own service
 account, expires within the hour and names the Worker as its
 audience. Cloudflare keeps custody of the master, as before.
 
+The claims the Worker needs are the ones `noteTitle` already depends
+on in production: its token for Anthropic is asked for with
+`format=full`, and the federation rule is pinned to that token's
+`email` (Titles, above). The client asks the same way, and without
+`format` if the metadata server answers 400, since the Worker checks
+the claims either way. A metadata server that is slow is a service
+error, to be tried again, not a service never set up (review on
+#265).
+
 - The functions ask the metadata server for an OIDC identity token
   for their runtime service account (its `identity` endpoint for the
   `default` account, `format=full`, so the token carries `email` and

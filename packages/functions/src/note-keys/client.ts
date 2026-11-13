@@ -83,11 +83,11 @@ export function expiryOf(token: string): number | undefined {
 }
 
 /**
- * Asks the metadata server for identity tokens (`format=full`, so the
- * token carries `email` and `email_verified`), one at a time, and keeps
- * each until TOKEN_EARLY_MS before its `exp`. No answer at all means
- * there is no metadata server here: NoteKeysUnconfigured. Any other
- * failure is a NoteKeyServiceError. No message holds the token.
+ * Asks the metadata server for identity tokens, one at a time, and
+ * keeps each until TOKEN_EARLY_MS before its `exp`. A server that
+ * cannot be reached at all means there is none here:
+ * NoteKeysUnconfigured. Any other failure, one that is slow included,
+ * is a NoteKeyServiceError. No message holds the token.
  */
 export function metadataIdentity({
   audience,
@@ -96,17 +96,33 @@ export function metadataIdentity({
 }: MetadataIdentityConfig): IdentityTokens {
   let held: { token: string; until: number } | undefined;
   let minting: Promise<string> | undefined;
-  const url = `${METADATA_IDENTITY_URL}?audience=${encodeURIComponent(audience)}&format=full`;
-  const mint = async (): Promise<string> => {
-    let res: Response;
+  const plain = `${METADATA_IDENTITY_URL}?audience=${encodeURIComponent(audience)}`;
+  const ask = async (url: string): Promise<Response> => {
     try {
-      res = await fetchImpl(url, {
+      return await fetchImpl(url, {
         headers: { 'Metadata-Flavor': 'Google' },
         redirect: 'error',
         signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
       });
-    } catch {
+    } catch (err) {
+      // Slow is not absent (review on #265): a metadata server that
+      // did not answer in time is a failure worth another try, not a
+      // service that was never set up.
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new NoteKeyServiceError('the metadata server did not answer in time');
+      }
       throw new NoteKeysUnconfigured('no metadata server here to mint an identity token');
+    }
+  };
+  const mint = async (): Promise<string> => {
+    // `format=full` is documented for Compute Engine, where it adds
+    // claims; the functions' runtime documents only `audience`. Asked
+    // for first, and without it if the server will not take it: the
+    // Worker checks the claims either way, so neither form is weaker.
+    let res = await ask(`${plain}&format=full`);
+    if (res.status === 400) {
+      await res.body?.cancel();
+      res = await ask(plain);
     }
     if (res.status !== 200) {
       await res.body?.cancel();

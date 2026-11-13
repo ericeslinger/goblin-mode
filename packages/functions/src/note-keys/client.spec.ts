@@ -101,6 +101,28 @@ describe('metadataIdentity (2026-11-13)', () => {
     }
   });
 
+  it('says a service error, not unconfigured, when the metadata server is slow (review on #265)', async () => {
+    const slow = metadataIdentity({
+      audience: AUD,
+      fetch: vi.fn(() => Promise.reject(new DOMException('timed out', 'TimeoutError'))),
+    });
+    await expect(slow.token()).rejects.toBeInstanceOf(NoteKeyServiceError);
+  });
+
+  it('asks again without format when the server will not take it', async () => {
+    const fetch = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes('format=')
+        ? new Response('bad request', { status: 400 })
+        : new Response(TOKEN),
+    );
+    const tokens = metadataIdentity({ audience: AUD, fetch, now: () => NOW });
+    expect(await tokens.token()).toBe(TOKEN);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const second = new URL(String(fetch.mock.calls[1][0]));
+    expect(second.searchParams.get('audience')).toBe(AUD);
+    expect(second.searchParams.has('format')).toBe(false);
+  });
+
   it('reads exp without trusting anything else', () => {
     expect(expiryOf(TOKEN)).toBe(NOW / 1000 + 3600);
     for (const t of ['', 'a.b', 'a.b.c.d', `${part({})}.${part({ exp: 'soon' })}.x`, 'a b.c.d']) {
