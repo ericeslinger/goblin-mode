@@ -43,6 +43,7 @@ and variables, Actions); nothing in the code names a deployment.
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_WORKSPACE_ID` | variable, optional | Only if the federation rule covers several workspaces |
 | `STORAGE_REGION` | variable, optional | The default Storage bucket's region, e.g. `us-east1` (`gcloud storage buckets describe gs://<bucket> --format='value(location)'`, lower case); default `us-central1` |
+| `NOTE_KEY_CALLERS` | variable, optional | The service accounts the Worker's note key service answers, comma-separated; leave unset to derive them (below) |
 
 Also create a Google service account named `goblin-titles` in the
 project, with `roles/datastore.user`, and let the deploy service
@@ -168,28 +169,19 @@ a photo taken on the phone shows in a browser tab on another device.
 
 Notes are to be sealed (encrypted at rest) with a key for each
 gardener that the Worker derives from one master secret (DESIGN.md,
-Note encryption). The master and a service secret, which lets the
-functions ask the Worker for keys, are set once by hand, never through
-GitHub or the deploy. Until they are, the app and the functions carry
-on without keys; nothing is sealed yet in any case. Set them before
-the step that first seals notes ships (the functions that seal will
-not deploy without the service secret). With Cloudflare credentials
-for `wrangler` (`npx wrangler login`, or `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID`) and `firebase-tools` signed in to the project:
+Note encryption). The master is set once by hand, never through
+GitHub or the deploy. Until it is, the app and the functions carry on
+without keys; nothing is sealed yet in any case. Set it before the
+step that first seals notes ships. With Cloudflare credentials for
+`wrangler` (`npx wrangler login`, or `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`):
 
 ```sh
 # The master: base64 of 32 random bytes.
 openssl rand -base64 32 | tr -d '\n' > note-keys-master.txt
 # Save note-keys-master.txt in your password manager now (see below).
 npx wrangler secret put NOTE_KEYS_MASTER --config infra/worker/wrangler.toml < note-keys-master.txt
-
-# The service secret: the same value at Cloudflare and in Secret Manager.
-openssl rand -base64 32 | tr -d '\n' > note-keys-service.txt
-npx wrangler secret put NOTE_KEYS_SERVICE --config infra/worker/wrangler.toml < note-keys-service.txt
-npx firebase functions:secrets:set NOTE_KEYS_SERVICE --project <project> \
-  --data-file note-keys-service.txt
-
-rm note-keys-master.txt note-keys-service.txt
+rm note-keys-master.txt
 ```
 
 **The master secret is the only way to read sealed notes.** Cloudflare
@@ -198,9 +190,21 @@ backups hold only ciphertext, so save the master somewhere safe, apart
 from both, before any note is sealed. Losing it loses every sealed
 note, for good. Never replace the master outside a key rotation
 (DESIGN.md, Note encryption): every gardener's key would change, and
-sealed notes would no longer open. The service secret can be replaced
-at any time, on both sides together. To check the master is set: the
+sealed notes would no longer open. To check the master is set: the
 app's request to `/api/note-key` answers 200, not 503.
+
+The functions need no secret to ask the Worker for keys: each presents
+a Google-signed identity token for its own service account, and the
+Worker answers only the accounts in its allowlist, `NOTE_KEY_CALLERS`.
+The deploy works that list out for itself from `FIREBASE_PROJECT_ID`
+and the project number in `FIREBASE_WEB_CONFIG`:
+`<number>-compute@developer.gserviceaccount.com`,
+`goblin-titles@<project>.iam.gserviceaccount.com` and
+`goblin-runner@<project>.iam.gserviceaccount.com`, the accounts the
+functions that read notes run as. Set the `NOTE_KEY_CALLERS` variable
+only to replace that list (exact emails, comma-separated). Without a
+list the Worker refuses the functions (503), and sealed notes stay
+locked to them.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
