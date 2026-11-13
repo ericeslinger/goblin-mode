@@ -75,6 +75,14 @@ function rawReads(source: string): string[] {
     if (chained && CHAINED.test(line) && !isNoteSnap(lines, chained[1], i)) {
       found.push(line.trim());
     }
+    // `const { body } = raw.data()`: taken apart as it is read (review
+    // on #264).
+    const apart = /\b(?:const|let)\s*\{([^}]*)\}\s*=\s*(?:await\s+)?([\w.?!]+?)\.data\(\)/.exec(
+      line,
+    );
+    if (apart && /\b(?:body|title)\b/.test(apart[1]) && !isNoteSnap(lines, apart[2], i)) {
+      found.push(line.trim());
+    }
     // `const d = raw.data()`: then no `d['body']` in the same function.
     const assigned = /\b(?:const|let)\s+(\w+)\s*=\s*(?:await\s+)?([\w.?!]+?)\.data\(\)/.exec(line);
     if (assigned && !isNoteSnap(lines, assigned[2], i)) {
@@ -97,6 +105,7 @@ describe('the note text boundary in triggers and callables', () => {
 
   it('catches the raw reads it is for', () => {
     const bad = [
+      'const { body, kind } = snap.data()!;\nreturn body;',
       "const doc = await db.doc(paths.note(uid, id)).get();\nreturn String(doc.get('body') ?? '');",
       "const after = event.data?.after.data();\nconst items = assignedItems(String(after['body'] ?? ''));",
       "return String(snap.data()?.['title'] ?? '');",

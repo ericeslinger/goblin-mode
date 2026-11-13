@@ -4242,7 +4242,11 @@ below behaves as before and asks for no key.
   `baseHash` in the note's form.
 - `noteTitle`: opens the body for the model only when a settle could
   ask for a title, and writes the title sealed when the note's body
-  or title is stored sealed.
+  or title is stored sealed. So a sealed note's opened body goes to
+  the title model, as a plain note's does; sealing changes what is
+  stored, not what a model the gardener uses is shown (review on
+  #264). It opens before it knows whether a title is wanted, so a
+  sealed note titled by its gardener asks for the key needlessly.
 - `itemAssigned` (`agent/assigned.ts`) opens the body to find its
   `@goblin` items. `agentRun`'s item reads the note through the run's
   own `NotesTools` (`noteBody`), so the findings go in through the
@@ -4297,7 +4301,9 @@ open answers to no name, so two things are guarded. When a note's
 links are worked out again from its text (update_note, add_lines and
 the other line edits, link_notes, split, merge, an import, put back,
 reroute, the context note), a stored link to a note that did not open
-is kept, not dropped. And while a live sealed concept or recipe
+is kept, not dropped. It is kept even when the text no longer names
+that note, since the name cannot be read to tell; the next edit after
+the note opens puts it right (review on #264). And while a live sealed concept or recipe
 whose title did not open is in the garden, create_concept,
 create_recipe and import_recipe refuse with a message saying so; an
 import the app asked for keeps its placeholder name; a new week's
