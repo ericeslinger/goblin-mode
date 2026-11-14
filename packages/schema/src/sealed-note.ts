@@ -116,3 +116,18 @@ export function writtenForms(found: NoteForms): NoteForms {
   if (found.title === 'sealed') out.synonyms = 'sealed';
   return out;
 }
+
+/**
+ * The form of text about notes that is stored outside them (step 3e,
+ * 2026-11-13): an activity entry's titles and summary, a suggestion's
+ * titles, proposed title and reason, a run's item text and outcome, a
+ * correction line. The rule of a new note made from others' text
+ * (`formFrom`): sealed when any field of any source note is stored
+ * sealed, plain otherwise. So with only plain notes nothing about them
+ * is sealed. A record field in this form is sealed with
+ * `recordAadFor`; a title a record only names a note by is said as
+ * "Sealed note" instead, and the reader shows the note's own.
+ */
+export function recordForm(...sources: readonly (NoteForms | undefined)[]): NoteForm {
+  return sources.some((f) => f !== undefined && anySealed(f)) ? 'sealed' : 'plain';
+}

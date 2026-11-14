@@ -9,7 +9,7 @@ import {
   type RawProposal,
   checkProposals,
 } from './proposals';
-import { SEALED_TITLE } from '../mcp/note-text';
+import { type NoteCodec, SEALED_TITLE } from '../mcp/note-text';
 
 const DAY = 86_400_000;
 /** A claim this old was cut off partway; the next round says so. */
@@ -52,14 +52,15 @@ export async function sweepProposals(db: Firestore, uid: string, now: number): P
 export interface StoredGarden {
   /** Every note not in Trash, its text opened; one that did not open as archived. */
   notes: GardenNote[];
-  /** The notes whose title is stored sealed. */
-  sealedTitles: ReadonlySet<string>;
   /**
-   * The concepts whose other names a write keeps sealed (`writtenForms`,
-   * 2026-11-13): a name proposed for one is not stored, in the proposal
-   * or its key, since it would sit there in the clear.
+   * The notes a record about them is sealed for (`recordForm`, step 3e,
+   * 2026-11-13): any field stored sealed. A suggestion about one names
+   * it "Sealed note", and its proposed title and reason are sealed. A
+   * name proposed for such a concept is not stored at all, since the
+   * suggestion's key is built from the names it proposes and would say
+   * them in the clear; the names go in with refile.
    */
-  sealedNames?: ReadonlySet<string>;
+  sealed: ReadonlySet<string>;
 }
 
 /** What a round of suggestions came to. */
@@ -79,10 +80,13 @@ export interface Stored {
  * to PER_ROUND at a time and MAX_OPEN waiting. Changes no notes.
  *
  * The garden is the caller's: the MCP tools read it through their note
- * text boundary, so sealed text is opened (2026-11-12). A title in
- * `sealedTitles` is stored in a proposal as "Sealed note", never in
- * the clear, and a refile of a concept in `sealedNames` keeps its type
- * and leaves out the names proposed for it, which go in with refile.
+ * text boundary, so sealed text is opened (2026-11-12). A suggestion
+ * about a note in `sealed` (step 3e, 2026-11-13) names it "Sealed
+ * note", never its title in the clear, and stores its proposed title
+ * and reason sealed under the suggestion's own id (`recordAadFor`),
+ * with `codec`; a refile of such a concept keeps its type and leaves
+ * out the names proposed for it, which go in with refile. With only
+ * plain notes nothing is sealed and the key is never asked for.
  */
 export async function storeSuggestions(
   db: Firestore,
@@ -90,6 +94,7 @@ export async function storeSuggestions(
   raw: readonly RawProposal[],
   now: number,
   read: StoredGarden,
+  codec: Pick<NoteCodec, 'sealRecord'>,
 ): Promise<Stored> {
   await sweepProposals(db, uid, now);
   const garden = read.notes;
@@ -97,9 +102,8 @@ export async function storeSuggestions(
   const known = await proposals.select('key', 'status').get();
   const waiting = known.docs.filter((d) => d.get('status') === 'open').length;
   const room = Math.max(0, Math.min(PER_ROUND, MAX_OPEN - waiting));
-  const sealedNames = read.sealedNames ?? new Set<string>();
   const proposed = raw.map((p) =>
-    p.kind === 'refile' && p.synonyms?.length && sealedNames.has(p.id)
+    p.kind === 'refile' && p.synonyms?.length && read.sealed.has(p.id)
       ? { ...p, synonyms: undefined }
       : p,
   );
@@ -110,18 +114,26 @@ export async function storeSuggestions(
     room,
   );
   const batch = db.batch();
-  const shown = (c: Checked): Checked => ({
-    ...c,
-    notes: c.notes.map((n) => (read.sealedTitles.has(n.id) ? { ...n, title: SEALED_TITLE } : n)),
-  });
-  const stored = checked.map(shown).map((c) => {
+  const stored: Stored['stored'] = [];
+  for (const c of checked) {
+    // The id is made here, before its text is sealed under it.
     const id = autoId((bytes) => void randomFillSync(bytes));
+    const as = c.notes.some((n) => read.sealed.has(n.id)) ? 'sealed' : 'plain';
+    const doc: Checked = {
+      ...c,
+      notes: c.notes.map((n) => (read.sealed.has(n.id) ? { ...n, title: SEALED_TITLE } : n)),
+      reason: await codec.sealRecord('proposals', id, 'reason', c.reason, as),
+      ...(c.title === undefined
+        ? {}
+        : { title: await codec.sealRecord('proposals', id, 'title', c.title, as) }),
+    };
     batch.set(
       proposals.doc(id),
-      Proposal.parse({ ...c, status: 'open', createdAt: Timestamp.fromMillis(now) }),
+      Proposal.parse({ ...doc, status: 'open', createdAt: Timestamp.fromMillis(now) }),
     );
-    return { id, ...c };
-  });
+    // As the gardener will see them: titles named as stored, text opened.
+    stored.push({ id, ...c, notes: doc.notes });
+  }
   await batch.commit();
   return { stored, dropped: raw.length - stored.length, open: waiting + stored.length };
 }

@@ -30,6 +30,8 @@ import {
   type SealedField,
   type SealedFieldValue,
   type SealedListField,
+  type SealedRecordCollection,
+  type SealedRecordField,
   aadFor,
   anySealed,
   fieldValue,
@@ -37,6 +39,7 @@ import {
   isSealed,
   isSealedValue,
   openText,
+  recordAadFor,
   sealText,
   withFieldValue,
   writtenForms,
@@ -79,6 +82,28 @@ export class SealedNoteError extends ToolError {
   }
 }
 
+/**
+ * A record about notes (a suggestion, a run) whose sealed text cannot
+ * be opened here (step 3e, 2026-11-13): no key, or a value that did not
+ * open. Holds the collection, the record id and why, never text or a
+ * key; its message is safe to store as an outcome.
+ */
+export class SealedRecordError extends ToolError {
+  override readonly name = 'SealedRecordError';
+  constructor(
+    readonly collection: SealedRecordCollection,
+    readonly docId: string,
+    readonly reason: UnreadableReason,
+  ) {
+    super(
+      `this ${collection === 'proposals' ? 'suggestion' : 'run'} is sealed and cannot be opened ` +
+        `here (${
+          reason === 'no-key' ? 'its key is not available' : 'its sealed text did not open'
+        }), so nothing was done`,
+    );
+  }
+}
+
 /** One gardener's opener and sealer, for one request. */
 export class NoteCodec {
   private key?: Promise<DataKey>;
@@ -89,7 +114,10 @@ export class NoteCodec {
   ) {}
 
   /** The key, asked for once; a failed ask stays failed for this codec. */
-  private dataKey(noteId: string): Promise<DataKey> {
+  private dataKey(
+    noteId: string,
+    refused: () => Error = () => new SealedNoteError(noteId, 'no-key'),
+  ): Promise<DataKey> {
     if (!this.key) {
       this.key = this.keyFor(this.uid);
       this.key.catch((err: unknown) => {
@@ -99,7 +127,7 @@ export class NoteCodec {
       });
     }
     return this.key.catch(() => {
-      throw new SealedNoteError(noteId, 'no-key');
+      throw refused();
     });
   }
 
@@ -138,6 +166,50 @@ export class NoteCodec {
     if (as === 'plain') return text;
     const key = await this.dataKey(noteId);
     return sealText(key, aadFor(this.uid, noteId, field), text);
+  }
+
+  /**
+   * The text of `value`, field `field` of record `docId` in `collection`
+   * (step 3e, 2026-11-13); plain passes through. A sealed one opens with
+   * `recordAadFor`, so a value moved from another record, field or note
+   * does not; one that does not open throws `SealedRecordError`. The key
+   * is asked for as for a note, lazily and once a codec.
+   */
+  async openRecord<C extends SealedRecordCollection>(
+    collection: C,
+    docId: string,
+    field: SealedRecordField<C>,
+    value: string,
+  ): Promise<string> {
+    if (!isSealed(value)) return value;
+    const key = await this.dataKey(docId, () => new SealedRecordError(collection, docId, 'no-key'));
+    try {
+      return openText(key, recordAadFor(this.uid, collection, docId, field), value);
+    } catch (err) {
+      if (err instanceof SealError) throw new SealedRecordError(collection, docId, 'did-not-open');
+      throw err;
+    }
+  }
+
+  /**
+   * `text` as stored in field `field` of record `docId`: sealed under
+   * that record's own aad when `as` is 'sealed' (`recordForm` of the
+   * notes it is about), else as it is. Text that reads as a sealed value
+   * is refused, as for a note.
+   */
+  async sealRecord<C extends SealedRecordCollection>(
+    collection: C,
+    docId: string,
+    field: SealedRecordField<C>,
+    text: string,
+    as: NoteForm,
+  ): Promise<string> {
+    if (isSealed(text)) {
+      throw new ToolError(`the ${field} cannot start with the sealed-text marker (U+E000 mg)`);
+    }
+    if (as === 'plain') return text;
+    const key = await this.dataKey(docId, () => new SealedRecordError(collection, docId, 'no-key'));
+    return sealText(key, recordAadFor(this.uid, collection, docId, field), text);
   }
 }
 

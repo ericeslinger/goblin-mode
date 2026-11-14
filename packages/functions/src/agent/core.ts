@@ -35,9 +35,11 @@ export interface RunRecord {
   status?: unknown;
   /** Started by the note's arrival, not by Eric (#214). */
   arrival?: unknown;
-  /** An assigned item's (step 4). */
+  /** An assigned item's (step 4), opened when stored sealed (step 3e). */
   itemKey?: unknown;
   itemText?: unknown;
+  /** The item's sealed text did not open here, and why; its key and text are then left out. */
+  unopened?: unknown;
 }
 
 export interface RunStore {

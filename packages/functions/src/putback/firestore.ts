@@ -13,21 +13,26 @@ import {
   type FieldBefore,
   GARDEN_AGENT,
   Note,
+  type NoteForms,
+  SEALED_PROJECT_NAME,
   PUT_BACK_TOOL,
   REROUTE_TOOL,
   agentOf,
   canPutBack,
   correctionLine,
+  formsFound,
   moduleOn,
   nameIndex,
   paths,
   putBackDepth,
   putBackId,
+  recordForm,
   rerouteId,
   rerouteNotes,
   resolveLinks,
   textHash,
   withCorrection,
+  writtenForms,
   zonedDay,
 } from '@mossgoblin/schema';
 import {
@@ -118,10 +123,12 @@ async function refusingSealed<T>(where: string, work: () => Promise<T>): Promise
   }
 }
 
-/** A title as a record or summary holds it: sealed when the note's title or body is. */
+/**
+ * A title as a record or summary holds it: said as "Sealed note" when
+ * any field of the note is stored sealed (`recordForm`, 2026-11-13).
+ */
 function recordTitle(title: string, snap: NoteSnap, sealed?: string): string {
-  const form = snap.forms.body === 'sealed' ? 'sealed' : snap.forms.title;
-  return shownTitle(title, form, sealed);
+  return shownTitle(title, recordForm(snap.forms), sealed);
 }
 
 /** The deviceId a put back's note writes carry: its own, so History keeps what it replaced. */
@@ -154,20 +161,40 @@ function webOf(d: Record<string, unknown> | undefined): CorrectionNote['web'] {
 
 /**
  * A note as a correction names it: its title now (`d`, opened), if it
- * is there, else the record's. The context note keeps its own form, so
- * a sealed note's opened title may go into a plain one, as a link Eric
- * types does (2026-11-12).
+ * is there, else the record's. A sealed note (`forms`, `recordForm`) is
+ * said as "a sealed note" when the line goes into a context note
+ * stored plain (`inClear`), so its opened title is never written there
+ * in the clear (step 3e, 2026-11-13, replacing the 2026-11-12 choice
+ * to let it in); a sealed context note names it, sealed with the line.
  */
 function correctionNote(
   t: { id: string; title: string },
   d: Record<string, unknown> | undefined,
+  forms: NoteForms | undefined,
+  inClear: boolean,
 ): CorrectionNote {
   const web = webOf(d);
+  const sealed = inClear && recordForm(forms) === 'sealed';
   return {
     title: d && typeof d['title'] === 'string' ? d['title'] : t.title,
     was: t.title,
     ...(web ? { web } : {}),
+    ...(sealed ? { sealed: true as const } : {}),
   };
+}
+
+/**
+ * Whether a correction line written into the context note `raw` (as
+ * stored, or absent: made plain) would be stored plain. The line goes
+ * into its body, so the body's written form says.
+ */
+function lineInClear(raw: Record<string, unknown> | undefined): boolean {
+  return writtenForms(formsFound(raw)).body === 'plain';
+}
+
+/** A project as a correction names it: its title, or what it is when sealed and the line is plain. */
+function correctionProject(title: string, forms: NoteForms | undefined, inClear: boolean): string {
+  return inClear && recordForm(forms) === 'sealed' ? SEALED_PROJECT_NAME : title;
 }
 
 type Stamp = {
@@ -467,15 +494,18 @@ async function putBackRun(
           ? await NoteSnap.open(codec, await tx.get(db.doc(paths.note(uid, filedUnder))))
           : undefined;
       // A sealed project that did not open goes unnamed in the line.
+      const inClear = lineInClear(contextRaw.data());
       const project =
         projectDoc?.exists && !projectDoc.locked
-          ? String(projectDoc.data()?.['title'] ?? '')
+          ? correctionProject(String(projectDoc.data()?.['title'] ?? ''), projectDoc.forms, inClear)
           : undefined;
       line = correctionLine({
         kind: 'put-back',
         tool: run.tool,
         summary: run.summary,
-        notes: run.notes.map((t) => correctionNote(t, openedOf(t.id))),
+        notes: run.notes.map((t) =>
+          correctionNote(t, openedOf(t.id), snaps.find((n) => n.id === t.id)?.forms, inClear),
+        ),
         ...(project ? { project } : {}),
         day: dayIn(now, timeZone),
       });
@@ -724,8 +754,11 @@ async function rerouteRun(
     // put back of Eric's own reroute.
     let line: string | undefined;
     if (base.tool !== REROUTE_TOOL && !writes.some((w) => w.id === CONTEXT_ID)) {
-      let from: string | undefined;
+      /** The project the assistant had filed them under: its title opened, and its forms. */
+      let from: { title: string; forms?: NoteForms } | undefined;
       let mergedInto: CorrectionNote | undefined;
+      const inClear = lineInClear(contextRaw.data());
+      const formsOf = (id: string) => baseSnaps.find((n) => n.id === id)?.forms;
       /** A note's text opened; a sealed one that did not open, none. */
       const dataOf = (id: string) => {
         const s = baseSnaps.find((n) => n.id === id);
@@ -736,13 +769,19 @@ async function rerouteRun(
         if (typeof was === 'string' && was && !was.includes('/')) {
           const doc = await NoteSnap.open(codec, await tx.get(notesCol.doc(was)));
           // A sealed project that did not open goes unnamed in the line.
-          if (doc.exists && !doc.locked) from = String(doc.data()?.['title'] ?? '') || undefined;
+          if (doc.exists && !doc.locked)
+            from = { title: String(doc.data()?.['title'] ?? ''), forms: doc.forms };
         }
       } else if (base.tool === 'link_notes') {
         const target = base.notes.slice(1).find((t) => isProject(t.id));
-        if (target) from = correctionNote(target, dataOf(target.id)).title || undefined;
+        if (target)
+          from = {
+            title: correctionNote(target, dataOf(target.id), undefined, false).title,
+            forms: formsOf(target.id),
+          };
       } else if (base.tool === 'merge_notes' && base.notes[0]) {
-        mergedInto = correctionNote(base.notes[0], dataOf(base.notes[0].id));
+        const into = base.notes[0];
+        mergedInto = correctionNote(into, dataOf(into.id), formsOf(into.id), inClear);
       }
       line = correctionLine({
         kind: 'reroute',
@@ -750,11 +789,15 @@ async function rerouteRun(
           correctionNote(
             { id: w.id, title: base.notes.find((t) => t.id === w.id)?.title ?? '' },
             w.current,
+            w.snap.forms,
+            inClear,
           ),
         ),
-        to: projectTitle,
+        to: correctionProject(projectTitle, projectDoc.forms, inClear),
         // Filed back where the assistant had it: no "not" to say.
-        ...(from && from !== projectTitle ? { from } : {}),
+        ...(from?.title && from.title !== projectTitle
+          ? { from: correctionProject(from.title, from.forms, inClear) }
+          : {}),
         ...(mergedInto ? { mergedInto } : {}),
         day: dayIn(now, timeZone),
       });

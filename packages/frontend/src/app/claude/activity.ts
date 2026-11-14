@@ -183,7 +183,14 @@ export function digestLine(
                     }
                   }
                 </p>
-                <p class="muted">{{ p.reason }}</p>
+                @if (p.sealed) {
+                  <p class="muted">
+                    This suggestion is sealed, and its key is not on this device yet. Its reason
+                    shows when this device is back online and signed in.
+                  </p>
+                } @else {
+                  <p class="muted">{{ p.reason }}</p>
+                }
                 @switch (p.status) {
                   @case ('open') {
                     <div class="actions">

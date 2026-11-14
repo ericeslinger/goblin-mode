@@ -2,12 +2,19 @@ import {
   DestroyRef,
   Injectable,
   InjectionToken,
+  Injector,
   computed,
   effect,
   inject,
   signal,
 } from '@angular/core';
-import { type ProposalKind, type ProposalStatus, paths } from '@mossgoblin/schema';
+import {
+  type DataKey,
+  type ProposalKind,
+  type ProposalStatus,
+  isSealed,
+  paths,
+} from '@mossgoblin/schema';
 import {
   type Firestore,
   Timestamp,
@@ -21,6 +28,8 @@ import {
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { NoteKeyService } from '../notes/note-key.service';
+import { openRecordField } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 
 /** A nightly suggestion as the app shows it; times in milliseconds. */
@@ -36,7 +45,16 @@ export interface ProposalRecord {
   outcome?: string;
   createdAt?: number;
   decidedAt?: number;
+  /**
+   * Its sealed text (its reason, or a merge's title) did not open on
+   * this device (step 3e, 2026-11-13): the reason is then '' and the
+   * title absent, never the sealed text.
+   */
+  sealed?: true;
 }
+
+/** Opens field `field` of a proposal when it is sealed; undefined when it does not open. */
+type Opener = (id: string, field: 'title' | 'reason', value: string) => string | undefined;
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
 export interface ProposalsApi {
@@ -73,24 +91,44 @@ export const PROPOSALS_API = new InjectionToken<ProposalsApi>('proposals-api', {
 const millis = (v: unknown) => (v as { toMillis?: () => number } | undefined)?.toMillis?.();
 const strings = (v: unknown) => (Array.isArray(v) ? v.map(String) : undefined);
 
-function toRecord(id: string, data: Record<string, unknown>): ProposalRecord {
+/**
+ * A stored proposal as the app shows it. Its proposed title and reason
+ * are opened with `open` where sealed (step 3e); one that does not open
+ * marks the record `sealed`. The notes it names are named by id, and
+ * the page shows each note's own title.
+ */
+export function toRecord(
+  id: string,
+  data: Record<string, unknown>,
+  open: Opener = () => undefined,
+): ProposalRecord {
+  let sealed = false;
+  const text = (field: 'title' | 'reason', value: string) => {
+    if (!isSealed(value)) return value;
+    const opened = open(id, field, value);
+    if (opened === undefined) sealed = true;
+    return opened;
+  };
+  const reason = text('reason', String(data['reason'] ?? '')) ?? '';
+  const title = typeof data['title'] === 'string' ? text('title', data['title']) : undefined;
   return {
     id,
     kind: data['kind'] as ProposalKind,
-    reason: String(data['reason'] ?? ''),
+    reason,
     notes: Array.isArray(data['notes'])
       ? data['notes'].map((n: { id?: unknown; title?: unknown }) => ({
           id: String(n.id ?? ''),
           title: String(n.title ?? ''),
         }))
       : [],
-    title: typeof data['title'] === 'string' ? data['title'] : undefined,
+    title,
     conceptType: typeof data['conceptType'] === 'string' ? data['conceptType'] : undefined,
     synonyms: strings(data['synonyms']),
     status: (data['status'] as ProposalStatus) ?? 'open',
     outcome: typeof data['outcome'] === 'string' ? data['outcome'] : undefined,
     createdAt: millis(data['createdAt']),
     decidedAt: millis(data['decidedAt']),
+    ...(sealed ? { sealed: true as const } : {}),
   };
 }
 
@@ -106,8 +144,38 @@ export class ProposalsService {
   private readonly api = inject(PROPOSALS_API);
   private readonly auth = inject(AuthService);
   private readonly now = inject(NOW);
+  private readonly injector = inject(Injector);
 
-  private readonly all = signal<ProposalRecord[]>([]);
+  /** The proposals as stored, and whose (step 3e): shown opened with the key. */
+  private readonly docs = signal<
+    { uid: string; docs: { id: string; data: Record<string, unknown> }[] } | undefined
+  >(undefined);
+  /** Accepted or dismissed here, shown at once until the listener confirms it. */
+  private readonly decided = signal(
+    new Map<string, { status: 'accepted' | 'dismissed'; at: number }>(),
+  );
+  /**
+   * The proposals, opened, derived from the stored ones and the key, so
+   * a key that arrives later opens them then. The key is read only once
+   * a sealed value turns up, so with only plain ones its arrival
+   * recomputes nothing.
+   */
+  private readonly all = computed<ProposalRecord[]>(() => {
+    const kept = this.docs();
+    if (!kept) return [];
+    let key: DataKey | undefined;
+    let read = false;
+    const open: Opener = (id, field, value) => {
+      if (!read) [key, read] = [this.injector.get(NoteKeyService).key(), true];
+      return openRecordField(key, kept.uid, 'proposals', id, field, value);
+    };
+    const decided = this.decided();
+    return kept.docs.map((d) => {
+      const p = toRecord(d.id, d.data, open);
+      const mine = decided.get(p.id);
+      return mine && p.status === 'open' ? { ...p, status: mine.status, decidedAt: mine.at } : p;
+    });
+  });
   readonly loaded = signal(false);
 
   /** Waiting for the gardener, plus accepted ones not yet done and recent failures. */
@@ -133,14 +201,15 @@ export class ProposalsService {
       this.stop?.();
       this.stop = undefined;
       this.uid = uid;
-      this.all.set([]);
+      this.docs.set(undefined);
+      this.decided.set(new Map());
       this.loaded.set(false);
       if (!uid) return;
       this.stop = this.api.listen(
         this.fb.db,
         paths.proposals(uid),
         (docs) => {
-          this.all.set(docs.map((d) => toRecord(d.id, d.data)));
+          this.docs.set({ uid, docs });
           this.loaded.set(true);
         },
         (err) => console.error('proposals listener', err),
@@ -163,7 +232,7 @@ export class ProposalsService {
     if (p?.status !== 'open') return;
     const at = this.now();
     // Shown at once; the listener confirms it.
-    this.all.update((list) => list.map((x) => (x.id === id ? { ...x, status, decidedAt: at } : x)));
+    this.decided.update((m) => new Map(m).set(id, { status, at }));
     this.api
       .decide(this.fb.db, `${paths.proposals(this.uid)}/${id}`, status, at)
       .catch((err) => console.error('proposal decision', err));

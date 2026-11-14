@@ -163,6 +163,53 @@ export function aadFor(uid: string, noteId: string, field: SealedField): Uint8Ar
 }
 
 /**
+ * The fields of records about notes, stored outside the note document,
+ * that may hold sealed text (step 3e, 2026-11-13), by the collection
+ * under `users/{uid}` that holds the record. Only text that is the
+ * record's own content is here: a record that only says which note
+ * names it by id, and the reader shows the note's own title.
+ *
+ * - `proposals`: a merge suggestion's proposed `title`, and the
+ *   `reason` the assistant gave, which may quote the notes.
+ * - `runs`: an `@goblin` item run's `itemText` and `itemKey`, and a
+ *   run's `outcome`, which for a sent note repeats its `sendOutcome`.
+ */
+export const SEALED_RECORD_FIELDS = {
+  proposals: ['title', 'reason'],
+  runs: ['itemText', 'itemKey', 'outcome'],
+} as const;
+export type SealedRecordCollection = keyof typeof SEALED_RECORD_FIELDS;
+export type SealedRecordField<C extends SealedRecordCollection = SealedRecordCollection> =
+  (typeof SEALED_RECORD_FIELDS)[C][number];
+
+/**
+ * The authenticated data for one field of one record about notes
+ * (step 3e, 2026-11-13): binds a sealed value to the user, the record's
+ * collection, its document id and the field, so it cannot be moved to
+ * another record, another collection, another field or another user
+ * and still open. Its first part, `mossgoblin/record-field`, is not
+ * the note fields' `mossgoblin/note-field`, and every part is
+ * length-prefixed, so a record field's value never opens as a note
+ * field's, nor the other way round. The same `mg1` format and key as
+ * note text; `sealText` binds the version tag as ever.
+ */
+export function recordAadFor<C extends SealedRecordCollection>(
+  uid: string,
+  collection: C,
+  docId: string,
+  field: SealedRecordField<C>,
+): Uint8Array<ArrayBuffer> {
+  if (!uid) throw new RangeError('recordAadFor needs a uid');
+  if (!docId) throw new RangeError('recordAadFor needs a document id');
+  const fields: readonly string[] | undefined = Object.hasOwn(SEALED_RECORD_FIELDS, collection)
+    ? SEALED_RECORD_FIELDS[collection]
+    : undefined;
+  if (!fields) throw new RangeError(`not a collection of sealed records: ${collection}`);
+  if (!fields.includes(field)) throw new RangeError(`not a sealed ${collection} field: ${field}`);
+  return lengthPrefixed(['mossgoblin/record-field', uid, collection, docId, field]);
+}
+
+/**
  * What AES-GCM is given as authenticated data: the version tag, then
  * `aad`. So a value sealed as one version never opens as another, even
  * under the same key (review on #260): a later format may read the

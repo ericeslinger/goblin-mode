@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { Note, SEND_ASK_MAX, SEND_OUTCOME_MAX } from './model';
-import { aadFor, newDataKey, openText, sealText } from './sealed';
+import { Note, Proposal, SEND_ASK_MAX, SEND_OUTCOME_MAX } from './model';
+import { Run } from './runs';
+import { aadFor, newDataKey, openText, recordAadFor, sealText } from './sealed';
 import {
   PLAIN_FORMS,
   SEALED_FORMS,
   anySealed,
   fieldValue,
   formsFound,
+  recordForm,
   withFieldValue,
   writtenForms,
 } from './sealed-note';
@@ -131,5 +133,59 @@ describe('a sealed note against the stored schema (2026-11-13)', () => {
     expect(Note.safeParse({ ...base, ...at }).success).toBe(true);
     expect(Note.safeParse({ ...base, sendAsk: `${at.sendAsk}a` }).success).toBe(false);
     expect(Note.safeParse({ ...base, sendOutcome: `${at.sendOutcome}o` }).success).toBe(false);
+  });
+});
+
+describe('recordForm (step 3e, 2026-11-13)', () => {
+  it('is plain when every source is plain, or there are none', () => {
+    expect(recordForm()).toBe('plain');
+    expect(recordForm(PLAIN_FORMS, undefined, PLAIN_FORMS)).toBe('plain');
+  });
+
+  it('is sealed when any field of any source is sealed', () => {
+    expect(recordForm(PLAIN_FORMS, SEALED_FORMS)).toBe('sealed');
+    // A plain title beside a sealed body is no reason to name it in the clear.
+    expect(recordForm({ ...PLAIN_FORMS, body: 'sealed' })).toBe('sealed');
+    expect(recordForm({ ...PLAIN_FORMS, instructions: 'sealed' })).toBe('sealed');
+  });
+});
+
+describe('sealed record fields against the stored schemas (step 3e)', () => {
+  const at = { seconds: 1, nanoseconds: 0 };
+  const rec = <C extends Parameters<typeof recordAadFor>[1]>(
+    c: C,
+    id: string,
+    f: Parameters<typeof recordAadFor<C>>[3],
+    text: string,
+  ) => sealText(key, recordAadFor('uid-1', c, id, f), text);
+
+  it('parse a suggestion with a sealed title and reason', () => {
+    const p = Proposal.parse({
+      kind: 'merge',
+      reason: rec('proposals', 'p1', 'reason', 'Both are about moss'),
+      notes: [
+        { id: 'a', title: 'Sealed note' },
+        { id: 'b', title: 'Sealed note' },
+      ],
+      title: rec('proposals', 'p1', 'title', 'Moss'),
+      key: 'merge:a,b',
+      status: 'open',
+      createdAt: at,
+    });
+    expect(openText(key, recordAadFor('uid-1', 'proposals', 'p1', 'title'), p.title!)).toBe('Moss');
+  });
+
+  it('parse a run with a sealed item text, key and outcome', () => {
+    const r = Run.parse({
+      kind: 'item',
+      noteId: 'n1',
+      itemText: rec('runs', 'r1', 'itemText', 'Find a moss supplier'),
+      itemKey: rec('runs', 'r1', 'itemKey', 'find a moss supplier'),
+      outcome: rec('runs', 'r1', 'outcome', 'x'.repeat(1000)),
+      status: 'done',
+      steps: [],
+      createdAt: at,
+    });
+    expect(r.itemKey?.startsWith('\uE000mg1.')).toBe(true);
   });
 });

@@ -97,14 +97,14 @@ import {
   UNCATEGORIZED,
   clippingBody,
   isWebLink,
-  isSealed,
   byQueue,
   isQueueOrder,
   effectiveMode,
   modeBrief,
   takesInstructions,
   type Takes,
-  writtenForms,
+  formsFound,
+  recordForm,
 } from '@mossgoblin/schema';
 import {
   type CollectionReference,
@@ -206,21 +206,23 @@ const newId = () => autoId((bytes) => void randomFillSync(bytes));
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /**
  * A note the run touched, as its activity entry names it. A sealed
- * title is not written out there in the clear (2026-11-12): the entry
- * says "Sealed note", and the app shows the note's own title.
+ * note's title is not written out there in the clear (2026-11-12): the
+ * entry says "Sealed note", and the app shows the note's own title.
+ * Since 2026-11-13 a note is sealed here when any of its fields is
+ * (`recordForm`), so a plain title beside a sealed body is not named.
  */
 const touched = (id: string, d: Data, forms: NoteForms = PLAIN): Touched => ({
   id,
-  title: shownTitle(d['title'], forms.title),
+  title: shownTitle(d['title'], recordForm(forms)),
 });
 /** A note the run made, so putting the run back archives it (#211). */
 const touchedNew = (id: string, d: Data, forms: NoteForms = PLAIN): Touched => ({
   ...touched(id, d, forms),
   made: true,
 });
-/** A note as a run's summary names it: a sealed title as "a sealed note". */
+/** A note as a run's summary names it: a sealed note as "a sealed note" (`recordForm`). */
 const titleIn = (title: unknown, forms: NoteForms) =>
-  shownTitle(title, forms.title, 'a sealed note');
+  shownTitle(title, recordForm(forms), 'a sealed note');
 /**
  * A note whose fields the run changed, with the value each had before,
  * null where it was absent, so putting the run back restores them
@@ -302,8 +304,10 @@ export async function parentTitle(
       if (at === parent) throw new ToolError(`no project ${parent}`);
       break;
     }
-    // A plain title only: a sealed one is left unsaid (2026-11-12).
-    if (at === parent && !isSealed(data['title'])) title = String(data['title'] ?? '');
+    // A plain note's title only: a sealed one is left unsaid (2026-11-12),
+    // and since 2026-11-13 so is a plain title beside a sealed field.
+    if (at === parent && recordForm(formsFound(data)) === 'plain')
+      title = String(data['title'] ?? '');
     at = data['parent'] as string | undefined;
   }
   return title;
@@ -727,7 +731,7 @@ export class NotesTools {
     const d = note.data()!;
     return {
       ...touchedFields(note.id, { ...note.stored(), body: d['body'] }, update),
-      title: shownTitle(d['title'], note.forms.title),
+      title: shownTitle(d['title'], recordForm(note.forms)),
     };
   }
 
@@ -2153,7 +2157,7 @@ export class NotesTools {
       );
       return {
         id,
-        title: opts.recorded ? shownTitle(merged['title'], forms.title) : merged['title'],
+        title: opts.recorded ? shownTitle(merged['title'], recordForm(forms)) : merged['title'],
         archived: ids,
       };
     });
@@ -2290,9 +2294,9 @@ export class NotesTools {
         }
         if (added.length) {
           update['synonyms'] = synonyms;
-          // Names a write keeps sealed are not said in the clear (2026-11-13).
+          // A sealed note's names are not said in the clear (2026-11-13).
           said.push(
-            writtenForms(doc.forms).synonyms === 'sealed'
+            recordForm(doc.forms) === 'sealed'
               ? `added ${added.length === 1 ? 'another name' : plural(added.length, 'other name')}`
               : `added ${added.length === 1 ? 'another name' : 'other names'}: ${added.join(', ')}`,
           );
@@ -2402,9 +2406,9 @@ export class NotesTools {
       const update = { sendState: 'done', sendOutcome: outcome };
       Note.parse({ ...current, ...update });
       await this.writeNote(tx, 'update', ref, update, doc.forms);
-      // An outcome a write keeps sealed is not said in the clear (2026-11-13).
+      // A sealed note's outcome is not said in the clear (2026-11-13).
       const what =
-        writtenForms(doc.forms).sendOutcome === 'sealed'
+        recordForm(doc.forms) === 'sealed'
           ? 'Did a sealed note sent to it'
           : `Did a note sent to it: ${outcome}`;
       tx.set(...this.activity('finish_queued', what, [this.touchedFieldsOf(doc, update)]));
@@ -2433,16 +2437,15 @@ export class NotesTools {
         archived: d['archived'] === true || n.locked,
       };
     });
-    const sealedTitles = new Set(notes.filter((n) => n.forms.title === 'sealed').map((n) => n.id));
-    const sealedNames = new Set(
-      notes.filter((n) => writtenForms(n.forms).synonyms === 'sealed').map((n) => n.id),
-    );
+    // Sealed as a record about them says (`recordForm`, 2026-11-13).
+    const sealed = new Set(notes.filter((n) => recordForm(n.forms) === 'sealed').map((n) => n.id));
     const { stored, dropped, open } = await storeSuggestions(
       this.db,
       this.uid,
       args.proposals,
       this.now(),
-      { notes: garden, sealedTitles, sealedNames },
+      { notes: garden, sealed },
+      this.codec,
     );
     return {
       stored: stored.map((p) => ({ id: p.id, kind: p.kind, notes: p.notes, reason: p.reason })),

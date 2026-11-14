@@ -4251,7 +4251,9 @@ app shows the note's own title), a summary calls it "a sealed note",
 and a run that rewrote a sealed body says only "Changed a sealed
 note". A proposal from `suggest_changes` names it the same way. A
 field's value before, kept for put back, is the stored one, sealed if
-it was, which opens again on the same note.
+it was, which opens again on the same note. (Widened 2026-11-13, step
+3e below: a note is named so when any of its fields is sealed, not
+only its title.)
 
 *A note the tools cannot open* (no key, or a value that does not open)
 is locked. No tool returns its sealed text, reads it as empty, or
@@ -4341,7 +4343,8 @@ below behaves as before and asks for no key.
   as they were, the body by the hash of its opened text. A correction
   line goes into the context note in that note's own form, so a
   sealed note's title may go into a plain context note, as a link
-  Eric types does (2026-11-12).
+  Eric types does (2026-11-12). (Changed 2026-11-13, step 3e below:
+  a plain context note's line says "a sealed note" instead.)
 - `recipeImport` and `attachmentTranscribe` already went through the
   tools, and `digestPush` reads only activity, which is labelled:
   nothing raw was left there.
@@ -4478,23 +4481,126 @@ out.
 a raw read of any of them, and `note-boundary.spec.ts` on a stored
 value read off a NoteSnap outside the tools' boundary.
 
+**Text about notes, stored outside them (step 3e, 2026-11-13).** What
+assistants changed, suggestions, runs and the context note's
+correction lines held copies of note text in records of their own.
+Readers and writers of each now follow one rule, on both sides. Still
+nothing seals a note that was not sealed, so with only plain notes
+every record is written and read as before, and no key is asked for.
+
+*Not stored, where it can be.* A record that only says which note
+names it by id, and the reader shows the note's own title (the app
+has the note and the key; the tools have the codec). Where a record
+has to say a name in its own words (an activity entry's titles and
+summary, a suggestion's notes, a proposal's outcome, a correction
+line), a sealed note is "Sealed note" or "a sealed note". Only text
+that is the record's own content is sealed.
+
+*The rule* (`recordForm`, `packages/schema/src/sealed-note.ts`): text
+about notes is sealed, or a name in it labelled, when any field of
+any of the notes it is about is stored sealed, plain otherwise; the
+rule of a new note made from others' text (`formFrom`). So a plain
+title beside a sealed body is no longer named in the clear: before,
+an activity entry and a summary went by the title's own form
+(`touched`, `titleIn`, put back's `recordTitle`, `parentTitle`, the
+run's note state), and a refile or `finish_queued` summary by the
+names' or outcome's written form. All now go by this rule.
+
+*The record binding* (`recordAadFor`, `packages/schema/src/sealed.ts`).
+The same `mg1` format and key as note text, with authenticated data of
+its own: length-prefixed `mossgoblin/record-field`, the uid, the
+collection under `users/{uid}`, the document id and the field. A
+sealed record value so cannot move to another record, collection,
+field or user, nor between a record and a note (`aadFor` starts
+`mossgoblin/note-field`), and still open. `SEALED_RECORD_FIELDS` names
+the fields: a suggestion's `title` and `reason`, a run's `itemText`,
+`itemKey` and `outcome`. Each record's id is known before its text is
+sealed under it: a suggestion's and a sent note's run's are made by
+the server (a run sent on arrival takes its note's id), and an item
+run's is derived from the note id and a hash of the item's key, a
+hash site (below).
+
+*Which, and who opens them.*
+
+- Suggestions (`users/{uid}/proposals`). Stored by `suggest_changes`
+  (`organize/store.ts`): a suggestion about a sealed note names it
+  "Sealed note" and stores its proposed `title` and its `reason`
+  sealed under its own id; the tool's answer to the model is what it
+  wrote, opened. A refile of a sealed concept still leaves out the
+  names proposed for it (step 3d), now for any sealed field, since
+  its key (`refile:{id}:{type}:{names}`) would say them; the names go
+  in with refile. `proposalAccepted` opens the title before the merge;
+  one that does not open (no key, or sealed for another record) fails
+  the suggestion with a message saying it is sealed, and merges
+  nothing. Its outcome names notes as an activity entry does and is
+  stored plain. The app (`ProposalsService`) derives the suggestions
+  from what is stored and the key, so a key that arrives later opens
+  them; one that does not open shows a calm line in place of its
+  reason and no title, never ciphertext.
+- Runs (`users/{uid}/runs`). `itemAssigned` writes an item run's
+  `itemText` and `itemKey` sealed when its note is. The run store
+  (`agent/firestore-store.ts`) opens them when a run is claimed, and
+  stores a run's `outcome` sealed when its item was, or its note is.
+  An item run whose text does not open fails, retried at a later
+  settle when the key was missing, and writes nothing under the item.
+  The app's note back derives a run from what is stored and the key;
+  a sealed outcome it cannot open says so. A run's `error` and steps
+  hold no note text and stay plain.
+- What assistants changed (`users/{uid}/activity`). Labelled, never
+  sealed: by the rule above, and put back's and reroute's own records
+  and summaries likewise. A field's value before stays as stored. A
+  put back's summary quotes the summary of the run it put back, which
+  was labelled when written.
+- Show changes (`claude/run-changes.ts`). It derives its versions from
+  what History holds and the key, as History does, so a key that
+  arrives after the panel opened opens them. It degrades per version:
+  a side that does not open says so, the other shows as it is, and no
+  diff is made of a placeholder. A version that did not open is never
+  matched by hash.
+- Corrections. A correction line names notes in its own words, so a
+  sealed note's opened title in a plain context note would be the
+  server writing it in the clear, unbidden. This changes the choice of
+  2026-11-12: where the line goes into a context note stored plain, a
+  sealed note is "a sealed note" (a made one "a new sealed note") and
+  a sealed project "a sealed project"; a sealed context note names
+  them, sealed with the line. The context note keeps its own form, as
+  any existing note does: a sealed name is left out of a plain one,
+  not the note sealed to hold it. It is the assistant's briefing; once
+  every note is sealed it is too, and the names come back.
+
+*Hashes and keys.* Suggestions are kept from being made twice by their
+`key`: a link's and a merge's hold note ids only, and a refile's holds
+names only for a concept that is not sealed. An item run's id is
+`item-{noteId}-` and 16 hex characters of SHA-256 of the item's
+normalized text: a key a guess at short text can be checked against,
+in the clear, the same kind as `baseHash`. It is left for the keyed
+hashes, since changing how a run is named changes how a settle finds
+it.
+
+*The guard* (`mcp/record-boundary.spec.ts`) reads the functions'
+source and fails where a run's item text or key is named outside the
+places that seal and open it, where the run store reads them raw, and
+where `proposalAccepted` uses a proposed title it did not open.
+
 *What is left before sealing can be switched on.* (Binding a service
 secret left this list on 2026-11-13: there is none to bind. Step 3d
-took the other text fields off it the same day.)
+took the other text fields off it the same day, and step 3e the text
+about notes stored outside them.)
 
 - The gardener's switch, and the app writing sealed: it still writes
   body and title plain, and the other fields sealed only where it
   found them sealed.
 - On a note document, `source.url`, a recipe's or clipping's page
-  link: plain or sealed is not decided (for Eric). Off it, an
-  `@goblin` run's `itemText` and `itemKey`, and a queued note's run
-  `outcome`, which repeats what `sendOutcome` says.
+  link: plain or sealed is not decided (for Eric).
 - Keyed hashes in place of `textHash` for `baseHash`, the replaced
   texts' ids, the body hash in an activity entry's `before`, and the
   hash in an item run's id.
-- Activity, proposal and attachment text, the Show changes panel's
-  diffs, and the context note's correction lines.
-- The migration of existing notes.
+- Attachment text (files in Storage and their extracted text).
+- The migration of existing notes. Records written before a note is
+  sealed keep its words as they were (an activity summary, a
+  suggestion's reason, a run's outcome, a correction line); whether
+  the migration rewrites them or leaves them to age out is not
+  decided.
 
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,

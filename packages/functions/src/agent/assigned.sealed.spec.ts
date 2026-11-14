@@ -100,6 +100,20 @@ describe('itemAssigned', () => {
       reason: 'no-key',
     });
   });
+
+  it('a plain body beside a sealed title, and no key: starts nothing and does not throw', async () => {
+    const after = note(`Home\n- [ ] ${ITEM}\n- [ ] ring the bank @goblin`, {
+      ...settled,
+      title: seal('title', 'Home'),
+    });
+    noKey();
+    expect(await assign(after)).toBe('sealed');
+    expect(runs()).toEqual([]);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('itemAssigned'), {
+      noteId: ID,
+      reason: 'no-key',
+    });
+  });
 });
 
 describe("agentRun's assigned item", () => {
