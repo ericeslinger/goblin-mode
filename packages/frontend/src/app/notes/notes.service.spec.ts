@@ -4,8 +4,10 @@ import {
   SEND_ASK_MAX,
   type SealedField,
   aadFor,
+  isKeyedHash,
   isSealed,
   newDataKey,
+  noteTextHash,
   openSealedText,
   sealText,
   textHash,
@@ -1663,10 +1665,39 @@ describe('NotesService', () => {
         [
           {},
           'users/u1/notes/n1',
-          expect.objectContaining({ body: 'new words', baseHash: textHash('old words') }),
+          expect.objectContaining({
+            body: 'new words',
+            baseHash: noteTextHash('n1', 'old words', 'sealed', () => KEY),
+          }),
           true,
         ],
       ]);
+    });
+
+    it('names the text a save of a sealed note was written over by a keyed hash (2026-11-14)', () => {
+      const { notes, api, signIn, push, key } = setup();
+      key.set(KEY);
+      signIn(UID);
+      push([sealedDoc('n1', 'old words', 'Old'), sealedDoc('n2', 'old words', 'Old')]);
+      notes.save('n1', 'new words', { base: 'old words' });
+      const baseHash = String(api.set.mock.lastCall![2]['baseHash']);
+      expect(isKeyedHash(baseHash)).toBe(true);
+      expect(baseHash).toBe(noteTextHash('n1', 'old words', 'sealed', () => KEY));
+      expect(baseHash).not.toContain(textHash('old words'));
+      // The note id is bound: the same words in another note hash apart.
+      notes.save('n2', 'new words', { base: 'old words' });
+      expect(api.set.mock.lastCall![2]['baseHash']).not.toBe(baseHash);
+    });
+
+    it('a plain body beside a sealed title is hashed keyed too', () => {
+      const { notes, api, signIn, push, key } = setup();
+      key.set(KEY);
+      signIn(UID);
+      push([{ id: 'n1', data: { body: 'old words', title: seal('n1', 'title', 'Old') } }]);
+      notes.save('n1', 'new words', { base: 'old words' });
+      expect(api.set.mock.lastCall![2]['baseHash']).toBe(
+        noteTextHash('n1', 'old words', 'sealed', () => KEY),
+      );
     });
 
     it('forgets a kept save once the note opens holding someone else’s newer text', () => {

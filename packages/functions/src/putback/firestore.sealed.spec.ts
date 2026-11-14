@@ -4,8 +4,10 @@ import {
   SEAL_SENTINEL,
   aadFor,
   firstWordsTitle,
+  isKeyedHash,
   isSealed,
   newDataKey,
+  noteTextHash,
   openText,
   putBackId,
   sealText,
@@ -60,9 +62,15 @@ const putSealed = (id: string, body: string, over: Data = {}) =>
 const db = () => fakeDb(store);
 const tools = () => new NotesTools(db(), UID, () => T, undefined, undefined, keyFor);
 
-/** What noteHistory keeps for a write: the text it replaced, in the note's stored form. */
-function remember(id: string, text: string, storedBody: string) {
-  store.set(`${notePath(id)}/replaced/${textHash(text)}`, {
+/** A sealed note's body hash (2026-11-14), under this test's key. */
+const keyed = (id: string, text: string) => noteTextHash(id, text, 'sealed', () => key)!;
+
+/**
+ * What noteHistory keeps for a write: the text it replaced, in the
+ * note's stored form, under its hash (keyed for a sealed note).
+ */
+function remember(id: string, text: string, storedBody: string, hash = textHash(text)) {
+  store.set(`${notePath(id)}/replaced/${hash}`, {
     body: storedBody,
     writtenAt: Timestamp.fromMillis(T - 1000),
   });
@@ -112,12 +120,15 @@ describe('putBack', () => {
     putSealed('a', text);
     const before = String(stored('a')['body']);
     await tools().addLines({ id: 'a', lines: ['and the card'] });
-    remember('a', text, before);
+    remember('a', text, before, keyed('a', text));
     const runId = runOf('add_lines');
     await putBack(db(), UID, runId, T + 60_000, undefined, keyFor);
     const a = stored('a');
     expect(isSealed(a['body'])).toBe(true);
     expect(opened('a', 'body')).toBe(text);
+    // What the put back wrote over is named by a keyed hash too.
+    expect(a['baseHash']).toBe(keyed('a', `${text}\nand the card`));
+    expect(JSON.stringify([...store.entries()])).not.toContain(textHash(`${text}\nand the card`));
     expect(isSealed(a['title'])).toBe(true);
     expect(opened('a', 'title')).toBe(firstWordsTitle(text));
     const record = store.get(`users/${UID}/activity/${putBackId(runId)}`)!;
@@ -145,12 +156,44 @@ describe('putBack', () => {
     expect(opened('a', 'body')).toBe(text);
   });
 
+  it('puts back a filing of a sealed note by the keyed hash its record kept', async () => {
+    const text = 'Our *kiln* project';
+    putSealed('c-kiln', text, {
+      kind: 'concept',
+      conceptType: 'other',
+      title: seal('c-kiln', 'title', 'Kiln'),
+      titleSource: 'user',
+    });
+    const before = String(stored('c-kiln')['body']);
+    await tools().refile({ id: 'c-kiln', type: 'project' });
+    const runId = runOf('refile');
+    const record = store.get(`users/${UID}/activity/${runId}`)!;
+    const hash = (record['notes'] as { before: Data }[])[0].before['body'];
+    expect(hash).toBe(keyed('c-kiln', text));
+    remember('c-kiln', text, before, String(hash));
+    await putBack(db(), UID, runId, T + 60_000, undefined, keyFor);
+    expect(opened('c-kiln', 'body')).toBe(text);
+  });
+
+  it('a plain hash from before keyed hashes still finds its plain-id replaced text', async () => {
+    const text = 'Dentist Tuesday\nbring forms';
+    putSealed('a', text);
+    const before = String(stored('a')['body']);
+    await tools().addLines({ id: 'a', lines: ['and the card'] });
+    // As a write before 2026-11-14 left it: a plain baseHash and id.
+    store.set(notePath('a'), { ...stored('a'), baseHash: textHash(text) });
+    remember('a', text, before);
+    await putBack(db(), UID, runOf('add_lines'), T + 60_000, undefined, keyFor);
+    expect(opened('a', 'body')).toBe(text);
+    expect(isKeyedHash(stored('a')['baseHash'])).toBe(true);
+  });
+
   it('a note it cannot open refuses the put back and writes nothing', async () => {
     const text = 'Private\n- [ ] x';
     putSealed('a', text);
     const before = String(stored('a')['body']);
     await tools().addLines({ id: 'a', lines: ['more'] });
-    remember('a', text, before);
+    remember('a', text, before, keyed('a', text));
     const snapshot = copy([...store.entries()]);
     noKey();
     const err = await putBack(db(), UID, runOf('add_lines'), T + 60_000, undefined, keyFor).catch(
@@ -229,7 +272,8 @@ describe('reroute', () => {
       expect.objectContaining({ id: 'b', title: 'Sealed note' }),
     ]);
     const before = (record['notes'] as { before: Data }[])[0].before;
-    expect(before['body']).toBe(textHash('Sow the kale'));
+    expect(before['body']).toBe(keyed('a', 'Sow the kale'));
+    expect(JSON.stringify([...store.entries()])).not.toContain(textHash('Sow the kale'));
     expect(JSON.stringify(record)).not.toContain('kale');
   });
 

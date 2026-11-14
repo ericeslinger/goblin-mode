@@ -19,6 +19,11 @@
 // Send to ask and outcome, a recipe's import error and its source text
 // (SEALED_FIELDS). The form a write keeps is `writtenForms`, shared with
 // the app (packages/schema/src/sealed-note.ts).
+//
+// Hashes of a note's text (keyed hashes, 2026-11-14) are made and
+// matched here too, `hashText`, `hashMatcher` and `itemHash`, keyed for
+// a sealed note (packages/schema/src/text-hash.ts) with the same key,
+// asked for as lazily: never for a plain note with plain hashes.
 import {
   type DataKey,
   type NoteForm,
@@ -36,8 +41,13 @@ import {
   anySealed,
   fieldValue,
   formsFound,
+  hashForm,
+  isKeyedHash,
   isSealed,
   isSealedValue,
+  itemHash,
+  noteTextHash,
+  noteTextHashMatches,
   openText,
   recordAadFor,
   sealText,
@@ -169,6 +179,55 @@ export class NoteCodec {
   }
 
   /**
+   * The hash of `text`, the body of note `noteId`, to store (`baseHash`,
+   * a replaced text's id, an activity entry's `before.body`): plain for
+   * a note whose `hashForm` is plain, asking for no key; keyed for a
+   * sealed one. No key throws SealedNoteError, so nothing is written
+   * with a plain hash in a keyed one's place.
+   */
+  async hashText(noteId: string, text: string, form: NoteForm): Promise<string> {
+    const key = form === 'sealed' ? await this.dataKey(noteId) : undefined;
+    const hash = noteTextHash(noteId, text, form, () => key);
+    if (hash === undefined) throw new SealedNoteError(noteId, 'no-key');
+    return hash;
+  }
+
+  /**
+   * A matcher for hashes of note `noteId`'s body, each checked the way it
+   * says it was made (`noteTextHashMatches`): a plain hash against
+   * `textHash`, a keyed one against the keyed hash. The key is asked for
+   * first when the note is sealed (`form`) or one of `hashes` is keyed,
+   * and not otherwise; a keyed hash met without it throws (HashMatcher).
+   */
+  async hashMatcher(
+    noteId: string,
+    form: NoteForm,
+    hashes: readonly (string | undefined)[] = [],
+  ): Promise<HashMatcher> {
+    let key: DataKey | undefined;
+    if (form === 'sealed' || hashes.some(isKeyedHash)) {
+      key = await this.dataKey(noteId).catch(() => undefined);
+    }
+    return (hash, text) => {
+      const match = noteTextHashMatches(noteId, hash, text, () => key);
+      if (match !== undefined) return match;
+      throw new SealedNoteError(noteId, key ? 'did-not-open' : 'no-key');
+    };
+  }
+
+  /**
+   * The hash part of an item run's id (`itemRunId`) for the item whose
+   * key is `item`, on note `noteId`: plain for a plain note, keyed for a
+   * sealed one (`hashForm`). No key throws SealedNoteError.
+   */
+  async itemHash(noteId: string, item: string, form: NoteForm): Promise<string> {
+    const key = form === 'sealed' ? await this.dataKey(noteId) : undefined;
+    const hash = itemHash(noteId, item, form, () => key);
+    if (hash === undefined) throw new SealedNoteError(noteId, 'no-key');
+    return hash;
+  }
+
+  /**
    * The text of `value`, field `field` of record `docId` in `collection`
    * (step 3e, 2026-11-13); plain passes through. A sealed one opens with
    * `recordAadFor`, so a value moved from another record, field or note
@@ -212,6 +271,15 @@ export class NoteCodec {
     return sealText(key, recordAadFor(this.uid, collection, docId, field), text);
   }
 }
+
+/**
+ * What `NoteCodec.hashMatcher` gives: whether a stored hash is the hash
+ * of a text of that note. Throws SealedNoteError for a keyed hash it
+ * cannot check (no key, or a version this build does not know), so a
+ * merge or put back stops and leaves the note as stored rather than
+ * deciding by guess.
+ */
+export type HashMatcher = (hash: string | undefined, text: string) => boolean;
 
 /**
  * A stored note as the tools read it: `data()` and `get()` give its text
@@ -270,6 +338,11 @@ export class NoteSnap {
   /** Any text field is stored sealed (opened or not). */
   get sealed(): boolean {
     return anySealed(this.forms);
+  }
+
+  /** Whether hashes of this note's text are keyed (`hashForm`, 2026-11-14). */
+  get hashForm(): NoteForm {
+    return hashForm(this.forms);
   }
 
   /** Field `field` is stored sealed and did not open here. */

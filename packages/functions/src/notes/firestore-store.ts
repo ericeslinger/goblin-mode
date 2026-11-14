@@ -1,4 +1,4 @@
-import { firstWordsTitle, paths, textHash } from '@mossgoblin/schema';
+import { firstWordsTitle, hashForm, paths } from '@mossgoblin/schema';
 import {
   type DocumentSnapshot,
   FieldValue,
@@ -38,6 +38,7 @@ export function storedState(snap: DocumentSnapshot | undefined): NoteState | und
     createdAt: millis(d['createdAt']),
     settledAt: millis(d['settledAt']),
     baseHash: typeof d['baseHash'] === 'string' ? d['baseHash'] : undefined,
+    hashForm: hashForm(formsOf(d)),
     ...(millis(d['deletedAt']) !== undefined ? { deletedAt: millis(d['deletedAt']) } : {}),
   };
 }
@@ -120,12 +121,14 @@ export function firestoreNotesStore(
       return out;
     },
 
-    async rememberReplaced(uid, noteId, body, writtenAt, stored = body) {
+    async rememberReplaced(uid, noteId, body, form, writtenAt, stored = body) {
       const col = db.collection(paths.replaced(uid, noteId));
       // Keyed by the text, so the same text twice is one document. It
       // holds the note's stored form, so a sealed note's text is never
-      // kept here in the clear; its id is a plaintext hash, as baseHash.
-      await col.doc(textHash(body)).set({
+      // kept here in the clear; its id is the text's hash as baseHash
+      // holds it, keyed for a sealed note (2026-11-14), and with no key
+      // it throws, keeping nothing rather than a plain id.
+      await col.doc(await codec.hashText(noteId, body, form)).set({
         body: stored,
         writtenAt:
           writtenAt === undefined ? FieldValue.serverTimestamp() : Timestamp.fromMillis(writtenAt),
@@ -155,7 +158,8 @@ export function firestoreNotesStore(
         if (!write) return false;
         const update: Record<string, unknown> = {
           body: write.body,
-          baseHash: textHash(write.over),
+          // Keyed when the note is sealed (2026-11-14), as it stands now.
+          baseHash: await codec.hashText(noteId, write.over, note.hashForm),
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: current['updatedBy'] === 'claude' ? 'claude' : 'user',
           deviceId: MERGE_DEVICE,

@@ -1,3 +1,4 @@
+import { itemHash } from '@mossgoblin/schema';
 import { describe, expect, it, vi } from 'vitest';
 import type { NotesTools } from '../mcp/tools';
 import type { RunStore } from './core';
@@ -174,8 +175,13 @@ describe('executeItemRun', () => {
   });
 
   it('names a run by the note and the item, the same each time', () => {
-    expect(itemRunId('n1', KEY)).toBe(itemRunId('n1', KEY));
-    expect(itemRunId('n1', KEY)).not.toBe(itemRunId('n2', KEY));
-    expect(itemRunId('n1', KEY)).toMatch(/^item-n1-[0-9a-f]{16}$/);
+    const id = (noteId: string) =>
+      itemRunId(
+        noteId,
+        itemHash(noteId, KEY, 'plain', () => undefined)!,
+      );
+    expect(id('n1')).toBe(id('n1'));
+    expect(id('n1')).not.toBe(id('n2'));
+    expect(id('n1')).toMatch(/^item-n1-[0-9a-f]{16}$/);
   });
 });

@@ -2,12 +2,13 @@ import { Component, DestroyRef, computed, inject, input, signal } from '@angular
 import {
   type DataKey,
   type DiffLine,
+  type KeyGetter,
   PUT_BACK_TOOL,
   REROUTE_TOOL,
   lineDiff,
+  noteTextHashMatches,
   paths,
   summarySaysText,
-  textHash,
   textLines,
 } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
@@ -90,7 +91,7 @@ type Written = {
 /**
  * The text before run `run` wrote note `touched`, and after (#241,
  * step 5 of #154), from `versions` (History, any order) and `note` (as
- * it is now, if it is there). Before: the version whose `textHash` is
+ * it is now, if it is there). Before: the version whose hash is
  * the one the run named (its record's `before.body`, or the note's own
  * `baseHash` while the run's write is still the last), else the latest
  * version written before the run that is not its own. After: the note
@@ -101,12 +102,19 @@ type Written = {
  * still takes its place, so each side says for itself that it is
  * sealed (step 3e, 2026-11-13); it is never matched by hash, which its
  * placeholder body cannot be.
+ *
+ * The hash is checked as the kind it is (2026-11-14): a plain one
+ * against the plain hash, a keyed one (a sealed note's) against the
+ * keyed hash under `key`, read only for a keyed hash. Without the key
+ * a keyed hash matches nothing, and the before is found by time, as
+ * for a version that did not open.
  */
 export function runSides(
   run: Pick<RunRecord, 'at' | 'agent'>,
   touched: Touched,
   versions: readonly VersionRecord[],
   note: NoteRecord | undefined,
+  key: KeyGetter = () => undefined,
 ): Sides {
   const at = run.at ?? 0;
   const own = (w: Written) =>
@@ -124,7 +132,11 @@ export function runSides(
   if (touched.made) {
     out.noBefore = 'made';
   } else {
-    const byHash = hash ? versions.find((v) => !v.locked && textHash(v.body) === hash) : undefined;
+    const byHash = hash
+      ? versions.find(
+          (v) => !v.locked && noteTextHashMatches(touched.id, hash, v.body, key) === true,
+        )
+      : undefined;
     const byTime = byHash
       ? undefined
       : stamped
@@ -416,7 +428,7 @@ export class RunChanges {
     if (!versions) return undefined;
     const id = this.note().id;
     const note = this.notesService.find(id);
-    return runSides(this.run(), this.note(), versions, note);
+    return runSides(this.run(), this.note(), versions, note, () => this.keys.key());
   });
 
   /** A diff of the two sides, only when both opened here: never of a placeholder. */

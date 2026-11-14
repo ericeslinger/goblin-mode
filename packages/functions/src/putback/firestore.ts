@@ -30,7 +30,6 @@ import {
   rerouteId,
   rerouteNotes,
   resolveLinks,
-  textHash,
   withCorrection,
   writtenForms,
   zonedDay,
@@ -256,7 +255,7 @@ async function writeCorrection(
   const update = {
     ...stamp,
     body,
-    baseHash: textHash(before),
+    baseHash: await codec.hashText(ref.id, before, snap.hashForm),
     links: keepLockedLinks(
       resolveLinks(wikiLinkTargets(parseNote(body)), index),
       current['links'],
@@ -332,13 +331,16 @@ async function namesOf(
  * or in Trash (#217): gone. Throws SealedNoteError when it is sealed and
  * did not open: nothing is put back over text not seen here.
  */
-function noteFacts(snap: NoteSnap): NoteFacts | undefined {
+async function noteFacts(codec: NoteCodec, snap: NoteSnap): Promise<NoteFacts | undefined> {
   if (!snap.exists) return undefined;
   if (snap.known()?.['deletedAt'] !== undefined) return undefined;
   const d = snap.data() ?? {};
+  const body = String(d['body'] ?? '');
   return {
     id: snap.id,
-    body: String(d['body'] ?? ''),
+    body,
+    // Keyed for a sealed note (2026-11-14); no key throws SealedNoteError.
+    bodyHash: await codec.hashText(snap.id, body, snap.hashForm),
     title: String(d['title'] ?? ''),
     ...(typeof d['titleSource'] === 'string' ? { titleSource: d['titleSource'] } : {}),
     archived: d['archived'] === true,
@@ -431,7 +433,7 @@ async function putBackRun(
     const snaps = await Promise.all(raw.map((s) => NoteSnap.open(codec, s)));
     const notes = new Map<string, NoteFacts>();
     for (const s of snaps) {
-      const n = noteFacts(s);
+      const n = await noteFacts(codec, s);
       if (n) notes.set(n.id, n);
     }
     /** A live note's text opened, for the correction line. */
@@ -452,11 +454,22 @@ async function putBackRun(
           : undefined
         : notes.get(t.id)?.baseHash;
       if (!hash) continue;
+      // Each hash is checked as the kind it is (2026-11-14): a plain one
+      // against the plain hash, a keyed one against the keyed hash, so a
+      // record from before the note was sealed still finds its text. A
+      // keyed hash with no key refuses the put back (refusingSealed).
+      const matches = await codec.hashMatcher(
+        t.id,
+        snaps.find((s) => s.id === t.id)?.hashForm ?? 'plain',
+        [hash],
+      );
       // Copies of the note's own body, in its stored form: each opens
-      // with the note's aad, and the hash is of the opened text.
+      // with the note's aad, and the hash is of the opened text. A
+      // replaced text's id is its hash, of the kind made when it was
+      // kept, so one kept under a plain id is found by a plain hash.
       const replaced = await tx.get(db.doc(`${paths.replaced(uid, t.id)}/${hash}`));
       const body = await openCopy(codec, t.id, replaced.data());
-      if (body !== undefined && textHash(body) === hash) {
+      if (body !== undefined && matches(hash, body)) {
         textBefore.set(t.id, body);
         continue;
       }
@@ -465,7 +478,7 @@ async function putBackRun(
       );
       for (const d of kept.docs) {
         const b = await openCopy(codec, t.id, d.data());
-        if (b !== undefined && textHash(b) === hash) {
+        if (b !== undefined && matches(hash, b)) {
           textBefore.set(t.id, b);
           break;
         }
@@ -526,7 +539,7 @@ async function putBackRun(
         ...stamp,
         // Every put back says what it wrote over, so putting it back
         // finds that text, and a flip alone names the text it kept.
-        baseHash: textHash(note.body),
+        baseHash: note.bodyHash,
       };
       if (w.archived !== undefined) update['archived'] = w.archived;
       if (w.body !== undefined) {
@@ -728,7 +741,7 @@ async function rerouteRun(
           );
         const next = withSeeAlso(body, [name]);
         update['body'] = next;
-        update['baseHash'] = textHash(body);
+        update['baseHash'] = await codec.hashText(id, body, snap.hashForm);
         update['links'] = keepLockedLinks(
           resolveLinks(wikiLinkTargets(parseNote(next)), index),
           current['links'],
@@ -805,10 +818,16 @@ async function rerouteRun(
     // Each note's fields before, as stored (a value goes back to the same
     // note), its body by the hash of its text; its title as a record
     // names it.
-    const touched = writes.map((w) => ({
-      ...touchedFields(w.id, { ...w.snap.stored(), body: w.current['body'] }, w.update),
-      title: recordTitle(String(w.current['title'] ?? ''), w.snap),
-    }));
+    const touched = [];
+    for (const w of writes) {
+      const before = String(w.current['body'] ?? '');
+      const hash =
+        'body' in w.update ? await codec.hashText(w.id, before, w.snap.hashForm) : undefined;
+      touched.push({
+        ...touchedFields(w.id, { ...w.snap.stored(), body: w.current['body'] }, w.update, hash),
+        title: recordTitle(String(w.current['title'] ?? ''), w.snap),
+      });
+    }
     for (const w of writes) {
       const update = { ...w.update, ...stamp };
       Note.parse({ ...w.current, ...update });

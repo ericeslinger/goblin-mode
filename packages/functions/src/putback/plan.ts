@@ -7,7 +7,6 @@ import {
   REROUTE_TOOL,
   firstWordsTitle,
   summarySaysText,
-  textHash,
 } from '@mossgoblin/schema';
 
 /**
@@ -42,8 +41,13 @@ export interface NoteFacts {
   mergedInto?: string;
   updatedAt?: number;
   deviceId: string;
-  /** `textHash` of the text its last body write replaced. */
+  /** The hash of the text its last body write replaced (plain, or keyed when sealed). */
   baseHash?: string;
+  /**
+   * The hash of `body`, as a write over it names it: plain for a plain
+   * note, keyed for a sealed one (`NoteCodec.hashText`, 2026-11-14).
+   */
+  bodyHash: string;
   /** Its stored fields, for putting back a run's `before` (#206). */
   fields?: Record<string, unknown>;
 }
@@ -233,7 +237,7 @@ export function planPutBack(args: {
           write.title = write.newTitle;
         }
         // Its own record names the text it replaces, so its put back finds it.
-        if (what.kind === 'fields') write.before = { ...write.before, body: textHash(note.body) };
+        if (what.kind === 'fields') write.before = { ...write.before, body: note.bodyHash };
       }
     }
     if (

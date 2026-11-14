@@ -3,8 +3,10 @@ import {
   SEAL_SENTINEL,
   aadFor,
   firstWordsTitle,
+  isKeyedHash,
   isSealed,
   newDataKey,
+  noteTextHash,
   openText,
   sealText,
   textHash,
@@ -94,6 +96,9 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
 
+/** A sealed note's body hash (2026-11-14), under this test's key. */
+const keyed = (text: string) => noteTextHash(ID, text, 'sealed', () => key)!;
+
 describe('noteHistory, plain notes', () => {
   it('keeps, remembers and merges as before, and never asks for a key', async () => {
     const base = 'one\ntwo';
@@ -132,19 +137,45 @@ describe('noteHistory, a sealed note with its key', () => {
     expect(keyFor).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps no sealed note’s replaced text in the clear: the stored form, by its plaintext hash', async () => {
+  it('keeps no sealed note’s replaced text in the clear: the stored form, under a keyed hash', async () => {
     const text = 'Private plans\nfor Sunday';
     const before = sealedNote(text);
     await history(before, sealedNote(`${text}\nmore`));
     const replaced = under('replaced');
     expect(replaced).toHaveLength(1);
-    expect(replaced[0].p).toBe(`${NOTE}/replaced/${textHash(text)}`);
+    // Keyed since 2026-11-14: no plain hash of the text in its id.
+    expect(replaced[0].p).toBe(`${NOTE}/replaced/${keyed(text)}`);
+    expect(replaced[0].p).not.toContain(textHash(text));
     expect(replaced[0].d['body']).toBe(before['body']);
     expect(JSON.stringify(replaced[0].d)).not.toContain('Private');
     expect(open('body', replaced[0].d['body'])).toBe(text);
   });
 
   it('merges sealed text to the right plaintext, sealed again under the note’s id', async () => {
+    const base = 'one\ntwo';
+    store.set(`${NOTE}/replaced/${keyed(base)}`, {
+      body: seal('body', base),
+      writtenAt: Timestamp.fromMillis(T - 120_000),
+    });
+    const before = sealedNote(`${base}\nthree`, { deviceId: 'phone', baseHash: keyed(base) });
+    const after = sealedNote(`zero\n${base}`, { deviceId: 'laptop', baseHash: keyed(base) });
+    expect((await history(before, after)).merged).toBe('merged');
+    const now = store.get(NOTE)!;
+    expect(isSealed(now['body'])).toBe(true);
+    expect(isSealed(now['title'])).toBe(true);
+    expect(open('body', now['body'])).toBe('zero\none\ntwo\nthree');
+    expect(open('title', now['title'])).toBe(firstWordsTitle('zero\none\ntwo\nthree'));
+    expect(now['baseHash']).toBe(keyed(`zero\n${base}`));
+    expect(JSON.stringify(now)).not.toContain('three');
+    // No plain hash of any of its texts is stored anywhere.
+    const all = JSON.stringify([...store.entries()]);
+    for (const t of [base, `${base}\nthree`, `zero\n${base}`, 'zero\none\ntwo\nthree']) {
+      expect(all).not.toContain(textHash(t));
+    }
+  });
+
+  it('a plain baseHash from before keyed hashes still finds its plain-id replaced text', async () => {
+    // Readers before writers: a sealed note with hashes of the old kind.
     const base = 'one\ntwo';
     store.set(`${NOTE}/replaced/${textHash(base)}`, {
       body: seal('body', base),
@@ -154,12 +185,26 @@ describe('noteHistory, a sealed note with its key', () => {
     const after = sealedNote(`zero\n${base}`, { deviceId: 'laptop', baseHash: textHash(base) });
     expect((await history(before, after)).merged).toBe('merged');
     const now = store.get(NOTE)!;
-    expect(isSealed(now['body'])).toBe(true);
-    expect(isSealed(now['title'])).toBe(true);
     expect(open('body', now['body'])).toBe('zero\none\ntwo\nthree');
-    expect(open('title', now['title'])).toBe(firstWordsTitle('zero\none\ntwo\nthree'));
-    expect(now['baseHash']).toBe(textHash(`zero\n${base}`));
-    expect(JSON.stringify(now)).not.toContain('three');
+    // What the merge writes is keyed: the note is sealed.
+    expect(now['baseHash']).toBe(keyed(`zero\n${base}`));
+  });
+
+  it('a keyed hash is never taken for a plain one, nor bound to another note', async () => {
+    // after names its base by a hash of the text before, but made for
+    // another note: not "built on it", so both writes' lines are kept.
+    const before = sealedNote('a\nb\nx', { deviceId: 'phone' });
+    const after = sealedNote('a\nb\nc', {
+      deviceId: 'laptop',
+      baseHash: noteTextHash('n2', 'a\nb\nx', 'sealed', () => key),
+    });
+    expect((await history(before, after)).merged).toBe('kept-both');
+    // Made for this note, it says the writer saw the text: nothing to merge.
+    const own = sealedNote('a\nb\nc', { deviceId: 'laptop', baseHash: keyed('a\nb\nx') });
+    expect((await history(before, own)).merged).toBe('clean');
+    // A plain hash on a sealed note is checked as a plain one: it matches.
+    const old = sealedNote('a\nb\nd', { deviceId: 'tablet', baseHash: textHash('a\nb\nx') });
+    expect((await history(before, old)).merged).toBe('clean');
   });
 
   it('a plain note stays plain through a merge, with no key', async () => {
@@ -174,6 +219,19 @@ describe('noteHistory, a sealed note with its key', () => {
     );
     expect(store.get(NOTE)!['body']).toBe('z\na\nb\nc');
     expect(keyFor).not.toHaveBeenCalled();
+  });
+});
+
+describe('noteHistory, a keyed base and no key', () => {
+  it('a plain note with a keyed baseHash is left as stored, unmerged, not guessed at', async () => {
+    keyFor.mockImplementation(async () => {
+      throw new NoteKeysUnconfigured('no note keys here');
+    });
+    const before = note('one\ntwo\nthree', { deviceId: 'phone' });
+    const after = note('zero\none\ntwo', { deviceId: 'laptop', baseHash: keyed('one\ntwo') });
+    const out = await history(before, after);
+    expect(out).toMatchObject({ merged: 'none', sealed: true });
+    expect(store.get(NOTE)).toEqual(after);
   });
 });
 

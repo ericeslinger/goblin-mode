@@ -3948,9 +3948,23 @@ working, and "no end-to-end encryption" (2026-10-05) stands.
 **What is encrypted.** A note's `body` and `title`, then later its
 history versions, concept names and synonyms, the text held in what
 assistants changed, its diffs and suggestions, and attachment text.
+(Attachment text left this list on 2026-11-13, below.)
 **What stays plain:** tags, kind, links between ids, dates, archived,
 project fields, reminder text, Reader and Podcasts items, and
 settings.
+
+*Attachments are outside the promise (Eric, 2026-11-13).* Files in
+Storage and the text extracted from them (`get_attachment_text`,
+`search_attachments`) are not encrypted: what the encryption promises
+is Eric's own words in his notes, and an attachment is a saved PDF or
+page, not his words. They stay as they are, with no key asked for.
+
+*A page's link stays plain (Eric, 2026-11-14).* A note's `source.url`,
+the page a recipe was imported from or a clipping was filed from, is
+not sealed: it is a public address, not his words, for the same reason
+as attachments. The page text kept beside it, `source.text`, is his
+recipe's or what was set aside from it, and stays among the sealed
+fields (step 3d); nothing in the code treated the link as sealed.
 
 **Keys.** Each user has one 256-bit data key. Where the key that wraps
 it lives is not decided: Google Cloud KMS or a Cloudflare Worker
@@ -4312,7 +4326,9 @@ request by its error's name and message, which hold no key or secret.
 
 *Hashes stay plaintext hashes.* `baseHash` and the body hash an
 activity entry keeps in `before` are still `textHash` of the opened
-text, stored in the clear; a keyed hash is a later step.
+text, stored in the clear; a keyed hash is a later step. (Changed
+2026-11-14: for a sealed note both are keyed hashes; Keyed hashes,
+below.)
 
 *No secret to bind (2026-11-13).* This step left the service secret
 bound to no function, with a follow-up to bind it to every function
@@ -4393,6 +4409,8 @@ kept in the note's stored form, a copy of the sealed value, which
 opens with the note's aad; a sealed note's text is never kept there
 in the clear. The document id is still `textHash` of the plaintext,
 stored in the clear like `baseHash`; a keyed hash is a later step.
+(Changed 2026-11-14: a sealed note's replaced texts are kept under a
+keyed hash; Keyed hashes, below.)
 
 *A note a trigger cannot open* (no key, or a value that does not
 open) is left exactly as stored, and the log says so once, with the
@@ -4614,32 +4632,137 @@ names only for a concept that is not sealed. An item run's id is
 normalized text: a key a guess at short text can be checked against,
 in the clear, the same kind as `baseHash`. It is left for the keyed
 hashes, since changing how a run is named changes how a settle finds
-it.
+it. (Keyed for a sealed note since 2026-11-14; Keyed hashes, below.)
 
 *The guard* (`mcp/record-boundary.spec.ts`) reads the functions'
 source and fails where a run's item text or key is named outside the
 places that seal and open it, where the run store reads them raw, and
 where `proposalAccepted` uses a proposed title it did not open.
 
+**Keyed hashes (2026-11-14).** Four things were stored as a hash of a
+note's words, in the clear: a write's `baseHash` (the text it was
+written over, for the three-way merge), the id of a replaced text
+(`notes/{id}/replaced/{hash}`), the body hash an activity entry keeps
+in `before`, and the hash in an item run's id. `textHash` is not even
+a cryptographic hash (a 32-bit FNV-1a, with the text's length in front
+of it) and an item's is unkeyed SHA-256, so anyone holding the
+database could check a guess at a short note against either. For a
+sealed note each is now a keyed hash. With only plain notes every one
+is written byte for byte as before, nothing is migrated, and no key is
+asked for.
+
+*The primitive* (`packages/schema/src/text-hash.ts`, shared by the app
+and the functions). HMAC-SHA-256 under a hash key of its own:
+HKDF-SHA-256 of the gardener's data key, no salt, as info the
+length-prefixed parts `mossgoblin/text-hash` and `v1`
+(`keyedDigest`, `sealed.ts`), so the AES key is never a MAC key and a
+hash says nothing about a seal. The MAC input is length-prefixed, as
+the aad is: the version `k1`, what is hashed (`note-body` or
+`item-key`), the note id, and the text. Binding the note id means the
+same words in two notes hash apart; nothing needs to compare across
+notes (the merge, put back and Show changes all match one note's own
+versions, replaced texts and History). The uid is not bound: the key
+is the gardener's already. It is synchronous, as sealing is: the app's
+save and Show changes and the server's merge compare hashes inside
+synchronous code, WebCrypto's HMAC and HKDF are async only, and
+`@noble/ciphers` has no hashes, so `sha256.ts` writes out SHA-256,
+HMAC and HKDF (checked against the RFC vectors and WebCrypto). No new
+dependency.
+
+*The shape.* A keyed body hash is `k1.` and 32 hex characters (128
+bits), an item's `k1.` and 16 (64, as before). A plain `textHash` is
+base36, a dash and hex, and a plain item hash hex alone, so neither
+ever starts `k1.`: a reader computes the kind the stored hash says,
+and a plain hash is never compared with a keyed one as if alike. Both
+are valid Firestore document ids and fit in a run id
+(`item-{noteId}-k1.{hex}`). The stored schemas and the rules constrain
+none of the four beyond "a string", so nothing in `packages/schema`'s
+stored documents, `firestore.rules` or the rules tests changed.
+
+*Which form.* A hash of a note's text is keyed when any field of the
+note is stored sealed (`hashForm`, which is `recordForm` of the note,
+the rule records about notes follow, step 3e), plain otherwise. Not
+the body's form alone: a plain body beside a sealed title is the words
+in the clear already, but one rule for everything about a sealed note
+leaves no hash to change when the rest of it is sealed. A text a write
+replaced is kept under a keyed id when the note was or is sealed.
+
+*Both sides compute it.* The app keys a save's `baseHash` with the key
+it opened the note with (`NoteKeyService`); without one the note is
+locked and nothing is saved, as before, so no plain hash of sealed
+text is ever written in a keyed one's place. The server makes and
+matches hashes through the codec (`NoteCodec.hashText`, `hashMatcher`,
+`itemHash`, `mcp/note-text.ts`), which asks for the key as lazily as it
+does to open: never for a plain note whose hashes are plain. A hash it
+must write for a sealed note with no key throws `SealedNoteError`, so
+the note is left as stored.
+
+*Matching, and the mixed cases.* Every match checks a stored hash as
+the kind it is: plain against `textHash` of the text, keyed against
+the keyed hash under the note's id.
+
+- A sealed note with a plain `baseHash`, or a plain `before.body`
+  (written before this step; none exists in production, since nothing
+  seals yet, but readers come first): matched as plain, so the merge
+  and put back still find the text it names.
+- A keyed hash where the server has no key: the merge stops and the
+  note is left as stored, unmerged, as for a note it cannot open
+  (noteHistory says `sealed`); put back refuses as it does for a
+  sealed note. A keyed hash is never read as "the base is current",
+  nor as no match to merge from by guess. A keyed version this build
+  does not know is treated the same way.
+- A replaced text kept under a plain id for a note sealed later: a
+  merge reads every replaced text and History version and matches each
+  by its opened text, not its id, so it is found by a plain or a keyed
+  `baseHash` alike. Put back looks a replaced text up by the hash it
+  holds, so a plain hash finds the plain id; a keyed one finds a keyed
+  id, or the same text in History.
+- What a merge or put back writes is in the note's form now: a sealed
+  note's new `baseHash` is keyed, whatever kind the old one was.
+
+*Show changes and put back.* Show changes matches the version before
+by the run's recorded `before.body`, or the note's `baseHash`, as the
+kind each is; it reads the key only for a keyed hash. Without the key
+a keyed hash matches no version, and the before is found by time and
+said to be approximate, as for a version that did not open. Put back
+and reroute record a sealed note's `before.body` keyed and match it,
+with the key, from the replaced texts or History.
+
+*Item runs.* A sealed note's item run is `item-{noteId}-k1.` and 16
+hex of the keyed hash of the item's key; without the key itemAssigned
+starts nothing, as before. A run made under the plain id while the
+note was plain is not rewritten here (the migration decides that, and
+its id still holds the plain hash), but it is not started twice
+either: with no run under the keyed id, a settle reads the plain-id
+run and treats it as the item's, so a done or running item starts
+nothing, and one that failed and may be mended, or was lost, starts
+again under the keyed id, its attempt counted on from the old one.
+
+*The guard* (`mcp/hash-boundary.spec.ts`) reads the functions' and the
+app's source and fails on any `textHash` outside the schema, on the
+schema's hash helpers called anywhere but the codec on the server, or
+`notes.service.ts` and `run-changes.ts` in the app, and on any other
+hashing (`createHash`, `createHmac`, `subtle.digest`) outside the two
+places that hash OAuth codes and the local sealer's secret. No MCP
+tool's name, input or documented behaviour changed.
+
 *What is left before sealing can be switched on.* (Binding a service
 secret left this list on 2026-11-13: there is none to bind. Step 3d
 took the other text fields off it the same day, and step 3e the text
-about notes stored outside them.)
+about notes stored outside them. Attachment text left it on 2026-11-13
+and `source.url` on 2026-11-14, both decided plain, and the keyed
+hashes on 2026-11-14, above.)
 
 - The gardener's switch, and the app writing sealed: it still writes
   body and title plain, and the other fields sealed only where it
   found them sealed.
-- On a note document, `source.url`, a recipe's or clipping's page
-  link: plain or sealed is not decided (for Eric).
-- Keyed hashes in place of `textHash` for `baseHash`, the replaced
-  texts' ids, the body hash in an activity entry's `before`, and the
-  hash in an item run's id.
-- Attachment text (files in Storage and their extracted text).
 - The migration of existing notes. Records written before a note is
   sealed keep its words as they were (an activity summary, a
   suggestion's reason, a run's outcome, a correction line); whether
   the migration rewrites them or leaves them to age out is not
-  decided.
+  decided. The same holds for the plain hashes written before it: a
+  plain `baseHash`, a replaced text's plain id, a `before.body`, and
+  an item run under its plain id.
 
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,

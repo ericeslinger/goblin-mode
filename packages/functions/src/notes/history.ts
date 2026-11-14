@@ -1,6 +1,6 @@
 // The core of noteHistory: decide whether a note write replaced a
 // version worth keeping, and keep it (DESIGN.md, Conflicts).
-import { type Author, type KeepReason, keepReason } from '@mossgoblin/schema';
+import { type Author, type KeepReason, type NoteForm, keepReason } from '@mossgoblin/schema';
 
 /**
  * A note's fields as a trigger sees them; times in milliseconds. `body`
@@ -21,8 +21,14 @@ export interface NoteState {
   createdAt?: number;
   settledAt?: number;
   titleSource?: string;
-  /** `textHash` of the text the writer wrote over; '' when not known. */
+  /**
+   * The hash of the text the writer wrote over; '' when not known. Plain
+   * (`textHash`) or keyed (`k1.`, a sealed note's, 2026-11-14), as its
+   * shape says.
+   */
   baseHash?: string;
+  /** Whether hashes of this note's text are keyed (`hashForm` of the note as stored). */
+  hashForm?: NoteForm;
   /** In Trash since (#217); the sweep removes it for good. */
   deletedAt?: number;
 }

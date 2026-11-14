@@ -10,8 +10,11 @@
 // A run's item text and key are the note's words, so they are stored
 // sealed when the note is (`recordForm`, step 3e, 2026-11-13), under the
 // run's own id. That id is a hash of the item's key, made before the
-// text is sealed under it: a hash site, left for the keyed hashes.
-import { RUN_STALE_MS, assignedItems, formsFound, paths, recordForm } from '@mossgoblin/schema';
+// text is sealed under it: keyed for a sealed note since 2026-11-14
+// (`NoteCodec.itemHash`). A run started under the plain id while the
+// note was plain still counts for a sealed note, so the same item is
+// not started twice under its new id.
+import { RUN_STALE_MS, assignedItems, formsFound, hashForm, paths } from '@mossgoblin/schema';
 import { type Firestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import {
   type NoteCodec,
@@ -52,21 +55,30 @@ export async function assignedOnWrite(
     return 'sealed';
   }
   const items = assignedItems(body).filter((i) => !i.done);
-  const as = recordForm(formsFound(after));
+  // The form of the run's text and of the hash in its id: `recordForm`
+  // of the note, which is what `hashForm` is.
+  const as = hashForm(formsFound(after));
   // Sealed before any run starts, so a missing key starts none of
   // them, and before the transactions, which may run more than once.
-  const sealed: { runId: string; itemText: string; itemKey: string }[] = [];
+  const sealed: { runId: string; plainId?: string; itemText: string; itemKey: string }[] = [];
   try {
     for (const item of items) {
-      const runId = itemRunId(noteId, item.key);
+      const runId = itemRunId(noteId, await codec.itemHash(noteId, item.key, as));
+      // Where a run for this item made while the note was plain would
+      // be: only looked up, never written, for a sealed note.
+      const plainId =
+        as === 'sealed'
+          ? itemRunId(noteId, await codec.itemHash(noteId, item.key, 'plain'))
+          : undefined;
       sealed.push({
         runId,
+        ...(plainId ? { plainId } : {}),
         itemText: await codec.sealRecord('runs', runId, 'itemText', item.text, as),
         itemKey: await codec.sealRecord('runs', runId, 'itemKey', item.key, as),
       });
     }
   } catch (err) {
-    if (!(err instanceof SealedRecordError)) throw err;
+    if (!(err instanceof SealedRecordError) && !(err instanceof SealedNoteError)) throw err;
     log.warn('itemAssigned left a sealed note as stored: its items cannot be sealed here', {
       noteId,
       reason: err.reason,
@@ -74,10 +86,15 @@ export async function assignedOnWrite(
     return 'sealed';
   }
   let started = 0;
-  for (const { runId, itemText, itemKey } of sealed) {
+  for (const { runId, plainId, itemText, itemKey } of sealed) {
     const ref = db.doc(paths.run(uid, runId));
+    const old = plainId ? db.doc(paths.run(uid, plainId)) : undefined;
     const made = await db.runTransaction(async (tx) => {
-      const had = (await tx.get(ref)).data();
+      const own = (await tx.get(ref)).data();
+      // No run under the keyed id yet: one made under the plain id
+      // before the note was sealed stands for it, so a done or running
+      // item is not started again; one that may be mended starts here.
+      const had = own ?? (old ? (await tx.get(old)).data() : undefined);
       if (had) {
         // Started again only when it failed for a reason a later settle
         // can mend, or was lost with its function (review on #158).

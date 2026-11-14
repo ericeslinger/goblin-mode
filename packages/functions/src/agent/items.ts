@@ -2,7 +2,6 @@
 // model and the garden's tools. The research model reads the web with
 // no tools that act; the server then writes what it found under the
 // item, as the agent Mossgoblin, and ticks it.
-import { createHash } from 'node:crypto';
 import { FINDINGS_MARK, STATUS_MARK, assignedItems, findingsLines } from '@mossgoblin/schema';
 import { SealedNoteError, SealedRecordError } from '../mcp/note-text';
 import type { NotesTools } from '../mcp/tools';
@@ -12,9 +11,15 @@ import { research } from './research';
 /** UTC day, YYYY-MM-DD. */
 const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-/** The run id for an item: one per note and item text, so a settle never starts it twice. */
-export function itemRunId(noteId: string, itemKey: string): string {
-  return `item-${noteId}-${createHash('sha256').update(itemKey).digest('hex').slice(0, 16)}`;
+/**
+ * The run id for an item: one per note and item text, so a settle never
+ * starts it twice. `hash` is the item key's hash, `NoteCodec.itemHash`:
+ * 16 hex characters of SHA-256 for a plain note, as before, and `k1.`
+ * and 16 of the keyed hash for a sealed one (2026-11-14), so a sealed
+ * note's run id holds no hash a guess at the item can be checked against.
+ */
+export function itemRunId(noteId: string, hash: string): string {
+  return `item-${noteId}-${hash}`;
 }
 
 export type ItemRunDeps = Pick<RunDeps, 'store' | 'withModel' | 'now'> & {

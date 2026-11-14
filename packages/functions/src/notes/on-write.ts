@@ -10,7 +10,7 @@ import type { DocumentSnapshot, Firestore } from 'firebase-admin/firestore';
 import { type NoteCodec, SealedNoteError, logLeftSealed } from '../mcp/note-text';
 import { firestoreNotesStore, openState, storedState } from './firestore-store';
 import { type NoteState, keepUnopened, recordHistory } from './history';
-import { type MergeOutcome, mergeConflict, rememberReplaced } from './merge';
+import { type MergeOutcome, hashFormOf, mergeConflict, rememberReplaced } from './merge';
 import { type TitleOutcome, type Titler, titleNote } from './title';
 
 export interface Log {
@@ -74,7 +74,14 @@ export async function historyOnWrite(
   );
   // A write over text its writer had not seen: merge the two (#37).
   try {
-    const merged = await mergeConflict(store, uid, noteId, before, after);
+    // Hashes are matched as the kind each is (2026-11-14); the key is
+    // asked for only for a sealed note or a keyed hash, which with no
+    // key leaves the note as stored, unmerged, rather than guessed at.
+    const matches = await codec.hashMatcher(noteId, hashFormOf(before, after), [
+      before?.baseHash,
+      after?.baseHash,
+    ]);
+    const merged = await mergeConflict(store, uid, noteId, before, after, matches);
     if (merged !== 'clean') log.info('noteHistory merge', { noteId, merged });
     return { kept, merged };
   } catch (err) {

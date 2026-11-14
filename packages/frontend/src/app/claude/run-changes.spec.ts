@@ -1,6 +1,13 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { type DataKey, aadFor, newDataKey, sealText, textHash } from '@mossgoblin/schema';
+import {
+  type DataKey,
+  aadFor,
+  newDataKey,
+  noteTextHash,
+  sealText,
+  textHash,
+} from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
@@ -280,6 +287,47 @@ describe('RunChanges', () => {
     api.fail = new Error('offline');
     await click();
     expect(el.textContent).toContain('Could not read History: offline');
+  });
+});
+
+describe('runSides, a sealed note’s keyed hashes (2026-11-14)', () => {
+  const K = newDataKey();
+  const keyed = (text: string, id = 'k') => noteTextHash(id, text, 'sealed', () => K)!;
+  const versions = [
+    version('v2', 'newer', { updatedAt: AT - 9000 }),
+    version('v1', 'old', { updatedAt: AT - 600_000 }),
+  ];
+
+  it('matches the version before by a keyed hash, with the key', () => {
+    const touched = { id: 'k', title: 'Sealed note', before: { body: keyed('old') } };
+    const sides = runSides(run({ tool: 'refile' }), touched, versions, undefined, () => K);
+    expect(sides.before?.body).toBe('old');
+    expect(sides.beforeApprox).toBeUndefined();
+  });
+
+  it('matches by the note’s keyed baseHash while the run’s write is the last', () => {
+    const note: NoteRecord = { ...noteRecord('k', 'old\nmore'), ...theRun, baseHash: keyed('old') };
+    const sides = runSides(run(), run().notes[0], versions, note, () => K);
+    expect(sides.before?.body).toBe('old');
+    expect(sides.beforeApprox).toBeUndefined();
+  });
+
+  it('without the key, or bound to another note, a keyed hash matches nothing: found by time', () => {
+    const touched = { id: 'k', title: 'Sealed note', before: { body: keyed('old') } };
+    const noKey = runSides(run({ tool: 'refile' }), touched, versions, undefined);
+    expect(noKey.before?.body).toBe('newer');
+    expect(noKey.beforeApprox).toBe(true);
+    const other = { ...touched, before: { body: keyed('old', 'other') } };
+    const moved = runSides(run({ tool: 'refile' }), other, versions, undefined, () => K);
+    expect(moved.beforeApprox).toBe(true);
+  });
+
+  it('still matches a plain hash recorded before keyed hashes, and reads no key for it', () => {
+    const touched = { id: 'k', title: 'Sealed note', before: { body: textHash('old') } };
+    const key = vi.fn(() => K);
+    const sides = runSides(run({ tool: 'refile' }), touched, versions, undefined, key);
+    expect(sides.before?.body).toBe('old');
+    expect(key).not.toHaveBeenCalled();
   });
 });
 

@@ -2,8 +2,11 @@ import {
   type DataKey,
   SEAL_SENTINEL,
   aadFor,
+  isKeyedHash,
   isSealed,
   newDataKey,
+  noteTextHash,
+  noteTextHashMatches,
   openText,
   sealText,
   textHash,
@@ -160,8 +163,14 @@ describe('sealed notes, with the key', () => {
     // The title follows the words, sealed as it was.
     expect(isSealed(stored('a')['title'])).toBe(true);
     expect(opened('a', 'title')).toBe('Garden plan ✿ — naïve “quotes”');
-    // The hash History knows the text before by, of the plaintext.
-    expect(stored('a')['baseHash']).toBe(textHash(text));
+    // The hash History knows the text before by: keyed (2026-11-14),
+    // of the plaintext, never the plain hash a guess could be checked
+    // against.
+    const baseHash = stored('a')['baseHash'];
+    expect(isKeyedHash(baseHash)).toBe(true);
+    expect(baseHash).toBe(noteTextHash('a', text, 'sealed', () => key));
+    expect(noteTextHashMatches('a', String(baseHash), text, () => key)).toBe(true);
+    expect(JSON.stringify([...store.values()])).not.toContain(textHash(text));
   });
 
   it('update_note keeps the body sealed, and a title written beside a sealed body is sealed too (review on #263)', async () => {
@@ -252,6 +261,58 @@ describe('sealed notes, with the key', () => {
     expect(entry['notes']).toEqual([{ id: 'a', title: 'Sealed note' }]);
     expect(JSON.stringify(entry)).not.toContain('Secret');
     expect(JSON.stringify(entry)).not.toContain('the thing');
+  });
+});
+
+describe('keyed hashes (2026-11-14)', () => {
+  const plainHashes = (...texts: string[]) => texts.map((t) => textHash(t));
+  const everything = () => JSON.stringify([...store.entries()]);
+
+  it('a filing that rewrites a sealed body records its body before by a keyed hash', async () => {
+    const text = 'Our *kiln* project';
+    putSealed('c-kiln', text, {
+      kind: 'concept',
+      conceptType: 'other',
+      title: 'Kiln',
+      titleSource: 'user',
+    });
+    await tools().refile({ id: 'c-kiln', type: 'project' });
+    const [entry] = activity();
+    const before = (entry['notes'] as { before: Data }[])[0].before;
+    expect(before['body']).toBe(noteTextHash('c-kiln', text, 'sealed', () => key));
+    expect(stored('c-kiln')['baseHash']).toBe(before['body']);
+    for (const h of plainHashes(text)) expect(everything()).not.toContain(h);
+  });
+
+  it('a plain body beside a sealed title is hashed keyed too: the note is sealed', async () => {
+    const text = 'Plain words\n- [ ] kale';
+    putSealed('a', text, {}, false);
+    store.set(notePath('a'), { ...stored('a'), body: text, title: seal('a', 'title', 'Plain') });
+    await tools().checkItem({ id: 'a', item: 'kale' });
+    expect(stored('a')['baseHash']).toBe(noteTextHash('a', text, 'sealed', () => key));
+  });
+
+  it('binds the note id: the same text in two notes hashes apart', async () => {
+    putSealed('a', 'Same\n- [ ] kale');
+    putSealed('b', 'Same\n- [ ] kale');
+    const t = tools();
+    await t.checkItem({ id: 'a', item: 'kale' });
+    await t.checkItem({ id: 'b', item: 'kale' });
+    expect(stored('a')['baseHash']).not.toBe(stored('b')['baseHash']);
+  });
+
+  it('a plain note keeps its plain hashes, byte for byte, and asks for no key', async () => {
+    put('c-kiln', 'Our *kiln* project', {
+      kind: 'concept',
+      conceptType: 'other',
+      title: 'Kiln',
+      titleSource: 'user',
+    });
+    await tools().refile({ id: 'c-kiln', type: 'project' });
+    const before = (activity()[0]['notes'] as { before: Data }[])[0].before;
+    expect(before['body']).toBe(textHash('Our *kiln* project'));
+    expect(stored('c-kiln')['baseHash']).toBe(textHash('Our *kiln* project'));
+    expect(keyFor).not.toHaveBeenCalled();
   });
 });
 

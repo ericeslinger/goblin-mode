@@ -23,16 +23,20 @@ const run = (over: Partial<RunFacts> = {}): RunFacts => ({
   ...over,
 });
 
-const note = (id: string, over: Partial<NoteFacts> = {}): NoteFacts => ({
-  id,
-  body: `${id} body`,
-  title: id,
-  titleSource: 'user',
-  archived: false,
-  updatedAt: T,
-  deviceId: 'claude',
-  ...over,
-});
+const note = (id: string, over: Partial<NoteFacts> = {}): NoteFacts => {
+  const n = {
+    id,
+    body: `${id} body`,
+    title: id,
+    titleSource: 'user',
+    archived: false,
+    updatedAt: T,
+    deviceId: 'claude',
+    ...over,
+  };
+  // A plain note's body hash, as NoteCodec.hashText makes it.
+  return { bodyHash: textHash(n.body), ...n };
+};
 
 const notes = (...ns: NoteFacts[]) => new Map(ns.map((n) => [n.id, n]));
 
