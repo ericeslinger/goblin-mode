@@ -35,6 +35,7 @@ const FILES = [
   'putback/callable.ts',
   'putback/firestore.ts',
   'kitchen/triggers.ts',
+  'kitchen/callables.ts',
   'attachments/triggers.ts',
   'push/digest-store.ts',
 ];

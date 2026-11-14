@@ -365,9 +365,29 @@ export async function publicRequest(
   throw new Error('too many redirects');
 }
 
+/**
+ * Statuses that mean the site will not let a server read its pages
+ * (2026-11-14): sign in, pay, forbidden, slow down, or not by law. Some
+ * sites answer every fetch from a cloud address so, whatever it says it
+ * is (a recipe site's 402 licensing page).
+ */
+export const REFUSING_STATUSES: ReadonlySet<number> = new Set([401, 402, 403, 429, 451]);
+
+/**
+ * Why a page that answered `status` was not read, in words Eric can act
+ * on when the site refused, the status kept for diagnosis.
+ */
+export function answeredError(status: number): Error {
+  return new Error(
+    REFUSING_STATUSES.has(status)
+      ? `this site does not let Mossgoblin read its pages (it answered ${status})`
+      : `the page answered ${status}`,
+  );
+}
+
 /** A public page's bytes, or a reason to show; the saved-link importer's fetcher. */
 export const publicFetch: PageFetcher = async (start) => {
   const res = await publicRequest(start);
-  if (res.status < 200 || res.status >= 300) throw new Error(`the page answered ${res.status}`);
+  if (res.status < 200 || res.status >= 300) throw answeredError(res.status);
   return { contentType: res.contentType, bytes: res.bytes };
 };

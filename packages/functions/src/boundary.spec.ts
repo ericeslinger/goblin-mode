@@ -22,6 +22,7 @@ const EXPORTS = [
   'attachmentCreated',
   'attachmentTranscribe',
   'recipeImport',
+  'importPastedRecipe',
   'saveKey',
   'removeKey',
   'startRun',

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   type ImportStore,
+  answeredError,
   fileNameFrom,
   importLink,
   isPublicAddress,
@@ -140,6 +141,32 @@ describe('the fetch guard on redirects', () => {
       );
       const page = await publicFetch('http://93.184.216.34/a');
       expect(new TextDecoder().decode(page.bytes)).toBe('<title>Hi</title>');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('a site that refuses (2026-11-14)', () => {
+  it('says the site will not be read, keeping the status, and other failures as they were', () => {
+    for (const status of [401, 402, 403, 429, 451]) {
+      expect(answeredError(status).message).toBe(
+        `this site does not let Mossgoblin read its pages (it answered ${status})`,
+      );
+    }
+    expect(answeredError(404).message).toBe('the page answered 404');
+    expect(answeredError(500).message).toBe('the page answered 500');
+  });
+
+  it('is what a fetch answered 402 throws', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<p>License required</p>', { status: 402 })),
+    );
+    try {
+      await expect(publicFetch('http://93.184.216.34/a')).rejects.toThrow(
+        'this site does not let Mossgoblin read its pages (it answered 402)',
+      );
     } finally {
       vi.unstubAllGlobals();
     }

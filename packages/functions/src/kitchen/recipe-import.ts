@@ -2,8 +2,10 @@
 // by a function, as a saved link is (#48), and read for its recipe. Most
 // recipe sites publish one as schema.org JSON-LD for search engines;
 // that is read first, for free. A page without one is read by a small
-// Claude model, when this deployment has one. Over small interfaces, so
-// it runs in specs.
+// Claude model, when this deployment has one. A site that will not let
+// Mossgoblin read it can be pasted instead (2026-11-14): the same
+// reading, of the text Eric copied. Over small interfaces, so it runs
+// in specs.
 import { type PageFetcher, pageText } from '../attachments/import';
 
 /** A recipe as read from a page, its words as the page has them. */
@@ -127,6 +129,39 @@ export function recipeFromJsonLd(html: string): ImportedRecipe | undefined {
 export const MAX_RECIPE_PAGE_CHARS = 40_000;
 
 /**
+ * The most pasted text taken (2026-11-14): a page's text is far less,
+ * and its source, recipe data and all, is seldom more. Larger is
+ * refused rather than cut, as its recipe data may be at the end.
+ */
+export const MAX_PASTED_CHARS = 1_000_000;
+
+/** The page's recipe data first, then its readable text to the model. */
+async function recipeFromHtml(
+  url: string,
+  html: string,
+  extractor: RecipeExtractor | null,
+): Promise<ImportedRecipe> {
+  const found = recipeFromJsonLd(html);
+  if (found) return found;
+  if (!extractor) throw new Error('no recipe found on the page');
+  return extracted(url, pageText(html), extractor);
+}
+
+/** What the model read, or a reason when it found no recipe. */
+async function extracted(
+  url: string,
+  page: { title: string; text: string },
+  extractor: RecipeExtractor,
+): Promise<ImportedRecipe> {
+  const text = page.text.slice(0, MAX_RECIPE_PAGE_CHARS);
+  const read = await extractor({ url, title: page.title, text });
+  if (!read || !read.name.trim() || (!read.ingredients.length && !read.method.length)) {
+    throw new Error('no recipe found on the page');
+  }
+  return read;
+}
+
+/**
  * Reads the recipe at `url`, or throws a reason to show Eric: the page
  * could not be fetched, is not a page, or holds no recipe to be found.
  */
@@ -139,14 +174,66 @@ export async function readRecipe(
   if (!/^text\/html|^application\/xhtml\+xml/i.test(page.contentType)) {
     throw new Error(`not a web page (${page.contentType || 'no type'})`);
   }
-  const html = new TextDecoder().decode(page.bytes);
-  const found = recipeFromJsonLd(html);
-  if (found) return found;
-  if (!extractor) throw new Error('no recipe found on the page');
-  const { title, text } = pageText(html);
-  const read = await extractor({ url, title, text: text.slice(0, MAX_RECIPE_PAGE_CHARS) });
-  if (!read || !read.name.trim() || (!read.ingredients.length && !read.method.length)) {
-    throw new Error('no recipe found on the page');
+  return recipeFromHtml(url, new TextDecoder().decode(page.bytes), extractor);
+}
+
+/**
+ * Whether pasted text is a page's source rather than its words. A tag's
+ * inside stops at the next `<` too, so a paste of many unclosed tags is
+ * read in one pass (review on #268).
+ */
+function isHtml(text: string): boolean {
+  return (
+    /^\s*<(?:!doctype|html|head|body)\b/i.test(text) ||
+    /<(?:script|div|p|li|article|main|section|span|h[1-6])\b[^<>]*>/i.test(text)
+  );
+}
+
+/**
+ * Characters a reader never sees: zero-width ones, and the Unicode tag
+ * block, which can spell out words for a model alone.
+ */
+const INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]|\udb40[\udc00-\udc7f]/g;
+
+/**
+ * Reads the recipe out of a page Eric pasted (2026-11-14), for a site
+ * that will not let Mossgoblin fetch it: `url` is the recipe's link,
+ * kept as its source. It goes the way a fetched page does: a page's
+ * source is read for its recipe data first, then its visible text; the
+ * words he copied go to the model alone, as a fetched page's do.
+ */
+export async function readPastedRecipe(
+  url: string,
+  pasted: string,
+  extractor: RecipeExtractor | null,
+): Promise<ImportedRecipe> {
+  if (pasted.length > MAX_PASTED_CHARS) {
+    throw new Error(
+      'the pasted page is over a million characters; copy the page itself (select all, copy), ' +
+        'not its source',
+    );
   }
-  return read;
+  const clean = pasted.replace(INVISIBLE, '');
+  if (!clean.trim()) throw new Error('nothing was pasted');
+  if (isHtml(clean)) {
+    const found = recipeFromJsonLd(clean);
+    if (found) return found;
+  }
+  if (!extractor) {
+    throw new Error(
+      'this Mossgoblin has no model to read pasted text with, and the paste holds no recipe ' +
+        'data; write the recipe in, or ask Claude to make it with create_recipe',
+    );
+  }
+  const page = isHtml(clean)
+    ? pageText(clean)
+    : {
+        title: '',
+        text: clean
+          .split(/\r?\n|\r/)
+          .map((l) => l.replace(/[ \t\f\v]+/g, ' ').trim())
+          .filter(Boolean)
+          .join('\n'),
+      };
+  return extracted(url, page, extractor);
 }
