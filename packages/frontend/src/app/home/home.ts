@@ -34,6 +34,7 @@ import { ReaderService } from '../reader/reader.service';
 import { ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
 import { RemindersService } from '../reminders/reminders.service';
+import { ShareWaiting } from '../share/share-waiting';
 import { SignIn } from '../sign-in/sign-in';
 import { HomeTilesService, arrange, moveBy, moveTo, nearestSlot, type Slot } from './home-tiles';
 import { Icon, type IconName } from './icon';
@@ -83,7 +84,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  */
 @Component({
   selector: 'app-home',
-  imports: [RouterLink, Icon, SignIn],
+  imports: [RouterLink, Icon, ShareWaiting, SignIn],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
@@ -187,6 +188,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
           </a>
         </header>
         <main>
+          <app-share-waiting class="share-waiting" />
           <!-- A link, not a field: it never holds typing. The editor at /
                takes the cursor as it opens (autofocus). -->
           <a class="write card" routerLink="/">

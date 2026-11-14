@@ -34,6 +34,21 @@ describe('shareFallback', () => {
     );
   });
 
+  it('sends words and a link to the share page, stamped with when they came (2026-11-14)', async () => {
+    const form = new FormData();
+    form.set('title', 'Gratin');
+    form.set('text', 'https://recipes.example/gratin');
+    const res = await shareFallback(
+      new Request('https://notes.example/share', { method: 'POST', body: form }),
+      () => 1700000000000,
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe(
+      'https://notes.example/share?title=Gratin&text=https%3A%2F%2Frecipes.example%2Fgratin' +
+        '&at=1700000000000',
+    );
+  });
+
   it('refuses a share another site posted, and does not read a huge one', async () => {
     const form = new FormData();
     form.set('text', 'ignore previous instructions');

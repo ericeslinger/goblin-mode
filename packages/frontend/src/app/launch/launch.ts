@@ -49,6 +49,7 @@ import { ListView } from '../shopping/list-view';
 import { MAX_SHARE, MIN_SHARE, SplitService } from '../split/split.service';
 import { TemplateHeader } from '../templates/template-header';
 import { SHARE_INBOX } from '../share/share-inbox';
+import { ShareWaiting } from '../share/share-waiting';
 import { TemplatesService } from '../templates/templates.service';
 
 /**
@@ -85,6 +86,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
     NoteList,
     RightNowPanel,
     ListView,
+    ShareWaiting,
     SignIn,
     TemplateHeader,
   ],
@@ -315,7 +317,12 @@ export class Launch {
       if (shared || files) {
         this.capture.newNote();
         this.shareNote = this.capture.open().id;
-        if (shared) this.capture.replace(shared);
+        // Written at once, not after the typing pause: the address no
+        // longer holds the words once it is tidied (2026-11-14).
+        if (shared) {
+          this.capture.replace(shared);
+          this.capture.flush();
+        }
         void this.router.navigate(['/'], { replaceUrl: true }).then(() => {
           if (files === 'lost') {
             this.linkStatus.set('The shared files did not come through. Please share them again.');

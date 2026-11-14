@@ -125,6 +125,13 @@ export class FakeNotes {
   updateRecipe = vi.fn(
     (_id: string, _change: Parameters<NotesService['updateRecipe']>[1]) => undefined,
   );
+  importRecipe = vi.fn((url: string) => (/^https?:\/\//.test(url) ? `new${++this.n}` : undefined));
+  sharedRecipe = vi.fn((url: string, id: string): Promise<void> | undefined => {
+    if (!/^https?:\/\//.test(url)) return undefined;
+    this.written.add(id);
+    return Promise.resolve();
+  });
+  importFailed = vi.fn((_id: string, _why: string) => undefined);
   setInstructions = vi.fn((_id: string, _text: string) => undefined);
   holdInstructions = vi.fn((_id: string, _text: string) => true);
   holdName = vi.fn((_id: string, name: string) => !!name.trim());

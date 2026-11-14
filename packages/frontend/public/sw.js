@@ -3,8 +3,11 @@
 //
 // A share from another app is a POST to /share (manifest share_target).
 // The files go into a cache the page reads at /?shared=<n>; the title,
-// text and link ride along in the query. Listened for before Angular's
-// worker loads, which would answer every fetch itself.
+// text and link ride along in the query. Words and a link alone go to
+// the share page, /share?title&text&url&at (2026-11-14), `at` the
+// moment they were taken, so a reload of it is known for the same
+// share. Listened for before Angular's worker loads, which would answer
+// every fetch itself.
 const SHARE_CACHE = 'mossgoblin-share';
 /** Episodes the app downloaded through the Worker's /api/episode (#180). */
 const EPISODE_CACHE = 'mossgoblin-episodes';
@@ -61,8 +64,10 @@ self.addEventListener('fetch', (event) => {
           ),
         );
         params.set('shared', String(files.length));
+        return Response.redirect(`/?${params}`, 303);
       }
-      return Response.redirect(`/?${params}`, 303);
+      params.set('at', String(Date.now()));
+      return Response.redirect(`/share?${params}`, 303);
     })(),
   );
 });

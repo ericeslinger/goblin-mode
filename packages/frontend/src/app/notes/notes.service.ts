@@ -110,6 +110,13 @@ export const PENDING_SAVES_KEY = 'goblin.pendingSaves';
  * path, a concept's with its synonyms and stub folding.
  */
 export const PENDING_NAMES_KEY = 'goblin.pendingNames';
+
+/**
+ * What a recipe made from a share says until the shared words are read
+ * (2026-11-14): shown as "Could not import from <site>: ..." only if the
+ * app never got to hand them over.
+ */
+export const SHARED_IMPORT_WAITING = 'it came from a share, and what was shared is not read yet';
 type PendingSaves = Record<string, PendingWrites[string] & { as?: 'restore' | 'keep' }>;
 
 /** A note as the app lists and opens it. */
@@ -1053,6 +1060,15 @@ export class NotesService {
    * archived with `mergedInto`, as a renamed concept folds one (#30).
    */
   createRecipe(name: string, more: Record<string, unknown> = {}): string | undefined {
+    return this.makeRecipe(name, more, this.newId())?.id;
+  }
+
+  /** As `createRecipe`, under `id`, with the write's promise. */
+  private makeRecipe(
+    name: string,
+    more: Record<string, unknown>,
+    id: string,
+  ): { id: string; written: Promise<void> } | undefined {
     const title = name.trim();
     if (!this.uid || !title) return undefined;
     const owner = this.names().get(normalizeName(title));
@@ -1060,7 +1076,6 @@ export class NotesService {
     const foldable =
       stub?.kind === 'concept' && !stub.locked && !stub.body.trim() && !stub.synonyms?.length;
     if (owner !== undefined && !foldable) return undefined;
-    const id = this.newId();
     const now = this.api.serverTime();
     this.written.add(id);
     const data = {
@@ -1078,7 +1093,8 @@ export class NotesService {
       deviceId: this.deviceId(),
       ...more,
     };
-    this.api.set(this.fb.db, paths.note(this.uid, id), data, false).catch(report);
+    const written = this.api.set(this.fb.db, paths.note(this.uid, id), data, false);
+    written.catch(report);
     if (foldable && owner) {
       const merged = {
         archived: true,
@@ -1089,7 +1105,7 @@ export class NotesService {
       };
       this.api.set(this.fb.db, paths.note(this.uid, owner), merged, true).catch(report);
     }
-    return id;
+    return { id, written };
   }
 
   /**
@@ -1108,6 +1124,48 @@ export class NotesService {
       source: { url: link },
       importState: 'requested',
     });
+  }
+
+  /**
+   * A recipe to be read from words shared from its page (2026-11-14,
+   * DESIGN.md, Share to Mossgoblin): Eric's own write, like Import from
+   * a link, with the link as its source and the placeholder name, but
+   * made as an import that has already failed, with a calm reason. The
+   * trigger reads only `requested`, so it never claims this one; the
+   * share hands the words to `importPastedRecipe`, as Paste the page
+   * instead does, once the server has the recipe (`written`). `id` is
+   * chosen and kept with the share first, so asking again never makes a
+   * second recipe. Undefined for a link that is not http(s).
+   */
+  sharedRecipe(url: string, id: string): Promise<void> | undefined {
+    const link = url.trim();
+    if (!this.uid || !/^https?:\/\/[^/\s]+/i.test(link)) return undefined;
+    if (this.exists(id)) return this.sharedWrites.get(id) ?? Promise.resolve();
+    let n = 1;
+    while (this.names().has(normalizeName(importPlaceholder(link, n)))) n++;
+    const written = this.makeRecipe(
+      importPlaceholder(link, n),
+      { source: { url: link }, importState: 'failed', importError: SHARED_IMPORT_WAITING },
+      id,
+    )?.written;
+    if (written) this.sharedWrites.set(id, written);
+    return written;
+  }
+
+  /** The writes of recipes made from shares this load, until the server has them. */
+  private readonly sharedWrites = new Map<string, Promise<void>>();
+
+  /** Why an import failed, as the server said, on the recipe's front. */
+  importFailed(id: string, why: string): void {
+    const note = this.find(id);
+    if (!this.uid || note?.kind !== 'recipe') return;
+    // In the form the note keeps it (step 3d), as any sealed field.
+    this.writeFields(id, () => ({
+      importError: this.inForm(id, 'importError', why.slice(0, 500)),
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    })).catch(report);
   }
 
   /**

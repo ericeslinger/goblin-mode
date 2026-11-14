@@ -44,9 +44,13 @@ export const MAX_SHARE_BODY = 30 * 1024 * 1024;
 /**
  * A share (#46) that reached the server: the app's service worker was
  * not installed yet to take it. The words and link go on to the app in
- * the query; files cannot be kept here, so the page says to share again.
+ * the query, to the share page as `sw.js` sends them (2026-11-14);
+ * files cannot be kept here, so a new note says to share them again.
  */
-export async function shareFallback(request: Request): Promise<Response> {
+export async function shareFallback(
+  request: Request,
+  now: () => number = Date.now,
+): Promise<Response> {
   const params = new URLSearchParams();
   const home = new URL('/', request.url).toString();
   // Only a share from this device: another site posting here could plant
@@ -67,8 +71,11 @@ export async function shareFallback(request: Request): Promise<Response> {
   } catch {
     // Not a form: open the app all the same.
   }
-  const target = new URL(`/?${params}`, request.url);
-  return Response.redirect(target.toString(), 303);
+  if (params.has('shared') || !params.toString()) {
+    return Response.redirect(new URL(`/?${params}`, request.url).toString(), 303);
+  }
+  params.set('at', String(now()));
+  return Response.redirect(new URL(`/share?${params}`, request.url).toString(), 303);
 }
 
 export default {
