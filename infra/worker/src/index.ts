@@ -44,9 +44,13 @@ export const MAX_SHARE_BODY = 30 * 1024 * 1024;
 /**
  * A share (#46) that reached the server: the app's service worker was
  * not installed yet to take it. The words and link go on to the app in
- * the query; files cannot be kept here, so the page says to share again.
+ * the query, to the share page as `sw.js` sends them (2026-11-14);
+ * files cannot be kept here, so a new note says to share them again.
  */
-export async function shareFallback(request: Request): Promise<Response> {
+export async function shareFallback(
+  request: Request,
+  now: () => number = Date.now,
+): Promise<Response> {
   const params = new URLSearchParams();
   const home = new URL('/', request.url).toString();
   // Only a share from this device: another site posting here could plant
@@ -67,8 +71,68 @@ export async function shareFallback(request: Request): Promise<Response> {
   } catch {
     // Not a form: open the app all the same.
   }
-  const target = new URL(`/?${params}`, request.url);
-  return Response.redirect(target.toString(), 303);
+  if (params.has('shared') || !params.toString()) {
+    return Response.redirect(new URL(`/?${params}`, request.url).toString(), 303);
+  }
+  const query = boundedShare(params, now());
+  return Response.redirect(new URL(`/share?${query}`, request.url).toString(), 303);
+}
+
+/** The longest query the share page is sent with its words in it (as sw.js). */
+export const MAX_SHARE_QUERY = 8000;
+
+/**
+ * The share's fields in a query of at most MAX_SHARE_QUERY characters,
+ * with `at` (review on #271): an address much longer can be refused on
+ * its way, and here, before the app's worker is installed, there is no
+ * cache to keep long words in as `sw.js` keeps them. So the text is cut
+ * to fit and `cut` carries its whole length: the page says how much
+ * came through and asks for the share again, never losing words
+ * quietly. As `boundedShare` in sw.js.
+ */
+export function boundedShare(params: URLSearchParams, stamp: number): string {
+  const whole = params.get('text') ?? '';
+  // No more of it than could ever fit is looked at (review on #271).
+  const text = whole.slice(0, MAX_SHARE_QUERY);
+  const base = new URLSearchParams();
+  const title = params.get('title');
+  const url = params.get('url');
+  if (title) base.set('title', title.slice(0, 1000));
+  if (url) base.set('url', url.slice(0, 4096));
+  base.set('at', String(stamp));
+  const fits = (n: number) => {
+    const q = new URLSearchParams(base);
+    q.set('text', text.slice(0, n));
+    if (n < whole.length) q.set('cut', String(whole.length));
+    return q.toString().length <= MAX_SHARE_QUERY;
+  };
+  if (!text || (text.length === whole.length && fits(text.length))) {
+    if (text) base.set('text', text);
+    return reorder(base);
+  }
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  // Never half a character.
+  const code = text.charCodeAt(lo - 1);
+  if (lo > 0 && code >= 0xd800 && code <= 0xdbff) lo--;
+  base.set('text', text.slice(0, lo));
+  base.set('cut', String(whole.length));
+  return reorder(base);
+}
+
+/** title, text, url, then the rest, as the page and the specs read them. */
+function reorder(q: URLSearchParams): string {
+  const out = new URLSearchParams();
+  for (const key of ['title', 'text', 'url', 'at', 'cut']) {
+    const v = q.get(key);
+    if (v !== null) out.set(key, v);
+  }
+  return out.toString();
 }
 
 export default {

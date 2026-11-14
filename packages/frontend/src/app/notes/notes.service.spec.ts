@@ -32,6 +32,7 @@ import {
   PENDING_MOODS_KEY,
   PENDING_NAMES_KEY,
   PENDING_SAVES_KEY,
+  SHARED_IMPORT_WAITING,
 } from './notes.service';
 
 /** The device's clock in these specs. */
@@ -1025,6 +1026,80 @@ describe('NotesService', () => {
     expect(api.set.mock.lastCall!.slice(1)).toEqual([
       'users/u1/notes/c-dal',
       expect.objectContaining({ archived: true, mergedInto: id }),
+      true,
+    ]);
+  });
+
+  it('makes a recipe for shared words as an import already failed, once (2026-11-14)', async () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    push([]);
+    expect(notes.sharedRecipe('not a link', 'r9')).toBeUndefined();
+    const written = notes.sharedRecipe(' https://refused.invalid/gratin ', 'r9')!;
+    await expect(written).resolves.toBeUndefined();
+    const [, path, data, merge] = api.set.mock.lastCall!;
+    expect(path).toBe('users/u1/notes/r9');
+    expect(merge).toBe(false);
+    // Failed already, so the trigger (requested only) never claims it.
+    expect(data).toMatchObject({
+      kind: 'recipe',
+      title: 'Recipe from refused.invalid',
+      source: { url: 'https://refused.invalid/gratin' },
+      importState: 'failed',
+      importError: SHARED_IMPORT_WAITING,
+      updatedBy: 'user',
+    });
+    // Asked again, the same recipe: no second write.
+    api.set.mockClear();
+    expect(notes.sharedRecipe('https://refused.invalid/gratin', 'r9')).toBe(written);
+    expect(api.set).not.toHaveBeenCalled();
+
+    push([
+      {
+        id: 'r9',
+        data: {
+          body: '',
+          title: 'Recipe from refused.invalid',
+          kind: 'recipe',
+          importState: 'failed',
+        },
+      },
+    ]);
+    notes.importFailed('r9', 'nothing on the page read as a recipe');
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/notes/r9',
+      expect.objectContaining({ importError: 'nothing on the page read as a recipe' }),
+      true,
+    ]);
+  });
+
+  it('moves an untouched recipe stub a share made to Trash, and nothing else (review on #271)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    const stub = {
+      kind: 'recipe',
+      body: '## Ingredients\n\n## Method\n\n## Notes\n',
+      title: 'Recipe from refused.invalid',
+      source: { url: 'https://refused.invalid/g' },
+      importState: 'failed',
+      importError: SHARED_IMPORT_WAITING,
+    };
+    push([
+      { id: 'r1', data: stub },
+      { id: 'r2', data: { ...stub, body: '## Ingredients\n- 2 eggs\n\n## Method\n' } },
+      { id: 'r3', data: { ...stub, title: 'Gratin' } },
+      { id: 'r4', data: { ...stub, importState: 'done' } },
+    ]);
+    api.set.mockClear();
+    for (const id of ['r2', 'r3', 'r4']) {
+      expect(notes.dropSharedRecipe(id, 'https://refused.invalid/g')).toBe(false);
+    }
+    expect(notes.dropSharedRecipe('r1', 'https://other.invalid/g')).toBe(false);
+    expect(api.set).not.toHaveBeenCalled();
+    expect(notes.dropSharedRecipe('r1', 'https://refused.invalid/g')).toBe(true);
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/notes/r1',
+      expect.objectContaining({ deletedAt: expect.anything() }),
       true,
     ]);
   });

@@ -3,7 +3,10 @@ import { OWNER } from '../src/personas';
 
 // Shared from another app (#42, #46): the manifest's share target posts
 // to /share; the service worker keeps any files and opens the app at /
-// with title, text and url, and a new note holds them all.
+// with title, text and url, and a new note holds them all. Words and a
+// link without files go to the share page instead (2026-11-14,
+// share.spec.ts); `/?text=` still makes a note, for a worker from
+// before.
 
 test('text shared from another app becomes a new note', async ({ page }) => {
   await signInAs(page, OWNER);

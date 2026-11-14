@@ -3,9 +3,24 @@
 //
 // A share from another app is a POST to /share (manifest share_target).
 // The files go into a cache the page reads at /?shared=<n>; the title,
-// text and link ride along in the query. Listened for before Angular's
-// worker loads, which would answer every fetch itself.
+// text and link ride along in the query. Words and a link alone go to
+// the share page, /share?title&text&url&at (2026-11-14), `at` the
+// moment they were taken, so a reload of it is known for the same
+// share. Listened for before Angular's worker loads, which would answer
+// every fetch itself.
+//
+// Words too long for an address (a recipe page, selected all) are kept
+// in the share words cache instead, and the address carries their id,
+// /share?stash=<at>&at=<at> (review on #271): a long address can be
+// refused once it reaches the server. The page reads them back from
+// here, and deletes them once the share is filed or let go.
 const SHARE_CACHE = 'mossgoblin-share';
+/** Words too long for the share page's address (share-store.ts). */
+const SHARE_WORDS_CACHE = 'mossgoblin-share-words';
+/** The longest query the share page is sent with its words in it. */
+const MAX_SHARE_QUERY = 8000;
+/** Stashed words never filed are dropped after this long. */
+const SHARE_WORDS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 /** Episodes the app downloaded through the Worker's /api/episode (#180). */
 const EPISODE_CACHE = 'mossgoblin-episodes';
 
@@ -61,11 +76,83 @@ self.addEventListener('fetch', (event) => {
           ),
         );
         params.set('shared', String(files.length));
+        return Response.redirect(`/?${params}`, 303);
       }
-      return Response.redirect(`/?${params}`, 303);
+      const stamp = Date.now();
+      if (params.toString().length <= MAX_SHARE_QUERY) {
+        params.set('at', String(stamp));
+        return Response.redirect(`/share?${params}`, 303);
+      }
+      try {
+        const cache = await caches.open(SHARE_WORDS_CACHE);
+        await dropOldWords(cache, stamp);
+        const words = {
+          title: params.get('title') || '',
+          text: params.get('text') || '',
+          url: params.get('url') || '',
+        };
+        await cache.put(
+          `/share-words/${stamp}`,
+          new Response(JSON.stringify(words), { headers: { 'content-type': 'application/json' } }),
+        );
+        return Response.redirect(`/share?stash=${stamp}&at=${stamp}`, 303);
+      } catch {
+        // No cache to keep them in: as many as an address holds, and the
+        // page says how many did not fit.
+        return Response.redirect(`/share?${boundedShare(params, stamp)}`, 303);
+      }
     })(),
   );
 });
+
+/** Stashed words older than a month were never filed: dropped. */
+async function dropOldWords(cache, now) {
+  for (const request of await cache.keys()) {
+    const stamp = Number(/\/share-words\/(\d+)$/.exec(new URL(request.url).pathname)?.[1]);
+    if (!(now - stamp < SHARE_WORDS_MAX_AGE_MS)) await cache.delete(request);
+  }
+}
+
+/**
+ * The share's fields in a query of at most MAX_SHARE_QUERY characters,
+ * with `at`: the text cut to fit, and `cut` its whole length, so the
+ * page says so rather than losing words quietly. As `boundedShare` in
+ * infra/worker/src/index.ts, for a share that reaches the Worker.
+ */
+function boundedShare(params, stamp) {
+  const whole = params.get('text') || '';
+  // No more of it than could ever fit is looked at (review on #271).
+  const text = whole.slice(0, MAX_SHARE_QUERY);
+  const base = new URLSearchParams();
+  const title = params.get('title');
+  const url = params.get('url');
+  if (title) base.set('title', title.slice(0, 1000));
+  if (url) base.set('url', url.slice(0, 4096));
+  base.set('at', String(stamp));
+  const fits = (n) => {
+    const q = new URLSearchParams(base);
+    q.set('text', text.slice(0, n));
+    if (n < whole.length) q.set('cut', String(whole.length));
+    return q.toString().length <= MAX_SHARE_QUERY;
+  };
+  if (text.length === whole.length && fits(text.length)) {
+    base.set('text', text);
+    return base.toString();
+  }
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  // Never half a character.
+  const code = text.charCodeAt(lo - 1);
+  if (lo > 0 && code >= 0xd800 && code <= 0xdbff) lo--;
+  base.set('text', text.slice(0, lo));
+  base.set('cut', String(whole.length));
+  return base.toString();
+}
 
 // A downloaded episode (#180): the app keeps the whole file in the
 // episodes cache under its /api/episode link, and the player asks for

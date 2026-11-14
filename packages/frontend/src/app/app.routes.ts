@@ -141,6 +141,9 @@ export const routes: Routes = [
     path: 'podcasts/e/:id',
     loadComponent: () => import('./podcasts/podcast-episode').then((m) => m.PodcastEpisode),
   },
+  // Share to Mossgoblin (2026-11-14): what the share sheet sent, kept
+  // on the device, and the ways to file it.
+  { path: 'share', loadComponent: () => import('./share/share').then((m) => m.Share) },
   {
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),

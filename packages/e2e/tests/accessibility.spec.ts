@@ -63,4 +63,9 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expectNoSeriousViolations(page);
+
+  // Share to Mossgoblin (2026-11-14): what was shared, and the ways to file it.
+  await page.goto('/share?title=Seeds&text=what%20if%20https%3A%2F%2Fseeds.invalid&at=1');
+  await expect(page.getByRole('button', { name: 'Keep as a note' })).toBeVisible();
+  await expectNoSeriousViolations(page);
 });

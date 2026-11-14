@@ -333,6 +333,153 @@ those; that, and the move of every installed copy from
 `ngsw-worker.js` to `sw.js` (same scope, caches and push
 subscription), want a check on the phone after the deploy.
 
+**Share to Mossgoblin (Eric, 2026-11-14).** Eric shares from Android's
+share sheet (Share, Mossgoblin) on his phone, where the app is
+installed, so a page that will not let the server read it can reach
+Kitchen in one gesture instead of a copy and paste. The manifest's
+share target stays the multipart POST to `/share` of #46, so files
+still come in; nothing about it changed, and no native app is
+involved. What Android sends depends on the app: Chrome sharing a page
+sends its title and puts its address in `text`, `url` usually empty;
+Chrome sharing selected text sends the selection in `text`, often
+with the page's address after it; other apps put a link inside free
+text, or in `url`. `parseShare` (`share/shared.ts`) takes the link
+from `url` when it is one, else the link the text ends or starts with,
+else its first; a link at an edge of the text is taken out of the
+words (and the quotes Chrome puts round a selection with it), one
+inside them stays; a title that only repeats the link is dropped.
+
+*The landing step (for a link).* A share with files still opens a new
+note at `/` (#46). Words and a link alone now go to
+`/share?title&text&url&at` (`sw.js`, and the Worker's fallback before
+it is installed), `at` being the moment they were taken. Words with no
+link (or a title alone) have one way to go, so the decision of #42
+(2026-10-08) stands for them: kept in the pending-shares store first
+and deduped like any share, they become a new note at once with no
+tap (the title and the words, a line each, written at once through
+the kept-save path, #200), opened at `/` where a share always landed;
+signed out, or while the notes load, they wait on the page and become
+the note as soon as the notes are here (#42 kept for words alone on
+review, 2026-11-14). New on 2026-11-14 is the landing step,
+for a share with a choice to make: a link alone, or words with a link.
+It shows what came and the ways to file it, one tap each, the first
+focused: a link alone, Save to read later (the reading queue's own
+save, #48), Keep as a note, and with Kitchen on Import as a recipe (as
+Import from a link, #128); words with a link, Keep as a note (the
+link on its own line after them) and with Kitchen on Import as a
+recipe from this text; and always Let it go, for a share sent by
+mistake. `/?title&text&url` still opens a note, for a worker from
+before this change. `/share` is a navigation like any other: the
+Angular worker's fallback serves the app offline, and the Worker
+serves it from its assets (it runs first for `/share` only to take
+the POST).
+
+*Never lose a share.* The page keeps the share in localStorage
+(`goblin.pendingShares`, `share/share-store.ts`) before anything waits
+on auth or the network, then takes the query out of the address. It
+is forgotten only once filed or let go: signed out it waits, with a
+way to sign in; while the notes load it waits; and the launch screen
+and Home say "A share is waiting to be filed" with a link back while
+one does. A share's key is its `at`, or a short hash of its fields for
+an address made by hand; the last fifty keys taken are remembered
+(`goblin.sharesTaken`), so opening the same address again, a reload
+before the address was tidied, says it was filed already instead of
+filing it twice. A share the device will not keep (storage full, or
+too long for it) is still shown, and the page says to file it before
+leaving. The old `/?text=` path now writes its note at once too,
+rather than after the typing pause.
+
+*A recipe from shared words.* This is the way round a refusing site: on
+the recipe's page, select all, share. The result is the same as Paste
+the page instead: the words go to `importPastedRecipe`, read by the same
+fixed-shape, tool-less reader, screened and set aside the same way, the
+link kept as the source, so the recipe carries `fromWeb` as any imported
+one does. The recipe does not exist yet, so the app makes it first, as
+Eric's write (`NotesService.sharedRecipe`): the placeholder name and the
+link, as Import from a link writes, but as an import that has already
+failed, its reason "it came from a share, and what was shared is not
+read yet". The trigger reads only `requested`, so it never claims this
+one, which answers the race that kept Paste the page instead off Browse
+(Sites that refuse, below, 2026-11-14); and the callable, which takes
+only a failed import, claims it as `working` as it always does. The app
+waits until the server has the recipe (20 seconds at most), then calls.
+The recipe's id is chosen and kept with the share before it is written,
+so asking again reuses that recipe. Done, the share is filed and the
+recipe opens. A failure keeps the share waiting, to ask again or keep as
+a note; when the server read no recipe, its reason goes on the recipe's
+front (`importFailed`) in place of the waiting one, and the recipe
+stays, failed with its link, as an import from a link that failed does.
+Offline, no recipe is made: the import needs a connection, so the share
+waits on the device and the page says so, offering the import again once
+online, or Keep as a note meanwhile. No stored schema, rule, function or
+tool changed: `importState: 'failed'` and `importError` were already the
+app's to write.
+
+*Hardened on review (#271, 2026-11-14).* Each of these changes what
+is above, on the same day.
+
+- *Kept as it came.* The page now keeps the share's fields exactly as
+  they came, before reading them for a link, and reads them from the
+  store after; reading is linear and bounded (`trimLink` is one pass,
+  and a run over 4,096 characters is words, not a link), so no share,
+  however strange, can hang the page before it is kept.
+- *Two windows.* The installed app and a browser tab share the store,
+  so every change reads it afresh and writes it back at once, and a
+  `storage` event shows what another window changed. A window claims a
+  share before filing it (`filing`, written and read back, for 30
+  seconds, or six minutes while a recipe import runs) and lets go if
+  filing stops; another window says it is being filed elsewhere and
+  leaves it, so words alone are never filed twice.
+- *Whose share.* A share that came while someone was signed in records
+  their uid and is shown and filed only for them; one that came signed
+  out goes to whoever signs in next.
+- *Long words.* A select-all of a recipe page can be tens of
+  kilobytes, and an address that long can be refused on its way to
+  the server. When the query would pass 8,000 characters, `sw.js`
+  keeps the words in its own cache (`mossgoblin-share-words`, kept on
+  the device before the page opens) and sends
+  `/share?stash=<at>&at=<at>`; the store keeps the id, the page reads
+  the words back from the cache, and they are deleted when the share
+  is filed or let go (and any never filed after a month). The Worker,
+  reached before `sw.js` is installed, has no cache: it cuts the words
+  to fit and sends `cut`, their whole length, and the page says how
+  much came through and asks for the share again; such words are never
+  filed with no tap. Shares with files still go to `/` as #46 made
+  them.
+- *A recipe's answer lost.* When the recipe a share asked for reads as
+  done (the call's answer lost, or a reload while it was read), the
+  share is filed and the recipe opens. After a reload a recipe made on
+  this device may not have reached the server yet, so while the server
+  says it has no such recipe the call is asked again for up to 20
+  seconds, and then the page says the recipe has not reached
+  Mossgoblin yet, which is true. Let it go, or Keep as a note, after a
+  recipe stub was made moves the stub to Trash
+  (`NotesService.dropSharedRecipe`, the app's own delete) if it is
+  still the untouched failed stub the share made; a stub anyone
+  changed stays.
+- *Accessibility.* The shared link says it opens in a new tab, and the
+  page's status line is in it from the start, so its first message is
+  announced.
+
+*Page text.* Shared words kept as a note are Eric's own act of saving,
+as a paste into a note is, so the note is plain, as #42 made it; only
+this device can plant one (a share opened from another site's page is
+ignored, review on #98), and the recipe path labels its text as every
+import does. A clipping (#163) would label shared page text `fromWeb`
+for Claude, but is the Reader's, shown only with it on, and a share is
+as often Eric's own words with a link; if a page's words kept as a
+note should reach Claude labelled, that is a change to make on
+purpose.
+
+*Reinstall.* Only an installed PWA is in the share sheet, and Chrome
+reads the manifest when it installs or updates the app's WebAPK,
+usually within a day of a change. The share target has been in the
+manifest since #46, so the installed app should already be listed; if
+Mossgoblin is missing from the sheet, reinstall it from Chrome (Add
+to Home screen, Install) or wait for the WebAPK to refresh. The new
+`sw.js` takes over on the next open after the deploy; until then a
+share still opens as a new note.
+
 **Attachment text and the reading queue, server half (#45, #48, #49,
 2026-10-08).** Full-text search across PDFs is server-only (Eric,
 2026-10-08). When a PDF lands, `attachmentUploaded` reads its text
@@ -1192,7 +1339,10 @@ Eric can paste or tell Claude the recipe for `create_recipe`; no tool
 changed what it takes, and `import_recipe`'s reply now says both ways
 round. The emulator build's `kitchen/stand-in.emulator.ts` makes
 `refused.invalid` answer 402 and reads a plainly written recipe in
-place of Claude, for the journey.
+place of Claude, for the journey. Later the same day, Share to
+Mossgoblin (above, after Sharing files in) made the recipe on the
+device without that race, as an import already failed, which the
+trigger never claims; Browse still offers only Import from a link.
 
 **Meal plan (#129, 2026-10-18; epic #125).** One note of kind
 `mealplan` per week, its id derived from the week's first day
