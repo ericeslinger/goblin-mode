@@ -69,6 +69,13 @@ describe('shareFallback', () => {
     expect(q.get('text')!.length).toBeGreaterThan(5000);
     // Short words are not cut, and say nothing of it.
     expect(boundedShare(new URLSearchParams({ text: 'short' }), 1)).toBe('text=short&at=1');
+    // A huge share is bounded quickly: only what could fit is looked at.
+    const started = Date.now();
+    const huge = new URLSearchParams(
+      boundedShare(new URLSearchParams({ text: 'word '.repeat(2_000_000) }), 1),
+    );
+    expect(huge.get('cut')).toBe(String(10_000_000));
+    expect(Date.now() - started).toBeLessThan(1000);
     // Never half a character.
     const moss = boundedShare(new URLSearchParams({ text: '\u{1F33F}'.repeat(5000) }), 1);
     expect(new URLSearchParams(moss).get('text')).not.toMatch(/\uFFFD/);

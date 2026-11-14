@@ -91,7 +91,9 @@ export const MAX_SHARE_QUERY = 8000;
  * quietly. As `boundedShare` in sw.js.
  */
 export function boundedShare(params: URLSearchParams, stamp: number): string {
-  const text = params.get('text') ?? '';
+  const whole = params.get('text') ?? '';
+  // No more of it than could ever fit is looked at (review on #271).
+  const text = whole.slice(0, MAX_SHARE_QUERY);
   const base = new URLSearchParams();
   const title = params.get('title');
   const url = params.get('url');
@@ -101,10 +103,10 @@ export function boundedShare(params: URLSearchParams, stamp: number): string {
   const fits = (n: number) => {
     const q = new URLSearchParams(base);
     q.set('text', text.slice(0, n));
-    if (n < text.length) q.set('cut', String(text.length));
+    if (n < whole.length) q.set('cut', String(whole.length));
     return q.toString().length <= MAX_SHARE_QUERY;
   };
-  if (!text || fits(text.length)) {
+  if (!text || (text.length === whole.length && fits(text.length))) {
     if (text) base.set('text', text);
     return reorder(base);
   }
@@ -119,7 +121,7 @@ export function boundedShare(params: URLSearchParams, stamp: number): string {
   const code = text.charCodeAt(lo - 1);
   if (lo > 0 && code >= 0xd800 && code <= 0xdbff) lo--;
   base.set('text', text.slice(0, lo));
-  base.set('cut', String(text.length));
+  base.set('cut', String(whole.length));
   return reorder(base);
 }
 

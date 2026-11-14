@@ -354,6 +354,20 @@ describe('Share', () => {
     expect(kept()).toEqual([]);
   });
 
+  it('files a share when the claim another window held runs out, with no reload (#271)', async () => {
+    seed([{ ...pending('at:17', 'what if'), filing: { by: 'other', until: Date.now() + 150 } }]);
+    const { notes, el } = await render('/share', { keep: false });
+    expect(el().textContent).toContain('being filed in another Mossgoblin window');
+    await vi.waitFor(() => expect(notes.save).toHaveBeenCalledOnce(), { timeout: 2000 });
+    expect(kept()).toEqual([]);
+  });
+
+  it("does not take a stash that is not the share's own (review on #271)", async () => {
+    const { stash } = await render('/share?stash=55&at=77&text=hello&url=https://a.example/x');
+    expect(kept()).toEqual([expect.not.objectContaining({ stash: expect.anything() })]);
+    expect(stash.read).not.toHaveBeenCalled();
+  });
+
   it('says when stashed words cannot be read back', async () => {
     const { el } = await render('/share?stash=56&at=56');
     await vi.waitFor(() => expect(el().textContent).toContain('cannot be read back now'));

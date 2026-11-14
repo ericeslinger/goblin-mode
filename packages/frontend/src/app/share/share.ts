@@ -131,7 +131,7 @@ export const WRITE_WAIT_MS = 20_000;
                 <button #first type="button" [disabled]="busy()" (click)="keepAsNote(v)">
                   Keep as a note
                 </button>
-                @if (s.link && modules.kitchen()) {
+                @if (s.link && modules.kitchen() && !v.p.cut) {
                   <button type="button" [disabled]="busy()" (click)="importFromText(v)">
                     Import as a recipe from this text
                   </button>
@@ -262,9 +262,12 @@ export class Share {
   protected readonly notesReady = computed(() => !!this.auth.user() && this.notes.ready);
   /** Another window holds the share shown while it files it. */
   protected readonly elsewhere = computed(() => {
+    this.clock();
     const v = this.view();
     return !!v && this.store.heldElsewhere(v.p, this.now());
   });
+  /** Moved on when a claim held elsewhere runs out, so the page looks again. */
+  private readonly clock = signal(0);
 
   private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
   private readonly first = viewChild<ElementRef<HTMLElement>>('first');
@@ -282,7 +285,10 @@ export class Share {
       // Only from this device: another site's link must not plant words
       // a later Claude would read (review on #98).
       if (openedHere(doc.referrer, doc.location.origin)) {
-        const stash = /^\d{1,16}$/.test(params.get('stash') ?? '') ? params.get('stash')! : '';
+        // A stash is named by the share's own `at` (sw.js), so one that
+        // names another share's words is not taken (review on #271).
+        const named = params.get('stash') ?? '';
+        const stash = /^\d{1,16}$/.test(named) && named === params.get('at') ? named : '';
         const cut = Number(params.get('cut'));
         const raw: RawShare = {
           title: params.get('title') ?? '',
@@ -294,7 +300,7 @@ export class Share {
         if (!stash && !raw.title && !raw.text && !raw.url) {
           this.said.set('Nothing came with that share.');
         } else {
-          const key = stash && !/^\d{1,16}$/.test(raw.at) ? `stash:${stash}` : shareKey(raw);
+          const key = shareKey(raw);
           const taken = this.store.take(
             { ...raw, key, ...(stash ? { stash } : {}) },
             { now: this.now(), uid: this.auth.user()?.uid },
@@ -307,6 +313,18 @@ export class Share {
 
     // Stashed words are read back from the device's cache; nothing else.
     const asked = new Set<string>();
+    // A window that died mid-claim leaves its claim to run out; look
+    // again then, so the buttons come back with no reload (review on
+    // #271).
+    effect((onCleanup) => {
+      const until = this.elsewhere() ? this.view()?.p.filing?.until : undefined;
+      if (until === undefined) return;
+      const timer = setTimeout(
+        () => this.clock.update((n) => n + 1),
+        Math.max(0, until - this.now()) + 50,
+      );
+      onCleanup(() => clearTimeout(timer));
+    });
     effect(() => {
       const stash = this.waiting().at(-1)?.stash;
       if (!stash || asked.has(stash)) return;
