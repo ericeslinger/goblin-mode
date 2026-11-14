@@ -38,7 +38,6 @@ import {
   normalizeName,
   paths,
   resolveLinks,
-  textHash,
   type TitleSource,
   agentOf,
   SEND_ASK_MAX,
@@ -54,6 +53,8 @@ import {
   recordAadFor,
   fieldValue,
   formsFound,
+  hashForm,
+  noteTextHash,
   isSealed,
   isSealedValue,
   openText,
@@ -184,7 +185,10 @@ export interface NoteRecord {
   /** Whether that was Eric or an assistant, and which one (#142). */
   updatedBy?: 'user' | 'claude';
   agent?: string;
-  /** `textHash` of the text the last body write replaced, when known (#241). */
+  /**
+   * The hash of the text the last body write replaced, when known
+   * (#241): plain, or keyed (`k1.`) for a sealed note (2026-11-14).
+   */
   baseHash?: string;
   /**
    * Sealed, and this device cannot open it yet (note encryption step 3a):
@@ -794,8 +798,15 @@ export class NotesService {
     const deviceId = this.deviceId() + (restore ? RESTORE_SUFFIX : keep ? KEEP_SUFFIX : '');
     const links = resolveLinks(wikiLinkTargets(parseNote(body)), this.names());
     // What this text was written over, so a write over a newer text
-    // (Claude's, another device's) is merged on the server (#37).
-    const baseHash = base === undefined ? '' : textHash(base);
+    // (Claude's, another device's) is merged on the server (#37). Keyed
+    // for a sealed note (2026-11-14) with the key it was opened with;
+    // without one it is not written, as for a locked note, rather than
+    // under a plain hash of sealed text.
+    const baseHash =
+      base === undefined
+        ? ''
+        : noteTextHash(id, base, hashForm(formsFound(this.storedDoc(id))), () => this.keys.key());
+    if (baseHash === undefined) return;
     const update = { body, ...title, links, baseHash, updatedAt: now, updatedBy: 'user', deviceId };
     // A known note gets a merged update, keeping fields this device did
     // not set (Claude's links, tags, a title). A new one gets the full

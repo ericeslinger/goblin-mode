@@ -3,7 +3,7 @@
 // the writer had not seen the newer text: an offline device coming back,
 // or a save crossing Claude's line edit. Then both are merged, from a
 // text they share, which history kept when the newer text replaced it.
-import { merge3, textHash } from '@mossgoblin/schema';
+import { type NoteForm, merge3 } from '@mossgoblin/schema';
 import type { NoteState } from './history';
 
 /** The deviceId of a merge, so history keeps the write it merged. */
@@ -40,13 +40,15 @@ export interface MergeStore {
   /**
    * Keeps a text a write replaced, as of when it was written (ms),
    * until a TTL policy removes it (`REPLACED_TTL_MS`): under the hash of
-   * `body`, the text, and as `stored`, the note's own stored form of it
-   * (sealed when the note's body was), which opens with the note's aad.
+   * `body`, the text, in `form` (keyed when sealed, 2026-11-14), and as
+   * `stored`, the note's own stored form of it (sealed when the note's
+   * body was), which opens with the note's aad.
    */
   rememberReplaced(
     uid: string,
     noteId: string,
     body: string,
+    form: NoteForm,
     writtenAt?: number,
     stored?: string,
   ): Promise<void>;
@@ -63,6 +65,24 @@ export interface MergeStore {
 }
 
 export type MergeOutcome = 'merged' | 'kept-both' | 'clean' | 'moved-on';
+
+/**
+ * Whether a stored hash is the hash of a text of the note, checked as
+ * the kind of hash it is (`NoteCodec.hashMatcher`, 2026-11-14): plain
+ * against the plain hash, keyed against the keyed one. It throws
+ * SealedNoteError for a keyed hash it cannot check, so the merge stops
+ * and the note is left as stored.
+ */
+export type HashMatches = (hash: string | undefined, text: string) => boolean;
+
+/**
+ * The form hashes of a write's texts take: keyed when the note was or
+ * is sealed, so a text replaced as the note is sealed is not kept under
+ * a hash a guess can be checked against.
+ */
+export function hashFormOf(...states: (NoteState | undefined)[]): NoteForm {
+  return states.some((s) => s?.hashForm === 'sealed') ? 'sealed' : 'plain';
+}
 
 /**
  * Remembers the text a write replaced, so a later merge can start from
@@ -83,7 +103,14 @@ export async function rememberReplaced(
   const stored = before.stored?.body ?? before.body;
   if (stored.length > REPLACED_CHARS) return false;
   try {
-    await store.rememberReplaced(uid, noteId, before.body, before.updatedAt, stored);
+    await store.rememberReplaced(
+      uid,
+      noteId,
+      before.body,
+      hashFormOf(before, after),
+      before.updatedAt,
+      stored,
+    );
     return true;
   } catch (err) {
     warn('rememberReplaced failed', err);
@@ -96,11 +123,14 @@ export async function rememberReplaced(
  * save, a write made straight over it, or Claude's (its tools edit the
  * current text in a transaction).
  */
-function builtOn(current: CurrentNote, text: string, writer: string): boolean {
+function builtOn(
+  current: CurrentNote,
+  text: string,
+  writer: string,
+  matches: HashMatches,
+): boolean {
   return (
-    current.deviceId === writer ||
-    current.baseHash === textHash(text) ||
-    current.updatedBy === 'claude'
+    current.deviceId === writer || current.updatedBy === 'claude' || matches(current.baseHash, text)
   );
 }
 
@@ -110,12 +140,15 @@ export async function mergeConflict(
   noteId: string,
   before: NoteState | undefined,
   after: NoteState | undefined,
+  matches: HashMatches,
 ): Promise<MergeOutcome> {
   if (!before || !after || !after.baseHash || after.body === before.body) return 'clean';
-  if (after.baseHash === textHash(before.body)) return 'clean';
+  // Each hash is checked as the kind it is: a plain baseHash on a sealed
+  // note (written before keyed hashes) still matches its text, and a
+  // plain hash is never taken for a keyed one, nor the other way round.
+  if (matches(after.baseHash, before.body)) return 'clean';
   const kept = await store.keptBodies(uid, noteId, BASE_SEARCH);
-  const at = (hash: string | undefined) =>
-    hash ? kept.findIndex((b) => textHash(b) === hash) : -1;
+  const at = (hash: string | undefined) => (hash ? kept.findIndex((b) => matches(hash, b)) : -1);
   // The two writes may start from different texts (two devices, one of
   // them saving twice): the older one is shared by both, so merge from
   // it; a newer one only one side has seen would read as a deletion.
@@ -132,7 +165,7 @@ export async function mergeConflict(
     if (current.body === after.body) body = merged;
     // Saved again since, building on this write: carry the merge onto
     // that, or it would be lost to a trigger that sees nothing to merge.
-    else if (builtOn(current, after.body, after.deviceId))
+    else if (builtOn(current, after.body, after.deviceId, matches))
       body = merge3(after.body, current.body, merged);
     // A third writer that had not seen it: merge all three from the text
     // they share.

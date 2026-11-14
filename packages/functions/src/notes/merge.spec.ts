@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { NoteState } from './history';
 import {
   type CurrentNote,
+  type HashMatches,
   type MergeStore,
   REPLACED_CHARS,
   mergeConflict,
@@ -12,6 +13,9 @@ import {
 const S = 'List\n- [ ] apples\n- [ ] kale';
 const CLAUDE = 'List\n- [ ] apples\n- [ ] kale\n- [ ] oats';
 const ERIC = 'List\n- [x] apples\n- [ ] kale';
+
+/** Plain hashes, as every note had before keyed hashes (2026-11-14). */
+const matches: HashMatches = (hash, text) => !!hash && textHash(text) === hash;
 
 const state = (body: string, over: Partial<NoteState> = {}): NoteState => ({
   body,
@@ -57,7 +61,7 @@ describe('rememberReplaced', () => {
     expect(await rememberReplaced(s, 'u1', 'n1', state(S, { updatedAt: 5 }), state(ERIC))).toBe(
       true,
     );
-    expect(s.rememberReplaced).toHaveBeenCalledWith('u1', 'n1', S, 5, S);
+    expect(s.rememberReplaced).toHaveBeenCalledWith('u1', 'n1', S, 'plain', 5, S);
     expect(await rememberReplaced(s, 'u1', 'n1', state(S), state(S))).toBe(false);
     expect(await rememberReplaced(s, 'u1', 'n1', state(''), state(S))).toBe(false);
     expect(await rememberReplaced(s, 'u1', 'n1', undefined, state(S))).toBe(false);
@@ -88,7 +92,7 @@ describe('mergeConflict', () => {
     const s = store([S2, S1], now(R, { baseHash: textHash(S1) }));
     const before = state(S3, { baseHash: textHash(S2) });
     const after = state(R, { baseHash: textHash(S1) });
-    expect(await mergeConflict(s, 'u1', 'n1', before, after)).toBe('merged');
+    expect(await mergeConflict(s, 'u1', 'n1', before, after, matches)).toBe('merged');
     expect(s.current.body).toBe(S3);
   });
 
@@ -97,7 +101,7 @@ describe('mergeConflict', () => {
     const s = store([CLAUDE, S], now(ERIC, { baseHash: textHash(S) }));
     const before = state(CLAUDE, { updatedBy: 'claude', deviceId: 'claude' });
     const after = state(ERIC, { baseHash: textHash(S) });
-    expect(await mergeConflict(s, 'u1', 'n1', before, after)).toBe('merged');
+    expect(await mergeConflict(s, 'u1', 'n1', before, after, matches)).toBe('merged');
     expect(s.current.body).toBe('List\n- [x] apples\n- [ ] kale\n- [ ] oats');
     expect(s.current.baseHash).toBe(textHash(ERIC));
   });
@@ -109,13 +113,13 @@ describe('mergeConflict', () => {
     const W2 = `${ERIC}\n- [ ] bread`;
     const s = store([CLAUDE, S], now(W2, { baseHash: textHash(W1) }));
     const before = state(CLAUDE, { updatedBy: 'claude', deviceId: 'claude' });
-    expect(await mergeConflict(s, 'u1', 'n1', before, state(W1, { baseHash: textHash(S) }))).toBe(
-      'merged',
-    );
+    expect(
+      await mergeConflict(s, 'u1', 'n1', before, state(W1, { baseHash: textHash(S) }), matches),
+    ).toBe('merged');
     expect(s.current.body).toBe('List\n- [x] apples\n- [ ] kale\n- [ ] bread\n- [ ] oats');
     // The second save's own trigger has nothing more to do.
     expect(
-      await mergeConflict(s, 'u1', 'n1', state(W1), state(W2, { baseHash: textHash(W1) })),
+      await mergeConflict(s, 'u1', 'n1', state(W1), state(W2, { baseHash: textHash(W1) }), matches),
     ).toBe('clean');
   });
 
@@ -128,9 +132,9 @@ describe('mergeConflict', () => {
     const kept = [L1, S1, B0];
     const s = store(kept, now(S2, { baseHash: textHash(S1) }));
     const before = state(L1, { deviceId: 'laptop', baseHash: textHash(B0) });
-    expect(await mergeConflict(s, 'u1', 'n1', before, state(S2, { baseHash: textHash(S1) }))).toBe(
-      'merged',
-    );
+    expect(
+      await mergeConflict(s, 'u1', 'n1', before, state(S2, { baseHash: textHash(S1) }), matches),
+    ).toBe('merged');
     expect(s.current.body).toBe('Plan\nphone one\nphone two\nlaptop');
     // The laptop's own trigger, late, finds its text already in.
     const late = await mergeConflict(
@@ -139,6 +143,7 @@ describe('mergeConflict', () => {
       'n1',
       state(S1, { baseHash: textHash(B0) }),
       state(L1, { deviceId: 'laptop', baseHash: textHash(B0) }),
+      matches,
     );
     expect(late).toBe('clean');
     expect(s.current.body).toBe('Plan\nphone one\nphone two\nlaptop');
@@ -148,13 +153,22 @@ describe('mergeConflict', () => {
     const s = store([S], now(ERIC));
     const before = state(CLAUDE);
     expect(
-      await mergeConflict(s, 'u1', 'n1', before, state(ERIC, { baseHash: textHash(CLAUDE) })),
+      await mergeConflict(
+        s,
+        'u1',
+        'n1',
+        before,
+        state(ERIC, { baseHash: textHash(CLAUDE) }),
+        matches,
+      ),
     ).toBe('clean');
-    expect(await mergeConflict(s, 'u1', 'n1', before, state(ERIC, { baseHash: '' }))).toBe('clean');
-    expect(await mergeConflict(s, 'u1', 'n1', before, state(ERIC))).toBe('clean');
-    expect(await mergeConflict(s, 'u1', 'n1', undefined, state(ERIC, { baseHash: 'x' }))).toBe(
+    expect(await mergeConflict(s, 'u1', 'n1', before, state(ERIC, { baseHash: '' }), matches)).toBe(
       'clean',
     );
+    expect(await mergeConflict(s, 'u1', 'n1', before, state(ERIC), matches)).toBe('clean');
+    expect(
+      await mergeConflict(s, 'u1', 'n1', undefined, state(ERIC, { baseHash: 'x' }), matches),
+    ).toBe('clean');
     expect(s.keptBodies).not.toHaveBeenCalled();
   });
 
@@ -174,6 +188,7 @@ describe('mergeConflict', () => {
         'n1',
         state(S1),
         state(L1, { deviceId: 'laptop', baseHash: textHash('Plan') }),
+        matches,
       ),
     ).toBe('kept-both');
     expect(s.current.body).toBe('Plan\nlaptop\nphone');
@@ -191,6 +206,7 @@ describe('mergeConflict', () => {
         'n1',
         state(CLAUDE, { updatedBy: 'claude', deviceId: 'claude' }),
         state(ERIC, { baseHash: textHash(S) }),
+        matches,
       ),
     ).toBe('merged');
     const body = s.current.body;

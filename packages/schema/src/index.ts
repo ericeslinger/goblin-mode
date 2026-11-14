@@ -32,4 +32,5 @@ export * from './corrections';
 export * from './diff';
 export * from './sealed';
 export * from './sealed-note';
+export * from './text-hash';
 export * from './note-key';

@@ -4,6 +4,7 @@ import {
   SEAL_SENTINEL,
   aadFor,
   isSealed,
+  itemHash,
   newDataKey,
   openText,
   paths,
@@ -32,7 +33,12 @@ const T = Date.parse('2026-11-13T10:00:00Z');
 const NOTE = `users/${UID}/notes/${ID}`;
 const ITEM = 'find a good plumber @goblin';
 const KEY = 'find a good plumber';
-const RUN = itemRunId(ID, KEY);
+/** The item's run id on a plain note, as before; on a sealed one keyed (2026-11-14). */
+const PLAIN_RUN = itemRunId(
+  ID,
+  itemHash(ID, KEY, 'plain', () => undefined)!,
+);
+let RUN = PLAIN_RUN;
 
 let store: Store;
 let key: DataKey;
@@ -98,6 +104,7 @@ beforeEach(() => {
   store = new Map();
   key = newDataKey();
   keyFor = vi.fn(async () => key);
+  RUN = PLAIN_RUN;
   log.warn.mockReset();
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -114,6 +121,13 @@ describe('an item run on a plain note', () => {
 });
 
 describe('an item run on a sealed note', () => {
+  beforeEach(() => {
+    RUN = itemRunId(
+      ID,
+      itemHash(ID, KEY, 'sealed', () => key)!,
+    );
+  });
+
   it('stores its item text and key sealed under the run, never in the clear', async () => {
     expect(await assign(sealedNote(`Home\n- [ ] ${ITEM}`))).toBe(1);
     const run = runDoc();

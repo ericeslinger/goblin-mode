@@ -88,7 +88,6 @@ import {
   sentenceAround,
   snoozeUntil,
   templateParts,
-  textHash,
   withProjectSections,
   cleanAgentName,
   SEND_OUTCOME_MAX,
@@ -229,17 +228,28 @@ const titleIn = (title: unknown, forms: NoteForms) =>
  * (#206). The text is History's; a run that rewrote it keeps only the
  * hash History knows the text before by, as `body`.
  */
-export const touchedFields = (id: string, d: Data, update: Data): Touched => ({
-  ...touched(id, d),
-  before: Object.fromEntries(
-    Object.keys(update)
-      .filter((k) => k !== 'baseHash')
-      .map((k) => [
-        k,
-        k === 'body' ? textHash(String(d['body'] ?? '')) : ((d[k] as FieldBefore) ?? null),
-      ]),
-  ),
-});
+export const touchedFields = (
+  id: string,
+  d: Data,
+  update: Data,
+  /**
+   * The hash of the body before, as `NoteCodec.hashText` made it (keyed
+   * for a sealed note, 2026-11-14); needed when the run rewrote it.
+   */
+  bodyHash?: string,
+): Touched => {
+  if ('body' in update && bodyHash === undefined) {
+    throw new Error('touchedFields needs the hash of the body before');
+  }
+  return {
+    ...touched(id, d),
+    before: Object.fromEntries(
+      Object.keys(update)
+        .filter((k) => k !== 'baseHash')
+        .map((k) => [k, k === 'body' ? bodyHash! : ((d[k] as FieldBefore) ?? null)]),
+    ),
+  };
+};
 
 /** A name that can sit inside `[[...]]` as it is. */
 const linkable = (name: string) => !/\[\[|\]\]|\||\n/.test(name) && name.trim() !== '';
@@ -727,12 +737,23 @@ export class NotesTools {
    * back to the same note, where it opens), its title as touched names
    * it.
    */
-  private touchedFieldsOf(note: NoteSnap, update: Data): Touched {
+  private async touchedFieldsOf(note: NoteSnap, update: Data): Promise<Touched> {
     const d = note.data()!;
+    const hash = 'body' in update ? await this.bodyHash(note, d['body']) : undefined;
     return {
-      ...touchedFields(note.id, { ...note.stored(), body: d['body'] }, update),
+      ...touchedFields(note.id, { ...note.stored(), body: d['body'] }, update, hash),
       title: shownTitle(d['title'], recordForm(note.forms)),
     };
+  }
+
+  /**
+   * The hash of `text`, a body of note `note`, as a `baseHash` or an
+   * activity entry's `before.body` holds it: plain for a plain note,
+   * keyed for a sealed one (`hashForm`, 2026-11-14), so a sealed note's
+   * text is never stored as a hash a guess can be checked against.
+   */
+  private bodyHash(note: NoteSnap, text: unknown): Promise<string> {
+    return this.codec.hashText(note.id, String(text ?? ''), note.hashForm);
   }
 
   // End of the note text boundary.
@@ -1111,7 +1132,7 @@ export class NotesTools {
         const update = {
           ...this.stamp(),
           // Its own text, so a put back of this run finds nothing to change.
-          baseHash: textHash(String(kept['body'] ?? '')),
+          baseHash: await this.bodyHash(had, kept['body']),
         };
         Note.parse({ ...kept, ...update });
         await this.writeNote(
@@ -1428,7 +1449,7 @@ export class NotesTools {
       const source = { ...(current['source'] as Data) };
       if (untouchedRecipe(text)) {
         update['body'] = body;
-        update['baseHash'] = textHash(text);
+        update['baseHash'] = await this.bodyHash(doc, text);
         update['links'] = this.relink(body, names, current['links']);
         if (aside) source['text'] = aside;
       } else {
@@ -1881,7 +1902,7 @@ export class NotesTools {
         if (!args.body.trim())
           throw new ToolError('body must not be empty; archive the note instead');
         update['body'] = args.body;
-        update['baseHash'] = textHash(String(current['body'] ?? ''));
+        update['baseHash'] = await this.bodyHash(doc, current['body']);
         update['links'] = this.relink(args.body, names!, current['links']);
         if (current['titleSource'] === 'words' && args.title === undefined) {
           update['title'] = firstWordsTitle(args.body);
@@ -2035,7 +2056,7 @@ export class NotesTools {
       const update: Data = {
         ...this.stamp(),
         body: next,
-        baseHash: textHash(body),
+        baseHash: await this.bodyHash(from, body),
         links: this.relink(next, index, current['links']),
       };
       Note.parse({ ...current, ...update });
@@ -2093,7 +2114,7 @@ export class NotesTools {
       const update: Data = {
         ...this.stamp(),
         body,
-        baseHash: textHash(String(current['body'] ?? '')),
+        baseHash: await this.bodyHash(doc, current['body']),
       };
       if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(body);
       // Each piece links back to the note it came from, where that
@@ -2259,7 +2280,7 @@ export class NotesTools {
           const sectioned = withProjectSections(body);
           if (sectioned !== body) {
             update['body'] = sectioned;
-            update['baseHash'] = textHash(body);
+            update['baseHash'] = await this.bodyHash(doc, body);
             said.push('added the project sections');
           }
         }
@@ -2367,7 +2388,7 @@ export class NotesTools {
         }
       }
       if (said.length === 0) return { id: args.id, changed: [], refused };
-      const entry = this.touchedFieldsOf(doc, update);
+      const entry = await this.touchedFieldsOf(doc, update);
       Object.assign(update, this.stamp());
       Note.parse(withoutDeletes({ ...current, ...update }));
       await this.writeNote(tx, 'update', ref, update, doc.forms);
@@ -2461,7 +2482,7 @@ export class NotesTools {
         recordForm(doc.forms) === 'sealed'
           ? 'Did a sealed note sent to it'
           : `Did a note sent to it: ${outcome}`;
-      tx.set(...this.activity('finish_queued', what, [this.touchedFieldsOf(doc, update)]));
+      tx.set(...this.activity('finish_queued', what, [await this.touchedFieldsOf(doc, update)]));
       return { id: args.id, done: true };
     });
   }
@@ -2685,7 +2706,7 @@ export class NotesTools {
       const update: Data = {
         ...this.stamp(),
         body: result.body,
-        baseHash: textHash(String(current['body'] ?? '')),
+        baseHash: await this.bodyHash(doc, current['body']),
         links: this.relink(result.body, names, current['links']),
       };
       if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(result.body);

@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import {
   type DataKey,
   aadFor,
   isSealed,
+  itemHash,
   newDataKey,
   openText,
   paths,
@@ -65,6 +67,18 @@ const noKey = () =>
   });
 
 const runs = () => [...store.keys()].filter((p) => p.startsWith(`users/${UID}/runs/`));
+/** The item's run id on a plain note, as before keyed hashes: SHA-256 of its key. */
+const plainRun = () =>
+  itemRunId(
+    ID,
+    itemHash(ID, KEY, 'plain', () => undefined)!,
+  );
+/** On a sealed note (2026-11-14): keyed under the gardener's key. */
+const sealedRun = () =>
+  itemRunId(
+    ID,
+    itemHash(ID, KEY, 'sealed', () => key)!,
+  );
 const settled = { settledAt: Timestamp.fromMillis(T) };
 
 beforeEach(() => {
@@ -81,13 +95,56 @@ const assign = (after: Data) =>
 describe('itemAssigned', () => {
   it('reads a plain body as before, with no key', async () => {
     expect(await assign(note(`Home\n- [ ] ${ITEM}`, settled))).toBe(1);
-    expect(runs()).toEqual([paths.run(UID, itemRunId(ID, KEY))]);
+    // Byte for byte the id it had before keyed hashes (2026-11-14).
+    const sha = createHash('sha256').update(KEY).digest('hex').slice(0, 16);
+    expect(runs()).toEqual([paths.run(UID, `item-${ID}-${sha}`)]);
+    expect(plainRun()).toBe(`item-${ID}-${sha}`);
     expect(keyFor).not.toHaveBeenCalled();
   });
 
-  it('opens a sealed body to find its items', async () => {
+  it('opens a sealed body to find its items, its run under a keyed id', async () => {
     expect(await assign(sealedNote(`Home\n- [ ] ${ITEM}`, settled))).toBe(1);
-    expect(runs()).toEqual([paths.run(UID, itemRunId(ID, KEY))]);
+    expect(runs()).toEqual([paths.run(UID, sealedRun())]);
+    expect(sealedRun()).toMatch(/^item-n1-k1\.[0-9a-f]{16}$/);
+    // The plain hash of the item's key is nowhere: not in the id, not stored.
+    const sha = createHash('sha256').update(KEY).digest('hex').slice(0, 16);
+    expect(runs().join()).not.toContain(sha);
+    expect(JSON.stringify([...store.values()])).not.toContain(sha);
+  });
+
+  it('a sealed note does not start an item again that ran under its plain id', async () => {
+    store.set(paths.run(UID, plainRun()), {
+      kind: 'item',
+      noteId: ID,
+      itemText: ITEM,
+      itemKey: KEY,
+      status: 'done',
+      attempt: 1,
+      steps: [],
+      createdAt: Timestamp.fromMillis(T - 60_000),
+    });
+    expect(await assign(sealedNote(`Home\n- [ ] ${ITEM}`, settled))).toBe(0);
+    expect(runs()).toEqual([paths.run(UID, plainRun())]);
+  });
+
+  it('one that failed under its plain id and may be mended starts again under the keyed id', async () => {
+    store.set(paths.run(UID, plainRun()), {
+      kind: 'item',
+      noteId: ID,
+      itemText: ITEM,
+      itemKey: KEY,
+      status: 'failed',
+      retryable: true,
+      attempt: 1,
+      steps: [],
+      createdAt: Timestamp.fromMillis(T - 60_000),
+    });
+    expect(await assign(sealedNote(`Home\n- [ ] ${ITEM}`, settled))).toBe(1);
+    const made = store.get(paths.run(UID, sealedRun()))!;
+    expect(made['attempt']).toBe(2);
+    expect(isSealed(made['itemKey'])).toBe(true);
+    // The old one is left as it was, for the migration to decide.
+    expect(store.get(paths.run(UID, plainRun()))?.['status']).toBe('failed');
   });
 
   it('a body it cannot open starts nothing, says so once, and does not throw', async () => {

@@ -36,7 +36,9 @@ describe('firestoreNotesStore', () => {
     const store = firestoreNotesStore(db, plainOnly);
     const n = REPLACED_KEPT + 5;
     await Promise.all(
-      Array.from({ length: n }, (_, i) => store.rememberReplaced('u1', 'n2', `t${i}`, T + i)),
+      Array.from({ length: n }, (_, i) =>
+        store.rememberReplaced('u1', 'n2', `t${i}`, 'plain', T + i),
+      ),
     );
     // None lost to a race; a merge reads the newest few.
     const all = await db.collection('users/u1/notes/n2/replaced').get();
@@ -123,9 +125,9 @@ describe('firestoreNotesStore', () => {
     expect(await store.keptBodies('u1', 'n1', 5)).toEqual(['two', 'one']);
     // Texts writes replaced come first, newest written first, once
     // each, whatever order their triggers ran in.
-    await store.rememberReplaced('u1', 'n1', 'r2', T + 2);
-    await store.rememberReplaced('u1', 'n1', 'r1', T + 1);
-    await store.rememberReplaced('u1', 'n1', 'r2', T + 2);
+    await store.rememberReplaced('u1', 'n1', 'r2', 'plain', T + 2);
+    await store.rememberReplaced('u1', 'n1', 'r1', 'plain', T + 1);
+    await store.rememberReplaced('u1', 'n1', 'r2', 'plain', T + 2);
     expect(await store.keptBodies('u1', 'n1', 5)).toEqual(['r2', 'r1', 'two', 'one']);
 
     await db.doc('users/u1/notes/n1').set({

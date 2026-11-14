@@ -149,7 +149,9 @@ export function merge3(base: string, ours: string, theirs: string): string {
 /**
  * A short fingerprint of a text, stored with a note write as the text
  * it was based on (`baseHash`), so a write based on an older text can
- * be told and merged (#37). Not for security.
+ * be told and merged (#37). Not for security: since 2026-11-14 it is
+ * the plain kind only, for notes with nothing sealed, and callers go
+ * through `noteTextHash` (text-hash.ts), which keys it for a sealed one.
  */
 export function textHash(text: string): string {
   let h = 0x811c9dc5;

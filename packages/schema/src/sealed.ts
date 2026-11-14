@@ -14,6 +14,7 @@
 // a synchronous AES-GCM whose output is the standard one, so WebCrypto or
 // any other AES-GCM can open what this seals (sealed.spec.ts checks it).
 import { gcm } from '@noble/ciphers/aes.js';
+import { hkdfSha256, hmacSha256 } from './sha256';
 
 /**
  * Starts every sealed value: U+E000, the first private-use code point.
@@ -207,6 +208,36 @@ export function recordAadFor<C extends SealedRecordCollection>(
   if (!fields) throw new RangeError(`not a collection of sealed records: ${collection}`);
   if (!fields.includes(field)) throw new RangeError(`not a sealed ${collection} field: ${field}`);
   return lengthPrefixed(['mossgoblin/record-field', uid, collection, docId, field]);
+}
+
+/**
+ * HKDF's info for a data key's text-hash key (keyed hashes, 2026-11-14):
+ * length-prefixed `mossgoblin/text-hash` and `v1`. Its own info, so the
+ * hash key is not the AES key and the AES key is never used as a MAC
+ * key; changing it changes every keyed hash: never do.
+ */
+export function textHashKeyInfo(): Uint8Array<ArrayBuffer> {
+  return lengthPrefixed(['mossgoblin/text-hash', 'v1']);
+}
+
+/** Each data key's text-hash key, derived once, out of reach like the key's bytes. */
+const hashKeys = /* @__PURE__ */ new WeakMap<DataKey, Uint8Array>();
+
+/**
+ * HMAC-SHA-256 of the length-prefixed `parts` under `key`'s text-hash
+ * key: HKDF-SHA-256 of the data key, no salt (the data key is uniformly
+ * random), `textHashKeyInfo()` as info. For keyed hashes of note text
+ * (`text-hash.ts`), which say what they hash in `parts`; gives a MAC,
+ * never the key, so a hash cannot be turned into a seal or the other
+ * way round.
+ */
+export function keyedDigest(key: DataKey, parts: readonly string[]): Uint8Array<ArrayBuffer> {
+  let hashKey = hashKeys.get(key);
+  if (!hashKey) {
+    hashKey = hkdfSha256(bytesOf(key), new Uint8Array(0), textHashKeyInfo(), KEY_BYTES);
+    hashKeys.set(key, hashKey);
+  }
+  return hmacSha256(hashKey, lengthPrefixed([...parts]));
 }
 
 /**
