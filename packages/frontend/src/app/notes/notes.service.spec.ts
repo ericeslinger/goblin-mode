@@ -1073,6 +1073,37 @@ describe('NotesService', () => {
     ]);
   });
 
+  it('moves an untouched recipe stub a share made to Trash, and nothing else (review on #271)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    const stub = {
+      kind: 'recipe',
+      body: '## Ingredients\n\n## Method\n\n## Notes\n',
+      title: 'Recipe from refused.invalid',
+      source: { url: 'https://refused.invalid/g' },
+      importState: 'failed',
+      importError: SHARED_IMPORT_WAITING,
+    };
+    push([
+      { id: 'r1', data: stub },
+      { id: 'r2', data: { ...stub, body: '## Ingredients\n- 2 eggs\n\n## Method\n' } },
+      { id: 'r3', data: { ...stub, title: 'Gratin' } },
+      { id: 'r4', data: { ...stub, importState: 'done' } },
+    ]);
+    api.set.mockClear();
+    for (const id of ['r2', 'r3', 'r4']) {
+      expect(notes.dropSharedRecipe(id, 'https://refused.invalid/g')).toBe(false);
+    }
+    expect(notes.dropSharedRecipe('r1', 'https://other.invalid/g')).toBe(false);
+    expect(api.set).not.toHaveBeenCalled();
+    expect(notes.dropSharedRecipe('r1', 'https://refused.invalid/g')).toBe(true);
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/notes/r1',
+      expect.objectContaining({ deletedAt: expect.anything() }),
+      true,
+    ]);
+  });
+
   it('changes a recipe’s name, servings and source link (#127)', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');

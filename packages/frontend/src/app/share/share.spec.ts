@@ -7,12 +7,12 @@ import { AuthService } from '../auth.service';
 import { CaptureService } from '../capture/capture.service';
 import { type PastedImport, RECIPE_IMPORT_API } from '../kitchen/recipe-paste';
 import { ModulesService } from '../modules/modules.service';
-import { NotesService } from '../notes/notes.service';
+import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { ONLINE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
-import { FakeAuthService, FakeModules, FakeNotes } from '../testing/fakes';
-import { Share } from './share';
-import { PENDING_SHARES_KEY, SHARES_TAKEN_KEY } from './share-store';
+import { FakeAuthService, FakeModules, FakeNotes, noteRecord } from '../testing/fakes';
+import { SHARE_TIMING, Share } from './share';
+import { PENDING_SHARES_KEY, SHARES_TAKEN_KEY, SHARE_WORDS, type ShareWords } from './share-store';
 
 @Component({ template: '' })
 class Elsewhere {}
@@ -32,14 +32,29 @@ async function render(
     kitchen = false,
     online = true,
     keep = true,
-  }: { signedIn?: boolean; kitchen?: boolean; online?: boolean; keep?: boolean } = {},
+    uid = 'u1',
+    words = {},
+    recipes = [],
+  }: {
+    signedIn?: boolean;
+    kitchen?: boolean;
+    online?: boolean;
+    keep?: boolean;
+    uid?: string;
+    words?: Record<string, { title: string; text: string; url: string }>;
+    recipes?: NoteRecord[];
+  } = {},
 ) {
   if (keep) localStorage.clear();
   TestBed.resetTestingModule();
   const auth = new FakeAuthService();
-  if (signedIn) auth.user.set({ uid: 'u1', email: 'e@x.test' } as User);
+  if (signedIn) auth.user.set({ uid, email: 'e@x.test' } as User);
   const notes = new FakeNotes();
-  if (signedIn) notes.signIn([]);
+  if (signedIn) notes.signIn(recipes);
+  const stash: ShareWords = {
+    read: vi.fn(async (id: string) => words[id]),
+    remove: vi.fn(async () => undefined),
+  };
   const modules = new FakeModules();
   modules.set('kitchen', kitchen);
   const reading = { save: vi.fn((link: string) => (link.startsWith('http') ? 'a1' : undefined)) };
@@ -60,6 +75,8 @@ async function render(
       { provide: ReadingService, useValue: reading },
       { provide: RECIPE_IMPORT_API, useValue: { importPasted } },
       { provide: ONLINE, useValue: () => online },
+      { provide: SHARE_WORDS, useValue: stash },
+      { provide: SHARE_TIMING, useValue: { writeWaitMs: 200, retryMs: 10 } },
     ],
   });
   const harness = await RouterTestingHarness.create();
@@ -80,6 +97,7 @@ async function render(
     notes,
     reading,
     importPasted,
+    stash,
     url: () => TestBed.inject(Router).url,
     stable: () => harness.fixture.whenStable(),
   };
@@ -95,11 +113,13 @@ describe('Share', () => {
       '/share?title=Seeds&text=what%20if%20https%3A%2F%2Fx.test%2Fs&at=17',
     );
     expect(kept()).toEqual([
+      // As it came: read only after it is kept (review on #271).
       expect.objectContaining({
         title: 'Seeds',
-        words: 'what if',
-        link: 'https://x.test/s',
+        text: 'what if https://x.test/s',
+        url: '',
         key: 'at:17',
+        uid: 'u1',
       }),
     ]);
     expect(url()).toBe('/share');
@@ -269,7 +289,7 @@ describe('Share', () => {
     button('Let it go')!.click();
     await stable();
     expect(el().textContent).toContain('first.test');
-    expect(kept()).toEqual([expect.objectContaining({ link: 'https://first.test' })]);
+    expect(kept()).toEqual([expect.objectContaining({ text: 'https://first.test' })]);
   });
 
   it('ignores a share opened from another site’s page', async () => {
@@ -284,4 +304,147 @@ describe('Share', () => {
     const { el } = await render('/share?text=%20&at=12');
     expect(el().textContent).toContain('Nothing came with that share.');
   });
+
+  it('keeps a status line in the page from the start, and says a link opens a new tab', async () => {
+    const { el } = await render('/share?text=https%3A%2F%2Fx.test%2Fs&at=13');
+    const status = el().querySelector('p.said[role="status"]')!;
+    expect(status).toBeTruthy();
+    expect(status.textContent!.trim()).toBe('');
+    expect(el().querySelector('.link a')!.textContent).toContain('(opens in a new tab)');
+  });
+
+  it('never shows or files a share kept for another account (review on #271)', async () => {
+    await render('/share?text=https%3A%2F%2Fx.test%2Fs&at=14');
+    expect(kept()).toEqual([expect.objectContaining({ uid: 'u1' })]);
+    const other = await render('/share', { keep: false, uid: 'u2' });
+    expect(other.el().textContent).toContain('Nothing shared is waiting');
+    expect(other.names()).toEqual([]);
+    // Words alone are not filed for them either.
+    seed([{ ...pending('at:15', 'what if'), uid: 'u1' }]);
+    const words = await render('/share', { keep: false, uid: 'u2' });
+    expect(words.notes.save).not.toHaveBeenCalled();
+    expect(kept()).toHaveLength(1);
+  });
+
+  it('leaves a share another window is filing, and files it once that runs out', async () => {
+    seed([{ ...pending('at:16', 'what if'), filing: { by: 'other', until: Date.now() + 60_000 } }]);
+    const { notes, el } = await render('/share', { keep: false });
+    expect(notes.save).not.toHaveBeenCalled();
+    expect(el().textContent).toContain('being filed in another Mossgoblin window');
+    expect(kept()).toHaveLength(1);
+
+    seed([{ ...pending('at:16', 'what if'), filing: { by: 'other', until: Date.now() - 1 } }]);
+    const later = await render('/share', { keep: false });
+    expect(later.notes.save).toHaveBeenCalledOnce();
+    expect(kept()).toEqual([]);
+  });
+
+  it('reads words sw.js stashed back from the cache, and forgets them once filed', async () => {
+    const text = `${RECIPE_TEXT}\nhttps://refused.invalid/g`;
+    const { button, stash, stable, el } = await render('/share?stash=55&at=55', {
+      kitchen: true,
+      words: { '55': { title: 'Gratin', text, url: '' } },
+    });
+    expect(kept()).toEqual([expect.objectContaining({ key: 'at:55', stash: '55', text: '' })]);
+    await vi.waitFor(() => expect(button('Import as a recipe from this text')).toBeDefined());
+    expect(el().textContent).toContain('Bake until golden.');
+    button('Keep as a note')!.click();
+    await stable();
+    expect(stash.remove).toHaveBeenCalledWith('55');
+    expect(kept()).toEqual([]);
+  });
+
+  it('says when stashed words cannot be read back', async () => {
+    const { el } = await render('/share?stash=56&at=56');
+    await vi.waitFor(() => expect(el().textContent).toContain('cannot be read back now'));
+    expect(kept()).toHaveLength(1);
+  });
+
+  it('says how much of words the Worker cut came through, and waits for a tap', async () => {
+    const { el, notes, button } = await render('/share?text=abc&at=57&cut=50000');
+    expect(el().textContent).toContain('Only the first 3 of');
+    expect(el().textContent).toContain('Share it again');
+    expect(notes.save).not.toHaveBeenCalled();
+    expect(button('Keep as a note')).toBeDefined();
+  });
+
+  it('files the share when its recipe turns out done (an answer lost, review on #271)', async () => {
+    seed([{ ...pending('at:58', 'words\nhttps://refused.invalid/g'), recipeId: 'r5' }]);
+    const { url } = await render('/share', {
+      keep: false,
+      kitchen: true,
+      recipes: [{ ...noteRecord('r5', ''), kind: 'recipe', importState: 'done' }],
+    });
+    await vi.waitFor(() => expect(url()).toBe('/n/r5'));
+    expect(kept()).toEqual([]);
+  });
+
+  it('files the share when the call fails but the server made the recipe', async () => {
+    const { button, notes, importPasted, url } = await render(
+      `/share?text=${encodeURIComponent(`${RECIPE_TEXT}\nhttps://refused.invalid/g`)}&at=59`,
+      { kitchen: true },
+    );
+    importPasted.mockImplementationOnce(async (id) => {
+      notes.notes.set([{ ...noteRecord(id, ''), kind: 'recipe', importState: 'done' }]);
+      throw new Error('deadline-exceeded');
+    });
+    button('Import as a recipe from this text')!.click();
+    await vi.waitFor(() => expect(url()).toMatch(/^\/n\//));
+    expect(kept()).toEqual([]);
+  });
+
+  it('asks again while the server has no such recipe yet, then says so truly', async () => {
+    const notThere = () =>
+      Object.assign(new Error('no recipe r1'), { code: 'functions/failed-precondition' });
+    const first = await render(
+      `/share?text=${encodeURIComponent(`${RECIPE_TEXT}\nhttps://refused.invalid/g`)}&at=61`,
+      { kitchen: true },
+    );
+    first.importPasted
+      .mockRejectedValueOnce(notThere())
+      .mockRejectedValueOnce(notThere())
+      .mockResolvedValueOnce({ state: 'done' });
+    first.button('Import as a recipe from this text')!.click();
+    await vi.waitFor(() => expect(first.url()).toMatch(/^\/n\//));
+    expect(first.importPasted).toHaveBeenCalledTimes(3);
+
+    const again = await render(
+      `/share?text=${encodeURIComponent(`${RECIPE_TEXT}\nhttps://refused.invalid/g`)}&at=62`,
+      { kitchen: true },
+    );
+    again.importPasted.mockImplementation(async () => {
+      throw notThere();
+    });
+    again.button('Import as a recipe from this text')!.click();
+    await vi.waitFor(() =>
+      expect(again.el().textContent).toContain('has not reached Mossgoblin from this device yet'),
+    );
+    expect(kept()).toHaveLength(1);
+  });
+
+  it('moves the recipe stub a share made to Trash when it is let go or kept as a note', async () => {
+    seed([
+      { ...pending('at:63', 'words\nhttps://refused.invalid/g'), recipeId: 'r6' },
+      { ...pending('at:64', 'https://refused.invalid/h'), recipeId: 'r7' },
+    ]);
+    const { button, notes, stable } = await render('/share', { keep: false, kitchen: true });
+    button('Let it go')!.click();
+    await stable();
+    expect(notes.dropSharedRecipe).toHaveBeenCalledWith('r7', 'https://refused.invalid/h');
+    button('Keep as a note')!.click();
+    await stable();
+    expect(notes.dropSharedRecipe).toHaveBeenCalledWith('r6', 'https://refused.invalid/g');
+    expect(kept()).toEqual([]);
+  });
 });
+
+/** A share as the store keeps it. */
+function pending(key: string, text: string) {
+  return { key, title: '', text, url: '', at: key.slice(3), takenAt: 1 };
+}
+
+/** The store as another window, or an earlier load, left it. */
+function seed(list: unknown[]): void {
+  localStorage.clear();
+  localStorage.setItem(PENDING_SHARES_KEY, JSON.stringify(list));
+}

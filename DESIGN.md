@@ -380,8 +380,8 @@ on auth or the network, then takes the query out of the address. It
 is forgotten only once filed or let go: signed out it waits, with a
 way to sign in; while the notes load it waits; and the launch screen
 and Home say "A share is waiting to be filed" with a link back while
-one does. A share's key is its `at`, or its fields for an address
-made by hand; the last fifty keys taken are remembered
+one does. A share's key is its `at`, or a short hash of its fields for
+an address made by hand; the last fifty keys taken are remembered
 (`goblin.sharesTaken`), so opening the same address again, a reload
 before the address was tidied, says it was filed already instead of
 filing it twice. A share the device will not keep (storage full, or
@@ -414,6 +414,52 @@ waits on the device and the page says so, offering the import again once
 online, or Keep as a note meanwhile. No stored schema, rule, function or
 tool changed: `importState: 'failed'` and `importError` were already the
 app's to write.
+
+*Hardened on review (#271, 2026-11-14).* Each of these changes what
+is above, on the same day.
+
+- *Kept as it came.* The page now keeps the share's fields exactly as
+  they came, before reading them for a link, and reads them from the
+  store after; reading is linear and bounded (`trimLink` is one pass,
+  and a run over 4,096 characters is words, not a link), so no share,
+  however strange, can hang the page before it is kept.
+- *Two windows.* The installed app and a browser tab share the store,
+  so every change reads it afresh and writes it back at once, and a
+  `storage` event shows what another window changed. A window claims a
+  share before filing it (`filing`, written and read back, for 30
+  seconds, or six minutes while a recipe import runs) and lets go if
+  filing stops; another window says it is being filed elsewhere and
+  leaves it, so words alone are never filed twice.
+- *Whose share.* A share that came while someone was signed in records
+  their uid and is shown and filed only for them; one that came signed
+  out goes to whoever signs in next.
+- *Long words.* A select-all of a recipe page can be tens of
+  kilobytes, and an address that long can be refused on its way to
+  the server. When the query would pass 8,000 characters, `sw.js`
+  keeps the words in its own cache (`mossgoblin-share-words`, kept on
+  the device before the page opens) and sends
+  `/share?stash=<at>&at=<at>`; the store keeps the id, the page reads
+  the words back from the cache, and they are deleted when the share
+  is filed or let go (and any never filed after a month). The Worker,
+  reached before `sw.js` is installed, has no cache: it cuts the words
+  to fit and sends `cut`, their whole length, and the page says how
+  much came through and asks for the share again; such words are never
+  filed with no tap. Shares with files still go to `/` as #46 made
+  them.
+- *A recipe's answer lost.* When the recipe a share asked for reads as
+  done (the call's answer lost, or a reload while it was read), the
+  share is filed and the recipe opens. After a reload a recipe made on
+  this device may not have reached the server yet, so while the server
+  says it has no such recipe the call is asked again for up to 20
+  seconds, and then the page says the recipe has not reached
+  Mossgoblin yet, which is true. Let it go, or Keep as a note, after a
+  recipe stub was made moves the stub to Trash
+  (`NotesService.dropSharedRecipe`, the app's own delete) if it is
+  still the untouched failed stub the share made; a stub anyone
+  changed stays.
+- *Accessibility.* The shared link says it opens in a new tab, and the
+  page's status line is in it from the start, so its first message is
+  announced.
 
 *Page text.* Shared words kept as a note are Eric's own act of saving,
 as a paste into a note is, so the note is plain, as #42 made it; only

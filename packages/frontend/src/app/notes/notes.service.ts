@@ -21,11 +21,13 @@ import {
   type KitchenConfig,
   addRecipeNote,
   importPlaceholder,
+  isImportPlaceholder,
   madeHistory,
   planBody,
   planId,
   planTitle,
   recipeSkeleton,
+  untouchedRecipe,
   ProjectKind,
   ProjectStatus,
   RESTORE_SUFFIX,
@@ -1135,7 +1137,10 @@ export class NotesService {
    * share hands the words to `importPastedRecipe`, as Paste the page
    * instead does, once the server has the recipe (`written`). `id` is
    * chosen and kept with the share first, so asking again never makes a
-   * second recipe. Undefined for a link that is not http(s).
+   * second recipe. After a reload, a recipe already on this device has
+   * no write to wait on here; the share page asks again while the
+   * server says it has no such recipe yet (review on #271). Undefined
+   * for a link that is not http(s).
    */
   sharedRecipe(url: string, id: string): Promise<void> | undefined {
     const link = url.trim();
@@ -1154,6 +1159,27 @@ export class NotesService {
 
   /** The writes of recipes made from shares this load, until the server has them. */
   private readonly sharedWrites = new Map<string, Promise<void>>();
+
+  /**
+   * A recipe a share made (`sharedRecipe`) that the share then went
+   * another way (kept as a note, or let go; review on #271): moved to
+   * Trash, the app's own delete, if it is still the failed stub the
+   * share made (its sections empty, the placeholder name, the share's
+   * link and no original text); left as it is if anyone changed it.
+   */
+  dropSharedRecipe(id: string, url: string): boolean {
+    const note = this.find(id);
+    if (!this.uid || note?.kind !== 'recipe' || note.locked) return false;
+    const stub =
+      note.importState === 'failed' &&
+      untouchedRecipe(note.body) &&
+      isImportPlaceholder(note.title, url.trim()) &&
+      note.source?.url === url.trim() &&
+      !note.source.text;
+    if (!stub) return false;
+    this.setDeleted(id, true);
+    return true;
+  }
 
   /** Why an import failed, as the server said, on the recipe's front. */
   importFailed(id: string, why: string): void {

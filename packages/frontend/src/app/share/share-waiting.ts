@@ -1,5 +1,6 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { AuthService } from '../auth.service';
 import { ShareStore } from './share-store';
 
 /**
@@ -11,7 +12,7 @@ import { ShareStore } from './share-store';
   selector: 'app-share-waiting',
   imports: [RouterLink],
   template: `
-    @if (store.pending().length; as n) {
+    @if (waiting().length; as n) {
       <p>
         <a routerLink="/share">{{
           n === 1 ? 'A share is waiting to be filed' : n + ' shares are waiting to be filed'
@@ -35,5 +36,8 @@ import { ShareStore } from './share-store';
   `,
 })
 export class ShareWaiting {
-  protected readonly store = inject(ShareStore);
+  private readonly store = inject(ShareStore);
+  private readonly auth = inject(AuthService);
+  /** Only the shares the one signed in may see (review on #271). */
+  protected readonly waiting = computed(() => this.store.visibleTo(this.auth.user()?.uid));
 }

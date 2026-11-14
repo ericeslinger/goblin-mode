@@ -132,6 +132,7 @@ export class FakeNotes {
     return Promise.resolve();
   });
   importFailed = vi.fn((_id: string, _why: string) => undefined);
+  dropSharedRecipe = vi.fn((_id: string, _url: string) => true);
   setInstructions = vi.fn((_id: string, _text: string) => undefined);
   holdInstructions = vi.fn((_id: string, _text: string) => true);
   holdName = vi.fn((_id: string, name: string) => !!name.trim());

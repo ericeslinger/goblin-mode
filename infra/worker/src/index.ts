@@ -74,8 +74,63 @@ export async function shareFallback(
   if (params.has('shared') || !params.toString()) {
     return Response.redirect(new URL(`/?${params}`, request.url).toString(), 303);
   }
-  params.set('at', String(now()));
-  return Response.redirect(new URL(`/share?${params}`, request.url).toString(), 303);
+  const query = boundedShare(params, now());
+  return Response.redirect(new URL(`/share?${query}`, request.url).toString(), 303);
+}
+
+/** The longest query the share page is sent with its words in it (as sw.js). */
+export const MAX_SHARE_QUERY = 8000;
+
+/**
+ * The share's fields in a query of at most MAX_SHARE_QUERY characters,
+ * with `at` (review on #271): an address much longer can be refused on
+ * its way, and here, before the app's worker is installed, there is no
+ * cache to keep long words in as `sw.js` keeps them. So the text is cut
+ * to fit and `cut` carries its whole length: the page says how much
+ * came through and asks for the share again, never losing words
+ * quietly. As `boundedShare` in sw.js.
+ */
+export function boundedShare(params: URLSearchParams, stamp: number): string {
+  const text = params.get('text') ?? '';
+  const base = new URLSearchParams();
+  const title = params.get('title');
+  const url = params.get('url');
+  if (title) base.set('title', title.slice(0, 1000));
+  if (url) base.set('url', url.slice(0, 4096));
+  base.set('at', String(stamp));
+  const fits = (n: number) => {
+    const q = new URLSearchParams(base);
+    q.set('text', text.slice(0, n));
+    if (n < text.length) q.set('cut', String(text.length));
+    return q.toString().length <= MAX_SHARE_QUERY;
+  };
+  if (!text || fits(text.length)) {
+    if (text) base.set('text', text);
+    return reorder(base);
+  }
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  // Never half a character.
+  const code = text.charCodeAt(lo - 1);
+  if (lo > 0 && code >= 0xd800 && code <= 0xdbff) lo--;
+  base.set('text', text.slice(0, lo));
+  base.set('cut', String(text.length));
+  return reorder(base);
+}
+
+/** title, text, url, then the rest, as the page and the specs read them. */
+function reorder(q: URLSearchParams): string {
+  const out = new URLSearchParams();
+  for (const key of ['title', 'text', 'url', 'at', 'cut']) {
+    const v = q.get(key);
+    if (v !== null) out.set(key, v);
+  }
+  return out.toString();
 }
 
 export default {

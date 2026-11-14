@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { functionFor, shareFallback } from './index';
+import { MAX_SHARE_QUERY, boundedShare, functionFor, shareFallback } from './index';
 
 describe('functionFor', () => {
   it('routes server paths to their function', () => {
@@ -47,6 +47,31 @@ describe('shareFallback', () => {
       'https://notes.example/share?title=Gratin&text=https%3A%2F%2Frecipes.example%2Fgratin' +
         '&at=1700000000000',
     );
+  });
+
+  it('cuts words too long for an address, and says how long they were (review on #271)', async () => {
+    const text = `${'Slice the potatoes thinly. '.repeat(2000)}https://recipes.example/g`;
+    const form = new FormData();
+    form.set('title', 'Gratin');
+    form.set('text', text);
+    const res = await shareFallback(
+      new Request('https://notes.example/share', { method: 'POST', body: form }),
+      () => 1700000000000,
+    );
+    const location = new URL(res.headers.get('location')!);
+    expect(location.pathname).toBe('/share');
+    expect(location.search.length).toBeLessThanOrEqual(MAX_SHARE_QUERY + 1);
+    const q = location.searchParams;
+    expect(q.get('title')).toBe('Gratin');
+    expect(q.get('at')).toBe('1700000000000');
+    expect(q.get('cut')).toBe(String(text.length));
+    expect(text.startsWith(q.get('text')!)).toBe(true);
+    expect(q.get('text')!.length).toBeGreaterThan(5000);
+    // Short words are not cut, and say nothing of it.
+    expect(boundedShare(new URLSearchParams({ text: 'short' }), 1)).toBe('text=short&at=1');
+    // Never half a character.
+    const moss = boundedShare(new URLSearchParams({ text: '\u{1F33F}'.repeat(5000) }), 1);
+    expect(new URLSearchParams(moss).get('text')).not.toMatch(/\uFFFD/);
   });
 
   it('refuses a share another site posted, and does not read a huge one', async () => {

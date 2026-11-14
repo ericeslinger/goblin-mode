@@ -178,4 +178,33 @@ test('the share sheet’s post reaches the share page through the service worker
   await page.goto(landed);
   await expect(page.getByRole('region', { name: 'What was shared' })).toContainText('Moss');
   await expect(page.getByRole('button', { name: 'Save to read later' })).toBeVisible();
+
+  // A select-all of a long page: too long for an address, so sw.js keeps
+  // the words in its cache and the address carries their id (review on
+  // #271); they are gone from the cache once the share is filed.
+  const long = await page.evaluate(async () => {
+    const form = new FormData();
+    form.set(
+      'text',
+      `${'Moss holds water like a sponge. '.repeat(600)}the last line\nhttps://moss.invalid/long`,
+    );
+    const res = await fetch('/share', { method: 'POST', body: form });
+    return res.url;
+  });
+  expect(long).toMatch(/\/share\?stash=\d+&at=\d+$/);
+  await page.goto(long);
+  const shared = page.getByRole('region', { name: 'What was shared' });
+  await expect(shared).toContainText('Moss holds water like a sponge.');
+  await expect(shared).toContainText('more characters');
+  await page.getByRole('button', { name: 'Keep as a note' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('textbox', { name: 'New note' })).toContainText('the last line');
+  await letItSave(page);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () => (await (await caches.open('mossgoblin-share-words')).keys()).length,
+      ),
+    )
+    .toBe(0);
 });

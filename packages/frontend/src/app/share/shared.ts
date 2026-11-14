@@ -45,32 +45,59 @@ function sameLink(a: string, b: string): boolean {
   }
 }
 
-/** A link found in prose loses the full stop or bracket after it. */
-function trimLink(raw: string): string {
-  let link = raw.replace(/[.,;:!?'"*_]+$/, '');
-  // A closing bracket is the link's own only when it opened one too.
-  while (/[)\]]$/.test(link)) {
-    const close = link.at(-1)!;
-    const open = close === ')' ? '(' : '[';
-    if (link.split(open).length >= link.split(close).length) break;
-    link = link.slice(0, -1).replace(/[.,;:!?'"*_]+$/, '');
+/**
+ * The longest link taken from shared text; a longer run is words. It
+ * also bounds how much `trimLink` looks at, so no share can make it
+ * slow (review on #271: trimming was quadratic in closing brackets).
+ */
+export const MAX_LINK_CHARS = 4096;
+
+/** Marks after a link that belong to the sentence, not the link. */
+const TRAILING = new Set(['.', ',', ';', ':', '!', '?', "'", '"', '*', '_']);
+
+/**
+ * A link found in prose loses the full stop or bracket after it: one
+ * pass to count brackets, one back from the end. A closing bracket is
+ * the link's own only while it has an opening one to match.
+ */
+export function trimLink(raw: string): string {
+  const link = raw.slice(0, MAX_LINK_CHARS);
+  let round = 0;
+  let square = 0;
+  for (const c of link) {
+    if (c === '(') round++;
+    else if (c === ')') round--;
+    else if (c === '[') square++;
+    else if (c === ']') square--;
   }
-  return link;
+  let end = link.length;
+  while (end > 0) {
+    const c = link[end - 1];
+    if (TRAILING.has(c)) end--;
+    else if (c === ')' && round < 0) (end--, round++);
+    else if (c === ']' && square < 0) (end--, square++);
+    else break;
+  }
+  return link.slice(0, end);
 }
 
 /**
  * The link in shared text: the one it ends or starts with (a page's
- * address after a selection, or before a comment), else the first.
+ * address after a selection, or before a comment), else the first. A
+ * run too long to be a link is passed over.
  */
 function linkIn(text: string): { link: string; start: number; end: number } | undefined {
-  const found = [...text.matchAll(LINK)].map((m) => {
+  let first: { link: string; start: number; end: number } | undefined;
+  let last: typeof first;
+  for (const m of text.matchAll(LINK)) {
+    if (m[0].length > MAX_LINK_CHARS) continue;
     const link = trimLink(m[0]);
-    return { link, start: m.index, end: m.index + link.length };
-  });
-  if (!found.length) return undefined;
-  const last = found.at(-1)!;
+    last = { link, start: m.index, end: m.index + link.length };
+    first ??= last;
+  }
+  if (!first || !last) return undefined;
   if (!text.slice(last.end).trim()) return last;
-  return found[0];
+  return first;
 }
 
 /** Quotes Chrome puts round a selection, once the link is gone from after it. */
@@ -123,8 +150,34 @@ export function shareKey(params: {
   at?: string | null;
 }): string {
   const at = (params.at ?? '').trim();
-  if (/^\d+$/.test(at)) return `at:${at}`;
-  return `fields:${JSON.stringify([params.title ?? '', params.text ?? '', params.url ?? ''])}`;
+  if (/^\d{1,16}$/.test(at)) return `at:${at}`;
+  // A hash, not the fields: the taken keys are kept, and words can be long.
+  const fields = JSON.stringify([params.title ?? '', params.text ?? '', params.url ?? '']);
+  return `fields:${fields.length}:${fnv1a(fields)}`;
+}
+
+/** FNV-1a over UTF-16 code units, as eight hex digits; enough to tell shares apart. */
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * A share's fields as they came, kept before anything reads them
+ * (review on #271), so a share that is slow or strange to read is
+ * still kept. `cut`: the words' length when the Worker had to shorten
+ * them to fit an address (see infra/worker), else absent.
+ */
+export interface RawShare {
+  title: string;
+  text: string;
+  url: string;
+  at: string;
+  cut?: number;
 }
 
 /**

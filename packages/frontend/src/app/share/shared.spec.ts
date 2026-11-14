@@ -1,4 +1,12 @@
-import { openedHere, parseShare, shareKey, shareNoteText, webLink } from './shared';
+import {
+  MAX_LINK_CHARS,
+  openedHere,
+  parseShare,
+  shareKey,
+  shareNoteText,
+  trimLink,
+  webLink,
+} from './shared';
 
 describe('parseShare', () => {
   it('takes a page Chrome shared: its title, and its address in the text', () => {
@@ -70,6 +78,21 @@ describe('parseShare', () => {
     );
   });
 
+  it('reads a crafted share quickly: trimming is one pass, and bounded (review on #271)', () => {
+    const brackets = `https://a.test/x${')'.repeat(200_000)}`;
+    const marks = `https://a.test/x${'.)'.repeat(100_000)}`;
+    const start = performance.now();
+    expect(trimLink(brackets)).toBe('https://a.test/x');
+    expect(trimLink(marks)).toBe('https://a.test/x');
+    // A run longer than any link is words, not a link.
+    expect(parseShare({ text: `see ${brackets}` })).toMatchObject({ link: '' });
+    expect(parseShare({ text: `see ${'https://a.test/('.repeat(50_000)}` })?.link).toBe('');
+    const short = parseShare({ text: `see https://a.test/x${')'.repeat(MAX_LINK_CHARS / 2)}` })!;
+    expect(short.link).toBe('https://a.test/x');
+    // Quadratic, 200k brackets took minutes; one pass takes milliseconds.
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
   it('keeps very long text whole, finding the link after it', () => {
     const words = 'Slice the potatoes. '.repeat(50_000).trim();
     const shared = parseShare({ text: `${words}\nhttps://recipes.test/gratin` })!;
@@ -80,10 +103,11 @@ describe('parseShare', () => {
 });
 
 describe('shareKey', () => {
-  it('is the moment sw.js took the share, else its fields', () => {
+  it('is the moment sw.js took the share, else a short hash of its fields', () => {
     expect(shareKey({ text: 'a', at: '1700000000000' })).toBe('at:1700000000000');
     expect(shareKey({ text: 'a', at: 'soon' })).toBe(shareKey({ text: 'a' }));
     expect(shareKey({ text: 'a' })).not.toBe(shareKey({ text: 'b' }));
+    expect(shareKey({ text: 'x'.repeat(1_000_000) }).length).toBeLessThan(40);
   });
 });
 
