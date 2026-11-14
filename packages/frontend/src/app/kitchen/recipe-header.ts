@@ -11,15 +11,17 @@ import {
 } from '@angular/core';
 import { SET_ASIDE_HEADING, hostOf, ingredients, methodSteps } from '@mossgoblin/schema';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
+import { RecipePaste } from './recipe-paste';
 
 /**
  * Above a recipe's text (#127): its name, Eric's own, and a line saying
  * what the text holds; while an import reads its page, or after one
- * failed, a line saying so (#128). Servings and the source are on the
- * back (#112).
+ * failed, a line saying so (#128) and a way to paste the page instead
+ * (2026-11-14). Servings and the source are on the back (#112).
  */
 @Component({
   selector: 'app-recipe-header',
+  imports: [RecipePaste],
   template: `
     <section class="recipe" aria-label="Recipe">
       <label class="name">
@@ -50,6 +52,8 @@ import { NotesService, type NoteRecord } from '../notes/notes.service';
           <button type="button" (click)="notes.retryImport(note().id)">Try again</button>
         </p>
       }
+      <!-- A site that will not be read can be pasted instead (2026-11-14). -->
+      <app-recipe-paste [note]="note()" />
     </section>
   `,
   styles: `

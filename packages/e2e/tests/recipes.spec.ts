@@ -128,3 +128,59 @@ test('a recipe imported from a link is made at once and says how it went', async
     'Recipe from recipes.invalid (3)',
   );
 });
+
+// A site that will not let Mossgoblin read it (2026-11-14): the import
+// says so in words, and the page pasted instead makes the recipe, its
+// link kept. In the emulator build refused.invalid answers 402, as a
+// licensing site does, and a scripted reader stands in for Claude.
+test('a recipe a site refused is made from the page pasted instead', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Kitchen' }).check();
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('switch', { name: 'Kitchen' })).toBeChecked();
+
+  await page.goto('/browse/recipes');
+  const link = page.getByRole('textbox', { name: 'Import from a link' });
+  await link.fill('https://refused.invalid/hasselback-potato-gratin');
+  await link.press('Enter');
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  const recipe = page.getByRole('region', { name: 'Recipe' });
+  await expect(recipe.getByRole('status')).toContainText(
+    'Could not import from refused.invalid: this site does not let Mossgoblin read its pages ' +
+      '(it answered 402)',
+    { timeout: 30_000 },
+  );
+
+  await recipe.getByRole('button', { name: 'Paste the page instead' }).click();
+  const box = recipe.getByRole('textbox', { name: 'Pasted page' });
+  await expect(box).toBeVisible();
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+  expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+
+  // What a select all and copy of the page gives, more or less.
+  await box.fill(
+    [
+      'Hasselback potato gratin',
+      'Serves 8',
+      'Ingredients',
+      '3 pounds russet potatoes',
+      '2 cups heavy cream',
+      'Method',
+      'Slice the potatoes thinly.',
+      'Bake until golden.',
+    ].join('\n'),
+  );
+  await recipe.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(recipe.getByRole('textbox', { name: 'Recipe name' })).toHaveValue(
+    'Hasselback potato gratin',
+    { timeout: 30_000 },
+  );
+  await expect(recipe).toContainText('2 ingredients · 2 steps');
+  await expect(box).toHaveCount(0);
+  await expect(recipe.getByRole('status')).toHaveCount(0);
+});

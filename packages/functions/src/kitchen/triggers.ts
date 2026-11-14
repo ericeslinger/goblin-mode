@@ -1,13 +1,9 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { publicFetch } from '../attachments/import';
 import { NotesTools } from '../mcp/tools';
-import { federationFromEnv } from '../notes/claude-titler';
-import { claudeRecipeReader } from './claude-recipe-reader';
-import { type RecipeExtractor, readRecipe } from './recipe-import';
-
-let extractor: RecipeExtractor | null | undefined;
+import { recipeExtractor, recipePages } from './reader';
+import { readRecipe } from './recipe-import';
 
 /**
  * A recipe the app asked to import (#128): read its page and fill it
@@ -25,13 +21,9 @@ export const recipeImport = onDocumentWritten(
   async (event) => {
     const after = event.data?.after.data();
     if (after?.['kind'] !== 'recipe' || after['importState'] !== 'requested') return;
-    if (extractor === undefined) {
-      const config = federationFromEnv(process.env);
-      extractor = config ? claudeRecipeReader(config) : null;
-    }
     const { uid, noteId } = event.params;
     const outcome = await new NotesTools(getFirestore(), uid).finishRecipeImport(noteId, (url) =>
-      readRecipe(url, publicFetch, extractor ?? null),
+      readRecipe(url, recipePages(), recipeExtractor()),
     );
     logger.info('recipeImport', { noteId, outcome });
   },

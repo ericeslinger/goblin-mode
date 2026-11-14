@@ -1300,7 +1300,10 @@ export class NotesTools {
       importState: 'requested',
       next:
         'The server is reading the page. get_note on this id in a minute shows the recipe ' +
-        '(importState done) or why it failed (importError). Do not read the page yourself.',
+        '(importState done) or why it failed (importError). Do not read the page yourself. ' +
+        'If the site does not let Mossgoblin read its pages, Eric can paste the page into ' +
+        'the recipe in the app (Paste the page instead), or tell you the recipe for ' +
+        'create_recipe.',
     };
   }
 
@@ -1344,6 +1347,53 @@ export class NotesTools {
         );
       }
       return 'failed';
+    }
+  }
+
+  /**
+   * A failed import done again from the page Eric pasted (2026-11-14),
+   * for a site that will not let Mossgoblin read it: `read` reads the
+   * paste as the trigger reads a fetched page, and the recipe is filled
+   * in the same way, its link kept as its source, so it is marked as
+   * imported from a page. Claimed as the trigger claims, so the two
+   * never fill one recipe. A paste that holds no recipe puts the note
+   * back as it was, failed with its first reason, and says why here.
+   */
+  async finishPastedImport(
+    id: string,
+    read: (url: string) => Promise<ImportedRecipe>,
+  ): Promise<{ state: 'done' } | { state: 'failed'; error: string }> {
+    await this.requireModule('kitchen', 'importing a recipe');
+    const ref = this.notes().doc(id);
+    const url = await this.db.runTransaction(async (tx) => {
+      const found = await this.readNote(id, tx);
+      const data = found.known();
+      const source = data?.['source'] as { url?: unknown } | undefined;
+      if (data?.['kind'] !== 'recipe' || inTrash(data)) throw new ToolError(`no recipe ${id}`);
+      if (typeof source?.url !== 'string') {
+        throw new ToolError('this recipe has no link to import from');
+      }
+      if (data['importState'] === 'requested' || data['importState'] === 'working') {
+        throw new ToolError('this recipe is being read already; wait for it to finish');
+      }
+      if (data['importState'] !== 'failed') {
+        throw new ToolError('only a recipe whose import failed takes a pasted page');
+      }
+      await this.writeNote(tx, 'update', ref, { importState: 'working' }, found.forms);
+      return source.url;
+    });
+    try {
+      await this.fillImport(ref, id, url, await read(url));
+      return { state: 'done' };
+    } catch (err) {
+      const still = await this.readNote(id);
+      if (still.exists) {
+        await this.writeNote(null, 'update', ref, { importState: 'failed' }, still.forms);
+      }
+      return {
+        state: 'failed',
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+      };
     }
   }
 

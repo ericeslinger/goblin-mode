@@ -1156,6 +1156,44 @@ and files' text in `get_attachment_text` and `search_attachments`:
 those Claude reads on purpose, so it is not screened, only labelled. The last safeguard is
 Eric's: claude.ai asking before any send or spend.
 
+*Sites that refuse, and pasting the page (2026-11-14).* Some sites
+will not let a server read their pages: Serious Eats (People Inc.,
+behind Cloudflare) answers every automated fetch from a cloud address
+with 402 and a licensing page, whatever the user agent says. A fetch
+answered 401, 402, 403, 429 or 451 now fails as "this site does not
+let Mossgoblin read its pages (it answered 402)" (`answeredError` in
+`attachments/import.ts`, so a saved link says the same); other
+failures read as before. The way round is the page itself: a browser
+cannot fetch another site's page for the app (CORS), so on a recipe
+whose import failed the front offers Paste the page instead. Eric
+opens the recipe in his browser, selects all, copies, and pastes it
+into the box; Import sends it with the recipe's id to the
+`importPastedRecipe` callable. The link stays the recipe's source, so
+the recipe is marked as imported from a page (`fromWeb`) exactly as a
+fetched one. The paste is read as a fetched page is
+(`readPastedRecipe`): pasted HTML is read for its JSON-LD first, then
+its visible text (hidden elements dropped); copied words, zero-width
+and Unicode tag characters dropped, go to the same model with the same
+fixed shape and no tools, cut to the same 40,000 characters; without
+a model it says so. A paste over a million characters is refused, not
+cut. The import claims the recipe as the trigger does (`working`), so
+the two never fill one, and its lines are screened and set aside the
+same way. A paste that holds no recipe puts the recipe back as it was,
+failed with its first reason, and the box says why. A callable rather
+than a stored field, so no stored schema or rule changes and the page
+text is never written anywhere but into the recipe: the paste needs a
+connection, which recipe import's trigger was chosen to avoid, so the
+box keeps what was pasted, offline or when the call fails, until an
+import of it succeeds. It is offered only on a failed import, not
+beside Import from a link in Browse: there the recipe does not exist
+yet, and making it on the server would be Claude's write, not Eric's,
+while making it on the device would race the trigger. In a chat,
+Eric can paste or tell Claude the recipe for `create_recipe`; no tool
+changed what it takes, and `import_recipe`'s reply now says both ways
+round. The emulator build's `kitchen/stand-in.emulator.ts` makes
+`refused.invalid` answer 402 and reads a plainly written recipe in
+place of Claude, for the journey.
+
 **Meal plan (#129, 2026-10-18; epic #125).** One note of kind
 `mealplan` per week, its id derived from the week's first day
 (`meals-2026-10-19`) and that day in `periodStart`, so a phone offline
@@ -4085,7 +4123,8 @@ error, to be tried again, not a service never set up (review on
   answers 503.
 - *Who may ask* is a Worker var, `NOTE_KEY_CALLERS`, exact emails,
   not a domain suffix. The functions that read notes run as three
-  accounts: `goblin-titles` (`noteTitle`, `recipeImport`),
+  accounts: `goblin-titles` (`noteTitle`, `recipeImport`,
+  `importPastedRecipe`),
   `goblin-runner` (`agentRun`, `attachmentTranscribe`) and the
   default compute account (`mcp`, `itemAssigned`, `noteArrived`,
   `noteHistory`, `proposalAccepted`, `revertRun`, `rerouteRun`).
