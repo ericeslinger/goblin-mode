@@ -118,6 +118,19 @@ describe('RecipePaste (2026-11-14)', () => {
     expect(el.querySelector('textarea')).toBeNull();
   });
 
+  it('takes typing while a paste is read, and keeps what was typed since', async () => {
+    const { el, fixture, importPasted, paste } = await render(failed);
+    let finish!: (r: PastedImport) => void;
+    importPasted.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const box = await paste('Potatoes');
+    expect(box.readOnly).toBe(false);
+    box.value = 'Potatoes and cream';
+    box.dispatchEvent(new Event('input'));
+    finish({ state: 'done' });
+    await fixture.whenStable();
+    expect(el.querySelector('textarea')!.value).toBe('Potatoes and cream');
+  });
+
   it('refuses a paste too big to send', async () => {
     const { el, importPasted, paste } = await render(failed);
     await paste('x'.repeat(MAX_PASTED_CHARS + 1));

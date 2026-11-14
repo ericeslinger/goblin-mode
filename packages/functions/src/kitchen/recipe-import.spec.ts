@@ -185,6 +185,14 @@ describe('readPastedRecipe (2026-11-14)', () => {
       })),
     ).rejects.toThrow('no recipe found on the page');
   });
+
+  it('reads a paste of many unclosed tags in one pass (review on #268)', async () => {
+    const started = Date.now();
+    await expect(
+      readPastedRecipe(url, '<p '.repeat(100_000), async () => undefined),
+    ).rejects.toThrow('no recipe found on the page');
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
 });
 
 describe('recipeFromReply (#128)', () => {

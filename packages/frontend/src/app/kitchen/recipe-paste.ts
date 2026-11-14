@@ -1,11 +1,14 @@
 import {
   Component,
+  type ElementRef,
   InjectionToken,
   Injector,
+  afterNextRender,
   computed,
   inject,
   input,
   signal,
+  viewChild,
 } from '@angular/core';
 import { hostOf } from '@mossgoblin/schema';
 import { httpsCallable } from 'firebase/functions';
@@ -50,7 +53,7 @@ export const RECIPE_IMPORT_API = new InjectionToken<RecipeImportApi>('recipe-imp
   template: `
     @if (shown()) {
       @if (!open()) {
-        <button type="button" class="toggle" (click)="open.set(true)">
+        <button #toggle type="button" class="toggle" (click)="show()">
           Paste the page instead
         </button>
       } @else {
@@ -61,11 +64,11 @@ export const RECIPE_IMPORT_API = new InjectionToken<RecipeImportApi>('recipe-imp
           </p>
           <label class="visually-hidden" for="paste-{{ note().id }}">Pasted page</label>
           <textarea
+            #box
             id="paste-{{ note().id }}"
             rows="6"
             [attr.aria-describedby]="'paste-help-' + note().id"
             [value]="text()"
-            [readOnly]="busy()"
             (input)="typed($any($event.target).value)"
           ></textarea>
           <div class="actions">
@@ -154,6 +157,15 @@ export class RecipePaste {
       (this.note().importState === 'failed' || this.busy() || !!this.text()),
   );
 
+  private readonly box = viewChild<ElementRef<HTMLTextAreaElement>>('box');
+  private readonly toggle = viewChild<ElementRef<HTMLButtonElement>>('toggle');
+
+  /** Opens the box with the keyboard's focus in it. */
+  protected show(): void {
+    this.open.set(true);
+    afterNextRender(() => this.box()?.nativeElement.focus(), { injector: this.injector });
+  }
+
   protected typed(value: string): void {
     this.text.set(value);
     if (!this.busy()) this.said.set('');
@@ -163,6 +175,7 @@ export class RecipePaste {
     this.text.set('');
     this.said.set('');
     this.open.set(false);
+    afterNextRender(() => this.toggle()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected async submit(): Promise<void> {
@@ -184,9 +197,13 @@ export class RecipePaste {
     try {
       const result = await this.injector.get(RECIPE_IMPORT_API).importPasted(id, text);
       if (result.state === 'done') {
-        this.text.set('');
         this.said.set('');
-        this.open.set(false);
+        // The box takes typing while the paste is read (review on
+        // #268); what was typed since stays in it.
+        if (this.text() === text) {
+          this.text.set('');
+          this.open.set(false);
+        }
       } else {
         this.said.set(`Could not import it: ${result.error}.`);
       }

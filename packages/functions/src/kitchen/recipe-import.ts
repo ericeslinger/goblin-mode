@@ -177,11 +177,15 @@ export async function readRecipe(
   return recipeFromHtml(url, new TextDecoder().decode(page.bytes), extractor);
 }
 
-/** Whether pasted text is a page's source rather than its words. */
+/**
+ * Whether pasted text is a page's source rather than its words. A tag's
+ * inside stops at the next `<` too, so a paste of many unclosed tags is
+ * read in one pass (review on #268).
+ */
 function isHtml(text: string): boolean {
   return (
     /^\s*<(?:!doctype|html|head|body)\b/i.test(text) ||
-    /<(?:script|div|p|li|article|main|section|span|h[1-6])\b[^>]*>/i.test(text)
+    /<(?:script|div|p|li|article|main|section|span|h[1-6])\b[^<>]*>/i.test(text)
   );
 }
 
