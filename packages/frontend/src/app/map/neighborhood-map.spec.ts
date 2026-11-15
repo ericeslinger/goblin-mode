@@ -58,7 +58,8 @@ describe('NeighborhoodMap', () => {
   it('says so when nothing links here', async () => {
     const { el } = await render('/map/n/lonely');
     expect(el.textContent).toContain('Nothing links here yet.');
-    expect(el.querySelector('svg')).toBeNull();
+    // The map's own drawing; the header's icons are drawn as svg too.
+    expect(el.querySelector('svg.map')).toBeNull();
   });
 
   it('says it is loading, not empty, before the notes arrive', async () => {

@@ -32,7 +32,8 @@ describe('ReaderDone (Eric, 2026-11-07)', () => {
     const { el } = await open('/reader/done?in=f:Design');
     expect(el.querySelector('h1')?.textContent).toBe('You are all caught up');
     expect(el.textContent).toContain('Nothing more in Design.');
-    const back = [...el.querySelectorAll('a')].find((a) => a.textContent === 'Back')!;
+    const back = el.querySelector('a[aria-label="Back to Design"]')!;
+    expect(back.textContent).toBe('Design');
     expect(back.getAttribute('href')).toBe('/reader/f/Design');
     const art = el.querySelector('svg[role="img"]')!;
     expect(art.getAttribute('aria-label')).toBe(
@@ -43,7 +44,7 @@ describe('ReaderDone (Eric, 2026-11-07)', () => {
   it("names a feed's shelf by the feed and links back to it", async () => {
     const { el } = await open('/reader/done?in=s:feed1');
     expect(el.textContent).toContain('Nothing more in Design notes.');
-    const back = [...el.querySelectorAll('a')].find((a) => a.textContent === 'Back')!;
+    const back = el.querySelector('a[aria-label="Back to Design notes"]')!;
     expect(back.getAttribute('href')).toBe('/reader/s/feed1');
   });
 

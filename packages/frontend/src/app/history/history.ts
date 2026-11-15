@@ -16,7 +16,7 @@ import { CaptureService } from '../capture/capture.service';
 import { FIREBASE } from '../firebase';
 import { NoteKeyService } from '../notes/note-key.service';
 import { NotesService, openField } from '../notes/notes.service';
-import { HomeLink } from '../home/home-link';
+import { PageHeader } from '../home/page-header';
 
 /** A kept version as History lists it; times in milliseconds. */
 export interface VersionRecord {
@@ -110,11 +110,15 @@ export function reasonLabel(v: VersionRecord): string {
  */
 @Component({
   selector: 'app-history',
-  imports: [HomeLink],
+  imports: [PageHeader],
   template: `
     <main class="page">
-      <app-home-link />
-      <h1>History</h1>
+      <!-- Back to the note it is the history of (#286). -->
+      <app-page-header
+        title="History"
+        [backLabel]="noteId() ? 'Note' : undefined"
+        [backLink]="['/n', noteId()]"
+      />
       @if (title()) {
         <p class="muted">{{ title() }}</p>
       }

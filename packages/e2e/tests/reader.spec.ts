@@ -71,13 +71,17 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   test.setTimeout(90_000);
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
-  await page.goto('/browse');
-  await expect(page.getByRole('link', { name: /^Reader/ })).toHaveCount(0);
+  // The Reader is reached by its tile on Home (#286), none while it is off.
+  const readerTile = page
+    .getByRole('navigation', { name: 'Modules' })
+    .getByRole('link', { name: /^Reader/ });
+  await page.goto('/home');
+  await expect(readerTile).toHaveCount(0);
   await page.goto('/settings');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
-  await page.goto('/browse');
-  await page.getByRole('link', { name: /^Reader/ }).click();
+  await page.goto('/home');
+  await readerTile.click();
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
   await page.getByRole('link', { name: 'Import a file from your reader' }).click();
   await expect(page.getByRole('heading', { name: 'Manage feeds', level: 1 })).toBeVisible();
@@ -124,7 +128,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await letItSave(page);
 
   // Step 2: Refresh from the Folders tab; the fixtures answer, the rest cannot be reached.
-  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('link', { name: 'Back to Reader', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
   const tabs = readerTabs(page);
   await expect(tabs.getByRole('link', { name: /^All/ })).toHaveAttribute('aria-current', 'page');
@@ -227,7 +231,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(
     listening.getByRole('button', { name: 'Move to Podcasts: Kiln hour (fixture)' }),
   ).toBeVisible();
-  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('link', { name: 'Back to Reader', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Reader', level: 1 })).toBeVisible();
 
   // What is new, in Right Now (#173): a line per folder never opened,
@@ -355,7 +359,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
   await page.keyboard.press('j');
   await expect(caughtUp).toBeVisible();
-  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('link', { name: 'Back to Design', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Design', level: 2 })).toBeVisible();
   await expect(page.getByText('All caught up.')).toBeVisible();
   await page.getByRole('checkbox', { name: 'Show read' }).check();
@@ -375,9 +379,9 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   // Saved keeps what is saved, read or not.
   await expect(articles.getByRole('listitem')).toHaveCount(1);
   await expect(articles.getByRole('listitem').first()).toContainText('Celadon glazes');
-  await page.goto('/browse');
+  await page.goto('/home');
   // Games' two, and the two episodes of the feed with audio (#178).
-  await expect(page.getByRole('link', { name: /^Reader/ })).toContainText('4 unread');
+  await expect(readerTile).toContainText('4 unread');
   await page.goto('/reader/f/Games');
   await expect(articles.getByRole('listitem')).toHaveCount(2);
   await expect(articles.getByRole('listitem').first()).toContainText('Dice ·');

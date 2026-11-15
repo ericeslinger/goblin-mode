@@ -3,12 +3,15 @@ import { expect, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The reading queue (#48): links saved to read later, newest first,
-// marked read or unread, reached from Browse.
+// marked read or unread, reached from Home's tile (Browse until #286).
 
 test('save a link to read later, then mark it read', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/browse');
-  await page.getByRole('link', { name: /Reading queue/ }).click();
+  const tile = page
+    .getByRole('navigation', { name: 'Modules' })
+    .getByRole('link', { name: /^Reading queue/ });
+  await page.goto('/home');
+  await tile.click();
   await expect(page.getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible();
 
   const link = page.getByRole('textbox', { name: 'Link to save' });
@@ -29,6 +32,6 @@ test('save a link to read later, then mark it read', async ({ page }) => {
 
   await queue.getByRole('button', { name: /^Mark read:/ }).click();
   await expect(queue.getByRole('button', { name: /^Mark unread:/ })).toBeVisible();
-  await page.goto('/browse');
-  await expect(page.getByRole('link', { name: /Reading queue/ })).not.toContainText('to read');
+  await page.goto('/home');
+  await expect(tile).toContainText('Nothing waiting');
 });

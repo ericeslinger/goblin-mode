@@ -2,60 +2,25 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
-import { ProposalsService } from '../claude/proposals.service';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
-import { ItemsService } from '../reader/items.service';
-import { ReadingService } from '../reading/reading.service';
 import { LENSES, inLens, lensId } from './lenses';
 import { NoteList } from './note-list';
-import { HomeLink } from '../home/home-link';
+import { PageHeader } from '../home/page-header';
 
 /**
  * All notes and search, on its own screen (the phone), through lenses:
  * Recent, Concepts, People, Projects, Tags, Archived (#31), Trash
  * (#217). Each lens
- * is a URL, /browse/<lens>, so back returns to it.
+ * is a URL, /browse/<lens>, so back returns to it. The other places
+ * are Home's tiles, not a list of links here (#286, 2026-11-15).
  */
 @Component({
   selector: 'app-browse',
-  imports: [HomeLink, RouterLink, NoteList],
+  imports: [PageHeader, RouterLink, NoteList],
   template: `
     <main class="page">
-      <app-home-link />
-      <h1>Notes</h1>
-      <p class="more">
-        <a routerLink="/map">See the whole garden as a map</a>
-        @if (modules.kitchen()) {
-          <a routerLink="/kitchen">This week’s meals</a>
-        }
-        @if (modules.reader()) {
-          <a routerLink="/reader"
-            >Reader
-            @if (articles.unreadCounts()['all']) {
-              <span class="count">{{ articles.unreadCounts()['all'] }} unread</span>
-            }
-          </a>
-        }
-        @if (modules.podcasts()) {
-          <a routerLink="/podcasts">Podcasts</a>
-        }
-        <a routerLink="/reading"
-          >Reading queue
-          @if (reading.unread().length) {
-            <span class="count">{{ reading.unread().length }} to read</span>
-          }
-        </a>
-        <a routerLink="/activity"
-          >What assistants changed
-          @if (proposals.open()) {
-            <span class="count"
-              >{{ proposals.open() }}
-              {{ proposals.open() === 1 ? 'suggestion' : 'suggestions' }}</span
-            >
-          }
-        </a>
-      </p>
+      <app-page-header title="Notes" />
       <nav aria-label="Lenses">
         @for (l of lenses(); track l.id) {
           <a
@@ -116,11 +81,6 @@ import { HomeLink } from '../home/home-link';
     .muted {
       color: var(--quiet);
     }
-    .more {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-1) var(--space-3);
-    }
     nav {
       display: flex;
       flex-wrap: wrap;
@@ -158,9 +118,6 @@ export class Browse {
   /** Names are checked against every note, so New recipe waits for them. */
   protected readonly notesReady = computed(() => this.notes.loaded() && this.notes.ready);
   protected readonly modules = inject(ModulesService);
-  protected readonly proposals = inject(ProposalsService);
-  protected readonly reading = inject(ReadingService);
-  protected readonly articles = inject(ItemsService);
   protected readonly lens = toSignal(
     inject(ActivatedRoute).paramMap.pipe(map((p) => lensId(p.get('lens')))),
     { initialValue: lensId(undefined) },

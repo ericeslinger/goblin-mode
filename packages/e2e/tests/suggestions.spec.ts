@@ -35,8 +35,13 @@ test('accepting a suggestion, even offline, carries it out; dismissing drops it'
   })) as { stored: unknown[] };
   expect(result.stored).toHaveLength(2);
 
-  await page.goto('/browse');
-  await page.getByRole('link', { name: 'What assistants changed 2 suggestions' }).click();
+  // Home's Assistants tile counts them and opens the screen (#286).
+  const assistants = page
+    .getByRole('navigation', { name: 'Modules' })
+    .getByRole('link', { name: /^Assistants/ });
+  await page.goto('/home');
+  await expect(assistants).toContainText('2 suggestions');
+  await assistants.click();
   await expect(page).toHaveURL(/\/activity$/);
   const suggestions = page.getByRole('list', { name: 'Suggestions' });
   const merge = suggestions.getByRole('listitem').filter({ hasText: 'Merge' });
@@ -65,7 +70,6 @@ test('accepting a suggestion, even offline, carries it out; dismissing drops it'
   // Nothing waits any more, and the originals are archived.
   await page.goto('/browse/archived');
   await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Firing notes');
-  await expect(page.getByRole('link', { name: 'What assistants changed' })).not.toContainText(
-    'suggestion',
-  );
+  await page.goto('/home');
+  await expect(assistants).toContainText('0 suggestions');
 });

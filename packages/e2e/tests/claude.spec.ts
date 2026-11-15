@@ -127,7 +127,11 @@ test('an app on this computer connects through a localhost callback, and is name
   await call('create_note', { body: 'Filed by Gemini\nfrom the terminal' });
   await page.goto('/browse');
   await expect(page.getByRole('list', { name: 'Notes' })).toContainText('Filed by Gemini');
-  // The change names the app that made it.
-  await page.getByRole('link', { name: 'What assistants changed' }).click();
+  // The change names the app that made it; its place is Home's tile (#286).
+  await page.getByRole('link', { name: 'Home' }).click();
+  await page
+    .getByRole('navigation', { name: 'Modules' })
+    .getByRole('link', { name: /^Assistants/ })
+    .click();
   await expect(page.getByRole('list', { name: 'Changes' })).toContainText('Gemini CLI:');
 });

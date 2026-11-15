@@ -30,8 +30,12 @@ test('the garden shows beds and a timeline; a dot opens its note; back returns',
   await letItSave(page);
   await page.getByRole('button', { name: 'New' }).click();
 
-  await page.goto('/browse');
-  await page.getByRole('link', { name: 'See the whole garden as a map' }).click();
+  // Reached by Home's Map tile (#286).
+  await page.goto('/home');
+  await page
+    .getByRole('navigation', { name: 'Modules' })
+    .getByRole('link', { name: /^Map/ })
+    .click();
   await expect(page).toHaveURL(/\/map$/);
   await expect(page.getByRole('list', { name: /^Kiln/ })).toContainText('Firing log');
   await expect(page.getByRole('list', { name: /^Glaze/ })).toContainText('Glaze recipe');

@@ -37,8 +37,12 @@ test('a merge by Claude shows in What assistants changed, with its notes and His
   const [firing] = (await call('search_notes', { query: 'shelf' })) as { id: string }[];
   const merged = (await call('merge_notes', { ids: [kiln.id, firing.id] })) as { id: string };
 
-  await page.goto('/browse');
-  await page.getByRole('link', { name: 'What assistants changed' }).click();
+  // Reached by Home's Assistants tile (#286).
+  await page.goto('/home');
+  await page
+    .getByRole('navigation', { name: 'Modules' })
+    .getByRole('link', { name: /^Assistants/ })
+    .click();
   await expect(page).toHaveURL(/\/activity$/);
   await expect(page.getByRole('heading', { name: 'What assistants changed' })).toBeVisible();
   const touched = page.getByRole('list', { name: 'Notes: Merged 2 notes into one' });

@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
+import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { NOW } from '../platform/platform';
 import { FeedFix } from './feed-fix';
@@ -50,11 +51,10 @@ export function renamedFolder(names: readonly string[]): string {
  */
 @Component({
   selector: 'app-reader-feeds',
-  imports: [FeedFix, RouterLink],
+  imports: [FeedFix, PageHeader, RouterLink],
   template: `
     <main class="page">
-      <a routerLink="/reader">Back</a>
-      <h1>Manage feeds</h1>
+      <app-page-header title="Manage feeds" backLabel="Reader" backLink="/reader" />
       @if (!modules.reader()) {
         <p class="muted">
           Reader is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.

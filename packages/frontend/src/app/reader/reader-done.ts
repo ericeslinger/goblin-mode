@@ -1,8 +1,9 @@
 import { Location } from '@angular/common';
 import { Component, HostListener, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
+import { PageHeader } from '../home/page-header';
 import { CaughtUp } from './caught-up';
 import { shelfFromParam, shelfLink, shelfTitle } from './reader-list';
 import { ReaderService } from './reader.service';
@@ -10,16 +11,16 @@ import { Swipe } from './swipe';
 
 /**
  * The end of a shelf (Eric, 2026-11-07): where a swipe left from its
- * last article lands (`/reader/done?in=<shelf>`). Back is the shelf's
- * list; a swipe right, or k, goes back to the last article, and there
- * is nothing further left.
+ * last article lands (`/reader/done?in=<shelf>`). Its header goes
+ * back to the shelf's list, "‹ Design" (#286); a swipe right, or k,
+ * goes back to the last article, and there is nothing further left.
  */
 @Component({
   selector: 'app-reader-done',
-  imports: [RouterLink, Swipe, CaughtUp],
+  imports: [PageHeader, Swipe, CaughtUp],
   template: `
     <main class="page" appSwipe [canLeft]="false" (right)="back()">
-      <a [routerLink]="backLink()" class="back">Back</a>
+      <app-page-header [backLabel]="title()" [backLink]="backLink()" />
       <app-reader-caught-up [shelf]="title()" />
     </main>
   `,

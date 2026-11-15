@@ -33,18 +33,17 @@ import { RemindersService } from '../reminders/reminders.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
 import { reloadPage } from '../unknown-route';
-import { HomeLink } from '../home/home-link';
+import { PageHeader } from '../home/page-header';
 
 /** The weekly reminder to plan the meals (#129). */
 export const PLAN_REMINDER = 'Plan next week’s meals';
 
 @Component({
   selector: 'app-settings',
-  imports: [HomeLink, RouterLink, ThemePicker],
+  imports: [PageHeader, RouterLink, ThemePicker],
   template: `
     <main class="page">
-      <app-home-link />
-      <h1>Settings</h1>
+      <app-page-header title="Settings" />
       @if (auth.user(); as user) {
         <p>Signed in as {{ user.email }}</p>
         <button type="button" (click)="signOut()">Sign out</button>
