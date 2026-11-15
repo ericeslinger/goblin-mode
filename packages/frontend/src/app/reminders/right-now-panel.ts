@@ -44,9 +44,25 @@ export const PANEL_ITEMS = 3;
     <app-podcasts-new />
   `,
   styles: `
+    :host {
+      display: block;
+    }
     h2 {
       margin: 8px 0;
       font-size: 15px;
+    }
+    /* Beside the notes list Right Now is capped and scrolls inside
+       (#285): its heading stays in sight, so a line cut at the cap
+       reads as more below, not as the end. */
+    @media (min-width: 900px) {
+      h2 {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        margin: 0;
+        padding: 12px 0 8px;
+        background: var(--bg);
+      }
     }
     .title {
       color: var(--ink);

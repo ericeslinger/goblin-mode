@@ -10,6 +10,26 @@ describe('snippet', () => {
     expect(snippet(noteRecord('a', '# Groceries\n- [ ] eggs\n- milk'))).toBe('eggs milk');
   });
 
+  it('is plain words: links, images and emphasis as they read (#285)', () => {
+    const body =
+      'Dinner\nPlanned [[Pork chops|chops]] and *bold* _greens_, see [the page](https://x.y)';
+    expect(snippet(noteRecord('a', body))).toBe('Planned chops and bold greens, see the page');
+  });
+
+  it('reads past a long image with no alt to the words after it', () => {
+    const image = `![](https://example.com/${'a'.repeat(400)}.jpg)`;
+    expect(snippet(noteRecord('a', `Clipped\n${image}\nThe glaze held.`))).toBe('The glaze held.');
+  });
+
+  it('reads only the start of a long mark-heavy line, and a note again when it changes', () => {
+    const heavy = 'a *b* '.repeat(20_000);
+    const started = performance.now();
+    expect(snippet(noteRecord('heavy', `t\n${heavy}`), 12)).toBe('a b a b a b…');
+    expect(performance.now() - started).toBeLessThan(500);
+    // One entry a note: the same id with new text is read afresh.
+    expect(snippet(noteRecord('heavy', 't\nnew words'), 12)).toBe('new words');
+  });
+
   it('is cut with an ellipsis', () => {
     const text = snippet(noteRecord('a', `t\n${'x'.repeat(200)}`), 10);
     expect(text).toBe(`${'x'.repeat(9)}…`);

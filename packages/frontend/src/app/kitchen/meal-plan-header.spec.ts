@@ -87,6 +87,16 @@ describe('MealPlanHeader (#129)', () => {
     );
   });
 
+  it('shows a slot and its notes as plain words, the text kept as typed (#285)', async () => {
+    const typed = '- [ ] Mon dinner: [[Fish of the week]] (*half*)\n  - from [[Ma’s]]\n';
+    const { el, edits } = await render(typed);
+    const slot = buttonNamed(el, 'Change Mon dinner, Oct 19: Fish of the week (half)');
+    expect(slot.textContent?.trim()).toBe('Fish of the week (half)');
+    expect(el.querySelector('.note')?.textContent).toBe('from Ma’s');
+    expect(el.textContent).not.toContain('[[');
+    expect(edits).toEqual([]);
+  });
+
   it('asks about a made delivery, or asks again later', async () => {
     const { el, fixture, edits, reminders } = await render(body);
     const answer = el.querySelector<HTMLInputElement>(

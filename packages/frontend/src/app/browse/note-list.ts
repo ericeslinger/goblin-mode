@@ -1,6 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { plainText } from '@mossgoblin/editor/grammar';
 import { TRASH_DAYS, matchesSearch, moodsOf } from '@mossgoblin/schema';
 import { STATUSES, kindLabel, statusLabel } from '../links/project-labels';
 import { LinksService } from '../links/links.service';
@@ -8,13 +9,56 @@ import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { type LensId, byTag, goneIn, inLens, projectTree } from './lenses';
 
-/** The text shown under a note's title: its body after the title line. */
+/**
+ * The text shown under a note's title: the plain words of its body after
+ * the title line (#285, 2026-11-15), shown only, never stored. Only the
+ * first lines are parsed, each to a limit, so a long or mark-heavy note
+ * costs no more than a short one.
+ */
 export function snippet(note: NoteRecord, length = 90): string {
-  const lines = note.body
-    .split('\n')
-    .map((l) => l.replace(/^[#>\s*+-]+(\[[ xX]\]\s*)?/, '').trim());
-  const rest = lines.filter(Boolean).slice(1).join(' ');
+  // The list redraws as notes change: each note's body is read once per
+  // change, and one entry is kept per note, not per body it ever had.
+  const known = snippets.get(note.id);
+  if (known && known.body === note.body && known.length === length) return known.text;
+  if (!known && snippets.size >= SNIPPETS_KEPT) snippets.clear();
+  const text = readSnippet(note.body, length);
+  snippets.set(note.id, { body: note.body, length, text });
+  return text;
+}
+
+const SNIPPETS_KEPT = 5000;
+const snippets = new Map<string, { body: string; length: number; text: string }>();
+
+/** The most of one line that is read: enough for any address in a link. */
+const LINE_READ = 2000;
+/** The most that is read in all when the first lines held no words. */
+const FURTHER = 6000;
+
+function readSnippet(body: string, length: number): string {
+  const lines = body.split('\n');
+  const title = lines.findIndex((l) => l.trim());
+  if (title < 0) return '';
+  // Whole lines, so no link is cut before it is read, each to a limit,
+  // so one long mark-heavy line costs no more than a short one.
+  const take = (from: number, most: number): { text: string; next: number } => {
+    const taken: string[] = [];
+    let size = 0;
+    let at = from;
+    while (at < lines.length && size <= most) {
+      const line = lines[at++]!.slice(0, LINE_READ);
+      taken.push(line);
+      size += line.length;
+    }
+    return { text: words(taken.join('\n')), next: at };
+  };
+  const first = take(title + 1, length * 4);
+  // Lines that were all markup (an image with no alt) gave no words: read on.
+  const rest = first.text || take(first.next, FURTHER).text;
   return rest.length > length ? `${rest.slice(0, length - 1)}…` : rest;
+}
+
+function words(text: string): string {
+  return plainText(text).replace(/\s+/g, ' ').trim();
 }
 
 /** Case-insensitive match on title and body, every word must appear. */
@@ -114,6 +158,7 @@ export function matches(note: NoteRecord, search: string): boolean {
   styles: `
     :host {
       display: block;
+      min-width: 0;
     }
     .search input {
       box-sizing: border-box;
@@ -130,8 +175,11 @@ export function matches(note: NoteRecord, search: string): boolean {
       margin: 8px 0 0;
       padding: 0;
     }
+    /* One column that never grows past the list: a long address in a
+       title or snippet wraps instead of widening the page (#285). */
     a {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 2px;
       padding: 10px 4px;
       border-bottom: 1px solid var(--rule);
@@ -147,6 +195,8 @@ export function matches(note: NoteRecord, search: string): boolean {
     }
     .row {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      min-width: 0;
       gap: 2px;
       padding: 10px 4px;
     }
@@ -165,6 +215,11 @@ export function matches(note: NoteRecord, search: string): boolean {
     }
     .title {
       font-weight: 600;
+    }
+    .title,
+    .snippet {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .snippet,
     .muted {
