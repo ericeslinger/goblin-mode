@@ -222,7 +222,7 @@ describe('NotesTools', () => {
     expect((await db.doc(`users/u1/notes/${id}`).get()).get('links')).toEqual(['v']);
   });
 
-  it("updates a note as Claude, keeping Eric's own title his", async () => {
+  it('updates a note as Claude, renaming a title Eric set when asked (2026-11-15)', async () => {
     await eric('a', 'first draft');
     await eric('m', 'mine', { title: 'Mine', titleSource: 'user' });
     const t = tools();
@@ -233,7 +233,12 @@ describe('NotesTools', () => {
       updatedBy: 'claude',
       deviceId: 'claude',
     });
-    await expect(t.updateNote({ id: 'm', title: 'Better' })).rejects.toThrow(/Eric's own/);
+    // Asked, a tool renames his title too (Eric, 2026-11-15), kept as his.
+    await t.updateNote({ id: 'm', title: 'Better' });
+    expect((await db.doc('users/u1/notes/m').get()).data()).toMatchObject({
+      title: 'Better',
+      titleSource: 'user',
+    });
     await expect(t.updateNote({ id: 'a', body: '  ' })).rejects.toBeInstanceOf(ToolError);
     await t.updateNote({ id: 'a', archived: true });
     expect((await db.doc('users/u1/notes/a').get()).get('archived')).toBe(true);

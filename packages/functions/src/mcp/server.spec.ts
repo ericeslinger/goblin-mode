@@ -186,6 +186,14 @@ describe('the MCP server', () => {
     ]);
   });
 
+  it('passes update_note its dismissImport, and says a set title is changed only when asked (2026-11-15)', async () => {
+    const { client, tools } = await connect();
+    await client.callTool({ name: 'update_note', arguments: { id: 'r1', dismissImport: true } });
+    expect(tools.updateNote).toHaveBeenCalledWith({ id: 'r1', dismissImport: true });
+    expect(INSTRUCTIONS).toMatch(/update_note dismissImport clears a failed import/);
+    expect(INSTRUCTIONS).toMatch(/A title Eric set is his words: change it only when he asks/);
+  });
+
   it('returns a tool error to Claude instead of failing the call', async () => {
     const { client } = await connect();
     const result = await client.callTool({ name: 'get_note', arguments: { id: 'n9' } });

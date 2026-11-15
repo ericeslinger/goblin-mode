@@ -1293,6 +1293,23 @@ export class NotesService {
   }
 
   /**
+   * Dismiss (2026-11-15): a recipe whose import failed made an ordinary
+   * recipe, its import state and reason removed and its link kept as
+   * its source, for one Eric has filled in another way.
+   */
+  dismissImport(id: string): void {
+    const note = this.find(id);
+    if (!this.uid || note?.kind !== 'recipe' || note.importState !== 'failed') return;
+    this.writeFields(id, () => ({
+      importState: this.api.removeField(),
+      importError: this.api.removeField(),
+      updatedAt: this.api.serverTime(),
+      updatedBy: 'user',
+      deviceId: this.deviceId(),
+    })).catch(report);
+  }
+
+  /**
    * Sends a note to Eric's assistant (#143): it waits, with what he
    * asks, until his assistant next checks (list_queue). Through the
    * cache like any write, so it works offline. Sending again replaces

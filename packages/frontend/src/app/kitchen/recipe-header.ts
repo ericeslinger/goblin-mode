@@ -9,15 +9,22 @@ import {
   input,
   viewChild,
 } from '@angular/core';
-import { SET_ASIDE_HEADING, hostOf, ingredients, methodSteps } from '@mossgoblin/schema';
+import {
+  SET_ASIDE_HEADING,
+  hostOf,
+  ingredients,
+  methodSteps,
+  untouchedRecipe,
+} from '@mossgoblin/schema';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { RecipePaste } from './recipe-paste';
 
 /**
  * Above a recipe's text (#127): its name, Eric's own, and a line saying
  * what the text holds; while an import reads its page, or after one
- * failed, a line saying so (#128) and a way to paste the page instead
- * (2026-11-14). Servings and the source are on the back (#112).
+ * failed, a line saying so (#128), a way to paste the page instead
+ * (2026-11-14), and Dismiss, which makes it an ordinary recipe
+ * (2026-11-15). Servings and the source are on the back (#112).
  */
 @Component({
   selector: 'app-recipe-header',
@@ -49,7 +56,12 @@ import { RecipePaste } from './recipe-paste';
       } @else if (note().importState === 'failed') {
         <p class="import" role="status">
           Could not import from {{ site() }}: {{ note().importError || 'no reason given' }}.
+          <!-- An import never writes over his text (2026-11-15). -->
+          @if (!untouched()) {
+            What you wrote stays; an import puts the page's recipe on the back.
+          }
           <button type="button" (click)="notes.retryImport(note().id)">Try again</button>
+          <button type="button" (click)="dismiss()">Dismiss</button>
         </p>
       }
       <!-- A site that will not be read can be pasted instead (2026-11-14). -->
@@ -77,6 +89,9 @@ import { RecipePaste } from './recipe-paste';
       margin: 0 0 var(--space-2);
       font-size: 14px;
       color: var(--quiet);
+    }
+    .import button + button {
+      margin-left: var(--space-2);
     }
     .import button {
       font: inherit;
@@ -106,6 +121,8 @@ export class RecipeHeader {
     () =>
       this.note().importState === 'done' && !!this.note().source?.text?.includes(SET_ASIDE_HEADING),
   );
+  /** Eric has written in the recipe since it was made (2026-11-15). */
+  protected readonly untouched = computed(() => untouchedRecipe(this.note().body));
   /** The site an import reads, for saying so (#128). */
   protected readonly site = computed(() => hostOf(this.note().source?.url ?? '') || 'the link');
 
@@ -161,6 +178,15 @@ export class RecipeHeader {
     // Typed into another recipe's field: that one is written first.
     if (this.typed && this.typed.id !== id) this.writeName();
     this.typed = this.notes.holdName(id, value) ? { id, name: value } : undefined;
+  }
+
+  /**
+   * Dismiss (2026-11-15): the failed import cleared, and the keyboard's
+   * focus on the name, since the line holding the button goes.
+   */
+  protected dismiss(): void {
+    this.notes.dismissImport(this.note().id);
+    this.nameBox()?.nativeElement.focus();
   }
 
   /** Writes the name waiting, now. */

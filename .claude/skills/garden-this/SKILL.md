@@ -27,6 +27,9 @@ Follow them; they are not repeated here.
   contradiction and saying which is newer; on a List, one item a
   line, no duplicates. `capture` still files a decision under
   Decisions whatever the page's mode.
+- A title Eric set is his words: rename a note (`update_note`
+  `title`) only when he asks; since 2026-11-15 the tool no longer
+  refuses, so the asking is the guard.
 - Set `source` to the PR or session link when there is one.
 - Never file secrets, tokens or anything from `.env` files.
 - A project's stages and item tags, and where each item stands, are
@@ -44,7 +47,9 @@ Follow them; they are not repeated here.
   file nothing.
 - A recipe is not gardened: when Eric gives one, make it with
   `create_recipe` (Kitchen on), not `capture`; for a link, use
-  `import_recipe` and never read the page yourself. Meals go on the
+  `import_recipe` and never read the page yourself. A failed import
+  Eric has since typed in is cleared with `update_note`
+  `dismissImport` when he asks. Meals go on the
   plan with `plan_meal`, how one went with `log_meal`, and what Eric
   has on hand with `update_pantry`, not `capture`. For what to cook,
   `suggest_recipes`.

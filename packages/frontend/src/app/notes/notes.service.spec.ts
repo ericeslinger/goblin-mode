@@ -1073,6 +1073,41 @@ describe('NotesService', () => {
     ]);
   });
 
+  it('dismisses a failed import, keeping the link and the text, and nothing else (2026-11-15)', () => {
+    const { notes, api, signIn, push } = setup();
+    signIn('u1');
+    const failed = {
+      kind: 'recipe',
+      body: '## Ingredients\n\n- 2 eggs\n\n## Method\n\n## Notes\n',
+      title: 'Recipe from refused.invalid',
+      source: { url: 'https://refused.invalid/g' },
+      importState: 'failed',
+      importError: 'it answered 402',
+    };
+    push([
+      { id: 'r1', data: failed },
+      { id: 'r2', data: { ...failed, importState: 'done' } },
+      { id: 'r3', data: { ...failed, importState: 'requested' } },
+      { id: 't1', data: { body: 'Plain', kind: 'text' } },
+    ]);
+    api.set.mockClear();
+    for (const id of ['r2', 'r3', 't1']) notes.dismissImport(id);
+    expect(api.set).not.toHaveBeenCalled();
+    notes.dismissImport('r1');
+    expect(api.set).toHaveBeenCalledTimes(1);
+    const [, path, data, merge] = api.set.mock.lastCall!;
+    expect(path).toBe('users/u1/notes/r1');
+    expect(merge).toBe(true);
+    expect(Object.keys(data as object).sort()).toEqual(
+      ['deviceId', 'importError', 'importState', 'updatedAt', 'updatedBy'].sort(),
+    );
+    expect(data).toMatchObject({
+      importState: 'REMOVED',
+      importError: 'REMOVED',
+      updatedBy: 'user',
+    });
+  });
+
   it('moves an untouched recipe stub a share made to Trash, and nothing else (review on #271)', () => {
     const { notes, api, signIn, push } = setup();
     signIn('u1');
@@ -1687,6 +1722,7 @@ describe('NotesService', () => {
         notes.updateRecipe(id, { title: 'Stew', servings: 4 });
         notes.addRecipeNote(id, 'Good with bread');
         notes.retryImport(id);
+        notes.dismissImport(id);
         notes.sendToAssistant(id, 'tidy it');
         notes.unsend(id);
       }

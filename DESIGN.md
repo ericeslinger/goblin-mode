@@ -1344,6 +1344,35 @@ Mossgoblin (above, after Sharing files in) made the recipe on the
 device without that race, as an import already failed, which the
 trigger never claims; Browse still offers only Import from a link.
 
+*Tidying a failed import (2026-11-15).* A recipe whose import failed
+(Serious Eats' 402) that Eric then typed in by hand kept saying "Could
+not import" with nothing to clear it. Now the front offers Dismiss
+beside Try again and Paste the page instead
+(`NotesService.dismissImport`): it removes `importState` and
+`importError`, through the form-aware merged write, and keeps
+`source.url`, so the recipe
+still knows where it came from and still carries `fromWeb` as before.
+Both fields were optional already, so no stored schema or rule
+changed. `update_note`'s `dismissImport: true` does the same for an
+assistant, refused for any note that is not a failed import, and is
+logged in What assistants changed with the values it replaced.
+
+*A recipe filled in by hand (2026-11-15).* Neither Try again nor a
+pasted page writes over his text: `fillImport` replaces the body only
+while it is still the empty sections (`untouchedRecipe`), else the
+page's recipe goes on the back as the original text and his text
+stays, as it always has for writing done while a page was read. So
+both stay offered; on such a recipe the front also says that what he
+wrote stays and an import puts the page's recipe on the back. The
+paste box itself is unchanged.
+
+*The placeholder name (2026-11-15).* "Recipe from <site>" is stored
+with `titleSource: user` so that no settle retitles a recipe, which
+made `update_note` refuse to rename it. Eric's decision the same day
+(MCP server, As built) lets `update_note` rename any note when asked,
+so the placeholder needs no rule of its own, and the recipes already
+in the garden carrying it need no migration.
+
 **Meal plan (#129, 2026-10-18; epic #125).** One note of kind
 `mealplan` per week, its id derived from the week's first day
 (`meals-2026-10-19`) and that day in `periodStart`, so a phone offline
@@ -3223,7 +3252,7 @@ it, one backticked tool name per row.
 | --- | --- | --- |
 | `search_notes` | Notes whose title, text or synonyms hold every word of a query | Search paragraph below |
 | `list_notes` | Recent notes, newest first, optionally since a time or of one kind | Search paragraph below, Recipes (#127) |
-| `get_note` | One note in full with its links, backlinks and Drive files; `takes`, how it takes new material (mode, set or inherited, and `modeBrief`) | Links and concepts (#28), Document modes (#231) |
+| `get_note` | One note in full with its kind, links, backlinks and Drive files; `takes`, how it takes new material (mode, set or inherited, and `modeBrief`); its `source.url`, and a recipe's `importState` and `importError` (2026-11-15) | Links and concepts (#28), Document modes (#231), Importing a recipe (#128) |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
 | `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage; a deleted concept's name brings it back from Trash (#217) | Organize tools (#34), Projects (#41), Stages and items |
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
@@ -3234,7 +3263,7 @@ it, one backticked tool name per row.
 | `get_pantry` | What is on hand: each item, its amount as written, always, its section; Kitchen only | On hand (#131) |
 | `update_pantry` | Adds, removes or marks items always on hand, changing only those lines; Kitchen only | On hand (#131) |
 | `suggest_recipes` | Recipes not made in the week before a date, ranked by what is on hand then by how long since made, each with what would need buying; Kitchen only | Suggestions (#132) |
-| `update_note` | Replaces a note's text; `add_lines` is preferred for lists; Instructions for Claude, a template's or any note's that takes them | Safe co-editing (#37), Templates (#111), Document modes (#231) |
+| `update_note` | Replaces a note's text; `add_lines` is preferred for lists; renames any note when Eric asks, his own title too (2026-11-15); Instructions for Claude, a template's or any note's that takes them; `dismissImport` clears a failed recipe import (2026-11-15) | Safe co-editing (#37), Templates (#111), Document modes (#231), MCP server, Importing a recipe (#128) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
 | `get_context` | Eric's Context for Claude, the context note's text, with his put backs and reroutes under Corrections | Context for Claude (#113), Learn from the correction (#239) |
@@ -3505,10 +3534,28 @@ is slow.
   server with the tools. Writes are validated against the zod
   contract before they land; Claude's note writes carry `updatedBy:
   claude` and `deviceId: claude`, so History keeps the version Claude
-  replaced. Claude cannot change a title Eric set, and there is no
-  delete tool (archive instead). The server's instructions repeat the
-  verbatim rule, the emphasis convention (`*bold*`, `_italic_`) and
-  that times are ISO 8601 with an offset.
+  replaced. Claude could not change a title Eric set until
+  2026-11-15, when Eric decided: "The auto-titling api call shouldn't
+  overwrite a title on a note, but if I explicitly ask an agent to
+  edit anything on a note (title, metadata, move it from podcasts to
+  text feed), my expectation is that it should be able to do this."
+  So `update_note`'s `title` renames any note, one Eric named too, and
+  the guard on an unbidden rename moved from the code to the
+  instructions, which say a title he set is his words, to change only
+  when he asks. The automatic titler is unchanged: it never writes
+  over a `user` title. A tool's rename is stored as `user`, the title
+  he asked for: as `llm` the titler would replace it at the next
+  settle (`wantsClaudeTitle` passes over only `user`), and recipes'
+  and concepts' names are kept as `user` (#205). A recipe's or
+  concept's new name is refused when another note answers to it, and
+  a concept keeps its old name as another name, as the app's rename
+  does, so links still reach it. The entry in What assistants changed
+  keeps the title before (`before`, as stored, a sealed one sealed);
+  Put back does not restore it yet, as it restores no `update_note`
+  field but the text and archiving. There is no delete tool (archive
+  instead). The server's instructions repeat the verbatim rule, the
+  emphasis convention (`*bold*`, `_italic_`) and that times are ISO
+  8601 with an offset.
 - **Testing.** The e2e suite runs the whole flow against the emulators:
   register, consent, code, token, `tools/call create_note`, the note in
   the app, then Disconnect. Its owner has a fixed uid that `e2e.sh`

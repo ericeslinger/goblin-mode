@@ -184,3 +184,62 @@ test('a recipe a site refused is made from the page pasted instead', async ({ pa
   await expect(box).toHaveCount(0);
   await expect(recipe.getByRole('status')).toHaveCount(0);
 });
+
+// Tidying a failed import (2026-11-15): Eric types in the recipe a site
+// refused, dismisses the failed import, and after a reload it is an
+// ordinary recipe, his text intact. An assistant names it when he asks.
+test('a refused import typed in by hand is dismissed, its text kept', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Kitchen' }).check();
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('switch', { name: 'Kitchen' })).toBeChecked();
+
+  await page.goto('/browse/recipes');
+  const link = page.getByRole('textbox', { name: 'Import from a link' });
+  await link.fill('https://refused.invalid/potato-gratin');
+  await link.press('Enter');
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  const id = page.url().split('/n/')[1];
+  const recipe = page.getByRole('region', { name: 'Recipe' });
+  await expect(recipe.getByRole('status')).toContainText(
+    'Could not import from refused.invalid: this site does not let Mossgoblin read its pages',
+    { timeout: 30_000 },
+  );
+
+  // Typed by hand under Ingredients: the line after its heading.
+  await note(page).click();
+  await page.keyboard.press('ControlOrMeta+Home');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('- 3 pounds russet potatoes');
+  await letItSave(page);
+  await expect(recipe).toContainText('1 ingredient · 0 steps');
+  await expect(recipe.getByRole('status')).toContainText('What you wrote stays');
+
+  await recipe.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(recipe.getByRole('status')).toHaveCount(0);
+  await expect(recipe.getByRole('button', { name: 'Paste the page instead' })).toHaveCount(0);
+  await letItSave(page);
+  await page.reload();
+  await expect(recipe).toContainText('1 ingredient · 0 steps');
+  await expect(note(page)).toContainText('3 pounds russet potatoes');
+  await expect(recipe.getByRole('status')).toHaveCount(0);
+  await expect(recipe.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+
+  // The placeholder name is the importer's: Claude names it when asked,
+  // and get_note says where the recipe came from, its import cleared.
+  const call = await connectClaude(page);
+  await call('update_note', { id, title: 'Potato gratin' });
+  const got = (await call('get_note', { id })) as Record<string, unknown>;
+  expect(got).toMatchObject({
+    kind: 'recipe',
+    title: 'Potato gratin',
+    source: { url: 'https://refused.invalid/potato-gratin' },
+  });
+  expect(got).not.toHaveProperty('importState');
+  await page.goto(`/n/${id}`);
+  await expect(recipe.getByRole('textbox', { name: 'Recipe name' })).toHaveValue('Potato gratin', {
+    timeout: 15_000,
+  });
+});

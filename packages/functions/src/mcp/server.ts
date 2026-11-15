@@ -54,7 +54,11 @@ export const INSTRUCTIONS = [
   'Recipes (the Kitchen module) are notes of kind recipe, with Ingredients, Method and Notes ' +
     'sections: make one with create_recipe from what Eric tells you, or import_recipe for a ' +
     'link (never fetch or read a recipe page yourself; the server reads it), list them with ' +
-    'list_notes kind recipe, and edit them with add_lines like any note.',
+    'list_notes kind recipe, and edit them with add_lines like any note. get_note shows a ' +
+    "recipe's source link, importState and importError. update_note dismissImport clears a " +
+    'failed import, as Dismiss in the app does, when Eric has the recipe another way. A ' +
+    'recipe named Recipe from <site> carries the name its import gave it, not his: when he ' +
+    'asks, name it with update_note title.',
   'The meal plan (Kitchen) is a note a week, one line per meal slot: get_meal_plan reads a ' +
     'week, plan_meal sets a slot (a recipe link, delivery, out, or empty). A new week has a ' +
     '"Fish of the week" placeholder dinner; when Eric says what the fish is, plan its recipe ' +
@@ -78,7 +82,9 @@ export const INSTRUCTIONS = [
     "create_note) with '✳' and your name, e.g. '✳ Claude:' or '✳ Gemini:', so Eric can tell " +
     'it from his; capture adds the mark to its ' +
     "summary itself. A note's titleSource says where its title came from: words (Eric's first " +
-    'words), llm (a title the server gave it) or user (Eric set it; you cannot change it).',
+    'words), llm (a title the server gave it) or user (Eric set it, or asked for it). A ' +
+    'title Eric set is his words: change it only when he asks you to. The tool no longer ' +
+    'refuses to (update_note title), so keeping to that is yours.',
   'When Eric says "garden this": find the project with list_concepts, then list the candidate ' +
     'decisions, ideas and questions and file nothing without his yes. Call capture once per ' +
     'item, his words verbatim, ideas and questions with your one-line summary (each becomes ' +
@@ -223,7 +229,10 @@ export function buildServer(
         'Google Drive files it links to, by id: open them with the Google Drive connector. ' +
         'takes, when present, says how the note takes new material: its mode (list, log or ' +
         'synthesis; inheritedFrom names the living template it comes from) and modeBrief, ' +
-        'the words to follow when adding to it, with its Instructions for Claude.',
+        'the words to follow when adding to it, with its Instructions for Claude. kind is the ' +
+        "note's kind; source.url, when present, the link it came from; a recipe imported " +
+        'from a link also has importState (requested, working, done or failed) and, when ' +
+        'it failed, importError.',
       inputSchema: { id: z.string().min(1) },
       annotations: read,
     },
@@ -445,7 +454,12 @@ export function buildServer(
         'Replace a note body, set its title or tags, or archive it, or set its Instructions for ' +
         'Claude (a template, plain note, concept or clipping). The body replaces the old ' +
         'one entirely: keep every paragraph Eric wrote word for word unless he asked otherwise. ' +
-        "A title Eric set himself cannot be changed. The version you replace stays in the note's History.",
+        'title renames any note, one Eric named too: do it only when he asks. A recipe or ' +
+        "concept's name must not be one another note answers to; a concept keeps its old name " +
+        'as another name. The title before is kept in What assistants changed. ' +
+        'dismissImport true clears a recipe whose import failed (importState failed), as ' +
+        'Dismiss does in the app: it becomes an ordinary recipe, its text and source link ' +
+        "kept; refused for any other note. The version you replace stays in the note's History.",
       inputSchema: {
         id: z.string().min(1),
         body: z.string().optional(),
@@ -453,6 +467,7 @@ export function buildServer(
         tags: z.array(z.string()).optional(),
         archived: z.boolean().optional(),
         instructions: z.string().optional(),
+        dismissImport: z.boolean().optional(),
       },
       annotations: write,
     },
