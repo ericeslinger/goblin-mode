@@ -33,7 +33,10 @@ test('a week is planned, a dinner made and noted, and Claude plans too', async (
   await plan.getByRole('button', { name: 'Change Mon dinner, Oct 19: nothing planned' }).click();
   await plan.getByRole('combobox', { name: 'Recipe for Mon dinner, Oct 19' }).fill('Shakshuka');
   await plan.getByRole('button', { name: 'Plan it' }).click();
-  await expect(plan).toContainText('[[Shakshuka]]');
+  // The slot shows the recipe's name, not its link's brackets (#285).
+  await expect(
+    plan.getByRole('button', { name: 'Change Mon dinner, Oct 19: Shakshuka' }),
+  ).toHaveText('Shakshuka');
   await plan.getByRole('button', { name: 'Change Tue dinner, Oct 20: nothing planned' }).click();
   await plan.getByRole('button', { name: 'Delivery' }).click();
   await expect(page.getByRole('textbox', { name: 'New note' })).toContainText(
@@ -60,7 +63,11 @@ test('a week is planned, a dinner made and noted, and Claude plans too', async (
   expect(read.slots[0]).toMatchObject({ day: 'Mon', made: true, notes: ['Lovely, more chili'] });
   await call('create_recipe', { name: 'Miso cod', ingredients: ['cod'], method: ['Bake.'] });
   await call('plan_meal', { date: '2026-10-22', slot: '[[Miso cod]]' });
-  await expect(plan).toContainText('[[Miso cod]]', { timeout: 15_000 });
+  await expect(
+    plan.getByRole('button', { name: 'Change Thu dinner, Oct 22: Miso cod' }),
+  ).toBeVisible({
+    timeout: 15_000,
+  });
 
   // The recipe's back counts the dinner, and its Notes hold the answer.
   await page.goto('/browse/recipes');
@@ -180,7 +187,7 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   expect(body.match(/- \[ \] limes/g)).toHaveLength(1);
 
   // The list's back says which dinner wants each item (#207).
-  await expect(plan).toContainText('[[Dal]] (half recipe)', { timeout: 15_000 });
+  await expect(plan).toContainText('Dal (half recipe)', { timeout: 15_000 });
   await plan.getByRole('link', { name: 'Grocery list' }).click();
   await expect(page).toHaveURL(new RegExp(`/n/${list}$`));
   await page.getByRole('button', { name: 'Back', exact: true }).click();
@@ -256,9 +263,7 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   const ideas = plan.getByRole('list', { name: 'Suggestions for Wed dinner, Oct 28' });
   await expect(ideas).toContainText('Dal');
   await ideas.getByRole('button', { name: 'Plan Dal' }).click();
-  await expect(
-    plan.getByRole('button', { name: 'Change Wed dinner, Oct 28: [[Dal]]' }),
-  ).toBeVisible();
+  await expect(plan.getByRole('button', { name: 'Change Wed dinner, Oct 28: Dal' })).toBeVisible();
 
   // Kitchen's tabs (#220): the week is Meals; Shopping is the week's
   // list to shop from, with what is left to buy on its tab; Recipes is

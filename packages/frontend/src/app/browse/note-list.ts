@@ -1,6 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { plainText } from '@mossgoblin/editor/grammar';
 import { TRASH_DAYS, matchesSearch, moodsOf } from '@mossgoblin/schema';
 import { STATUSES, kindLabel, statusLabel } from '../links/project-labels';
 import { LinksService } from '../links/links.service';
@@ -8,12 +9,41 @@ import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { type LensId, byTag, goneIn, inLens, projectTree } from './lenses';
 
-/** The text shown under a note's title: its body after the title line. */
+/**
+ * The text shown under a note's title: the plain words of its body after
+ * the title line (#285, 2026-11-15), shown only, never stored. Whole
+ * lines are read until there are enough words, so a long note is not
+ * parsed in full and no link is cut in half before it is read.
+ */
 export function snippet(note: NoteRecord, length = 90): string {
-  const lines = note.body
-    .split('\n')
-    .map((l) => l.replace(/^[#>\s*+-]+(\[[ xX]\]\s*)?/, '').trim());
-  const rest = lines.filter(Boolean).slice(1).join(' ');
+  // The list redraws as notes change: each body is read once, not on every draw.
+  const key = `${length}\n${note.body}`;
+  const known = snippets.get(key);
+  if (known !== undefined) return known;
+  if (snippets.size >= SNIPPETS_KEPT) snippets.clear();
+  const text = readSnippet(note.body, length);
+  snippets.set(key, text);
+  return text;
+}
+
+const SNIPPETS_KEPT = 5000;
+const snippets = new Map<string, string>();
+
+function readSnippet(body: string, length: number): string {
+  const lines = body.split('\n');
+  const title = lines.findIndex((l) => l.trim());
+  const taken: string[] = [];
+  let size = 0;
+  for (const line of title < 0 ? [] : lines.slice(title + 1)) {
+    taken.push(line);
+    size += line.length;
+    if (size > length * 4) break;
+  }
+  let rest = plainText(taken.join('\n')).replace(/\s+/g, ' ');
+  // Lines that were all markup (an image with no alt) gave no words: read on.
+  if (!rest && taken.length < lines.length - title - 1) {
+    rest = plainText(lines.slice(title + 1).join('\n')).replace(/\s+/g, ' ');
+  }
   return rest.length > length ? `${rest.slice(0, length - 1)}…` : rest;
 }
 
@@ -114,6 +144,7 @@ export function matches(note: NoteRecord, search: string): boolean {
   styles: `
     :host {
       display: block;
+      min-width: 0;
     }
     .search input {
       box-sizing: border-box;
@@ -130,8 +161,11 @@ export function matches(note: NoteRecord, search: string): boolean {
       margin: 8px 0 0;
       padding: 0;
     }
+    /* One column that never grows past the list: a long address in a
+       title or snippet wraps instead of widening the page (#285). */
     a {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 2px;
       padding: 10px 4px;
       border-bottom: 1px solid var(--rule);
@@ -147,6 +181,8 @@ export function matches(note: NoteRecord, search: string): boolean {
     }
     .row {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      min-width: 0;
       gap: 2px;
       padding: 10px 4px;
     }
@@ -165,6 +201,11 @@ export function matches(note: NoteRecord, search: string): boolean {
     }
     .title {
       font-weight: 600;
+    }
+    .title,
+    .snippet {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .snippet,
     .muted {

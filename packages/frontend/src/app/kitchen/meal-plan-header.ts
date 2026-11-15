@@ -1,5 +1,6 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { plainText } from '@mossgoblin/editor/grammar';
 import {
   type Slot,
   addDays,
@@ -111,18 +112,21 @@ const LATER_MS = 60 * 60 * 1000;
                   }
                 }
               } @else {
+                <!-- The slot's plain words (#285): [[Dal]] reads Dal. -->
                 <button
                   type="button"
                   class="what"
-                  [attr.aria-label]="'Change ' + label(s) + ': ' + (s.text || 'nothing planned')"
+                  [attr.aria-label]="
+                    'Change ' + label(s) + ': ' + (plain(s.text) || 'nothing planned')
+                  "
                   (click)="editing.set(s.line); refused.set('')"
                 >
-                  {{ s.text || 'Nothing planned' }}
+                  {{ plain(s.text) || 'Nothing planned' }}
                 </button>
               }
             </div>
             @for (n of s.notes; track $index) {
-              <p class="note">{{ n }}</p>
+              <p class="note">{{ plain(n) }}</p>
             }
             @if (asking(s)) {
               <div class="ask">
@@ -247,6 +251,8 @@ export class MealPlanHeader {
   private readonly reminders = inject(RemindersService);
   private readonly now = inject(NOW);
 
+  /** Shown, never stored: the text stays as typed (#285). */
+  protected readonly plain = plainText;
   protected readonly editing = signal<number | undefined>(undefined);
   protected readonly refused = signal('');
   /** Slots asked about later on this device, so the question waits. */

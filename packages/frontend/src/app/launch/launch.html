@@ -152,6 +152,7 @@
           <app-clipping-header [note]="note" />
         } @else if (note.kind === 'mealplan' && modules.kitchen()) {
           <app-meal-plan-header
+            class="meal-plan-header"
             [note]="note"
             [body]="capture.current()"
             (edited)="capture.replace($event)"
@@ -217,28 +218,30 @@
       />
       @if (previous().length > 0 || projects().length > 0) {
         <div class="previous">
-          @if (previous().length > 0) {
-            <button
-              type="button"
-              class="pill"
-              aria-controls="previous-notes"
-              [attr.aria-expanded]="previousOpen()"
-              (click)="previousOpen.set(!previousOpen()); projectsOpen.set(false)"
-            >
-              Previous note
-            </button>
-          }
-          @if (projects().length > 0) {
-            <button
-              type="button"
-              class="pill"
-              aria-controls="project-list"
-              [attr.aria-expanded]="projectsOpen()"
-              (click)="projectsOpen.set(!projectsOpen()); previousOpen.set(false)"
-            >
-              Projects
-            </button>
-          }
+          <div class="pills">
+            @if (previous().length > 0) {
+              <button
+                type="button"
+                class="pill"
+                aria-controls="previous-notes"
+                [attr.aria-expanded]="previousOpen()"
+                (click)="previousOpen.set(!previousOpen()); projectsOpen.set(false)"
+              >
+                Previous note
+              </button>
+            }
+            @if (projects().length > 0) {
+              <button
+                type="button"
+                class="pill"
+                aria-controls="project-list"
+                [attr.aria-expanded]="projectsOpen()"
+                (click)="projectsOpen.set(!projectsOpen()); previousOpen.set(false)"
+              >
+                Projects
+              </button>
+            }
+          </div>
           @if (projectsOpen()) {
             <ul id="project-list" aria-label="Projects">
               @for (p of projects(); track p.note.id) {
