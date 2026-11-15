@@ -443,6 +443,21 @@ export function createAccessoryBar(
   vk?.addEventListener('geometrychange', update);
   editor.view.contentDOM.addEventListener('focus', update);
   editor.view.contentDOM.addEventListener('blur', update);
+  // The editor's own box can change while the ribbon is up with no
+  // keyboard event at all: the host gives the note the room once the
+  // keyboard opens (the Right Now line and a folded header step aside,
+  // #287), and Android's overlaid keyboard sends one geometrychange.
+  // The cover is measured again then, or the last lines sit under the
+  // ribbon. The outer box is watched, border-box: the padding the cover
+  // sets is on the scroller inside it, so setting it cannot fire this
+  // again, and a resize fires on size changes only, never on typing.
+  const Observer = (win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+  const resized = Observer
+    ? new Observer(() => {
+        if (!bar.hidden) update();
+      })
+    : undefined;
+  resized?.observe(editor.view.dom, { box: 'border-box' });
 
   return {
     element: bar,
@@ -457,6 +472,7 @@ export function createAccessoryBar(
       if (vk && overlaid !== undefined) vk.overlaysContent = overlaid;
       editor.view.contentDOM.removeEventListener('focus', update);
       editor.view.contentDOM.removeEventListener('blur', update);
+      resized?.disconnect();
       bar.remove();
       editor.setCoveredFrom(undefined);
       if (!bar.hidden) options.onShow?.(false);

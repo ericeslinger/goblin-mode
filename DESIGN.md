@@ -1326,15 +1326,23 @@ Right Now is one line at the foot: how many are due and the first,
 Reader or Podcasts, else "Right Now · Nothing to tend". The line is a
 44 px button saying whether it is open; a tap opens the whole panel
 (reminders with Done and Snooze, "N more", the reading and Reader and
-Podcasts lines) as a sheet over the lower part of the note, and the
-line again, Escape, a tap outside it or going to another note closes
-it. Nothing is reached by gesture alone. While the on-screen keyboard
-is up (as the ribbon reads it), the line and a folded project header
-step aside. The capture screen at `/` keeps the panel and its handle
+Podcasts lines) as a sheet over the lower part of the note, the focus
+moving into it (its heading's link, then its rows in Tab order); when
+Done takes the row that had the focus, the next row's Done has it, else
+the heading. The line again, Escape (wherever the focus is), a tap
+outside it, any navigation or leaving line mode closes it. Any
+navigation also closes More and the Previous note and Projects lists.
+Nothing is reached by gesture alone. While the on-screen keyboard is up
+(as the ribbon reads it), the line and a folded project's one line step
+aside, the name and type staying, and the ribbon measures what it
+covers again whenever the editor's box changes, so the room they give
+is counted. The capture screen at `/` keeps the panel and its handle
 as they were, even once what is typed there is saved, so nothing
-moves under typing; wide screens are unchanged. A saved note opens
-with the caret at its end and scrolled to its top (Editor); where he
-left off (#272) still puts back its own caret and scroll.
+moves under typing, and New note from a saved note at `/` goes
+straight to it, never through the line; wide screens are unchanged. A
+saved note opens with the caret at its end and scrolled to its top
+(Editor); where he left off (#272) still puts back its own caret and
+scroll.
 
 **Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
 design A over B (a bar of slots along the bottom): a Home screen at
@@ -1457,8 +1465,9 @@ doc whole and would wipe them. The registry is `MODULES`
 else its default. Projects is the first, on by default, so nothing
 changed for anyone until it is switched off. Off, Projects takes the
 Project type (a concept that already is one keeps it), the Projects
-pill, the Projects lens, a project's items, tasks and settings; project
-notes stay notes, their text and links untouched. Claude is told which
+item in More (a pill under the note until 2026-11-15, #287), the
+Projects lens, a project's items, tasks and settings; project notes
+stay notes, their text and links untouched. Claude is told which
 modules are on when a connection initializes, and the tools refuse a
 write that belongs to one switched off (`create_concept` or `refile`
 on a project, `capture`, a task's stage or tags), saying it is off in

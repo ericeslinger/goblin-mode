@@ -302,6 +302,66 @@ describe('createAccessoryBar', () => {
     }
   });
 
+  it('measures the cover again when the editor’s box changes while shown (#287)', () => {
+    // jsdom has neither: a ResizeObserver that reports when told to, and
+    // a keyboard only the VirtualKeyboard API sees (Android).
+    let report: (() => void) | undefined;
+    const observed: { el: Element; box?: string }[] = [];
+    const disconnect = vi.fn();
+    class FakeObserver {
+      constructor(callback: () => void) {
+        report = callback;
+      }
+      observe(el: Element, options?: { box?: string }) {
+        observed.push({ el, box: options?.box });
+      }
+      disconnect = disconnect;
+    }
+    const vk = Object.assign(new EventTarget(), {
+      overlaysContent: false,
+      boundingRect: new DOMRect(0, 0, 0, 0),
+    });
+    Object.defineProperty(window, 'ResizeObserver', { value: FakeObserver, configurable: true });
+    Object.defineProperty(navigator, 'virtualKeyboard', { value: vk, configurable: true });
+    try {
+      const parent = document.createElement('div');
+      document.body.append(parent);
+      const editor = createNoteEditor({ parent });
+      const bar = createAccessoryBar(editor, [{ label: 'B', run: () => undefined }]);
+      // The editor's outer box, by its border: the padding the cover sets
+      // is inside it, so setting it cannot report again.
+      // (CodeMirror watches its own boxes too; the bar's is the last made.)
+      expect(observed.at(-1)).toEqual({ el: editor.view.dom, box: 'border-box' });
+      const covered = vi.spyOn(editor, 'setCoveredFrom');
+      // Hidden: a resize measures nothing.
+      report!();
+      expect(covered).not.toHaveBeenCalled();
+      editor.view.focus();
+      vk.boundingRect = new DOMRect(0, innerHeight - 300, innerWidth, 300);
+      vk.dispatchEvent(new Event('geometrychange'));
+      expect(bar.element.hidden).toBe(false);
+      covered.mockClear();
+      // The host gives the note more room: no keyboard event, but the
+      // cover is measured again from the editor's new box.
+      report!();
+      expect(covered).toHaveBeenCalledOnce();
+      expect(covered).toHaveBeenLastCalledWith(innerHeight - 300 - bar.element.offsetHeight);
+      // Closed again, a resize measures nothing.
+      vk.boundingRect = new DOMRect(0, 0, 0, 0);
+      vk.dispatchEvent(new Event('geometrychange'));
+      covered.mockClear();
+      report!();
+      expect(covered).not.toHaveBeenCalled();
+      disconnect.mockClear();
+      bar.destroy();
+      expect(disconnect).toHaveBeenCalledOnce();
+      editor.destroy();
+    } finally {
+      delete (navigator as { virtualKeyboard?: unknown }).virtualKeyboard;
+      delete (window as { ResizeObserver?: unknown }).ResizeObserver;
+    }
+  });
+
   it('runs an immediate action on the click itself, for a file picker', () => {
     const parent = document.createElement('div');
     document.body.append(parent);

@@ -434,6 +434,8 @@ test.describe('on a phone', () => {
     // The line opens the panel over the lower part of the note.
     await line.click();
     await expect(line).toHaveAttribute('aria-expanded', 'true');
+    // The focus goes into the sheet, so Tab carries on to its rows.
+    await expect(rightNow.getByRole('link', { name: 'Right Now' })).toBeFocused();
     const done = rightNow.getByRole('button', { name: 'Done: Pick up glazed mugs' });
     const snooze = rightNow.getByRole('button', { name: 'Snooze: Pick up glazed mugs' });
     await expect(done).toBeVisible();
@@ -612,18 +614,37 @@ async function expectPageHeader(page: Page, title: string, parent?: string): Pro
   }
 }
 
+/**
+ * Each control is inside the screen, its centre lands on itself, and so
+ * does every point of its 44 px area, whichever row of a wrapped bar it
+ * is on (the areas meet mid-gap, 2026-11-15).
+ */
+async function expectOwnTaps(page: Page, controls: Locator[]): Promise<void> {
+  const width = page.viewportSize()!.width;
+  for (const control of controls) {
+    const box = (await control.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    const centre = await control.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && el.contains(hit);
+    });
+    expect(centre).toBe(true);
+    expect(await missedTaps(control)).toEqual([]);
+  }
+}
+
 test.describe('on a narrow phone', () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
-  test('the note bar at 320 px, wrapped or not, keeps each tap on its own control', async ({
-    page,
-  }) => {
+  test('the note bar, wrapped to two rows, keeps each tap on its own control', async ({ page }) => {
     test.setTimeout(90_000);
     await signInAs(page, OWNER);
-    // A template, so From template joins the bar beside View, Back and
-    // More. Before #287 that wrapped it at 320 px; with those three as
-    // icons it may fit one row, so wrapping is not asserted, only that
-    // each control is on the screen and its tap is its own.
+    // A template, so From template joins the bar. With View, Back and
+    // More as 44 px icons (#287) it still needs about 370 px: the leaf
+    // and New note 80, From template about 95, three icons 132, five
+    // 12 px gaps; at 320 px the bar has 288, so Back and More wrap.
     await page.goto('/settings');
     await page.getByRole('button', { name: 'New template', exact: true }).click();
     await expect(page).toHaveURL(/\/n\/\w+$/);
@@ -645,21 +666,35 @@ test.describe('on a narrow phone', () => {
       bar.getByRole('button', { name: 'More' }),
     ];
     for (const control of controls) await expect(control).toBeVisible({ timeout: 15_000 });
-    const width = page.viewportSize()!.width;
-    for (const control of controls) {
-      const box = (await control.boundingBox())!;
-      expect(box.x).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width).toBeLessThanOrEqual(width);
-      // Its centre is its own; so is every point of its 44 px area,
-      // whichever row it is on (the areas meet mid-gap, 2026-11-15).
-      const centre = await control.evaluate((el) => {
-        const box = el.getBoundingClientRect();
-        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        return !!hit && el.contains(hit);
-      });
-      expect(centre).toBe(true);
-      expect(await missedTaps(control)).toEqual([]);
-    }
+    const tops = new Set<number>();
+    for (const control of controls) tops.add(Math.round((await control.boundingBox())!.y / 8));
+    expect(tops.size, 'the bar wraps').toBeGreaterThan(1);
+    await expectOwnTaps(page, controls);
+  });
+
+  test('the note bar at 320 px, wrapped or not, keeps each tap on its own control', async ({
+    page,
+  }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    // A plain saved note: the leaf, New note, View, Back and More, which
+    // by the same sums fit one row (about 260 of 288 px). Whether it
+    // wraps is not asserted, only that each control is on the screen
+    // and its tap is its own.
+    const kiln = (await call('create_note', { body: 'Kiln log\nCone 6, slow cool.' })) as {
+      id: string;
+    };
+    await page.goto(`/n/${kiln.id}`);
+    const bar = page.locator('header.bar');
+    const controls = [
+      bar.getByRole('link', { name: 'Home', exact: true }),
+      bar.getByRole('button', { name: 'New note', exact: true }),
+      bar.getByRole('button', { name: 'View', exact: true }),
+      bar.getByRole('button', { name: 'Back', exact: true }),
+      bar.getByRole('button', { name: 'More' }),
+    ];
+    for (const control of controls) await expect(control).toBeVisible({ timeout: 15_000 });
+    await expectOwnTaps(page, controls);
   });
 
   test('every screen has the one page header, inside the screen', async ({ page }) => {

@@ -1,7 +1,7 @@
 @if (showSignIn()) {
   <app-sign-in />
 } @else {
-  <div class="launch" [class.keyboard-up]="keyboardUp()">
+  <div class="launch">
     <header class="bar">
       <!-- Home (#219): the leaf, at the left of every screen's top, and
            New note beside it (#272), which here is this screen's New. -->
@@ -216,6 +216,7 @@
         @if (note.kind === 'concept') {
           <app-concept-header
             class="concept-header"
+            [hideFold]="giveRoom()"
             [note]="note"
             (becameProject)="addProjectSections()"
           />
@@ -301,24 +302,33 @@
         class="right-now line-mode"
         aria-label="Right Now"
         [class.open]="rightNowOpen()"
-        (keydown.escape)="closeRightNow(lineButton)"
+        [hidden]="giveRoom()"
       >
-        @if (rightNowOpen()) {
-          <div id="right-now-sheet" class="sheet">
-            <app-right-now-panel />
-          </div>
-        }
         <button
           #lineButton
           type="button"
           class="line"
           aria-controls="right-now-sheet"
           [attr.aria-expanded]="rightNowOpen()"
-          (click)="rightNowOpen.set(!rightNowOpen())"
+          (click)="toggleRightNow()"
         >
           <span class="line-text">{{ line() }}</span>
           <app-icon class="line-chevron" name="chevron" [size]="18" />
         </button>
+        <!-- After the line, so Tab goes from it into the sheet; drawn above
+             it. Always there, so the line's aria-controls names it. -->
+        <div
+          #sheet
+          id="right-now-sheet"
+          class="sheet"
+          [hidden]="!rightNowOpen()"
+          (focusin)="sheetFocusIn($event)"
+          (focusout)="sheetFocusOut($event)"
+        >
+          @if (rightNowOpen()) {
+            <app-right-now-panel />
+          }
+        </div>
       </section>
     } @else {
       <section

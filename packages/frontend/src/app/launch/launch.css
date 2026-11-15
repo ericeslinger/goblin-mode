@@ -428,11 +428,10 @@ app-template-header {
   border-radius: var(--radius-control) var(--radius-control) 0 0;
   box-shadow: 0 -6px 20px rgb(0 0 0 / 0.15);
 }
-/* While the on-screen keyboard is up, the note has the room: the line
-   and a folded project header step aside (#287). Phones only. */
-@media (max-width: 899px) {
-  .keyboard-up .right-now.line-mode,
-  .keyboard-up .concept-header.folded {
-    display: none;
-  }
+/* While the on-screen keyboard is up, on a phone, the note has the
+   room: the line steps aside (`hidden`, set by the component, which
+   knows the width), as a folded project's line does (#287). */
+.right-now.line-mode[hidden],
+.sheet[hidden] {
+  display: none;
 }

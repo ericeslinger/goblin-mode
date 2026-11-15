@@ -390,13 +390,11 @@ describe('ConceptHeader', () => {
       expect(fold().getAttribute('aria-controls')).toBe('project-items');
       expect(fold().textContent!.trim()).toBe('1 project');
       expect(el.querySelector('.children')).toBeNull();
-      expect(fixture.nativeElement.classList).toContain('folded');
       fold().click();
       await fixture.whenStable();
       expect(fold().getAttribute('aria-expanded')).toBe('true');
       expect(el.querySelector('#project-items .children')).not.toBeNull();
       expect(el.querySelector('input[placeholder="+ task"]')).not.toBeNull();
-      expect(fixture.nativeElement.classList).not.toContain('folded');
       expect(localStorage.getItem(`${HEADER_OPEN_PREFIX}p`)).toBe('true');
       // Another project opens folded; coming back, this one is open.
       fixture.componentRef.setInput('note', project('q', 'Quilts'));
@@ -411,6 +409,21 @@ describe('ConceptHeader', () => {
       await fixture.whenStable();
       expect(el.querySelector('.children')).toBeNull();
       expect(localStorage.getItem(`${HEADER_OPEN_PREFIX}p`)).toBeNull();
+    });
+
+    it('hides the folded line while the keyboard is up, never an open one or the name', async () => {
+      const { el, fixture } = await render(project('p', 'Pots'));
+      const fold = () => el.querySelector<HTMLButtonElement>('button.fold')!;
+      fixture.componentRef.setInput('hideFold', true);
+      await fixture.whenStable();
+      expect(fold().hidden).toBe(true);
+      expect(el.querySelector<HTMLInputElement>('.name input')!.hidden).toBe(false);
+      fixture.componentRef.setInput('hideFold', false);
+      await fixture.whenStable();
+      fold().click();
+      fixture.componentRef.setInput('hideFold', true);
+      await fixture.whenStable();
+      expect(fold().hidden).toBe(false);
     });
 
     it('has no fold for a concept that is not a project', async () => {

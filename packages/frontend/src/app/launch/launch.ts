@@ -14,8 +14,8 @@ import {
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { filter, map } from 'rxjs';
+import { ActivatedRoute, NavigationStart, Router, RouterLink } from '@angular/router';
 import {
   CONCEPT_PREFIX,
   CONTEXT_ID,
@@ -267,6 +267,8 @@ export class Launch {
       if (this.holdRoute && params.get('id') === this.holdRoute) return;
       this.linkStatus.set('');
       const id = params.get('id');
+      // Not New's passing rewrite of the old entry (returned above).
+      this.noteRoute.set(id ?? undefined);
       if (id) this.capture.openNote(id);
       else this.capture.openHome();
       // From one reminder's link to another, the query does not change.
@@ -292,8 +294,29 @@ export class Launch {
         this.rightNowOpen.set(false);
       });
     });
-    // On a route of its own, Right Now's sheet closes too (#287).
-    this.router.events.pipe(takeUntilDestroyed()).subscribe(() => this.rightNowOpen.set(false));
+    // Any navigation, back and forward too, closes Right Now's sheet,
+    // the Previous note and Projects lists, and More (#287).
+    this.router.events
+      .pipe(
+        filter((e) => e instanceof NavigationStart),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => {
+        this.rightNowOpen.set(false);
+        this.closeLists();
+        this.moreOpen.set(false);
+      });
+    // Leaving line mode (across 900 px, or to `/`) closes the sheet.
+    effect(() => {
+      if (!this.lineMode()) untracked(() => this.rightNowOpen.set(false));
+    });
+    // The sheet keeps the focus it was given: when Done takes the row
+    // that had it, the next row's Done has it, else the heading's link.
+    effect(() => {
+      this.reminders.due();
+      if (!untracked(this.rightNowOpen)) return;
+      afterNextRender(() => this.keepSheetFocus(), { injector: this.injector });
+    });
     // A template from before #111 holds its Instructions for Claude in its
     // text: the first time it is open here, they move to their own field,
     // word for word, and the text keeps the rest. The field is written
@@ -399,6 +422,9 @@ export class Launch {
     // and returns to the button.
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && this.moreOpen()) this.moreOpen.set(false);
+      // Right Now's sheet, likewise, wherever the focus is (#287); back
+      // on its line. Nothing else's Escape is taken.
+      if (event.key === 'Escape' && this.rightNowOpen()) this.closeRightNow();
     };
     document.addEventListener('keydown', escape);
     inject(DestroyRef).onDestroy(() => {
@@ -424,6 +450,12 @@ export class Launch {
     });
   }
 
+  /**
+   * The note the URL names, as this screen shows it: New's rewrite of
+   * the old entry (`holdRoute`) passes it by, so New goes straight to
+   * the capture screen's layout, never through line mode (#287).
+   */
+  private readonly noteRoute = signal<string | undefined>(undefined);
   /** The window is 900 px or wider: two panes, Right Now beside the notes. */
   private readonly wide = signal(false);
   /**
@@ -433,7 +465,7 @@ export class Launch {
    * handle, even once what is typed there is saved, so the layout never
    * moves under typing.
    */
-  protected readonly lineMode = computed(() => !!this.routeId() && !this.wide());
+  protected readonly lineMode = computed(() => !!this.noteRoute() && !this.wide());
   /** Right Now's sheet is open over the note (line mode only). */
   protected readonly rightNowOpen = signal(false);
   private readonly items = inject(ItemsService);
@@ -451,12 +483,72 @@ export class Launch {
    * it): the Right Now line and a folded header give the note the room.
    */
   protected readonly keyboardUp = computed(() => this.editor()?.keyboardUp() ?? false);
+  /** Phones only: on wide screens nothing steps aside for the keyboard. */
+  protected readonly giveRoom = computed(() => this.keyboardUp() && !this.wide());
 
-  /** Escape closes Right Now's sheet, back to its line. */
-  protected closeRightNow(button: HTMLButtonElement): void {
+  private readonly lineButton = viewChild<ElementRef<HTMLButtonElement>>('lineButton');
+  private readonly sheet = viewChild<ElementRef<HTMLElement>>('sheet');
+  /**
+   * The focus is in the sheet: the index of the Done that has it, or -1
+   * for anything else there; undefined when it is not in the sheet.
+   */
+  private sheetFocus?: number;
+
+  /** The line opens or closes the sheet; open, the focus goes into it. */
+  protected toggleRightNow(): void {
+    if (this.rightNowOpen()) {
+      this.closeRightNow();
+      return;
+    }
+    this.rightNowOpen.set(true);
+    this.sheetFocus = undefined;
+    afterNextRender(
+      () => this.sheet()?.nativeElement.querySelector<HTMLElement>('a, button')?.focus(),
+      {
+        injector: this.injector,
+      },
+    );
+  }
+
+  /** Closes Right Now's sheet, the focus back on its line if it was in it. */
+  protected closeRightNow(): void {
     if (!this.rightNowOpen()) return;
+    const active = this.doc.activeElement;
+    const inside =
+      !active || active === this.doc.body || !!this.sheet()?.nativeElement.contains(active);
     this.rightNowOpen.set(false);
-    button.focus();
+    if (inside) this.lineButton()?.nativeElement.focus();
+  }
+
+  /** Where in the sheet the focus is, for when its row goes. */
+  protected sheetFocusIn(event: FocusEvent): void {
+    this.sheetFocus = this.sheetDones().indexOf(event.target as HTMLElement);
+  }
+
+  /** Focus that moves out of the sheet to something else is not kept. */
+  protected sheetFocusOut(event: FocusEvent): void {
+    const to = event.relatedTarget as Node | null;
+    if (to && !this.sheet()?.nativeElement.contains(to)) this.sheetFocus = undefined;
+  }
+
+  private sheetDones(): HTMLElement[] {
+    return [
+      ...(this.sheet()?.nativeElement.querySelectorAll<HTMLElement>(
+        'button[aria-label^="Done: "]',
+      ) ?? []),
+    ];
+  }
+
+  /** A Done that had the focus went with its row: the focus stays in the sheet. */
+  private keepSheetFocus(): void {
+    const sheet = this.sheet()?.nativeElement;
+    const active = this.doc.activeElement;
+    if (!sheet || this.sheetFocus === undefined) return;
+    if (active && active !== this.doc.body && active.isConnected) return;
+    const dones = this.sheetDones();
+    const next =
+      this.sheetFocus >= 0 ? dones[Math.min(this.sheetFocus, dones.length - 1)] : undefined;
+    (next ?? sheet.querySelector<HTMLElement>('a, button'))?.focus();
   }
 
   private readonly pickList = viewChildren<ElementRef<HTMLElement>>('pickList');

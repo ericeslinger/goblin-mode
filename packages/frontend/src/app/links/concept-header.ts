@@ -259,6 +259,7 @@ const TYPES = [
           aria-controls="project-items"
           [attr.aria-expanded]="open()"
           [class.empty]="!children().length && !tasks().length"
+          [hidden]="hideFold() && !open()"
           (click)="toggleOpen()"
         >
           <span class="fold-text">{{ itemsLine() }}</span>
@@ -601,6 +602,9 @@ const TYPES = [
       border: var(--border) solid var(--rule);
       border-radius: var(--radius-control);
     }
+    .fold[hidden] {
+      display: none;
+    }
     .fold.empty {
       color: var(--quiet);
     }
@@ -633,8 +637,6 @@ const TYPES = [
       color: var(--quiet);
     }
   `,
-  // Folded, the note screen may hide it while the keyboard is up (#287).
-  host: { '[class.folded]': "side() === 'front' && isProject() && !open()" },
 })
 export class ConceptHeader {
   protected readonly notes = inject(NotesService);
@@ -642,6 +644,11 @@ export class ConceptHeader {
   readonly note = input.required<NoteRecord>();
   /** The front: name, type and a project's items. The back: its settings (#112). */
   readonly side = input<'front' | 'back'>('front');
+  /**
+   * The on-screen keyboard is up on a phone (#287): the folded items'
+   * line steps aside for the note; the name and type row stay.
+   */
+  readonly hideFold = input(false);
   /** The concept became a project: its text needs the project sections. */
   readonly becameProject = output<void>();
   private readonly modules = inject(ModulesService);

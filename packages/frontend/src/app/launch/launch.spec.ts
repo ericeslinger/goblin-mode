@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { launchMatcher } from '../app.routes';
@@ -18,6 +19,7 @@ import { CaptureService, LAST_SEEN_KEY } from '../capture/capture.service';
 import { ModulesService } from '../modules/modules.service';
 import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
 import { Launch, sharedText } from './launch';
+import { NoteEditorComponent } from '../note-editor/note-editor';
 import { LastPlaceService, type PlaceSource } from './last-place.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { SHARE_INBOX } from '../share/share-inbox';
@@ -55,7 +57,11 @@ async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: st
     await harness.navigateByUrl(url);
     await harness.fixture.whenStable();
   };
-  return { fixture, el, auth, notes, go, url: () => TestBed.inject(Router).url };
+  /** The note editor, to say what its ribbon reads (the keyboard, #287). */
+  const editor = () =>
+    harness.fixture.debugElement.query(By.directive(NoteEditorComponent))
+      .componentInstance as NoteEditorComponent;
+  return { fixture, el, auth, notes, go, editor, url: () => TestBed.inject(Router).url };
 }
 
 const buttonNamed = (el: HTMLElement, text: string) =>
@@ -872,11 +878,13 @@ describe('Launch', () => {
         createdBy: 'user',
       }) as ReminderRecord;
     const line = (el: HTMLElement) => el.querySelector<HTMLButtonElement>('.right-now button.line');
+    let shut = () => true;
 
     it('is one line saying how many are due and the first, opening to the panel', async () => {
       const notes = new FakeNotes();
       notes.signIn([noteRecord('n1', 'Kiln day'), noteRecord('n2', 'Wheel day')]);
       const { el, fixture, go } = await render({ notes, url: '/n/n1' });
+      shut = () => el.querySelector<HTMLElement>('#right-now-sheet')!.hidden === true;
       const region = () => el.querySelector('section.right-now')!;
       expect(region().getAttribute('aria-label')).toBe('Right Now');
       // No handle, and no panel until the line is tapped.
@@ -893,36 +901,51 @@ describe('Launch', () => {
 
       expect(line(el)!.getAttribute('aria-expanded')).toBe('false');
       expect(line(el)!.getAttribute('aria-controls')).toBe('right-now-sheet');
+      // What it names is there while closed too, hidden, after the line.
+      const sheet = el.querySelector<HTMLElement>('#right-now-sheet')!;
+      expect(sheet.hidden).toBe(true);
+      expect(
+        line(el)!.compareDocumentPosition(sheet) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
       line(el)!.click();
       await fixture.whenStable();
       expect(line(el)!.getAttribute('aria-expanded')).toBe('true');
-      const sheet = el.querySelector('#right-now-sheet')!;
+      expect(sheet.hidden).toBe(false);
       expect(sheet.querySelector('[aria-label="Done: Pick up glazed mugs"]')).not.toBeNull();
       expect(sheet.querySelector('[aria-label="Snooze: Call Vikas"]')).not.toBeNull();
+      // The focus goes into it: its first control, the heading's link.
+      expect(document.activeElement).toBe(sheet.querySelector('a'));
       // The line again closes it.
       line(el)!.click();
       await fixture.whenStable();
-      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      expect(shut()).toBe(true);
       // Escape closes it, back to the line.
       line(el)!.click();
       await fixture.whenStable();
-      el.querySelector('#right-now-sheet')!.dispatchEvent(
+      el.querySelector('#right-now-sheet a')!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       );
       await fixture.whenStable();
-      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      expect(shut()).toBe(true);
       expect(document.activeElement).toBe(line(el));
+      // Escape closes it wherever the focus is, even on nothing.
+      line(el)!.click();
+      await fixture.whenStable();
+      (document.activeElement as HTMLElement).blur();
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await fixture.whenStable();
+      expect(shut()).toBe(true);
       // A tap outside it closes it.
       line(el)!.click();
       await fixture.whenStable();
       document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
       await fixture.whenStable();
-      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      expect(shut()).toBe(true);
       // So does going to another note.
       line(el)!.click();
       await fixture.whenStable();
       await go('/n/n2');
-      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      expect(shut()).toBe(true);
       expect(line(el)!.getAttribute('aria-expanded')).toBe('false');
       // The capture screen keeps the panel and its handle.
       await go('/');
@@ -932,6 +955,116 @@ describe('Launch', () => {
         'right-now-title',
       );
     });
+    it('keeps the focus in the sheet when Done takes the row that had it', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([noteRecord('n1', 'Kiln day')]);
+      const { el, fixture } = await render({ notes, url: '/n/n1' });
+      const reminders = TestBed.inject(RemindersService);
+      const mugs = due('r1', 'Pick up glazed mugs', 5);
+      const vikas = due('r2', 'Call Vikas', 1);
+      reminders.reminders.set([mugs, vikas]);
+      await fixture.whenStable();
+      line(el)!.click();
+      await fixture.whenStable();
+      const sheet = el.querySelector<HTMLElement>('#right-now-sheet')!;
+      sheet.querySelector<HTMLButtonElement>('[aria-label="Done: Pick up glazed mugs"]')!.focus();
+      // The row goes (as Done does), and its button with it.
+      reminders.reminders.set([vikas]);
+      await fixture.whenStable();
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Done: Call Vikas');
+      reminders.reminders.set([]);
+      await fixture.whenStable();
+      // No row left: the heading's link.
+      expect(document.activeElement).toBe(sheet.querySelector('a'));
+      expect(sheet.hidden).toBe(false);
+    });
+
+    it('steps aside while the keyboard is up: the line and a folded line, not the name', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([{ ...noteRecord('c-pots', 'Pots'), kind: 'concept', conceptType: 'project' }]);
+      const { el, fixture, editor } = await render({ notes, url: '/n/c-pots' });
+      const fold = () => el.querySelector<HTMLButtonElement>('button.fold')!;
+      const region = () => el.querySelector<HTMLElement>('section.right-now')!;
+      expect(region().hidden).toBe(false);
+      expect(fold().hidden).toBe(false);
+      editor().keyboardUp.set(true);
+      await fixture.whenStable();
+      expect(region().hidden).toBe(true);
+      expect(fold().hidden).toBe(true);
+      expect(el.querySelector('.concept .name input')).not.toBeNull();
+      expect(el.querySelector<HTMLElement>('app-concept-header')!.hidden).toBe(false);
+      editor().keyboardUp.set(false);
+      await fixture.whenStable();
+      expect(region().hidden).toBe(false);
+      expect(fold().hidden).toBe(false);
+    });
+
+    describe('at 900 px and up', () => {
+      beforeEach(() => {
+        Object.defineProperty(window, 'matchMedia', {
+          configurable: true,
+          value: (query: string) => ({
+            matches: query.includes('min-width: 900px'),
+            media: query,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+          }),
+        });
+      });
+      afterEach(() => delete (window as { matchMedia?: unknown }).matchMedia);
+
+      it('keeps the panel beside the notes, and hides nothing for the keyboard', async () => {
+        const notes = new FakeNotes();
+        notes.signIn([
+          { ...noteRecord('c-pots', 'Pots'), kind: 'concept', conceptType: 'project' },
+        ]);
+        const { el, fixture, editor } = await render({ notes, url: '/n/c-pots' });
+        expect(line(el)).toBeNull();
+        expect(el.querySelector('app-right-now-panel')).not.toBeNull();
+        editor().keyboardUp.set(true);
+        await fixture.whenStable();
+        expect(el.querySelector<HTMLElement>('section.right-now')!.hidden).toBe(false);
+        expect(el.querySelector<HTMLButtonElement>('button.fold')!.hidden).toBe(false);
+      });
+    });
+  });
+
+  it('goes from a saved note at / to a new one with no line mode on the way (#287)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { el, fixture, url } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    capture.onText('Kiln log');
+    capture.flush();
+    await fixture.whenStable();
+    const added: Element[] = [];
+    const watch = new MutationObserver((records) => {
+      for (const r of records)
+        for (const n of r.addedNodes) if (n instanceof Element) added.push(n);
+    });
+    watch.observe(el, { childList: true, subtree: true });
+    newNote(el).click();
+    await fixture.whenStable();
+    watch.disconnect();
+    expect(url()).toBe('/');
+    expect(added.some((n) => n.matches('.line-mode') || !!n.querySelector('.line-mode'))).toBe(
+      false,
+    );
+    expect(el.querySelector('[role="separator"]')).not.toBeNull();
+  });
+
+  it('closes the lists and More on any navigation (#287)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n1', 'Kiln day'), noteRecord('n2', 'Wheel day')]);
+    const { el, fixture, go } = await render({ notes, url: '/n/n1' });
+    await openMore(el, fixture);
+    buttonNamed(el, 'Previous note')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('#previous-notes')).not.toBeNull();
+    await openMore(el, fixture);
+    await go('/n/n2');
+    expect(el.querySelector('#previous-notes')).toBeNull();
+    expect(el.querySelector('#more-menu')).toBeNull();
   });
 
   it('opens a saved note with the caret at its end, a new one at its start (#287)', async () => {
