@@ -84,4 +84,13 @@ describe('plainText', () => {
   it('keeps escaped marks as the characters they are', () => {
     expect(plainText('\\*not bold\\*')).toBe('*not bold*');
   });
+  it('leaves addresses alone and survives marks left open', () => {
+    expect(plainText('see https://example.com/a_b_c/d_e for more')).toBe(
+      'see https://example.com/a_b_c/d_e for more',
+    );
+    expect(plainText('mail eric_e@example.com now')).toBe('mail eric_e@example.com now');
+    expect(plainText('[[a_b_c]] here')).toBe('a_b_c here');
+    expect(plainText('open [[link and words')).toBe('open [[link and words');
+    expect(plainText('a *star left open')).toBe('a *star left open');
+  });
 });

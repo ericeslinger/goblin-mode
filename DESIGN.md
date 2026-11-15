@@ -1218,7 +1218,13 @@ where it was put for that visit. A tap on the handle is not a move and
 saves nothing.
 Tapping the Right Now heading opens the full list (`/right-now`). On
 wide screens Right Now sits above the notes list, as the UX spec has
-it, sized by its content (2026-10-06).
+it, sized by its content (2026-10-06). (Since 2026-11-15, #285: up to
+its cap of 40% of the height; past that it scrolls inside, its heading
+kept in sight. On a phone, an open Projects or Previous note list and a
+tall meal plan header scroll in their own box above Right Now instead
+of painting over it. Rows in Browse and meal slots show the plain words
+of the text, `plainText`, never the marks as typed; stored text is
+untouched.)
 
 **Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
 New (since 2026-11-15 New note, the icon beside the leaf, #272), From

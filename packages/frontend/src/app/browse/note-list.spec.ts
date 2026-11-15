@@ -21,6 +21,15 @@ describe('snippet', () => {
     expect(snippet(noteRecord('a', `Clipped\n${image}\nThe glaze held.`))).toBe('The glaze held.');
   });
 
+  it('reads only the start of a long mark-heavy line, and a note again when it changes', () => {
+    const heavy = 'a *b* '.repeat(20_000);
+    const started = performance.now();
+    expect(snippet(noteRecord('heavy', `t\n${heavy}`), 12)).toBe('a b a b a b…');
+    expect(performance.now() - started).toBeLessThan(500);
+    // One entry a note: the same id with new text is read afresh.
+    expect(snippet(noteRecord('heavy', 't\nnew words'), 12)).toBe('new words');
+  });
+
   it('is cut with an ellipsis', () => {
     const text = snippet(noteRecord('a', `t\n${'x'.repeat(200)}`), 10);
     expect(text).toBe(`${'x'.repeat(9)}…`);

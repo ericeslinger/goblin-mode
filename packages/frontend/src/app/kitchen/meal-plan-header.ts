@@ -252,7 +252,20 @@ export class MealPlanHeader {
   private readonly now = inject(NOW);
 
   /** Shown, never stored: the text stays as typed (#285). */
-  protected readonly plain = plainText;
+  /**
+   * A slot's plain words, kept per text: the header redraws with every
+   * keystroke in a plan note, and a week's slots rarely change.
+   */
+  protected readonly plain = (text: string): string => {
+    let known = this.plainOf.get(text);
+    if (known === undefined) {
+      if (this.plainOf.size >= 200) this.plainOf.clear();
+      known = plainText(text);
+      this.plainOf.set(text, known);
+    }
+    return known;
+  };
+  private readonly plainOf = new Map<string, string>();
   protected readonly editing = signal<number | undefined>(undefined);
   protected readonly refused = signal('');
   /** Slots asked about later on this device, so the question waits. */
