@@ -44,6 +44,59 @@ describe('RecipeHeader (#127)', () => {
     expect(notes.rename).toHaveBeenCalledWith('r1', 'Red lentil dal');
   });
 
+  describe('a failed import (2026-11-15)', () => {
+    const skeleton = '## Ingredients\n\n## Method\n\n## Notes\n';
+    const refused: NoteRecord = {
+      ...noteRecord('r1', skeleton),
+      title: 'Recipe from seriouseats.com',
+      kind: 'recipe',
+      source: { url: 'https://www.seriouseats.com/gratin' },
+      importState: 'failed',
+      importError: 'this site does not let Mossgoblin read its pages (it answered 402)',
+    };
+    const button = (el: HTMLElement, name: string) =>
+      [...el.querySelectorAll('button')].find((b) => b.textContent!.trim() === name);
+
+    it('offers Dismiss beside Try again and Paste the page instead, and dismisses', async () => {
+      const { el, notes } = await render(refused);
+      expect(el.querySelector('.import')!.textContent).toContain(
+        'Could not import from seriouseats.com',
+      );
+      expect(el.querySelector('.import')!.textContent).not.toContain('What you wrote stays');
+      expect(button(el, 'Try again')).toBeDefined();
+      expect(button(el, 'Paste the page instead')).toBeDefined();
+      button(el, 'Dismiss')!.click();
+      expect(notes.dismissImport).toHaveBeenCalledWith('r1');
+      // The line goes, so the keyboard's focus goes to the name.
+      expect(document.activeElement).toBe(el.querySelector('input'));
+    });
+
+    it('on a recipe filled in by hand, says his text stays, and still offers all three', async () => {
+      const { el } = await render({ ...refused, body });
+      const line = el.querySelector('.import')!.textContent!;
+      expect(line).toContain('Could not import from seriouseats.com');
+      expect(line).toContain("What you wrote stays; an import puts the page's recipe on the back.");
+      for (const name of ['Try again', 'Dismiss', 'Paste the page instead']) {
+        expect(button(el, name)).toBeDefined();
+      }
+    });
+
+    it('once dismissed, says nothing of an import and offers none', async () => {
+      const { el, fixture } = await render({ ...refused, body });
+      fixture.componentRef.setInput('note', {
+        ...refused,
+        body,
+        importState: undefined,
+        importError: undefined,
+      });
+      await fixture.whenStable();
+      expect(el.querySelector('.import')).toBeNull();
+      for (const name of ['Try again', 'Dismiss', 'Paste the page instead']) {
+        expect(button(el, name)).toBeUndefined();
+      }
+    });
+  });
+
   describe('the name as it is typed (#205)', () => {
     const dal: NoteRecord = { ...noteRecord('r1', ''), title: 'Dal', kind: 'recipe' };
     afterEach(() => vi.useRealTimers());

@@ -481,6 +481,20 @@ function webLabel(d: Data): { fromWeb?: string } {
   return parts.length ? { fromWeb: parts.join(' ') } : {};
 }
 
+/**
+ * Where a note came from and how its import went (2026-11-15), as
+ * get_note shows them: its source link, and a recipe's import state
+ * and error. `d` is the note opened, so a sealed error is its words.
+ */
+function importView(d: Data) {
+  const url = (d['source'] as { url?: unknown } | undefined)?.url;
+  return {
+    ...(typeof url === 'string' && url ? { source: { url } } : {}),
+    ...(typeof d['importState'] === 'string' ? { importState: d['importState'] } : {}),
+    ...(typeof d['importError'] === 'string' ? { importError: d['importError'] } : {}),
+  };
+}
+
 function noteSummary(id: string, d: Data) {
   return {
     id,
@@ -747,6 +761,20 @@ export class NotesTools {
   }
 
   /**
+   * `before` for an activity entry (2026-11-15): each of `keys` that
+   * `update` changes, as stored (a sealed value goes back to the same
+   * note, where it opens), null where absent (#206); else nothing.
+   */
+  private beforeOf(note: NoteSnap, update: Data, keys: readonly string[]) {
+    const changed = keys.filter((k) => k in update);
+    if (!changed.length) return {};
+    const stored = note.stored() ?? {};
+    return {
+      before: Object.fromEntries(changed.map((k) => [k, (stored[k] as FieldBefore) ?? null])),
+    };
+  }
+
+  /**
    * The hash of `text`, a body of note `note`, as a `baseHash` or an
    * activity entry's `before.body` holds it: plain for a plain note,
    * keyed for a sealed one (`hashForm`, 2026-11-14), so a sealed note's
@@ -975,8 +1003,10 @@ export class NotesTools {
     );
     return {
       id: doc.id,
+      kind: String(d['kind'] ?? 'text'),
       title: d['title'],
       titleSource: d['titleSource'],
+      ...importView(d),
       body: d['body'],
       tags: d['tags'] ?? [],
       links: d['links'] ?? [],
@@ -1886,9 +1916,12 @@ export class NotesTools {
     archived?: boolean;
     /** Instructions for Claude: a template's (#111), or any note's that takes them (#231). */
     instructions?: string;
+    /** Clears a recipe's failed import, as the app's Dismiss does (2026-11-15). */
+    dismissImport?: boolean;
   }) {
     const ref = this.notes().doc(args.id);
-    const names = args.body === undefined ? undefined : await this.names();
+    const names =
+      args.body === undefined && args.title === undefined ? undefined : await this.names();
     return this.db.runTransaction(async (tx) => {
       const doc = await this.readNote(args.id, tx);
       if (!doc.exists) throw new ToolError(`no note ${args.id}`);
@@ -1909,11 +1942,35 @@ export class NotesTools {
         }
       }
       if (args.title !== undefined) {
-        // Eric's own title is his; Claude may only propose one in chat.
-        if (current['titleSource'] === 'user')
-          throw new ToolError("the title is Eric's own; leave it");
-        update['title'] = args.title;
-        update['titleSource'] = 'llm';
+        // Asked, a tool renames any note, a title Eric set too (Eric,
+        // 2026-11-15); that it is asked is the instructions' to say.
+        // Kept as `user`, the title he asked for: the titler never
+        // replaces it, as it would an `llm` one at the next settle.
+        const name = args.title.trim();
+        if (!name) throw new ToolError('title must not be empty');
+        const kind = String(current['kind'] ?? 'text');
+        if (NAMED_KINDS.includes(kind)) {
+          // A concept's or recipe's name is what links answer to.
+          if (name.length > MAX_NAME)
+            throw new ToolError(`a name is at most ${MAX_NAME} characters`);
+          const owner = names!.get(normalizeName(name));
+          if (owner !== undefined && owner !== args.id)
+            throw new ToolError(`already a name in the garden: ${name} (${owner})`);
+          // A sealed concept or recipe that did not open may have it.
+          this.refuseWhileUnnamed(`renaming to ${name}`);
+        }
+        const old = String(current['title'] ?? '');
+        const synonyms = (current['synonyms'] as string[] | undefined) ?? [];
+        if (kind === 'concept' && normalizeName(old) !== normalizeName(name)) {
+          // As the app renames one: the old name stays another name, so
+          // links to it still reach it; the new one is no longer one.
+          const others = synonyms.filter((n) => normalizeName(n) !== normalizeName(name));
+          if (old.trim() && !others.some((n) => normalizeName(n) === normalizeName(old)))
+            others.push(old);
+          update['synonyms'] = others;
+        }
+        update['title'] = name;
+        update['titleSource'] = 'user';
       }
       if (args.tags !== undefined) update['tags'] = args.tags;
       if (args.archived !== undefined) update['archived'] = args.archived;
@@ -1923,7 +1980,15 @@ export class NotesTools {
           throw new ToolError(`a ${current['kind']} note has no Instructions for Claude`);
         update['instructions'] = args.instructions.trim();
       }
-      Note.parse({ ...current, ...update });
+      if (args.dismissImport === true) {
+        // As the app's Dismiss (2026-11-15): an ordinary recipe again,
+        // its link kept as its source.
+        if (current['kind'] !== 'recipe' || current['importState'] !== 'failed')
+          throw new ToolError('only a recipe whose import failed has an import to dismiss');
+        update['importState'] = FieldValue.delete();
+        update['importError'] = FieldValue.delete();
+      }
+      Note.parse(withoutDeletes({ ...current, ...update }));
       // Each field stays in the form it was found in.
       await this.writeNote(tx, 'update', ref, update, doc.forms);
       const changed = [
@@ -1937,10 +2002,19 @@ export class NotesTools {
           `Changed a note's ${changed.join(' and ').replace(/ and (?=.* and )/, ', ')}`,
         args.archived === true && 'Archived a note',
         args.archived === false && 'Restored a note',
+        args.dismissImport === true && "Dismissed a recipe's failed import",
       ].filter((x): x is string => !!x);
       tx.set(
         ...this.activity('update_note', parts.join('; ') || 'Touched a note', [
-          touched(args.id, { ...current, ...update }, doc.forms),
+          {
+            ...touched(args.id, { ...current, ...update }, doc.forms),
+            // What a rename or a dismiss replaced (2026-11-15), as
+            // stored: a sealed title goes back to this note, sealed.
+            ...this.beforeOf(doc, update, [
+              ...(args.title !== undefined ? ['title', 'titleSource', 'synonyms'] : []),
+              ...(args.dismissImport === true ? ['importState', 'importError'] : []),
+            ]),
+          },
         ]),
       );
       return {
