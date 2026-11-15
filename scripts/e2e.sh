@@ -43,6 +43,26 @@ stack_ports() {
     $((4400 + o)) $((4500 + o)) $((9150 + o)) $((9299 + o)) $((9499 + o))
 }
 
+# Checked before anything is written or the cleanup trap is set, so a
+# run refused here leaves a live run's files alone.
+port_in_use() {
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
+for stack in $(seq 0 $((WORKERS - 1))); do
+  ports=$(stack_ports "$stack")
+  # Stack 0 leaves the suite's own ports to firebase-tools, which moves
+  # off a taken one: the dev suite (`npm run emulators`) uses the same
+  # defaults and may be running alongside.
+  if [ "$stack" = 0 ]; then ports=$(echo "$ports" | cut -d' ' -f1-5); fi
+  for port in $ports; do
+    if port_in_use "$port"; then
+      echo "error: port $port is already in use; is another e2e run (or a stray emulator) up?" >&2
+      exit 1
+    fi
+  done
+done
+
 # The functions emulator reads .env.local over any other .env file: the
 # journeys' owner (packages/e2e/src/personas.ts) is the MCP owner here.
 # Every param is given too: a suite that finds one missing writes its
@@ -59,19 +79,6 @@ cleanup() {
   rm -f "$functions_env" firebase.e2e-[1-9].json
 }
 trap cleanup EXIT
-
-port_in_use() {
-  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
-}
-
-for stack in $(seq 0 $((WORKERS - 1))); do
-  for port in $(stack_ports "$stack"); do
-    if port_in_use "$port"; then
-      echo "error: port $port is already in use; is another e2e run (or a stray emulator) up?" >&2
-      exit 1
-    fi
-  done
-done
 
 wait_for_port() {
   local port=$1 name=$2
