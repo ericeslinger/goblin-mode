@@ -432,7 +432,7 @@ test.describe('on a narrow phone', () => {
     await signInAs(page, OWNER);
     const call = await connectClaude(page);
     const { id } = (await call('create_note', { body: 'Studio day\nclay' })) as { id: string };
-    const long = 'Glaze test notes for the celadon and the tenmoku';
+    const long = 'Glaze test notes for the celadon';
     const longNote = (await call('create_note', { body: `${long}\nclay` })) as { id: string };
 
     // The modules with a header of their own, on as other journeys do.
