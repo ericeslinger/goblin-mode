@@ -6031,6 +6031,54 @@ for CI. It needs two repository secrets: `CLOUDFLARE_API_TOKEN` and
 The app shows its build sha and time in Settings so a refresh can be
 checked against the deploy.
 
+**Parallel journeys (2026-11-15).** Eric: try parallelizing the
+journeys, keep it if it runs reliably in the cloud container, and lose
+no test utility for speed. `scripts/e2e.sh` starts one full e2e stack
+(auth, Firestore, functions and storage emulators, and the static
+server) per Playwright worker, `E2E_WORKERS` of them, default 2. Stack
+n serves the app on 4300 + n and its emulators on firebase.e2e.json's
+ports plus 10 n, the suite's hub, logging, websocket, Eventarc and
+Tasks ports included; stack 0 is firebase.e2e.json itself, and the
+copies for the others are written to the project root (firebase-tools
+reads a config only there) and removed at teardown. Each suite gets
+its own TMPDIR, so the hub locator files do not clash. The page finds
+its stack from the port it was served on (`emulator-ports.e2e.ts`,
+which only the e2e build has); a worker finds it from its parallel
+index (`packages/e2e/src/stack.ts`). So every journey still has a
+whole emulator suite to itself, its reset still wipes everything, and
+the MCP owner, the stand-ins and triggers behave as they did serially.
+The rules and functions-emulator specs run against stack 0 before any
+journey starts. `E2E_WORKERS=1` is the old serial run, for debugging.
+
+Options weighed. One account per worker on one suite needs a
+multi-owner MCP and OAuth in the emulator build, per-user resets and
+every whole-database helper scoped, and still shares collection-group
+work such as `sendDue` between workers; one project id per worker does
+not work, because the functions emulator serves one project. A stack
+per worker changes no function and no assertion.
+
+Measured on the 4-core, 15 GB container, the whole `npm run e2e`:
+serial 968 s (builds and emulator start 44 s, specs 30 s, journeys
+894 s); two stacks 570 to 581 s over four runs (journeys 510 to 522
+s), the last three consecutive and green; three stacks 578 s, and out
+of memory. Memory, not CPU, is the limit: a functions emulator never
+stops a function's runtime process once it has run (about 115 MB
+each), so one stack holds 30 to 45 of them by the end; a serial run
+peaks near 8.4 GB in use and two stacks near 12.3 GB. With three, the
+kernel killed Chromium renderers and 13 journeys failed. Three would
+not be faster anyway: two stacks already average a load of 6 to 7 on
+four cores.
+
+Starting several suites at once exposed one real race: a suite that
+finds a param (`STORAGE_REGION`) missing from `.env.local` writes its
+default there, and the other suites then failed to load any function
+while the functions port was open. `e2e.sh` now writes every param
+up front and waits for each stack's `health` function, failing if a
+suite reports its definitions did not load. Load exposed one journey
+assumption: `send-to.spec.ts` read the back's only status, but What
+assistants changed can still say Loading… under it, so the journey
+reads the first status, as its later steps already did.
+
 ## Build order
 
 Each step is one or more PRs, each with a journey.

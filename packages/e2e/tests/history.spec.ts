@@ -1,5 +1,14 @@
 import { type Page, devices } from '@playwright/test';
-import { expect, letItSave, prepPage, signInAs, test, typeLines, openMore } from '../src/fixtures';
+import {
+  FIRESTORE_EMULATOR as FIRESTORE,
+  expect,
+  letItSave,
+  prepPage,
+  signInAs,
+  test,
+  typeLines,
+  openMore,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 import { DEV_NOTE_KEYS_MASTER } from '../../functions/src/note-keys/dev-master.emulator';
 import { deriveNoteKey, masterFromBase64 } from '../../schema/src/note-key';
@@ -52,8 +61,6 @@ test('a version another device wrote over can be found in History and restored',
     page.getByRole('list', { name: 'Earlier versions' }).getByRole('button', { name: /oat milk/ }),
   ).toBeVisible();
 });
-
-const FIRESTORE = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 
 /** The owner's data key, derived from the development master, as the stand-ins do. */
 async function ownerKey(): Promise<DataKey> {

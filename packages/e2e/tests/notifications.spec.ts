@@ -1,7 +1,5 @@
-import { expect, signInAs, test, openMore } from '../src/fixtures';
+import { FIRESTORE_EMULATOR as FIRESTORE, expect, signInAs, test, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
-
-const FIRESTORE = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 
 /** Every device record in the emulator, read past the rules as admin. */
 async function deviceTokens(): Promise<string[]> {

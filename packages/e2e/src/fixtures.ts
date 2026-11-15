@@ -1,7 +1,8 @@
 import { type Page, test as base, expect } from '@playwright/test';
 import type { Persona } from './personas';
+import { AUTH_EMULATOR, FIRESTORE_EMULATOR } from './stack';
 
-export const AUTH_EMULATOR = process.env['FIREBASE_AUTH_EMULATOR_HOST'] ?? '127.0.0.1:9199';
+export { AUTH_EMULATOR, FIRESTORE_EMULATOR };
 const PROJECT = 'demo-mossgoblin';
 
 /**
@@ -13,13 +14,11 @@ export async function prepPage(page: Page): Promise<void> {
   await page.route(/fonts\.(googleapis|gstatic)\.com|apis\.google\.com/, (r) => r.abort());
 }
 
-export const FIRESTORE_EMULATOR = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
-
 /**
  * Wipes every Auth emulator account and all Firestore data, then creates
  * this persona under its fixed uid, so setup is retry-safe and every
- * journey starts empty. Journeys run serially (one worker), so a wipe is
- * safe.
+ * journey starts empty. Each worker has an emulator stack of its own
+ * (./stack.ts) and runs one journey at a time, so a wipe is safe.
  */
 export async function resetAccount(persona: Persona): Promise<void> {
   const base = `http://${AUTH_EMULATOR}`;

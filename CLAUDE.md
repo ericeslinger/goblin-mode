@@ -97,10 +97,15 @@ for anything else.
   functions deploy dry run (staged `npm install --omit=dev` and import),
   and the Worker deploy dry run. No ESLint (house style).
 - `npm run e2e` must pass before pushing or opening a PR: it builds the
-  e2e configuration, starts the e2e emulator suite (ports 9199, 8180,
-  5101, 9198), serves the app on :4300, runs the rules tests
-  (`packages/rules-tests`) and the Playwright journeys (including the axe
-  accessibility journey), and tears everything down.
+  e2e configuration, starts one e2e stack per Playwright worker
+  (2026-11-15; `E2E_WORKERS`, default 2, `E2E_WORKERS=1` for a serial
+  run), runs the rules tests (`packages/rules-tests`) against stack 0,
+  then the Playwright journeys (including the axe accessibility
+  journey), and tears everything down. Stack n is the emulator suite on
+  firebase.e2e.json's ports plus 10 n (auth 9199, Firestore 8180,
+  functions 5101, storage 9198, and the suite's own 4400, 4500, 9150,
+  9299, 9499) and the app on 4300 + n. Each worker has its own stack,
+  so a journey's account reset can stay a whole-emulator wipe.
 - Prose-only changes skip both. A new test suite is wired into a gate in
   the same change. A new user flow gets a journey in the same PR.
 
@@ -148,6 +153,15 @@ preinstalled Chromium under the revision Playwright expects. Never run
 `playwright install`, and do not run a second `npm ci` while the hook
 is still running. Do not `pkill -f` on broad patterns: it can match and
 kill your own shell.
+
+Run e2e as `flock /tmp/mossgoblin-e2e.lock npm run e2e` (2026-11-15):
+other sessions and agents on the container use the same ports, and two
+runs at once collide or starve each other. Memory is the limit: a
+stack's functions emulator keeps one Node process (about 115 MB) per
+function it has run, so a serial run peaks near 8 GB in use and the
+default two stacks near 12 GB of the container's 15 GB. Three stacks
+ran out of memory; do not raise `E2E_WORKERS` there, and do not run the
+gate or a build alongside e2e.
 
 Journeys never drive the Google sign-in popup: `apis.google.com` is
 blocked. They sign in by email and password at `/dev-sign-in`, which
