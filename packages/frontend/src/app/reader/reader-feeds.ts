@@ -2,6 +2,7 @@ import {
   Component,
   type ElementRef,
   type WritableSignal,
+  computed,
   inject,
   signal,
   viewChild,
@@ -9,6 +10,9 @@ import {
 import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
+import { NOW } from '../platform/platform';
+import { FeedFix } from './feed-fix';
+import { looksText, needsAttention, newestText } from './feed-health';
 import {
   type DiscoveredFeed,
   type FeedRecord,
@@ -34,16 +38,19 @@ export function renamedFolder(names: readonly string[]): string {
  * Manage feeds (#159, step 1): the feeds followed, in folders, imported
  * from an OPML file (Feedly exports one) or followed one at a time,
  * moved between folders and removed. Reading is on `/reader` (#162).
- * A site's address finds its feeds (#174): Find feeds, or Find feeds on
- * a followed link the server could not read as one, lists what the
- * server found to pick from. The shows in Podcasts are not here
+ * A site's address finds its feeds (#174): Find feeds lists what the
+ * server found to pick from. Above the folders, the feeds whose last
+ * look failed or that were given up (2026-11-15), each with what went
+ * wrong and the fixes that fit (`FeedFix`): Find the feed and Switch to
+ * it for an address that stopped working. Each row shows the feed's
+ * address and links its name to the feed's page. The shows in Podcasts are not here
  * (#245): each feed has Move to Podcasts for one filed in the Reader by
  * mistake (Eric, 2026-11-10: nothing moves by itself), and a show's
  * downloads are chosen in Podcasts.
  */
 @Component({
   selector: 'app-reader-feeds',
-  imports: [RouterLink],
+  imports: [FeedFix, RouterLink],
   template: `
     <main class="page">
       <a routerLink="/reader">Back</a>
@@ -52,6 +59,37 @@ export function renamedFolder(names: readonly string[]): string {
         <p class="muted">
           Reader is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.
         </p>
+      }
+
+      @if (attention().length) {
+        <section class="attention" aria-labelledby="attention">
+          <h2 id="attention">Feeds that need attention</h2>
+          <p class="muted">
+            {{ attention().length }}
+            {{ attention().length === 1 ? 'feed' : 'feeds' }} could not be read at the last look.
+            Those a new address may fix come first.
+          </p>
+          <ul aria-labelledby="attention">
+            @for (a of attention(); track a.feed.id) {
+              <li>
+                <a class="name" [routerLink]="['/reader/s', a.feed.id]">{{ a.feed.title }}</a>
+                <span class="url">{{ a.feed.url }}</span>
+                <span class="meta">{{ since(a.feed) }}</span>
+                <app-feed-fix
+                  [feed]="a.feed"
+                  [words]="a.trouble.words"
+                  [fixes]="a.trouble.fixes"
+                  (said)="fixed.set($event)"
+                />
+              </li>
+            }
+          </ul>
+        </section>
+      } @else if (looked()) {
+        <p class="muted calm">Every feed answered at its last look.</p>
+      }
+      @if (fixed()) {
+        <p class="status" role="status">{{ fixed() }}</p>
       }
 
       <h2 id="folders">Folders</h2>
@@ -72,19 +110,11 @@ export function renamedFolder(names: readonly string[]): string {
               <ul class="feeds" [attr.aria-label]="'Feeds in ' + folder.name">
                 @for (feed of folder.feeds; track feed.id) {
                   <li>
-                    <span class="name">{{ feed.title }}</span>
-                    <span class="meta">{{ meta(feed) }}</span>
-                    @if (notAFeed(feed)) {
-                      <button
-                        type="button"
-                        class="find"
-                        [attr.aria-label]="'Find feeds at the site of ' + feed.title"
-                        [disabled]="finding()"
-                        (click)="findFor(feed)"
-                      >
-                        Find feeds there
-                      </button>
+                    <a class="name" [routerLink]="['/reader/s', feed.id]">{{ feed.title }}</a>
+                    @if (feed.url) {
+                      <span class="url">{{ feed.url }}</span>
                     }
+                    <span class="meta">{{ meta(feed) }}</span>
                     <label class="move">
                       <span class="visually-hidden"
                         >Folders for {{ feed.title }}, comma separated</span
@@ -241,8 +271,24 @@ export function renamedFolder(names: readonly string[]): string {
       font-weight: 600;
       overflow-wrap: anywhere;
     }
+    /* The feed's address (2026-11-15): small, wrapping anywhere, never cut. */
+    .url {
+      grid-column: 1;
+      color: var(--quiet);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
     .meta {
       grid-column: 1;
+    }
+    .attention ul li {
+      display: grid;
+      gap: 2px;
+      padding: 10px 4px;
+      border-top: 1px solid var(--rule);
+    }
+    .attention app-feed-fix {
+      margin-top: var(--space-1, 4px);
     }
     .move {
       grid-column: 1;
@@ -254,13 +300,13 @@ export function renamedFolder(names: readonly string[]): string {
       min-height: 32px;
     }
     .remove {
-      grid-row: 1 / span 3;
+      grid-row: 1 / span 4;
     }
     .retry {
       grid-row: 1;
     }
     .retry + .remove {
-      grid-row: 2 / span 2;
+      grid-row: 2 / span 3;
     }
     .find {
       grid-column: 1;
@@ -288,6 +334,17 @@ export function renamedFolder(names: readonly string[]): string {
 export class ReaderFeeds {
   protected readonly reader = inject(ReaderService);
   protected readonly modules = inject(ModulesService);
+  private readonly now = inject(NOW);
+  /** The Reader's feeds whose last look failed or that were given up, the fixable first. */
+  protected readonly attention = computed(() =>
+    this.reader.loaded() ? needsAttention(this.reader.readerFeeds()) : [],
+  );
+  /** Whether any feed has been looked at, so "every feed answered" means something. */
+  protected readonly looked = computed(
+    () => this.reader.loaded() && this.reader.readerFeeds().some((f) => f.fetchedAt !== undefined),
+  );
+  /** What a fix in the attention section did. */
+  protected readonly fixed = signal('');
   protected readonly cap = FEED_CAP;
   protected readonly imported = signal('');
   /** A Feedly export on its way to the server (#176). */
@@ -394,13 +451,6 @@ export class ReaderFeeds {
     );
   }
 
-  /** Find feeds for a followed link the server could not read as a feed (#174). */
-  protected findFor(feed: FeedRecord): void {
-    this.urlInput().nativeElement.value = feed.site ?? feed.url;
-    this.folderInput().nativeElement.value = feed.folders[0] ?? '';
-    void this.find();
-  }
-
   protected followFound(found: DiscoveredFeed): void {
     const typed = this.folderInput().nativeElement.value;
     const folder = cleanFolder(typed);
@@ -430,9 +480,10 @@ export class ReaderFeeds {
     this.moved.set(`${feed.title} is in Podcasts now.`);
   }
 
-  /** The server looked and found a page, not a feed (#161's message). */
-  protected notAFeed(feed: FeedRecord): boolean {
-    return !feed.dead && /^not a feed/.test(feed.error ?? '');
+  /** How long a feed in trouble has been failing, and how stale it was before. */
+  protected since(feed: FeedRecord): string {
+    const now = this.now();
+    return `${looksText(feed, now)} ${newestText(feed, now)}`;
   }
 
   protected move(feed: FeedRecord, value: string): void {

@@ -28,6 +28,7 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { type Functions, httpsCallable } from 'firebase/functions';
 import { AuthService } from '../auth.service';
@@ -37,6 +38,7 @@ import { ModulesService } from '../modules/modules.service';
 import { ReadingService } from '../reading/reading.service';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { type FeedlyEntry, ZipTooLarge, readFeedlyExport } from './feedly';
+import { unnamed } from './feed-health';
 
 /** A feed as the app shows it (#159). */
 export interface FeedRecord {
@@ -51,6 +53,10 @@ export interface FeedRecord {
   dead: boolean;
   /** Milliseconds, once the fetcher has looked. */
   fetchedAt?: number;
+  /** When the fetcher looks next, milliseconds (2026-11-15: a feed's page says so). */
+  nextFetchAt?: number;
+  /** Failed looks in a row, the fetcher's (2026-11-15: a feed's page says how many). */
+  errorCount?: number;
   /**
    * A show followed in Podcasts (#245): set where it was added or
    * moved, by the gardener; the Reader's feeds have none.
@@ -166,6 +172,11 @@ export interface ReaderApi {
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>, merge: boolean): Promise<void>;
   remove(db: Firestore, path: string): Promise<void>;
+  /**
+   * Several feed writes in one batch (2026-11-15: a switch to a feed's
+   * new address follows the new one and removes the old together).
+   */
+  batch(db: Firestore, writes: FeedWrite[]): Promise<void>;
   serverTime(): unknown;
   /** The sentinel that clears a field in a merge. */
   clear(): unknown;
@@ -267,6 +278,20 @@ export function callableMessage(err: unknown): string {
   return typeof message === 'string' ? message.replace(/ \[\d{3}\]$/, '') : '';
 }
 
+/** One write of a batch: a set (merged or whole) or a removal. */
+export type FeedWrite =
+  { path: string; data: Record<string, unknown>; merge: boolean } | { path: string; remove: true };
+
+/**
+ * What a switch to a feed's new address did (2026-11-15): the feed
+ * followed now, and whether it was followed already.
+ */
+export interface Switched {
+  id: string;
+  title: string;
+  known: boolean;
+}
+
 /** What a refresh did (`refreshFeeds`, #161). */
 export interface TickReport {
   fetched: number;
@@ -328,6 +353,14 @@ function readerApi(functions: Functions): ReaderApi {
       ),
     set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge }),
     remove: (db, path) => deleteDoc(doc(db, path)),
+    batch: (db, writes) => {
+      const batch = writeBatch(db);
+      for (const w of writes) {
+        if ('remove' in w) batch.delete(doc(db, w.path));
+        else batch.set(doc(db, w.path), w.data, { merge: w.merge });
+      }
+      return batch.commit();
+    },
     serverTime: () => serverTimestamp(),
   };
 }
@@ -335,6 +368,8 @@ function readerApi(functions: Functions): ReaderApi {
 function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
   const at = (d['fetchedAt'] as { toMillis?: () => number } | undefined)?.toMillis?.();
   const last = (d['lastItemAt'] as { toMillis?: () => number } | undefined)?.toMillis?.();
+  const next = (d['nextFetchAt'] as { toMillis?: () => number } | undefined)?.toMillis?.();
+  const errors = d['errorCount'];
   const image = d['image'];
   return {
     id,
@@ -345,6 +380,8 @@ function toFeed(id: string, d: Record<string, unknown>): FeedRecord {
     ...(typeof d['error'] === 'string' ? { error: d['error'] } : {}),
     dead: d['dead'] === true,
     ...(at === undefined ? {} : { fetchedAt: at }),
+    ...(typeof next === 'number' ? { nextFetchAt: next } : {}),
+    ...(typeof errors === 'number' && errors > 0 ? { errorCount: errors } : {}),
     ...(d['kind'] === 'podcast' ? { kind: 'podcast' as const } : {}),
     ...(typeof d['autoQueue'] === 'boolean' ? { autoQueue: d['autoQueue'] } : {}),
     // Only a web link is shown (#246): the feed is content from the web.
@@ -820,6 +857,89 @@ export class ReaderService {
   }
 
   /**
+   * Renames a feed (2026-11-15, a feed's page), through the persistent
+   * cache, never awaited. The rules let the app write `title`; the
+   * fetcher names a feed only while its title is its address or host,
+   * so a name given here stays. Blank keeps the name it has.
+   */
+  setTitle(id: string, text: string): string | undefined {
+    const uid = this.auth.user()?.uid;
+    const title = text.replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (!uid || !title) return undefined;
+    this.list.update((l) => l.map((f) => (f.id === id ? { ...f, title } : f)));
+    void this.api
+      .set(this.fb.db, paths.feed(uid, id), { title, updatedAt: this.api.serverTime() }, true)
+      .catch((err) => console.error('feed not renamed', err));
+    return title;
+  }
+
+  /**
+   * Switches a feed to a new address (2026-11-15): a feed's id is
+   * derived from its link, and its articles' from that id, so the link
+   * cannot be edited in place. The new address is followed as a feed
+   * of its own, carrying the old one's folders, its kind (a show in
+   * Podcasts stays one) and its queue switch, and its name unless that
+   * was only the address or host, when the found feed's own name is
+   * taken; then the old feed is removed. Both in one batch through the
+   * persistent cache, never awaited, so it works offline and never
+   * leaves Eric with neither or both. Removing the old feed is what
+   * Remove does: the server takes its articles that are neither saved
+   * nor filed (`feedRemoved`, #161), and the saved and filed stay. An
+   * address already followed gains the old feed's folders instead, its
+   * name left as it is. A message, not a switch, when it cannot be: the
+   * same address, one followed in the other module, or not a link.
+   */
+  switchFeed(oldId: string, found: DiscoveredFeed): Switched | string {
+    const uid = this.auth.user()?.uid;
+    const old = this.list().find((f) => f.id === oldId);
+    const url = normalizeFeedUrl(found.url);
+    if (!uid || !this.read() || !old) return 'Sign in first.';
+    if (!url) return 'That is not a link.';
+    const id = feedId(url);
+    if (id === oldId) return `That is the address ${old.title} has already.`;
+    const podcast = old.kind === 'podcast';
+    const known = this.list().find((f) => f.id === id);
+    if (known && (known.kind === 'podcast') !== podcast) {
+      return `${known.title} is followed in ${known.kind === 'podcast' ? 'Podcasts' : 'the Reader'} already; move it there first, or remove ${old.title}.`;
+    }
+    const now = this.api.serverTime();
+    const writes: FeedWrite[] = [];
+    let title: string;
+    if (known) {
+      title = known.title;
+      const folders = cleanFolders([...known.folders, ...old.folders]);
+      this.list.update((l) =>
+        l.filter((f) => f.id !== oldId).map((f) => (f.id === id ? { ...f, folders } : f)),
+      );
+      writes.push({ path: paths.feed(uid, id), data: { folders, updatedAt: now }, merge: true });
+    } else {
+      title = unnamed(old)
+        ? found.title.replace(/\s+/g, ' ').trim().slice(0, 200) || new URL(url).hostname
+        : old.title;
+      const folders = cleanFolders(old.folders);
+      const kind = podcast
+        ? { kind: 'podcast' as const, autoQueue: old.autoQueue === true }
+        : ({} as const);
+      this.list.update((l) => [
+        ...l.filter((f) => f.id !== oldId),
+        { id, url, title, folders, dead: false, ...kind },
+      ]);
+      writes.push({
+        path: paths.feed(uid, id),
+        data: { url, title, folders, ...kind, addedAt: now, updatedAt: now, nextFetchAt: now },
+        merge: false,
+      });
+    }
+    writes.push({ path: paths.feed(uid, oldId), remove: true });
+    const write = this.api
+      .batch(this.fb.db, writes)
+      .catch((err) => console.error('feed not switched', err));
+    this.writing.add(write);
+    void write.finally(() => this.writing.delete(write));
+    return { id, title, known: !!known };
+  }
+
+  /**
    * Every feed looked at now (#161): a call to the server, so it needs
    * the network; the message says what came of it, or why not.
    */
@@ -956,7 +1076,9 @@ export class ReaderService {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
     this.list.update((l) =>
-      l.map((f) => (f.id === id ? { ...f, dead: false, error: undefined } : f)),
+      l.map((f) =>
+        f.id === id ? { ...f, dead: false, error: undefined, errorCount: undefined } : f,
+      ),
     );
     void this.api
       .set(

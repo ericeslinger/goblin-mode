@@ -33,10 +33,13 @@ import type {
 import type { FeedlyEntry } from '../reader/feedly';
 import type { AudioLike } from '../reader/player.service';
 import {
+  type DiscoveredFeed,
   type FeedRecord,
+  type FeedWrite,
   READER_API,
   type ReaderApi,
   type SearchOutcome,
+  type Switched,
 } from '../reader/reader.service';
 import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
@@ -329,6 +332,7 @@ export class FakeReaderApi implements ReaderApi {
     Promise.resolve(),
   );
   remove = vi.fn((_db: unknown, _path: string) => Promise.resolve());
+  batch = vi.fn((_db: unknown, _writes: FeedWrite[]) => Promise.resolve());
   serverTime = () => 'SERVER_TIME';
   clear = () => 'CLEAR';
   refresh = vi.fn(async () => ({ fetched: 2, added: 5, failed: 0, skipped: 0 }));
@@ -672,6 +676,19 @@ export class FakeReader {
     this.feeds.update((l) => l.map((f) => (f.id === id ? { ...f, autoQueue: on } : f))),
   );
   retry = vi.fn();
+  setTitle = vi.fn((id: string, title: string) => {
+    this.feeds.update((l) => l.map((f) => (f.id === id ? { ...f, title } : f)));
+    return title;
+  });
+  followed = vi.fn((_url: string): FeedRecord | undefined => undefined);
+  discover = vi.fn(async (_url: string): Promise<DiscoveredFeed[] | string> => [
+    { url: 'https://site.test/new.xml', title: 'New' },
+  ]);
+  switchFeed = vi.fn((_oldId: string, _found: DiscoveredFeed): Switched | string => ({
+    id: 'moved-to',
+    title: 'New',
+    known: false,
+  }));
   readonly loaded = signal(true);
   readonly folders = computed(() => [] as { name: string; feeds: never[] }[]);
   readonly folderNames = computed(() => [] as string[]);
