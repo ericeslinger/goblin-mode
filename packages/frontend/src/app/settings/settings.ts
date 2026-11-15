@@ -33,13 +33,14 @@ import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
 import { reloadPage } from '../unknown-route';
 import { HomeLink } from '../home/home-link';
+import { SealEverything } from './seal-everything';
 
 /** The weekly reminder to plan the meals (#129). */
 export const PLAN_REMINDER = 'Plan next week’s meals';
 
 @Component({
   selector: 'app-settings',
-  imports: [HomeLink, RouterLink, ThemePicker],
+  imports: [HomeLink, RouterLink, SealEverything, ThemePicker],
   template: `
     <main class="page">
       <app-home-link />
@@ -477,6 +478,9 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
           Seal note text
         </label>
         <p id="sealing-status" class="muted" aria-live="polite">{{ sealingStatus() }}</p>
+        @if (sealing.on()) {
+          <app-seal-everything />
+        }
       }
       <h2>Version</h2>
       <p class="version">

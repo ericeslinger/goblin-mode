@@ -785,19 +785,25 @@ export class NotesService {
       });
     });
     // Words held for the key (2026-11-15) are written once it is here,
-    // sealed, or once sealing is turned off, in the form found. Only
-    // after the first snapshot from the server, as every kept write.
+    // sealed, or once sealing is turned off, in the form found: after
+    // the first snapshot from the server, as every kept write. A new
+    // note's held words go sooner, as soon as the notes have loaded from
+    // the cache (`writeHeldNew`): nothing on the server is theirs to
+    // check against, and waiting for the server left a new note out of
+    // every list for as long as that took, a reload starting the wait
+    // again (review of #276, the share journey).
     effect(() => {
       const key = this.keys.key();
       const on = this.sealing.on();
       const known = this.sealing.known();
+      const loaded = this.loaded();
       untracked(() => {
         // Writes that waited for the switch go out first (review on #276).
         if (known) for (const go of this.knownWaiters.splice(0)) go.resolve();
-        if (!known || !this.replayed) return;
-        if ((key || !on) && (this.heldIds().size || this.keyWaited)) {
-          this.replayForKey();
-        }
+        if (!known || !(key || !on)) return;
+        if (this.replayed) {
+          if (this.heldIds().size || this.keyWaited) this.replayForKey();
+        } else if (loaded && this.heldIds().size) this.writeHeldNew();
       });
     });
     // Concepts waiting for the server are made when it is back.
@@ -963,10 +969,30 @@ export class NotesService {
   }
 
   /**
-   * The key is here, or sealing went off (2026-11-15): every kept write
-   * as it stands is checked and written again, as at a load (#200), and
-   * the words held for the key are written, sealed when sealing is on.
+   * The held saves of notes not on the server (a new note's, `base`
+   * null), written now that the switch is known and allows it, before
+   * the first snapshot from the server: a full write of a new id, as
+   * `save` made before #276. An existing note's held save still waits
+   * for the server's snapshot, which says whether the note is there.
    */
+  private writeHeldNew(): void {
+    const uid = this.uid;
+    const pending = this.store.get<PendingSaves>(PENDING_SAVES_KEY) ?? {};
+    for (const id of this.heldIds()) {
+      const entry = pending[id];
+      if (!uid || !isPendingWrite(entry) || entry.uid !== uid || !entry.held) continue;
+      if (entry.base !== null || this.find(id) || this.locked(id)) continue;
+      // Not one in Trash (review on #277): its held words wait for the
+      // server's snapshot, as before, and go into the trashed note.
+      if (this.trashed(id)) continue;
+      this.save(id, entry.value, {
+        ...(entry.held.base === undefined ? {} : { base: entry.held.base }),
+        restore: entry.as === 'restore',
+        keep: entry.as === 'keep',
+      });
+    }
+  }
+
   /** A write refused for want of the key: said on the page, unless it is kept. */
   private refusedForKey(): void {
     if (!this.keptWrite) this.notice.say();
@@ -982,6 +1008,11 @@ export class NotesService {
     }
   }
 
+  /**
+   * The key is here, or sealing went off (2026-11-15): every kept write
+   * as it stands is checked and written again, as at a load (#200), and
+   * the words held for the key are written, sealed when sealing is on.
+   */
   private replayForKey(): void {
     this.keyWaited = false;
     this.notice.clear();

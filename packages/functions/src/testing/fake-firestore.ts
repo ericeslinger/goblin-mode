@@ -4,6 +4,7 @@
 // Imported by specs only, never from index.ts, so it reaches no bundle.
 import {
   type DocumentSnapshot,
+  FieldPath,
   FieldValue,
   type Firestore,
   Timestamp,
@@ -116,8 +117,16 @@ class Coll {
     private readonly sort?: { field: string; dir: 'asc' | 'desc' },
     private readonly fields?: string[],
     private readonly max?: number,
+    /** Ordered by document id (`FieldPath.documentId()`), after this id when set. */
+    private readonly byId?: { after?: string },
   ) {}
-  private with(o: { filter?: Filter; sort?: Coll['sort']; fields?: string[]; max?: number }) {
+  private with(o: {
+    filter?: Filter;
+    sort?: Coll['sort'];
+    fields?: string[];
+    max?: number;
+    byId?: Coll['byId'];
+  }) {
     return new Coll(
       this.store,
       this.path,
@@ -125,6 +134,7 @@ class Coll {
       o.sort ?? this.sort,
       o.fields ?? this.fields,
       o.max ?? this.max,
+      o.byId ?? this.byId,
     );
   }
   doc(id: string) {
@@ -140,8 +150,15 @@ class Coll {
     };
     return this.with({ filter: (d) => test[op](at(d, field)) });
   }
-  orderBy(field: string, dir: 'asc' | 'desc' = 'asc') {
+  orderBy(field: string | FieldPath, dir: 'asc' | 'desc' = 'asc') {
+    // By document id, ascending, as the seal-all pass pages (2026-11-15).
+    if (field instanceof FieldPath) return this.with({ byId: {} });
     return this.with({ sort: { field, dir }, filter: (d) => at(d, field) !== undefined });
+  }
+  /** After document id `id`; only with `orderBy(FieldPath.documentId())`. */
+  startAfter(id: string) {
+    if (!this.byId) throw new Error('startAfter is faked only for a document id order');
+    return this.with({ byId: { after: id } });
   }
   select(...fields: string[]) {
     return this.with({ fields });
@@ -155,7 +172,12 @@ class Coll {
         ([p]) => p.startsWith(`${this.path}/`) && !p.slice(this.path.length + 1).includes('/'),
       )
       .filter(([, d]) => this.filters.every((f) => f(d)));
-    if (this.sort) {
+    if (this.byId) {
+      const after = this.byId.after;
+      const id = (p: string) => p.slice(this.path.length + 1);
+      docs.sort(([a], [b]) => (id(a) < id(b) ? -1 : id(a) > id(b) ? 1 : 0));
+      if (after !== undefined) docs = docs.filter(([p]) => id(p) > after);
+    } else if (this.sort) {
       const { field, dir } = this.sort;
       docs.sort(([, a], [, b]) => {
         const x = order(at(a, field));

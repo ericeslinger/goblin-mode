@@ -38,6 +38,9 @@ const FILES = [
   'kitchen/callables.ts',
   'attachments/triggers.ts',
   'push/digest-store.ts',
+  'notes/seal-all.ts',
+  'notes/seal-everything.ts',
+  'agent/seal-runs.ts',
 ];
 
 const sourceOf = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');

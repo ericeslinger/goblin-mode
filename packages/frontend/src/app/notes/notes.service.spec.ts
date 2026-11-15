@@ -2308,6 +2308,76 @@ describe('NotesService', () => {
       expect(sent(t.api)).not.toContain('Journal');
     });
 
+    it('a note saved in the unknown window, then a reload, is written from the cache once known, without further typing (share journey)', () => {
+      const first = setup();
+      first.sealing.known.set(false);
+      first.signIn(UID);
+      first.push([], { fromCache: true });
+      first.notes.save('fresh', 'Seeds\nwhat if seeds could talk');
+      expect(first.api.set).not.toHaveBeenCalled();
+      // The page reloads before the server has answered anything.
+      const next = setup({ reload: true });
+      // This device heard the switch since (remembered): known at once.
+      next.signIn(UID);
+      next.push([], { fromCache: true });
+      TestBed.tick();
+      // Written into the cache now: no server snapshot needed, no typing.
+      const [[, , data, merge]] = writesTo(next.api, 'fresh');
+      expect(merge).toBe(false);
+      expect(data).toMatchObject({ kind: 'text', body: 'Seeds\nwhat if seeds could talk' });
+      expect(next.notes.waitingForKey()).toBe(false);
+      // And not written twice when the server's snapshot comes.
+      next.push([]);
+      TestBed.tick();
+      expect(writesTo(next.api, 'fresh')).toHaveLength(1);
+    });
+
+    it('a new note held in the unknown window is written as soon as the switch is heard, before the server’s notes', () => {
+      const t = setup();
+      t.sealing.known.set(false);
+      t.signIn(UID);
+      t.push([], { fromCache: true });
+      t.notes.save('fresh', 'Seeds');
+      expect(t.api.set).not.toHaveBeenCalled();
+      t.sealing.known.set(true);
+      TestBed.tick();
+      expect(writesTo(t.api, 'fresh')).toHaveLength(1);
+    });
+
+    it('an existing note’s held save still waits for the server’s snapshot, which says it is there', () => {
+      const first = setup();
+      first.sealing.known.set(false);
+      first.signIn(UID);
+      first.push([note('a', 'Buy milk')]);
+      first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
+      const next = setup({ reload: true });
+      next.signIn(UID);
+      next.push([note('a', 'Buy milk')], { fromCache: true });
+      TestBed.tick();
+      expect(writesTo(next.api, 'a')).toEqual([]);
+      next.push([note('a', 'Buy milk')]);
+      TestBed.tick();
+      expect(writesTo(next.api, 'a')[0][2]).toMatchObject({ body: 'Buy milk\n- eggs' });
+    });
+
+    it('held words for a note in Trash wait for the server’s snapshot too (review on #277)', () => {
+      const trashedNote = () => {
+        const n = note('a', 'Buy milk');
+        return { ...n, data: { ...n.data, deletedAt: { toMillis: () => CLOCK - 1000 } } };
+      };
+      const first = setup();
+      first.sealing.known.set(false);
+      first.signIn(UID);
+      first.push([trashedNote()]);
+      first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
+      const next = setup({ reload: true });
+      next.signIn(UID);
+      next.push([trashedNote()], { fromCache: true });
+      TestBed.tick();
+      // Not written as a new note from the cache: that would replace it.
+      expect(writesTo(next.api, 'a')).toEqual([]);
+    });
+
     it('a fresh device offline, then back: held words reach the server once it hears, whatever comes first (e2e capture offline)', () => {
       for (const order of ['setting first', 'notes first'] as const) {
         TestBed.resetTestingModule();
@@ -2323,7 +2393,8 @@ describe('NotesService', () => {
         if (order === 'setting first') {
           t.sealing.known.set(true);
           TestBed.tick();
-          expect(t.api.set).not.toHaveBeenCalled();
+          // A new note goes from the cache as soon as the switch is heard.
+          expect(writesTo(t.api, 'fresh')).toHaveLength(1);
           t.push([]);
         } else {
           t.push([]);
@@ -2332,6 +2403,7 @@ describe('NotesService', () => {
           t.sealing.known.set(true);
         }
         TestBed.tick();
+        expect(writesTo(t.api, 'fresh'), order).toHaveLength(1);
         expect(writesTo(t.api, 'fresh')[0]?.[2], order).toMatchObject({
           body: 'Written on the train',
         });
