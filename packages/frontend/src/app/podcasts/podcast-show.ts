@@ -9,16 +9,23 @@ import {
   viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
 import { DownloadPrefs, KEEP_CHOICES, keepText } from '../reader/download-prefs';
 import { DownloadsService } from '../reader/downloads.service';
+import { FeedFix } from '../reader/feed-fix';
+import { feedTrouble } from '../reader/feed-health';
 import { type ItemRecord, ItemsService } from '../reader/items.service';
 import { PlayerService } from '../reader/player.service';
 import { renamedFolder } from '../reader/reader-feeds';
-import { type FeedRecord, ReaderService, cleanFolder } from '../reader/reader.service';
+import {
+  type FeedRecord,
+  ReaderService,
+  type Switched,
+  cleanFolder,
+} from '../reader/reader.service';
 import { type EpisodeState, episodeState, lengthText, stateText } from './episodes';
 import { QueueButton } from './queue-button';
 import { ShowArt } from './show-art';
@@ -45,7 +52,7 @@ type Step = 'menu' | 'folder' | 'unfollow';
  */
 @Component({
   selector: 'app-podcast-show',
-  imports: [HomeLink, Icon, QueueButton, RouterLink, ShowArt],
+  imports: [FeedFix, HomeLink, Icon, QueueButton, RouterLink, ShowArt],
   template: `
     <main class="page">
       <header class="top">
@@ -83,13 +90,19 @@ type Step = 'menu' | 'folder' | 'unfollow';
             <h1>{{ s.title }}</h1>
             <p class="meta">{{ countLine() }}</p>
             <p class="meta">{{ foldersLine() }}</p>
+            <p class="meta url">{{ s.url }}</p>
           </div>
         </div>
-        @if (s.dead || s.error) {
-          <p class="muted">
-            {{ s.dead ? 'Not answering for a month, given up.' : 'Last look failed: ' + s.error }}
-            <button type="button" (click)="reader.retry(s.id)">Try again</button>
-          </p>
+        @if (trouble(); as t) {
+          <!-- What went wrong and its fixes (2026-11-15); Unfollow stays in More. -->
+          <app-feed-fix
+            class="trouble"
+            [feed]="s"
+            [words]="t.words"
+            [fixes]="fixesOf(t.fixes)"
+            (said)="said.set($event)"
+            (switched)="followNew($event)"
+          />
         }
         <div class="settings">
           <label class="switch">
@@ -313,6 +326,15 @@ type Step = 'menu' | 'folder' | 'unfollow';
     .head .meta {
       margin: 2px 0;
     }
+    /* The show's feed address (2026-11-15): small, wrapping, never cut. */
+    .url {
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .trouble {
+      margin-top: var(--space-3);
+      font-size: 14px;
+    }
     .meta,
     .muted,
     .status,
@@ -504,6 +526,7 @@ export class PodcastShow {
   protected readonly prefs = inject(DownloadPrefs);
   private readonly player = inject(PlayerService);
   private readonly injector = inject(Injector);
+  private readonly router = inject(Router);
   protected readonly keepChoices = KEEP_CHOICES;
   private readonly moreDialog = viewChild<ElementRef<HTMLDialogElement>>('more');
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('search');
@@ -536,6 +559,11 @@ export class PodcastShow {
     return [...listened, ...older].sort((a, b) => b.published - a.published);
   });
   private readonly unheard = computed(() => this.all().filter((e) => !e.played));
+  /** What went wrong at the show's last look, if anything (2026-11-15). */
+  protected readonly trouble = computed(() => {
+    const s = this.show();
+    return s ? feedTrouble(s) : undefined;
+  });
   /** The feed's own image, else its newest episode's (#246). */
   protected readonly art = computed(
     () => this.show()?.image ?? this.all().find((e) => e.image)?.image,
@@ -590,6 +618,16 @@ export class PodcastShow {
   protected play(ep: ItemRecord): void {
     if (this.player.current() === ep.id) this.player.toggle();
     else this.player.load(ep, { autoplay: true });
+  }
+
+  /** The fixes on the page; Unfollow is in More. */
+  protected fixesOf(fixes: readonly string[]): ('find' | 'retry')[] {
+    return fixes.filter((f): f is 'find' | 'retry' => f === 'find' || f === 'retry');
+  }
+
+  /** The show followed at its new address (2026-11-15): its page, in this one's place. */
+  protected followNew(to: Switched): void {
+    void this.router.navigate(['/podcasts/s', to.id], { replaceUrl: true });
   }
 
   protected keepText(n: number): string {

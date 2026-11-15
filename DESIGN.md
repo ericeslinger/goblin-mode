@@ -1851,7 +1851,8 @@ Manage feeds lists what came back, each with its address and a Follow
 that adds it under that name into the form's folder (`addFeed` with a
 title; a feed already followed keeps its name and joins the folder). A
 followed link the fetcher read as no feed offers Find feeds there on its
-row. The emulator's page stand-in serves `https://site.invalid/`, whose
+row (until 2026-11-15, when Feeds that need attention, below, took its
+place). The emulator's page stand-in serves `https://site.invalid/`, whose
 head names three fixture feeds (two the journey's OPML follows and a
 JSON Feed, `notes.json`, only the site names), and the fixture feeds
 themselves. A limit, also from that review: relative links and the usual
@@ -2177,6 +2178,123 @@ by `episode.spec.ts` (keys made in the spec, a fake fetch), not by a
 journey; automatic downloads and the cap are unit specs. Since #245
 the player's and the downloads' journeys are `podcasts.spec.ts`, and
 reach the episode through `/podcasts`.
+
+**Feeds that need attention, switching, and a feed's page (Eric,
+2026-11-15).** Eric: "there are a couple of feeds in my rss
+subscription list that are not working post-import", "how do I view
+the feed url in the mossgoblin app?", and "somewhere on the feeds
+page, show me which feeds are erroring and suggest fixes", with "a
+single feed view page which lists recent posts from the feed and has
+the metadata edit plus other actions". His feeds came from Feedly's
+OPML, which keeps the address first subscribed with; Feedly followed
+moved feeds on its own side, so some exported addresses answer 404
+now (livelaugh.blog names `/rss.xml` in its head and answers 404 for
+`/feed`, `/rss` and `/atom.xml`). The import keeps an address as the
+file has it (`normalizeFeedUrl`).
+
+*What went wrong, from what is stored.* The fetcher is unchanged:
+`reader/feed-health.ts` in the app reads the `error` and `dead` it
+stores. "the site answered N": 404, 410 and other 4xx read as moved;
+401, 402, 403, 429 and 451 (the saved-link importer's
+`REFUSING_STATUSES`, 2026-11-14) as a site that does not let
+Mossgoblin read it; 5xx as a site in trouble. "not a feed this can
+read" is a page, not a feed; "a redirect with nowhere to go" reads as
+moved; a resolver's `ENOTFOUND`, `EAI_AGAIN` or `ENODATA`, or "is not
+a public address", as a name that leads nowhere now; undici's "fetch
+failed" or the timeout's words as a site that could not be reached.
+Anything else is shown as stored. `dead` (35 failures in a row, about
+a month) is given up. Each has its plain words and its fixes: moved
+and not a feed, Find the feed and Remove; refused, Try again and
+Remove; the rest and the given up, Try again, Find the feed and
+Remove.
+
+*Manage feeds.* Above the folders, Feeds that need attention: every
+Reader feed whose last look failed or that was given up, those a new
+address may fix first, then those whose site refuses, then those that
+may be gone, then the given up, by name within each. Each shows its
+name (a link to its page), its address, the words, how many looks in
+a row failed and when the last was, and when its newest article was,
+which says how stale it had gone; then its fixes (`FeedFix`, shared
+with a feed's page and a show's). Remove there asks first. With
+nothing failing, once any feed has been looked at, one line: "Every
+feed answered at its last look." Each row in the folders shows the
+feed's address under its name, small and wrapping anywhere, and the
+name links to the feed's page. The row's Find feeds there (#174) gave
+way to the section.
+
+*Find the feed, and Switch to it.* Find the feed is discovery (#174)
+at the feed's site (`site`, from the file's `htmlUrl` or the feed
+itself), else at its host's home page, where a site names its feeds.
+The feeds found are listed with their addresses, "already followed
+as ..." or "its own address" (which offers Try again). A feed's id is
+derived from its address, and its articles' ids from that, so the
+address cannot be edited in place. Switch to it
+(`ReaderService.switchFeed`) follows the found address as a feed of
+its own, carrying the old one's folders, its kind and queue switch (a
+show in Podcasts stays a show) and its name, unless that name was
+only its address or host, when the found feed's own is taken; and
+removes the old feed. The two writes go in one batch through the
+persistent cache (`ReaderApi.batch`), never awaited, so a switch
+works offline and never leaves both or neither. An address already
+followed gains the old feed's folders instead, its name kept; one
+followed in the other module is refused with a word about moving it,
+as is the feed's own address.
+
+Removing the old feed is what Remove does. `feedRemoved` (#161)
+deletes its articles that are neither saved nor filed, read or not,
+an unsaved episode in the listening queue among them; the saved and
+the filed stay, on the Saved shelf (named "Unknown feed" there, as
+any removed feed's are), and their reading-queue records and
+clippings are untouched. The new feed's first look stores its last
+ninety days as new articles with new ids, so posts read at the old
+address come back unread, and a saved one can show twice. A feed that
+has answered 404 since its import has stored nothing, so nothing is
+lost there. The found list says before the tap that the old feed's
+articles go but for the saved and filed. No schema or rules change:
+the feeds rule already lets the owner create and remove a feed and
+write its `title`, `folders`, `kind` and `autoQueue`.
+
+*A feed's page* is its list (`/reader/s/<feedId>`), whose articles
+are its recent posts, with About this feed above them, as a show's
+page has its head and its More (#246), so no route was added: the
+address in full, selectable, with Copy address; the site, a link out;
+its folders; the Reader, or Podcasts with a link to the show's page;
+its state (fine, failing with the words, given up); and its looks:
+when the last was and how many failed in a row, when the next is
+(`nextFetchAt`, now read into `FeedRecord` with `errorCount`; "within
+15 minutes" once it is due, the tick's period), and the newest
+article. On the page, Look again (Try again while failing) and Find
+the feed, whose Switch goes on to the new feed's page. More is a
+modal sheet: Rename (`ReaderService.setTitle`, through the cache; the
+fetcher renames a feed only while its title is its address or host,
+so a name given here stays), Folders (comma separated, as on Manage
+feeds), Move to Podcasts, and Remove, which asks first. The list's
+own "The site" link moved into it, and the list's keys leave the
+sheet and an Enter on a button alone. It is reached from Folders as
+before, from each row in Manage feeds and from the attention
+section. A show's page in Podcasts shows its feed's address under its
+folders, and the same words and fixes in place of its "Last look
+failed" line (Find the feed and Try again; Unfollow stays in More);
+Switch there keeps it a show.
+
+*Not done.* The fetcher's words stay as they are: a refused
+connection, a timeout inside the connection and a broken certificate
+all store "fetch failed" (undici's cause is not kept), so the app
+tells them apart no further; and when the failures began is not
+stored, so the page says how many looks in a row failed rather than
+since when. No MCP change: the assistant managing feeds is a later
+change.
+
+*Journeys* (`reader.spec.ts`): an OPML whose one feed answers 404 at
+the address it kept, the fixture site as its site; after Refresh it
+is under Feeds that need attention with its address and words; Find
+the feed lists the three feeds the site names; Switch follows Margin
+notes in its place, in its folder, under its old name, and the old
+address is gone; the feed's page shows the address and "Not looked at
+yet."; a fine feed's page says so and holds its three posts, and More
+renames it; axe on the section, the feeds found, the page and the
+sheet. The first journey finds the link that is a page in the section
+rather than by its row's button.
 
 ### Podcasts, a module of its own (#244, step 1 #245, 2026-11-10)
 

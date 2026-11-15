@@ -109,7 +109,8 @@ describe('A show’s page (#246)', () => {
     expect(el.querySelector('.head img')?.getAttribute('src')).toBe('https://kiln.test/show.jpg');
     expect(el.querySelector('.head img')?.getAttribute('alt')).toBe('');
     const meta = [...el.querySelectorAll('.head .meta')].map((p) => p.textContent!.trim());
-    expect(meta).toEqual(['3 episodes · 2 unheard', 'In Making']);
+    // The show's feed address too (2026-11-15).
+    expect(meta).toEqual(['3 episodes · 2 unheard', 'In Making', 'https://kiln.test/f']);
     expect(el.querySelector('input[role="switch"]')?.closest('label')?.textContent).toContain(
       'New episodes join the queue',
     );
@@ -301,6 +302,28 @@ describe('A show’s page (#246)', () => {
     await stable();
     expect(reader.removeFeed).toHaveBeenCalledWith('p1');
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Unfollowed Kiln talk.');
+  });
+
+  it('says what went wrong at its last look, with Find the feed and a switch that keeps it a show (2026-11-15)', async () => {
+    const { el, reader, button, stable, harness } = await open();
+    reader.feeds.update((l) =>
+      l.map((f) => (f.id === 'p1' ? { ...f, error: 'the site answered 404' } : f)),
+    );
+    await stable();
+    expect(el.textContent).toContain('The address answers 404: nothing is there now.');
+    expect([...el.querySelectorAll('.fixes button')].map((b) => b.textContent!.trim())).toEqual([
+      'Find the feed',
+    ]);
+    button('Find the feed for Kiln talk')!.click();
+    await stable();
+    expect(reader.discover).toHaveBeenCalledWith('https://kiln.test/');
+    button('Switch Kiln talk to New')!.click();
+    await stable();
+    expect(reader.switchFeed).toHaveBeenCalledWith('p1', {
+      url: 'https://site.test/new.xml',
+      title: 'New',
+    });
+    expect(harness.routeNativeElement!.textContent).toContain('Switched Kiln talk');
   });
 
   it('says when the show is not followed here', async () => {

@@ -449,18 +449,21 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   });
 
   // Discovery (#174), last so the counts above stand: the link followed
-  // in step 1 is a page, and the server finds no feed there; a site's
-  // address lists the three feeds its head names. One the OPML did not
-  // have is followed into a new folder, and one already followed joins
-  // it there.
+  // in step 1 is a page, so it is among the feeds that need attention
+  // (2026-11-15; their fixes have a journey of their own, below); a
+  // site's address lists the three feeds its head names. One the OPML
+  // did not have is followed into a new folder, and one already
+  // followed joins it there.
   await page.goto('/reader/feeds');
+  const attention = page.getByRole('list', { name: 'Feeds that need attention' });
+  await expect(
+    attention.getByRole('listitem').filter({ hasText: 'https://feeds.invalid/page.html' }),
+  ).toContainText('The address answers with a page, not a feed.');
   await folders.locator('summary', { hasText: 'Games' }).click();
   await expect(page.getByRole('list', { name: 'Feeds in Games' })).toContainText(
     'last look failed: not a feed',
   );
-  await page.getByRole('button', { name: 'Find feeds at the site of feeds.invalid' }).click();
   const followStatus = page.locator('#follow ~ [role=status]');
-  await expect(followStatus).toHaveText('No feed found at that address.', { timeout: 15_000 });
   await page.getByRole('textbox', { name: 'Feed link' }).fill('https://site.invalid/');
   await page.getByRole('combobox', { name: 'Folder' }).fill('Tabletop');
   await page.getByRole('button', { name: 'Find feeds', exact: true }).click();
@@ -504,6 +507,126 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
     "Following. Its name and articles arrive once the server has looked. A folder cannot be called 'All'; it is in 'All (folder)'.",
   );
   await expect(folders.locator('summary', { hasText: 'All (folder)' })).toBeVisible();
+});
+
+/**
+ * Feeds that need attention (2026-11-15, Eric: a feed imported from
+ * Feedly at an address it had left): an OPML whose one feed answers
+ * 404 at the address the file kept, while its site names the feeds it
+ * has now. The fixture site names three, one already followed.
+ */
+const MOVED_OPML = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <body>
+    <outline text="Margins">
+      <outline type="rss" text="Old margin notes" xmlUrl="https://feeds.invalid/margins-old.xml" htmlUrl="https://site.invalid/"/>
+    </outline>
+    <outline type="rss" text="Design notes" xmlUrl="https://feeds.invalid/design.xml"/>
+  </body>
+</opml>`;
+
+// A feed whose address answers 404 is listed above the folders with its
+// address and what went wrong; Find the feed looks at its site and
+// lists the feeds named there; Switch follows the new one in its place,
+// its name and folder kept, and the old one is gone. The feed's page
+// (its list's About this feed) shows the address, the state and More.
+test('a feed whose address stopped working: needs attention, found, switched; its page', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signInAs(page, OWNER);
+  await page.goto('/settings');
+  await page.getByRole('switch', { name: 'Reader' }).check();
+  await letItSave(page);
+  await page.goto('/reader/feeds');
+  await expect(page.getByLabel('Choose an OPML file')).toBeEnabled();
+  await page.getByLabel('Choose an OPML file').setInputFiles({
+    name: 'feedly.opml',
+    mimeType: 'text/x-opml',
+    buffer: Buffer.from(MOVED_OPML),
+  });
+  await expect(page.getByRole('status')).toContainText('2 feeds added');
+  // Nothing has been looked at: no attention section and no calm line yet.
+  await expect(page.getByRole('heading', { name: 'Feeds that need attention' })).toHaveCount(0);
+  await letItSave(page);
+  await page.goto('/reader/folders');
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'Looked at 2 feeds: 3 new articles, 1 could not be read.',
+    { timeout: 30_000 },
+  );
+
+  await page.getByRole('link', { name: 'Manage feeds' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Feeds that need attention', level: 2 }),
+  ).toBeVisible();
+  const attention = page.getByRole('list', { name: 'Feeds that need attention' });
+  await expect(attention.getByRole('listitem')).toHaveCount(1);
+  const old = attention.getByRole('listitem').first();
+  await expect(old.getByRole('link', { name: 'Old margin notes' })).toBeVisible();
+  await expect(old).toContainText('https://feeds.invalid/margins-old.xml');
+  await expect(old).toContainText(
+    'The address answers 404: nothing is there now. The feed may have moved.',
+  );
+  await expect(old).toContainText('The last look failed');
+  await axe(page);
+  await old.getByRole('button', { name: 'Find the feed for Old margin notes' }).click();
+  const found = page.getByRole('list', { name: 'Feeds found for Old margin notes' });
+  await expect(found.getByRole('listitem')).toHaveCount(3, { timeout: 15_000 });
+  await expect(old).toContainText('Found 3 feeds at site.invalid');
+  await expect(found.getByRole('listitem').first()).toContainText(
+    'https://feeds.invalid/design.xml · already followed as Design notes',
+  );
+  await axe(page);
+  await found
+    .getByRole('button', { name: 'Switch Old margin notes to Margin notes (fixture)' })
+    .click();
+  await expect(page.getByRole('status')).toHaveText(
+    'Switched Old margin notes to https://feeds.invalid/notes.json. Its articles arrive once the server has looked.',
+  );
+  await expect(attention).toHaveCount(0);
+  await expect(page.getByText('Every feed answered at its last look.')).toBeVisible();
+  const folders = page.getByRole('list', { name: 'Folders' });
+  await folders.locator('summary', { hasText: 'Margins' }).click();
+  const margins = page.getByRole('list', { name: 'Feeds in Margins' });
+  await expect(margins.getByRole('listitem')).toHaveCount(1);
+  await expect(margins).toContainText('Old margin notes');
+  await expect(margins).toContainText('https://feeds.invalid/notes.json');
+  await expect(margins).not.toContainText('margins-old.xml');
+  await letItSave(page);
+
+  // Its page: the feed's list, with About this feed above its posts.
+  await margins.getByRole('link', { name: 'Old margin notes' }).click();
+  await expect(page).toHaveURL(/\/reader\/s\/f-[0-9a-f]{16}$/);
+  await expect(page.getByRole('heading', { name: 'Old margin notes', level: 2 })).toBeVisible();
+  const about = page.getByRole('region', { name: 'About this feed' });
+  await expect(about).toContainText('https://feeds.invalid/notes.json');
+  await expect(about).toContainText('Margins');
+  await expect(about).toContainText('Not looked at yet.');
+  await expect(about.getByRole('button', { name: 'Copy address' })).toBeVisible();
+
+  // A feed that is fine says so; its posts are its list; More renames it.
+  await page.goto('/reader/feeds');
+  await folders.locator('summary', { hasText: 'Uncategorized' }).click();
+  await page
+    .getByRole('list', { name: 'Feeds in Uncategorized' })
+    .getByRole('link', { name: 'Design notes' })
+    .click();
+  await expect(about).toContainText('https://feeds.invalid/design.xml');
+  await expect(about).toContainText('Fine: the last look read it.');
+  await expect(about).toContainText('Last looked at');
+  await expect(page.getByRole('list', { name: 'Articles' }).getByRole('listitem')).toHaveCount(3);
+  await axe(page);
+  await about.getByRole('button', { name: 'More for Design notes' }).click();
+  const sheet = page.getByRole('dialog', { name: 'More for Design notes' });
+  await expect(sheet).toBeVisible();
+  await axe(page);
+  await sheet.getByRole('button', { name: 'Rename' }).click();
+  await sheet.getByRole('textbox', { name: 'Name' }).fill('Design, mine');
+  await sheet.getByRole('button', { name: 'Rename' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(about.getByRole('status')).toHaveText('Renamed to Design, mine.');
+  await expect(page.getByRole('heading', { name: 'Design, mine', level: 2 })).toBeVisible();
 });
 
 /**

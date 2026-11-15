@@ -21,6 +21,7 @@ import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 import { Icon } from '../home/icon';
 import { ReaderBar, type ReaderTab } from './reader-bar';
+import { ReaderFeedHead } from './reader-feed-head';
 
 /**
  * The shelf a list shows, from its route: `/reader` (All),
@@ -89,11 +90,12 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
  *
  * Under the Reader's header and tabs (#220): All at `/reader`, Saved
  * its own tab, any other folder or a feed under
- * Folders, with a link back to them and its name.
+ * Folders, with a link back to them and its name. A feed's list is
+ * that feed's page (2026-11-15): About this feed above its posts.
  */
 @Component({
   selector: 'app-reader-list',
-  imports: [Icon, ReaderBar, RouterLink, Swipe],
+  imports: [Icon, ReaderBar, ReaderFeedHead, RouterLink, Swipe],
   template: `
     <main class="page">
       <app-reader-bar [active]="tab()" [current]="tab() === 'folders' ? 'true' : 'page'" />
@@ -103,6 +105,10 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
           ><app-icon name="chevron-left" [size]="18" />Folders</a
         >
         <h2>{{ title() }}</h2>
+        @if (feedId(); as id) {
+          <!-- One feed's page (2026-11-15): its address, state and actions, then its posts. -->
+          <app-reader-feed-head [feedId]="id" />
+        }
       } @else {
         <h2 class="visually-hidden">{{ title() }}</h2>
       }
@@ -111,9 +117,6 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
           <input type="checkbox" [checked]="showRead()" (change)="showRead.set(!showRead())" />
           Show read
         </label>
-        @if (feedLink()) {
-          <a [href]="feedLink()" target="_blank" rel="noopener noreferrer">The site</a>
-        }
         <button type="button" class="all" [disabled]="!unreadCount()" (click)="markAll()">
           <app-icon name="check" [size]="16" />Mark all read
         </button>
@@ -380,12 +383,10 @@ export class ReaderList {
   protected readonly title = computed(() => shelfTitle(this.shelf(), this.reader.feeds()));
   /** The Reader's tab this shelf is (#220): All or Saved, else under Folders. */
   protected readonly tab = computed<ReaderTab>(() => tabOf(this.shelf()));
-  /** One feed's site, when the list is that feed's. */
-  protected readonly feedLink = computed(() => {
+  /** The feed, when the list is one feed's: its page's head shows it (2026-11-15). */
+  protected readonly feedId = computed(() => {
     const shelf = this.shelf();
-    if (shelf.kind !== 'feed') return undefined;
-    const feed = this.reader.feeds().find((f) => f.id === shelf.id);
-    return feed?.site ?? feed?.url;
+    return shelf.kind === 'feed' ? shelf.id : undefined;
   });
 
   private readonly rows = viewChildren('row', { read: ElementRef<HTMLElement> });
@@ -475,6 +476,10 @@ export class ReaderList {
   protected keys(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    // The feed's More sheet (2026-11-15) keeps its own keys, and Enter
+    // on a button presses it rather than opening a row.
+    if (target?.closest?.('dialog')) return;
+    if (event.key === 'Enter' && target?.closest('a, button')) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const list = this.list();
     const at = this.cursor();

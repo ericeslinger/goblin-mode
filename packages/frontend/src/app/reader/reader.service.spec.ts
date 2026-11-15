@@ -723,3 +723,132 @@ describe('ReaderService.importFeedly (#176)', () => {
     expect(api.importFeedlySaves).not.toHaveBeenCalled();
   });
 });
+
+describe('ReaderService.switchFeed: a feed to its new address (2026-11-15)', () => {
+  const NEW = 'https://livelaugh.blog/rss.xml';
+  const newId = feedId(NEW);
+
+  it('follows the new address with the old one’s name, folders, kind and queue switch, then removes the old, in one batch', () => {
+    const { reader, api } = setup();
+    api.push([
+      {
+        id: 'old',
+        data: {
+          url: 'https://livelaugh.blog/feed',
+          title: 'Live, laugh (mine)',
+          folders: ['Friends', 'Daily'],
+          kind: 'podcast',
+          autoQueue: true,
+          error: 'the site answered 404',
+          errorCount: 12,
+          nextFetchAt: { toMillis: () => 5 },
+        },
+      },
+    ]);
+    expect(reader.feeds()[0]).toMatchObject({ errorCount: 12, nextFetchAt: 5 });
+    const out = reader.switchFeed('old', { url: NEW, title: 'Live Laugh Blog' });
+    expect(out).toEqual({ id: newId, title: 'Live, laugh (mine)', known: false });
+    // A second tap finds it done, and says so (review on #275).
+    expect(reader.switchFeed('old', { url: NEW, title: 'Live Laugh Blog' })).toBe(
+      'That feed has been switched or removed already.',
+    );
+    expect(api.set).not.toHaveBeenCalled();
+    expect(api.remove).not.toHaveBeenCalled();
+    expect(api.batch).toHaveBeenCalledTimes(1);
+    expect(api.batch.mock.calls[0][1]).toEqual([
+      {
+        path: `users/u1/feeds/${newId}`,
+        data: {
+          url: NEW,
+          title: 'Live, laugh (mine)',
+          folders: ['Friends', 'Daily'],
+          kind: 'podcast',
+          autoQueue: true,
+          addedAt: 'SERVER_TIME',
+          updatedAt: 'SERVER_TIME',
+          nextFetchAt: 'SERVER_TIME',
+        },
+        merge: false,
+      },
+      { path: 'users/u1/feeds/old', remove: true },
+    ]);
+    // Shown at once: the old gone, the new in its folders.
+    expect(reader.feeds().map((f) => f.id)).toEqual([newId]);
+    expect(reader.podcastFeeds()[0]).toMatchObject({ folders: ['Friends', 'Daily'] });
+  });
+
+  it('takes the found feed’s own name when the old one was named only by its host, and sets no kind for a Reader feed', () => {
+    const { reader, api } = setup();
+    api.push([
+      {
+        id: 'old',
+        data: { url: 'https://livelaugh.blog/feed', title: 'livelaugh.blog', folders: [] },
+      },
+    ]);
+    expect(reader.switchFeed('old', { url: NEW, title: '  Live Laugh  Blog ' })).toMatchObject({
+      title: 'Live Laugh Blog',
+    });
+    const created = (api.batch.mock.calls[0][1][0] as { data: Record<string, unknown> }).data;
+    expect(created['title']).toBe('Live Laugh Blog');
+    expect(created).not.toHaveProperty('kind');
+    expect(created).not.toHaveProperty('autoQueue');
+  });
+
+  it('joins an address already followed instead, its name kept, the old one’s folders added', () => {
+    const { reader, api } = setup();
+    api.push([
+      {
+        id: 'old',
+        data: { url: 'https://livelaugh.blog/feed', title: 'Old', folders: ['Friends'] },
+      },
+      { id: newId, data: { url: NEW, title: 'Live Laugh Blog', folders: ['Daily'] } },
+    ]);
+    expect(reader.switchFeed('old', { url: NEW, title: 'x' })).toEqual({
+      id: newId,
+      title: 'Live Laugh Blog',
+      known: true,
+    });
+    expect(api.batch.mock.calls[0][1]).toEqual([
+      {
+        path: `users/u1/feeds/${newId}`,
+        data: { folders: ['Daily', 'Friends'], updatedAt: 'SERVER_TIME' },
+        merge: true,
+      },
+      { path: 'users/u1/feeds/old', remove: true },
+    ]);
+  });
+
+  it('refuses its own address, one followed in the other module, and anything not a link', () => {
+    const { reader, api } = setup();
+    const own = feedId('https://livelaugh.blog/feed');
+    api.push([
+      { id: own, data: { url: 'https://livelaugh.blog/feed', title: 'Old', folders: [] } },
+      { id: newId, data: { url: NEW, title: 'Show', folders: [], kind: 'podcast' } },
+    ]);
+    expect(reader.switchFeed(own, { url: 'https://livelaugh.blog/feed', title: 'x' })).toMatch(
+      /^That is the address Old has already/,
+    );
+    expect(reader.switchFeed(own, { url: NEW, title: 'x' })).toMatch(
+      /^Show is followed in Podcasts already/,
+    );
+    expect(reader.switchFeed(own, { url: 'javascript:alert(1)', title: 'x' })).toBe(
+      'That is not a link.',
+    );
+    expect(api.batch).not.toHaveBeenCalled();
+    expect(reader.feeds()).toHaveLength(2);
+  });
+
+  it('renames a feed through the cache, and keeps the name for a blank one', () => {
+    const { reader, api } = setup();
+    api.push([{ id: 'a', data: { url: 'https://a.test/f', title: 'A', folders: [] } }]);
+    expect(reader.setTitle('a', '  My   blog ')).toBe('My blog');
+    expect(api.set.mock.lastCall!.slice(1)).toEqual([
+      'users/u1/feeds/a',
+      { title: 'My blog', updatedAt: 'SERVER_TIME' },
+      true,
+    ]);
+    expect(reader.feeds()[0].title).toBe('My blog');
+    expect(reader.setTitle('a', '   ')).toBeUndefined();
+    expect(api.set).toHaveBeenCalledTimes(1);
+  });
+});
