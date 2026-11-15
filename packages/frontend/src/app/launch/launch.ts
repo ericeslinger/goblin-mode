@@ -1,6 +1,7 @@
 import {
   Component,
   DestroyRef,
+  type ElementRef,
   Injector,
   afterNextRender,
   computed,
@@ -9,11 +10,12 @@ import {
   signal,
   untracked,
   viewChild,
+  viewChildren,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { filter, map } from 'rxjs';
+import { ActivatedRoute, NavigationStart, Router, RouterLink } from '@angular/router';
 import {
   CONCEPT_PREFIX,
   CONTEXT_ID,
@@ -34,12 +36,16 @@ import { NoteBack } from '../back/note-back';
 import { GroceryService } from '../kitchen/grocery.service';
 import { type KitchenTab, KitchenTabs } from '../kitchen/kitchen-tabs';
 import { HomeLink } from '../home/home-link';
+import { Icon } from '../home/icon';
 import { NewNoteService } from '../home/new-note';
 import { LastPlaceService } from './last-place.service';
 import { type Spot } from './place';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { ClippingHeader } from '../reader/clipping-header';
+import { ItemsService } from '../reader/items.service';
+import { PodcastsSeen } from '../podcasts/podcasts-seen';
+import { rightNowLine } from './right-now-line';
 import { CaptureService } from '../capture/capture.service';
 import { KEY_SERVICE_MISSING } from '../notes/key-wait-notice';
 import { NotesService } from '../notes/notes.service';
@@ -80,6 +86,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
   imports: [
     RouterLink,
     HomeLink,
+    Icon,
     ConceptHeader,
     NoteEditorComponent,
     NoteBack,
@@ -260,6 +267,8 @@ export class Launch {
       if (this.holdRoute && params.get('id') === this.holdRoute) return;
       this.linkStatus.set('');
       const id = params.get('id');
+      // Not New's passing rewrite of the old entry (returned above).
+      this.noteRoute.set(id ?? undefined);
       if (id) this.capture.openNote(id);
       else this.capture.openHome();
       // From one reminder's link to another, the query does not change.
@@ -279,7 +288,34 @@ export class Launch {
     const openId = computed(() => this.capture.open().id);
     effect(() => {
       openId();
-      untracked(() => this.back.set(false));
+      untracked(() => {
+        this.back.set(false);
+        // Right Now's sheet closes on going to another note (#287).
+        this.rightNowOpen.set(false);
+      });
+    });
+    // Any navigation, back and forward too, closes Right Now's sheet,
+    // the Previous note and Projects lists, and More (#287).
+    this.router.events
+      .pipe(
+        filter((e) => e instanceof NavigationStart),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => {
+        this.rightNowOpen.set(false);
+        this.closeLists();
+        this.moreOpen.set(false);
+      });
+    // Leaving line mode (across 900 px, or to `/`) closes the sheet.
+    effect(() => {
+      if (!this.lineMode()) untracked(() => this.rightNowOpen.set(false));
+    });
+    // The sheet keeps the focus it was given: when Done takes the row
+    // that had it, the next row's Done has it, else the heading's link.
+    effect(() => {
+      this.reminders.due();
+      if (!untracked(this.rightNowOpen)) return;
+      afterNextRender(() => this.keepSheetFocus(), { injector: this.injector });
     });
     // A template from before #111 holds its Instructions for Claude in its
     // text: the first time it is open here, they move to their own field,
@@ -373,12 +409,37 @@ export class Launch {
       });
     });
 
-    // A tap outside More closes it.
+    // A tap outside More closes it; outside Right Now's sheet, that too.
     const outside = (event: PointerEvent) => {
-      if (!(event.target as Element | null)?.closest?.('.more')) this.moreOpen.set(false);
+      const target = event.target as Element | null;
+      if (!target?.closest?.('.more')) this.moreOpen.set(false);
+      if (!target?.closest?.('.right-now')) this.rightNowOpen.set(false);
     };
     document.addEventListener('pointerdown', outside);
-    inject(DestroyRef).onDestroy(() => document.removeEventListener('pointerdown', outside));
+    // Escape closes More wherever the cursor is: the note takes the
+    // cursor when it loads, and a menu left open then could not be
+    // closed from the keyboard. Inside More its own handler runs too,
+    // and returns to the button.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && this.moreOpen()) this.moreOpen.set(false);
+      // Right Now's sheet, likewise, wherever the focus is (#287); back
+      // on its line. Nothing else's Escape is taken.
+      if (event.key === 'Escape' && this.rightNowOpen()) this.closeRightNow();
+    };
+    document.addEventListener('keydown', escape);
+    inject(DestroyRef).onDestroy(() => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    });
+
+    // Wide screens (900 px and up) keep Right Now beside the notes.
+    const wide = typeof matchMedia === 'function' ? matchMedia('(min-width: 900px)') : undefined;
+    if (wide) {
+      const onWide = () => this.wide.set(wide.matches);
+      onWide();
+      wide.addEventListener?.('change', onWide);
+      inject(DestroyRef).onDestroy(() => wide.removeEventListener?.('change', onWide));
+    }
 
     const update = () => this.online.set(navigator.onLine);
     addEventListener('online', update);
@@ -387,6 +448,126 @@ export class Launch {
       removeEventListener('online', update);
       removeEventListener('offline', update);
     });
+  }
+
+  /**
+   * The note the URL names, as this screen shows it: New's rewrite of
+   * the old entry (`holdRoute`) passes it by, so New goes straight to
+   * the capture screen's layout, never through line mode (#287).
+   */
+  private readonly noteRoute = signal<string | undefined>(undefined);
+  /** The window is 900 px or wider: two panes, Right Now beside the notes. */
+  private readonly wide = signal(false);
+  /**
+   * Right Now as one line (Eric, 2026-11-15, #287): on a phone, while
+   * the screen shows a saved note, that is a note the URL names
+   * (`/n/<id>`). The capture screen at `/` keeps the panel and its
+   * handle, even once what is typed there is saved, so the layout never
+   * moves under typing.
+   */
+  protected readonly lineMode = computed(() => !!this.noteRoute() && !this.wide());
+  /** Right Now's sheet is open over the note (line mode only). */
+  protected readonly rightNowOpen = signal(false);
+  private readonly items = inject(ItemsService);
+  private readonly podcastsSeen = inject(PodcastsSeen);
+  /** The one line: how many are due and the first, or what is new. */
+  protected readonly line = computed(() =>
+    rightNowLine(
+      this.reminders.due().map((r) => r.text),
+      this.modules.reader() ? this.items.newSince().reduce((sum, f) => sum + f.count, 0) : 0,
+      this.modules.podcasts() ? this.podcastsSeen.fresh() : 0,
+    ),
+  );
+  /**
+   * The on-screen keyboard is up over the note (the ribbon's reading of
+   * it): the Right Now line and a folded header give the note the room.
+   */
+  protected readonly keyboardUp = computed(() => this.editor()?.keyboardUp() ?? false);
+  /** Phones only: on wide screens nothing steps aside for the keyboard. */
+  protected readonly giveRoom = computed(() => this.keyboardUp() && !this.wide());
+
+  private readonly lineButton = viewChild<ElementRef<HTMLButtonElement>>('lineButton');
+  private readonly sheet = viewChild<ElementRef<HTMLElement>>('sheet');
+  /**
+   * The focus is in the sheet: the index of the Done that has it, or -1
+   * for anything else there; undefined when it is not in the sheet.
+   */
+  private sheetFocus?: number;
+
+  /** The line opens or closes the sheet; open, the focus goes into it. */
+  protected toggleRightNow(): void {
+    if (this.rightNowOpen()) {
+      this.closeRightNow();
+      return;
+    }
+    this.rightNowOpen.set(true);
+    this.sheetFocus = undefined;
+    afterNextRender(
+      () => this.sheet()?.nativeElement.querySelector<HTMLElement>('a, button')?.focus(),
+      {
+        injector: this.injector,
+      },
+    );
+  }
+
+  /** Closes Right Now's sheet, the focus back on its line if it was in it. */
+  protected closeRightNow(): void {
+    if (!this.rightNowOpen()) return;
+    const active = this.doc.activeElement;
+    const inside =
+      !active || active === this.doc.body || !!this.sheet()?.nativeElement.contains(active);
+    this.rightNowOpen.set(false);
+    if (inside) this.lineButton()?.nativeElement.focus();
+  }
+
+  /** Where in the sheet the focus is, for when its row goes. */
+  protected sheetFocusIn(event: FocusEvent): void {
+    this.sheetFocus = this.sheetDones().indexOf(event.target as HTMLElement);
+  }
+
+  /** Focus that moves out of the sheet to something else is not kept. */
+  protected sheetFocusOut(event: FocusEvent): void {
+    const to = event.relatedTarget as Node | null;
+    if (to && !this.sheet()?.nativeElement.contains(to)) this.sheetFocus = undefined;
+  }
+
+  private sheetDones(): HTMLElement[] {
+    return [
+      ...(this.sheet()?.nativeElement.querySelectorAll<HTMLElement>(
+        'button[aria-label^="Done: "]',
+      ) ?? []),
+    ];
+  }
+
+  /** A Done that had the focus went with its row: the focus stays in the sheet. */
+  private keepSheetFocus(): void {
+    const sheet = this.sheet()?.nativeElement;
+    const active = this.doc.activeElement;
+    if (!sheet || this.sheetFocus === undefined) return;
+    if (active && active !== this.doc.body && active.isConnected) return;
+    const dones = this.sheetDones();
+    const next =
+      this.sheetFocus >= 0 ? dones[Math.min(this.sheetFocus, dones.length - 1)] : undefined;
+    (next ?? sheet.querySelector<HTMLElement>('a, button'))?.focus();
+  }
+
+  private readonly pickList = viewChildren<ElementRef<HTMLElement>>('pickList');
+
+  /**
+   * Previous note or Projects, chosen in More (2026-11-15, #287): its
+   * list opens above the note, the focus on its first item.
+   */
+  protected showList(which: 'previous' | 'projects'): void {
+    this.previousOpen.set(which === 'previous');
+    this.projectsOpen.set(which === 'projects');
+    afterNextRender(() => this.pickList()[0]?.nativeElement.querySelector('button')?.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  protected closeLists(): void {
+    this.previousOpen.set(false);
+    this.projectsOpen.set(false);
   }
 
   /** Moved by hand while it had nothing to tend: shown as moved, this visit. */

@@ -144,6 +144,26 @@ describe('createNoteEditor', () => {
     expect(undo(e.view)).toBe(false);
   });
 
+  it('puts the caret at the end when a saved note’s text arrives in an empty editor (#287)', () => {
+    const e = make('');
+    // A new note: the caret at its start, which is its end.
+    expect(e.view.state.selection.main.head).toBe(0);
+    const update = vi.spyOn(e.view, 'update');
+    e.updateText('# Pottery\n\nWheel day\nTrim the bowls');
+    expect(e.view.state.selection.main.head).toBe(e.getText().length);
+    // Not scrolled to the caret: the transaction asks for no scroll and
+    // carries no effect (a scrollIntoView effect would be one), so the
+    // note still opens at its top.
+    const trs = update.mock.calls.flatMap(([t]) => t);
+    expect(trs).toHaveLength(1);
+    expect(trs[0]!.scrollIntoView).toBe(false);
+    expect(trs[0]!.effects).toEqual([]);
+    // With text shown, a change from elsewhere keeps the caret where it is.
+    e.view.dispatch({ selection: { anchor: 2 } });
+    e.updateText('# Pottery\n\nWheel day\nTrim the bowls\nmore');
+    expect(e.view.state.selection.main.head).toBe(2);
+  });
+
   it('never changes the text when switching modes', () => {
     const text = '## Plan\n\n- [ ] call [[Vikas|vik]] *soon*\n\n![p](attachment:x)';
     const e = make(text);

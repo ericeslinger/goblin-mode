@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, openProjectHeader, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Projects (#41): a concept of type project gets the project sections in
@@ -43,6 +43,8 @@ test('a project files under another, with its kind, status and tasks', async ({ 
   await concept.getByRole('combobox', { name: 'Parent' }).selectOption({ label: 'Sprout' });
   await concept.getByRole('combobox', { name: 'Status' }).selectOption('waiting');
   await page.getByRole('button', { name: 'Front', exact: true }).click();
+  // A project's items fold to one line until opened (#287).
+  await openProjectHeader(page);
   await concept.getByRole('textbox', { name: 'Add a task' }).fill('Write the guide');
   await concept.getByRole('textbox', { name: 'Add a task' }).press('Enter');
   const tasks = concept.getByRole('list', { name: 'Tasks' });
@@ -57,6 +59,8 @@ test('a project files under another, with its kind, status and tasks', async ({ 
 
   // The parent lists it, with its status.
   await page.goto('/n/c-sprout');
+  // Sprout's own items, folded until opened here.
+  await openProjectHeader(page);
   const children = concept.getByRole('list', { name: 'Projects in Sprout' });
   await expect(children).toContainText('Sprout docs');
   await expect(children).toContainText('Waiting');

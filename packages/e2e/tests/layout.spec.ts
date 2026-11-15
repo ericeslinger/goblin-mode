@@ -1,13 +1,27 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, openCapture, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  openCapture,
+  openFromMore,
+  openMore,
+  openRightNow,
+  signInAs,
+  test,
+  typeLines,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The layout pass, step 1 (#285): nothing widens the phone's page,
 // snippets read as plain words, and what is taller than its room
 // scrolls in its own box instead of painting over Right Now. Step 2b
-// (#286): one page header, whose parts stay on a 320 px screen.
+// (#286): one page header, whose parts stay on a 320 px screen. Step 3
+// (#287): the phone's note screen gives the note the room; Right Now
+// is one line under a saved note, a project's items fold to one line,
+// Previous note and Projects are in More, and the bar's View, Back and
+// More are icons.
 
 /** A 300-character address with nowhere to break. */
 const ADDRESS = `https://example.com/${'a'.repeat(280)}`;
@@ -134,7 +148,9 @@ test.describe('on a phone', () => {
     );
   });
 
-  test('an open Projects list scrolls in its own box above Right Now', async ({ page }) => {
+  test('an open Projects list, from More, scrolls in its own box between the bar and Right Now', async ({
+    page,
+  }) => {
     test.setTimeout(90_000);
     await signInAs(page, OWNER);
     const call = await connectClaude(page);
@@ -154,16 +170,18 @@ test.describe('on a phone', () => {
     await openCapture(page);
     const handle = page.getByRole('separator', { name: 'Resize Right Now' });
     await expect(handle).toHaveAttribute('aria-valuenow', '35', { timeout: 15_000 });
-    const pill = page.getByRole('button', { name: 'Projects', exact: true });
-    await expect(pill).toBeVisible({ timeout: 15_000 });
-    await pill.click();
-    const list = page.getByRole('list', { name: 'Projects' });
+    // In More since 2026-11-15 (#287), no longer a pill under the note.
+    await expect(page.getByRole('button', { name: 'Projects', exact: true })).toHaveCount(0);
+    const list = await openFromMore(page, 'Projects');
     await expect(list.getByRole('listitem')).toHaveCount(19, { timeout: 15_000 });
 
+    // Between the bar and Right Now, over neither.
     const rightNow = page.getByRole('region', { name: 'Right Now' });
     const listBox = (await list.boundingBox())!;
     const panelBox = (await rightNow.boundingBox())!;
+    const barBox = (await page.locator('header.bar').boundingBox())!;
     expect(listBox.y + listBox.height).toBeLessThanOrEqual(panelBox.y + 1);
+    expect(listBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1);
     const box = await list.evaluate(scrolling);
     expect(box.scrollHeight).toBeGreaterThan(box.clientHeight);
     expect(['auto', 'scroll']).toContain(box.overflowY);
@@ -177,6 +195,7 @@ test.describe('on a phone', () => {
     await noSeriousViolations(page);
     await last.click();
     await expect(page).toHaveURL(/\/n\/c-project-19$/);
+    await expect(list).toHaveCount(0);
   });
 
   test('the controls a thumb reaches for take a 44 px tap', async ({ page }) => {
@@ -195,7 +214,8 @@ test.describe('on a phone', () => {
         dueAt: new Date(Date.now() - (40 - n * 10) * 1000).toISOString(),
       });
     }
-    // An earlier note and a project, so the pills show under the note.
+    // An earlier note and a project, so More offers Previous note and
+    // Projects (#287; until then pills under the note).
     await call('create_note', { body: 'Glaze test\nCeladon' });
     await call('create_concept', { name: 'Kiln build', type: 'project' });
 
@@ -222,17 +242,44 @@ test.describe('on a phone', () => {
     ]) {
       expect(await missedTaps(control)).toEqual([]);
     }
-    // The small text buttons keep their look: the box itself is smaller.
-    expect((await back.boundingBox())!.height).toBeLessThan(44);
+    // View, Back and More are icons since #287: 44 by 44 boxes of
+    // their own, not small text grown by an invisible area.
+    for (const icon of [
+      bar.getByRole('button', { name: 'View', exact: true }),
+      back,
+      bar.getByRole('button', { name: 'More' }),
+    ]) {
+      const box = (await icon.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
     await expect(rightNow.getByRole('link', { name: '1 more' })).toBeVisible({ timeout: 15_000 });
     expect(await missedTaps(rightNow.getByRole('link', { name: '1 more' }))).toEqual([]);
 
-    // The pills under the note. Step 3 moves them into More: then this
-    // block goes.
-    for (const name of ['Previous note', 'Projects']) {
-      const pill = page.getByRole('button', { name, exact: true });
-      await expect(pill).toBeVisible({ timeout: 15_000 });
-      expect(await missedTaps(pill)).toEqual([]);
+    // Previous note and Projects, the pills until #287, are items in
+    // More: each item, and what its list offers, takes a 44 px tap.
+    for (const [name, item] of [
+      ['Previous note', /Glaze test/],
+      ['Projects', /Kiln build/],
+    ] as const) {
+      const menu = await openMore(page);
+      const choice = menu.getByRole('button', { name, exact: true });
+      await expect(choice).toBeVisible({ timeout: 15_000 });
+      expect(await missedTaps(choice)).toEqual([]);
+      await choice.click();
+      const list = page.getByRole('list', {
+        name: name === 'Projects' ? 'Projects' : 'Previous notes',
+        exact: true,
+      });
+      const first = list.getByRole('button', { name: item });
+      await expect(first).toBeVisible({ timeout: 15_000 });
+      expect(await missedTaps(first)).toEqual([]);
+      const close = page.getByRole('button', {
+        name: `Close ${name === 'Projects' ? 'Projects' : 'Previous notes'}`,
+      });
+      expect(await missedTaps(close)).toEqual([]);
+      await close.click();
+      await expect(list).toHaveCount(0);
     }
 
     await page.goto('/browse');
@@ -331,6 +378,192 @@ test.describe('on a phone', () => {
     });
     expect(await browserDefaultButtons(page)).toEqual([]);
   });
+  test('a saved project opens with the room its note needs, Right Now one line that opens and closes', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    await call('create_concept', {
+      name: 'Pottery',
+      type: 'project',
+      stages: ['Bisquing', 'Glazing'],
+    });
+    for (const [name, stage] of [
+      ['Lovers vase', 'Bisquing'],
+      ['Wounded pot', 'Glazing'],
+      ['Teapot', 'Glazing'],
+      ['Cup', undefined],
+    ] as const) {
+      await call('create_concept', {
+        name,
+        type: 'project',
+        parent: 'c-pottery',
+        ...(stage ? { stage } : {}),
+      });
+    }
+    for (const text of ['Order cone packs', 'Mix the celadon']) {
+      await call('create_reminder', { text, noteId: 'c-pottery' });
+    }
+    await call('create_reminder', {
+      text: 'Pick up glazed mugs',
+      dueAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    await page.goto('/n/c-pottery');
+    const concept = page.getByRole('region', { name: 'Concept' });
+    const fold = concept.locator('button[aria-controls="project-items"]');
+    await expect(fold).toHaveText('4 projects · 2 open tasks · Bisquing 1, Glazing 2', {
+      timeout: 15_000,
+    });
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    const rightNow = page.getByRole('region', { name: 'Right Now' });
+    const line = rightNow.getByRole('button', { name: '1 due · Pick up glazed mugs' });
+    await expect(line).toBeVisible({ timeout: 15_000 });
+    await expect(line).toHaveAttribute('aria-expanded', 'false');
+    // No handle under a saved note: the line is the way in.
+    await expect(page.getByRole('separator', { name: 'Resize Right Now' })).toHaveCount(0);
+
+    // The note has most of the screen.
+    const viewport = page.viewportSize()!;
+    const editor = (await page.locator('app-note-editor').boundingBox())!;
+    expect(editor.height).toBeGreaterThanOrEqual(viewport.height * 0.6);
+    expect(await missedTaps(line)).toEqual([]);
+    await noSeriousViolations(page);
+
+    // The line opens the panel over the lower part of the note.
+    await line.click();
+    await expect(line).toHaveAttribute('aria-expanded', 'true');
+    // The focus goes into the sheet, so Tab carries on to its rows.
+    await expect(rightNow.getByRole('link', { name: 'Right Now' })).toBeFocused();
+    const done = rightNow.getByRole('button', { name: 'Done: Pick up glazed mugs' });
+    const snooze = rightNow.getByRole('button', { name: 'Snooze: Pick up glazed mugs' });
+    await expect(done).toBeVisible();
+    await expect(snooze).toBeVisible();
+    const sheet = (await page.locator('#right-now-sheet').boundingBox())!;
+    const lineBox = (await line.boundingBox())!;
+    expect(sheet.y + sheet.height).toBeLessThanOrEqual(lineBox.y + 1);
+    expect(sheet.y).toBeGreaterThan(editor.y);
+    await noSeriousViolations(page);
+
+    // The line again closes it; so does Escape, back on the line.
+    await line.click();
+    await expect(line).toHaveAttribute('aria-expanded', 'false');
+    await expect(done).toHaveCount(0);
+    await expect(line).toBeVisible();
+    await openRightNow(page);
+    await expect(done).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(done).toHaveCount(0);
+    await expect(line).toBeFocused();
+  });
+
+  test('a project’s items fold to one line, open or closed as left after a reload', async ({
+    page,
+  }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    await call('create_concept', { name: 'Pottery', type: 'project' });
+    await call('create_reminder', { text: 'Order cone packs', noteId: 'c-pottery' });
+
+    await page.goto('/n/c-pottery');
+    const concept = page.getByRole('region', { name: 'Concept' });
+    const fold = concept.locator('button[aria-controls="project-items"]');
+    const addTask = concept.getByRole('textbox', { name: 'Add a task' });
+    await expect(fold).toHaveText('1 open task', { timeout: 15_000 });
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await expect(addTask).toHaveCount(0);
+    expect(await missedTaps(fold)).toEqual([]);
+
+    await fold.click();
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
+    await expect(concept.getByRole('list', { name: 'Tasks' })).toContainText('Order cone packs');
+    await expect(addTask).toBeVisible();
+    await page.reload();
+    await expect(fold).toHaveAttribute('aria-expanded', 'true', { timeout: 15_000 });
+    await expect(addTask).toBeVisible();
+
+    await fold.click();
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await page.reload();
+    await expect(fold).toHaveText('1 open task', { timeout: 15_000 });
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+    await expect(addTask).toHaveCount(0);
+  });
+
+  test('More holds Previous note and Projects, each opening its list', async ({ page }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    await call('create_concept', { name: 'Pottery', type: 'project' });
+    await call('create_note', { body: 'Glaze notes\nCeladon over the bisque.' });
+
+    await openCapture(page);
+    // No row of pills under the note any more.
+    await expect(page.getByRole('button', { name: 'Previous note' })).toHaveCount(0);
+    const projects = await openFromMore(page, 'Projects');
+    await projects.getByRole('button', { name: /Pottery/ }).click();
+    await expect(page).toHaveURL(/\/n\/c-pottery$/);
+    await expect(projects).toHaveCount(0);
+
+    const previous = await openFromMore(page, 'Previous note');
+    await previous.getByRole('button', { name: /Glaze notes/ }).click();
+    await expect(page).toHaveURL(/\/n\/[^/]+$/);
+    await expect(page.getByRole('textbox', { name: 'New note' })).toContainText(
+      'Celadon over the bisque.',
+    );
+    await expect(previous).toHaveCount(0);
+  });
+
+  test('the bar’s View, Back and More are named icons a thumb can hit', async ({ page }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    await call('create_note', { body: 'Kiln log\nCone 6, slow cool.' });
+    await openCapture(page);
+    const previous = await openFromMore(page, 'Previous note');
+    await previous.getByRole('button', { name: /Kiln log/ }).click();
+    await expect(page).toHaveURL(/\/n\/[^/]+$/);
+
+    const bar = page.locator('header.bar');
+    for (const name of ['View', 'Back', 'More']) {
+      const button = bar.getByRole('button', { name, exact: name !== 'More' });
+      await expect(button).toBeVisible({ timeout: 15_000 });
+      await expect(button).toHaveAttribute('title', name);
+      await expect(button.locator('svg')).toBeVisible();
+      const box = (await button.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(await missedTaps(button)).toEqual([]);
+    }
+    // Each still names what a tap turns to.
+    await bar.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(bar.getByRole('button', { name: 'Front', exact: true })).toHaveAttribute(
+      'title',
+      'Front',
+    );
+    await bar.getByRole('button', { name: 'Front', exact: true }).click();
+    await bar.getByRole('button', { name: 'View', exact: true }).click();
+    await expect(bar.getByRole('button', { name: 'Edit', exact: true })).toHaveAttribute(
+      'title',
+      'Edit',
+    );
+    await noSeriousViolations(page);
+  });
+
+  test('the empty capture screen keeps Right Now’s handle', async ({ page }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    await call('create_reminder', {
+      text: 'Call the bank',
+      dueAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    await openCapture(page);
+    const handle = page.getByRole('separator', { name: 'Resize Right Now' });
+    await expect(handle).toHaveAttribute('aria-valuenow', '35', { timeout: 15_000 });
+    const rightNow = page.getByRole('region', { name: 'Right Now' });
+    await expect(rightNow.getByRole('button', { name: 'Done: Call the bank' })).toBeVisible();
+    await expect(rightNow.locator('button[aria-controls="right-now-sheet"]')).toHaveCount(0);
+    await expect(page.getByRole('textbox', { name: 'New note' })).toBeFocused();
+  });
 });
 
 /**
@@ -381,14 +614,37 @@ async function expectPageHeader(page: Page, title: string, parent?: string): Pro
   }
 }
 
+/**
+ * Each control is inside the screen, its centre lands on itself, and so
+ * does every point of its 44 px area, whichever row of a wrapped bar it
+ * is on (the areas meet mid-gap, 2026-11-15).
+ */
+async function expectOwnTaps(page: Page, controls: Locator[]): Promise<void> {
+  const width = page.viewportSize()!.width;
+  for (const control of controls) {
+    const box = (await control.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    const centre = await control.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && el.contains(hit);
+    });
+    expect(centre).toBe(true);
+    expect(await missedTaps(control)).toEqual([]);
+  }
+}
+
 test.describe('on a narrow phone', () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
   test('the note bar, wrapped to two rows, keeps each tap on its own control', async ({ page }) => {
     test.setTimeout(90_000);
     await signInAs(page, OWNER);
-    // A template, so From template joins the bar: with View, Back and
-    // More it no longer fits one row at 320 px.
+    // A template, so From template joins the bar. With View, Back and
+    // More as 44 px icons (#287) it still needs about 370 px: the leaf
+    // and New note 80, From template about 95, three icons 132, five
+    // 12 px gaps; at 320 px the bar has 288, so Back and More wrap.
     await page.goto('/settings');
     await page.getByRole('button', { name: 'New template', exact: true }).click();
     await expect(page).toHaveURL(/\/n\/\w+$/);
@@ -413,18 +669,32 @@ test.describe('on a narrow phone', () => {
     const tops = new Set<number>();
     for (const control of controls) tops.add(Math.round((await control.boundingBox())!.y / 8));
     expect(tops.size, 'the bar wraps').toBeGreaterThan(1);
+    await expectOwnTaps(page, controls);
+  });
 
-    for (const control of controls) {
-      // Its centre is its own; so is every point of its 44 px area,
-      // whichever row it is on (the areas meet mid-gap, 2026-11-15).
-      const centre = await control.evaluate((el) => {
-        const box = el.getBoundingClientRect();
-        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        return !!hit && el.contains(hit);
-      });
-      expect(centre).toBe(true);
-      expect(await missedTaps(control)).toEqual([]);
-    }
+  test('the note bar at 320 px, wrapped or not, keeps each tap on its own control', async ({
+    page,
+  }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    // A plain saved note: the leaf, New note, View, Back and More, which
+    // by the same sums fit one row (about 260 of 288 px). Whether it
+    // wraps is not asserted, only that each control is on the screen
+    // and its tap is its own.
+    const kiln = (await call('create_note', { body: 'Kiln log\nCone 6, slow cool.' })) as {
+      id: string;
+    };
+    await page.goto(`/n/${kiln.id}`);
+    const bar = page.locator('header.bar');
+    const controls = [
+      bar.getByRole('link', { name: 'Home', exact: true }),
+      bar.getByRole('button', { name: 'New note', exact: true }),
+      bar.getByRole('button', { name: 'View', exact: true }),
+      bar.getByRole('button', { name: 'Back', exact: true }),
+      bar.getByRole('button', { name: 'More' }),
+    ];
+    for (const control of controls) await expect(control).toBeVisible({ timeout: 15_000 });
+    await expectOwnTaps(page, controls);
   });
 
   test('every screen has the one page header, inside the screen', async ({ page }) => {

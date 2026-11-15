@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, signInAs, test, openMore } from '../src/fixtures';
+import { expect, signInAs, test, openFromMore, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // axe over every surface, WCAG 2.1 A and AA; serious and critical
@@ -27,7 +27,8 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await expectNoSeriousViolations(page);
 
   await page.getByRole('button', { name: 'New' }).click();
-  await page.getByRole('button', { name: 'Previous note' }).click();
+  // In More since 2026-11-15 (#287).
+  await openFromMore(page, 'Previous note');
   await expectNoSeriousViolations(page);
 
   await page.goto('/home');

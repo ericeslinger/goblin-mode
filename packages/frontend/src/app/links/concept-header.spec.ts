@@ -5,7 +5,7 @@ import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
 import { FakeModules, FakeNotes, noteRecord } from '../testing/fakes';
 import { ModulesService } from '../modules/modules.service';
-import { ConceptHeader } from './concept-header';
+import { ConceptHeader, HEADER_OPEN_PREFIX, headerSummary, stageCounts } from './concept-header';
 
 async function render(
   note: NoteRecord,
@@ -13,6 +13,7 @@ async function render(
   tasks: ReminderRecord[] = [],
   modules = new FakeModules(),
 ) {
+  localStorage.clear();
   const notes = new FakeNotes();
   notes.signIn([note, ...others]);
   notes.updateConcept = vi.fn(() => [] as string[]);
@@ -37,7 +38,13 @@ async function render(
     fixture.componentRef.setInput('side', side);
     await fixture.whenStable();
   };
-  return { el, notes, reminders, became, details, fixture };
+  /** Opens a project's folded items (#287). */
+  const unfold = async () => {
+    const fold = el.querySelector<HTMLButtonElement>('button.fold')!;
+    if (fold.getAttribute('aria-expanded') !== 'true') fold.click();
+    await fixture.whenStable();
+  };
+  return { el, notes, reminders, became, details, fixture, unfold };
 }
 
 const project = (id: string, title: string, more: Partial<NoteRecord> = {}): NoteRecord => ({
@@ -203,7 +210,7 @@ describe('ConceptHeader', () => {
     const leaf = project('leaf', 'Leaf', { parent: 'sprout', projectStatus: 'waiting' });
     const twig = project('twig', 'Twig', { parent: 'leaf' });
     const studio = project('studio', 'Sprout studio');
-    const { el, notes, details } = await render(sprout, [leaf, twig, studio]);
+    const { el, notes, details, unfold } = await render(sprout, [leaf, twig, studio]);
     // On the front, the kind and status are one line.
     expect(el.querySelector('.summary')!.textContent).toContain('Build · Active');
     expect(el.querySelector('.project')).toBeNull();
@@ -223,6 +230,7 @@ describe('ConceptHeader', () => {
     status.dispatchEvent(new Event('change'));
     expect(notes.updateConcept).toHaveBeenLastCalledWith('sprout', { projectStatus: 'done' });
     await details('front');
+    await unfold();
     // Its sub-projects, one level down, with kind and status.
     const children = el.querySelector('.children')!;
     expect(children.querySelector('h2')!.textContent).toBe('Projects in Sprout');
@@ -234,7 +242,7 @@ describe('ConceptHeader', () => {
   it('shows the project’s open tasks, and adds and finishes them (#41)', async () => {
     const task = (id: string, text: string, status: ReminderRecord['status'], noteId?: string) =>
       ({ id, text, status, noteId, createdBy: 'user' }) as ReminderRecord;
-    const { el, reminders } = await render(
+    const { el, reminders, unfold } = await render(
       project('p', 'Pots'),
       [],
       [
@@ -243,6 +251,7 @@ describe('ConceptHeader', () => {
         task('r3', 'Elsewhere', 'open', 'q'),
       ],
     );
+    await unfold();
     const items = el.querySelectorAll('.tasks li');
     expect([...items].map((li) => li.querySelector('span')!.textContent)).toEqual([
       'Glaze the bowls',
@@ -299,7 +308,16 @@ describe('ConceptHeader', () => {
       stage: 'bisque',
       createdBy: 'user',
     } as ReminderRecord;
-    const { el, notes, reminders, fixture } = await render(pots, [vase, cup, bowl, jug], [glaze]);
+    const { el, notes, reminders, fixture, unfold } = await render(
+      pots,
+      [vase, cup, bowl, jug],
+      [glaze],
+    );
+    // Folded, one line says what it holds, by stage (#287).
+    expect(el.querySelector('button.fold')!.textContent!.trim()).toBe(
+      '4 projects · 1 open task · plan 1, bisque 2, fired 1',
+    );
+    await unfold();
     const rows = [...el.querySelectorAll('.children .items > li')];
     expect(rows.map((li) => li.querySelector('a')!.textContent)).toEqual([
       'Cup',
@@ -345,5 +363,78 @@ describe('ConceptHeader', () => {
     add.value = 'Teapot';
     add.dispatchEvent(new Event('change'));
     expect(notes.createItem).toHaveBeenCalledWith('p', 'Teapot');
+  });
+  describe('folded items (#287)', () => {
+    it('says what a project holds in one line, only the parts there are', () => {
+      expect(
+        headerSummary(4, 5, [
+          { stage: 'Bisquing', count: 1 },
+          { stage: 'Glazing', count: 2 },
+        ]),
+      ).toBe('4 projects · 5 open tasks · Bisquing 1, Glazing 2');
+      expect(headerSummary(1, 0, [])).toBe('1 project');
+      expect(headerSummary(0, 1, [{ stage: 'plan', count: 0 }])).toBe('1 open task');
+      expect(headerSummary(0, 0, [])).toBe('No projects or tasks yet');
+      expect(stageCounts(['plan', 'bisque'], ['bisque', undefined, 'fired', 'bisque'])).toEqual([
+        { stage: 'plan', count: 0 },
+        { stage: 'bisque', count: 2 },
+        { stage: 'fired', count: 1 },
+      ]);
+    });
+
+    it('opens from its line, closed by default, and remembers each project on this device', async () => {
+      const leaf = project('leaf', 'Leaf', { parent: 'p' });
+      const { el, fixture } = await render(project('p', 'Pots'), [leaf]);
+      const fold = () => el.querySelector<HTMLButtonElement>('button.fold')!;
+      expect(fold().getAttribute('aria-expanded')).toBe('false');
+      expect(fold().getAttribute('aria-controls')).toBe('project-items');
+      expect(fold().textContent!.trim()).toBe('1 project');
+      expect(el.querySelector('.children')).toBeNull();
+      fold().click();
+      await fixture.whenStable();
+      expect(fold().getAttribute('aria-expanded')).toBe('true');
+      expect(el.querySelector('#project-items .children')).not.toBeNull();
+      expect(el.querySelector('input[placeholder="+ task"]')).not.toBeNull();
+      expect(localStorage.getItem(`${HEADER_OPEN_PREFIX}p`)).toBe('true');
+      // Another project opens folded; coming back, this one is open.
+      fixture.componentRef.setInput('note', project('q', 'Quilts'));
+      await fixture.whenStable();
+      expect(fold().getAttribute('aria-expanded')).toBe('false');
+      expect(fold().textContent!.trim()).toBe('No projects or tasks yet');
+      expect(fold().classList).toContain('empty');
+      fixture.componentRef.setInput('note', project('p', 'Pots'));
+      await fixture.whenStable();
+      expect(fold().getAttribute('aria-expanded')).toBe('true');
+      fold().click();
+      await fixture.whenStable();
+      expect(el.querySelector('.children')).toBeNull();
+      expect(localStorage.getItem(`${HEADER_OPEN_PREFIX}p`)).toBeNull();
+    });
+
+    it('hides the folded line while the keyboard is up, never an open one or the name', async () => {
+      const { el, fixture } = await render(project('p', 'Pots'));
+      const fold = () => el.querySelector<HTMLButtonElement>('button.fold')!;
+      fixture.componentRef.setInput('hideFold', true);
+      await fixture.whenStable();
+      expect(fold().hidden).toBe(true);
+      expect(el.querySelector<HTMLInputElement>('.name input')!.hidden).toBe(false);
+      fixture.componentRef.setInput('hideFold', false);
+      await fixture.whenStable();
+      fold().click();
+      fixture.componentRef.setInput('hideFold', true);
+      await fixture.whenStable();
+      expect(fold().hidden).toBe(false);
+    });
+
+    it('has no fold for a concept that is not a project', async () => {
+      const { el } = await render({ ...kiln, conceptType: 'person' });
+      expect(el.querySelector('button.fold')).toBeNull();
+    });
+
+    it('has no fold on the back of the note', async () => {
+      const { el, details } = await render(project('p', 'Pots'));
+      await details();
+      expect(el.querySelector('button.fold')).toBeNull();
+    });
   });
 });

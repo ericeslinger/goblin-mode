@@ -84,21 +84,43 @@
 .more {
   position: relative;
 }
-.more-button {
+/* View, Back and More as icons (2026-11-15, #287), named in words for
+   screen readers and in a tooltip: 36 px by mouse, 44 on a touch screen. */
+.icon-button {
   position: relative;
-  font: inherit;
-  padding: 4px 12px;
-  border: var(--border) solid var(--rule);
-  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 7px;
   color: var(--ink);
-  background: var(--surface);
-  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-control);
+}
+.icon-button:hover {
+  background: var(--chip-bg);
+}
+@media (pointer: coarse) {
+  .icon-button {
+    min-width: 44px;
+    height: 44px;
+    padding: 0 11px;
+  }
+}
+/* The bar keeps its height with the 44 px icons in it: like the leaf,
+   each takes 28 px of its row (the bar items' min-height), so a wrapped
+   bar's rows stay 44 px apart and the icons' boxes meet mid-gap. */
+.bar > .icon-button,
+.bar > .more {
+  margin: calc(-1 * var(--space-2)) 0;
 }
 /* The sync dot, on the More button's corner: green synced, red offline. */
 .sync {
   position: absolute;
-  top: -3px;
-  right: -3px;
+  top: 4px;
+  right: 4px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -178,36 +200,33 @@
   min-height: 0;
   overflow: hidden;
 }
-/* Previous note and Projects: an open list scrolls in its own box and
-   leaves the note at least half the room, as a project's header does. */
+/* Previous note and Projects, opened from More (2026-11-15, #287): above
+   the note, an open list scrolls in its own box and leaves the note at
+   least half the room, as a project's header does. */
 .previous {
   flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
   max-height: 50%;
-  padding: 0 16px 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--rule);
 }
-.pills {
+.previous-head {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--quiet);
 }
-.pills > .pill + .pill {
-  margin-left: 8px;
+.previous-head .link.quiet {
+  padding: 4px;
 }
 .previous .count {
   margin-left: 8px;
   font-size: 13px;
   color: var(--quiet);
-}
-.pill {
-  font: inherit;
-  font-size: 14px;
-  padding: 4px 12px;
-  border: var(--border) solid var(--rule);
-  border-radius: var(--radius-pill);
-  color: var(--ink);
-  background: transparent;
-  cursor: pointer;
 }
 /* Clipped now rather than painted over Right Now, so it scrolls too. */
 .template-menu {
@@ -341,12 +360,6 @@ app-template-header {
   color: var(--quiet);
   text-decoration: none;
 }
-/* Viewing's switch: there when wanted, not calling for a tap. The
-   kinds (.link, .quiet) are global (styles.css, 2026-11-15). */
-.link.quiet {
-  padding: 4px;
-  font-size: 13px;
-}
 
 .back {
   flex: 1;
@@ -359,4 +372,66 @@ app-template-header {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+/* Right Now as one line under a saved note on a phone (Eric, 2026-11-15,
+   #287). The line is a button the width of the screen, 44 px tall; the
+   panel opens as a sheet over the lower part of the note, above it. */
+.right-now.line-mode {
+  position: relative;
+  padding: 0;
+  overflow: visible;
+}
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  text-align: left;
+  color: var(--ink);
+  background: var(--bg);
+  border: 0;
+  border-radius: 0;
+}
+.line-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Points up to open the sheet, down to close it. */
+.line-chevron {
+  transform: rotate(-90deg);
+}
+.right-now.open .line-chevron {
+  transform: rotate(90deg);
+}
+.line:focus-visible {
+  outline-offset: -2px;
+}
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 5;
+  max-height: 60dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--rule);
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  box-shadow: 0 -6px 20px rgb(0 0 0 / 0.15);
+}
+/* While the on-screen keyboard is up, on a phone, the note has the
+   room: the line steps aside (`hidden`, set by the component, which
+   knows the width), as a folded project's line does (#287). */
+.right-now.line-mode[hidden],
+.sheet[hidden] {
+  display: none;
 }

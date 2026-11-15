@@ -250,8 +250,15 @@ the stages it has.
 until a project's text had no room on a phone. Now only the name and
 type show, with a one-line kind and status and a Details toggle for
 the rest (other names, parent, kind, status, stages, item tags); the
-items stay out, being the page's point. The header scrolls on its own
-past 55% of the screen. Under the note, Linked from folds to one
+items stay out, being the page's point. (Changed 2026-11-15, #287,
+Eric: "Go with your recommendations for all". Pottery's items filled
+half a phone, so they fold too: one line says what they hold, such as
+"4 projects · 5 open tasks · Bisquing 1, Glazing 2", or "No projects
+or tasks yet", and is a button that opens them as before. Closed by
+default, open or closed is remembered per project on this device, in
+localStorage under `goblin.headerOpen.<id>`; nothing is synced. It is
+content, not chrome, so it folds at every width.) The header scrolls
+on its own past 55% of the screen. Under the note, Linked from folds to one
 button saying how many notes link here, and opens to the list and
 Often together; each note opens folded. The back of the note (#112)
 is still to be designed with Eric and will take these over.
@@ -260,7 +267,10 @@ is still to be designed with Eric and will take these over.
 fold and the folded Linked from above).** What is about a note rather
 than in it moves to its back. **Back** sits in the bar beside View
 (Front on the back; the label names the side a tap turns to), on any
-note that exists, and each note opens on its front. The back holds:
+note that exists, and each note opens on its front. (Since 2026-11-15,
+#287, Eric: an icon, a page with its corner turned, the corner on the
+other side for Front, still named Back or Front for screen readers and
+in its tooltip; what it does is unchanged.) The back holds:
 when the note was made and last edited, and by whom (Claude, this
 device or another); What Claude changed on it (the runs among the
 latest hundred that touched it, with a link to them all); Linked from
@@ -269,7 +279,8 @@ kind, status, stages, item tags; `ConceptHeader` with `side="back"`)
 or a template's mode and Instructions for Claude (#111; since #231,
 2026-11-09, any note's, Document modes); its tags; and History and
 Map. The front keeps the text, a concept's name, type and one-line
-kind and status, and a project's items. The editor stays
+kind and status, and a project's items (folded to one line since
+2026-11-15, #287; Room on a project page). The editor stays
 mounted, hidden, while the back shows, so nothing typed is lost and
 the cursor comes back where it was. A side panel on wide screens and
 the attachments list wait until they are missed.
@@ -869,7 +880,8 @@ coming back to the app, however long after, changes nothing; a launch
 goes back to where he left off (below); and New note, beside the
 leaf, is the fresh note. Only a device with no last place kept yet
 (its first launch of this version) still picks the capture note by the
-five-minute rule. "Previous note" opens a short list of recent notes.
+five-minute rule. "Previous note" opens a short list of recent notes
+(from More since 2026-11-15, #287).
 A note is only written once something is typed, so a fresh note left
 untouched never exists.
 
@@ -1216,14 +1228,18 @@ or due today, and no Undo on offer) it starts closed (Eric,
 full list, and opens at the
 saved share when something comes due; moved by hand meanwhile, it stays
 where it was put for that visit. A tap on the handle is not a move and
-saves nothing.
+saves nothing. (Changed 2026-11-15, #287, Eric: the handle and its
+saved share are now the empty capture screen's only, at `/`. Under a
+saved note on a phone, Right Now is one line; see The phone's note
+screen, below. Wide screens are as they were.)
 Tapping the Right Now heading opens the full list (`/right-now`). On
 wide screens Right Now sits above the notes list, as the UX spec has
 it, sized by its content (2026-10-06). (Since 2026-11-15, #285: up to
 its cap of 40% of the height; past that it scrolls inside, its heading
 kept in sight. On a phone, an open Projects or Previous note list and a
 tall meal plan header scroll in their own box above Right Now instead
-of painting over it. Rows in Browse and meal slots show the plain words
+of painting over it; since #287 those lists open from More, between
+the bar and the note. Rows in Browse and meal slots show the plain words
 of the text, `plainText`, never the marks as typed; stored text is
 untouched.)
 
@@ -1247,7 +1263,10 @@ concept header's remove buttons and tag chips, the formatting toolbar
 (32 px), the meal plan's week links, the mini player's Continue from and
 the editor's page link are still under 44 px. On a mouse sizes stay as
 they were, except a few buttons that had a 32 px floor, which now take
-their height from the base padding (31 to 35 px).
+their height from the base padding (31 to 35 px). (Since #287,
+2026-11-15, the note bar's View, Back and More are icons with boxes of
+their own, 44 px on a touch screen and 36 px by mouse, so More is no
+longer one of the small-look controls grown by an invisible area.)
 
 **One page header (#286, 2026-11-15).** The screens a module or a place
 opens on draw one header, `app-page-header` (`home/page-header.ts`), the
@@ -1278,7 +1297,9 @@ New (since 2026-11-15 New note, the icon beside the leaf, #272), From
 template (when there are templates) and List or Text (on a list).
 Everything else is under More: Browse (not on wide screens, where the
 notes list is beside the note), Source or Preview, Map, Copy link and
-History (for a note with a URL), and Settings. The sync dot
+History (for a note with a URL), and Settings; since 2026-11-15
+(#287, Eric) also Previous note and Projects, which open their lists
+above the note, and More is an icon, three dots, named More. The sync dot
 sits on the More button's corner, green or red, so offline is always
 in sight, and offline the button also says so in words (not by colour
 alone); the menu says it too, and a hidden status tells screen
@@ -1289,7 +1310,39 @@ Escape (back to its button) and on a tap outside.
 **View in the bar (Eric, 2026-10-17; adds to #78).** One quiet
 control joins the bar beside More: View on a note with text, Edit
 while viewing (Editor, Viewing). It is in the bar, not under More,
-because it is reached for in the store with one hand.
+because it is reached for in the store with one hand. (Since
+2026-11-15, #287, Eric: an icon, an eye, a pencil while viewing,
+still named View or Edit, with its name as a tooltip.)
+
+**The phone's note screen (#287, step 3 of the layout pass, epic
+#282; Eric, 2026-11-15: "Go with your recommendations for all").**
+Under 900 px, a saved note (one the URL names, `/n/<id>`) gives its
+text the screen. The bar is the leaf, New note, From template or List
+where they apply, then View, Back and More as icons. Previous note
+and Projects are in More, no longer a row of pills under the note. A
+project's items are one line until opened (Room on a project page).
+Right Now is one line at the foot: how many are due and the first,
+"2 due · Pick up glazed mugs"; with nothing due, what is new in the
+Reader or Podcasts, else "Right Now · Nothing to tend". The line is a
+44 px button saying whether it is open; a tap opens the whole panel
+(reminders with Done and Snooze, "N more", the reading and Reader and
+Podcasts lines) as a sheet over the lower part of the note, the focus
+moving into it (its heading's link, then its rows in Tab order); when
+Done takes the row that had the focus, the next row's Done has it, else
+the heading. The line again, Escape (wherever the focus is), a tap
+outside it, any navigation or leaving line mode closes it. Any
+navigation also closes More and the Previous note and Projects lists.
+Nothing is reached by gesture alone. While the on-screen keyboard is up
+(as the ribbon reads it), the line and a folded project's one line step
+aside, the name and type staying, and the ribbon measures what it
+covers again whenever the editor's box changes, so the room they give
+is counted. The capture screen at `/` keeps the panel and its handle
+as they were, even once what is typed there is saved, so nothing
+moves under typing, and New note from a saved note at `/` goes
+straight to it, never through the line; wide screens are unchanged. A
+saved note opens with the caret at its end and scrolled to its top
+(Editor); where he left off (#272) still puts back its own caret and
+scroll.
 
 **Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
 design A over B (a bar of slots along the bottom): a Home screen at
@@ -1412,8 +1465,9 @@ doc whole and would wipe them. The registry is `MODULES`
 else its default. Projects is the first, on by default, so nothing
 changed for anyone until it is switched off. Off, Projects takes the
 Project type (a concept that already is one keeps it), the Projects
-pill, the Projects lens, a project's items, tasks and settings; project
-notes stay notes, their text and links untouched. Claude is told which
+item in More (a pill under the note until 2026-11-15, #287), the
+Projects lens, a project's items, tasks and settings; project notes
+stay notes, their text and links untouched. Claude is told which
 modules are on when a connection initializes, and the tools refuse a
 write that belongs to one switched off (`create_concept` or `refile`
 on a project, `capture`, a task's stage or tags), saying it is off in
@@ -1731,6 +1785,9 @@ with how much is open on it (its tasks, the reminders linked to it,
 plus the unticked boxes on its page). A tap opens the project's page.
 A pill rather than a swipe or a hold: nothing on the launch screen is
 found by gesture alone, and both would fight the editor's own.
+(Changed 2026-11-15, #287, Eric: the pill and Previous note are items
+in More, still a tap from any note and still no gesture; each opens
+the same list, above the note.)
 
 **Right Now (as built, 2026-10-06).** One live listener on open and
 snoozed reminders (`status in ['open', 'snoozed']`; done ones are never
@@ -3281,7 +3338,11 @@ empty item ends the list, or moves a nested one out a level. The
 grammar decides what is a list item, so Enter is plain inside code and
 on `- - -`. Off the edited line, `-`, `*` and `+` markers
 draw as bullets (Eric, 2026-10-06). A note opens with the caret at its
-end. The launch route is eager, so the editor is in the initial bundle
+end. (Since 2026-11-15, #287, so too a saved note whose text arrives
+after the editor is drawn, as on a cold start: until then the caret
+stayed on line one and the first heading showed its marks. The view
+is not scrolled to it, and nothing focuses the editor that did not.)
+The launch route is eager, so the editor is in the initial bundle
 (1.24 MB raw, about 330 kB over the wire; 1.74 MB raw once capture
 added Firestore's live queries). Budgets: warn at 2 MB raw, fail at
 8 MB, so growth is noticed without blocking.

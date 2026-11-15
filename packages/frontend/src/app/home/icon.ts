@@ -63,7 +63,25 @@ const PATHS = {
   play: ['M8 5v14l11-7z'],
   pause: ['M9 5v14', 'M15 5v14'],
   plus: ['M12 5v14', 'M5 12h14'],
-  more: ['M5 12h.01M12 12h.01M19 12h.01'],
+  // The note bar's View, Back and Front (#287): an eye, and a page with a
+  // corner turned, turned the other way on the note's back.
+  view: ['M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z', 'M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z'],
+  'note-back': [
+    'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z',
+    'M14 3v5h5',
+    'M9 13h6M9 17h4',
+  ],
+  'note-front': [
+    'M10 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8z',
+    'M10 3v5H5',
+    'M9 13h6M11 17h4',
+  ],
+  // Three dots drawn as small rings, so they carry beside the other icons.
+  more: [
+    'M4.25 12a.75.75 0 1 0 1.5 0a.75.75 0 1 0-1.5 0',
+    'M11.25 12a.75.75 0 1 0 1.5 0a.75.75 0 1 0-1.5 0',
+    'M18.25 12a.75.75 0 1 0 1.5 0a.75.75 0 1 0-1.5 0',
+  ],
   grip: ['M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01'],
   // Podcasts' Shows (#246): by folder, as one grid, and the sort.
   folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],

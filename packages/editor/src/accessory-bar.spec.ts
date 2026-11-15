@@ -273,7 +273,10 @@ describe('createAccessoryBar', () => {
       document.body.append(parent);
       const editor = createNoteEditor({ parent });
       const covered = vi.spyOn(editor, 'setCoveredFrom');
-      const bar = createAccessoryBar(editor, [{ label: 'B', run: () => undefined }]);
+      const onShow = vi.fn();
+      const bar = createAccessoryBar(editor, [{ label: 'B', run: () => undefined }], window, {
+        onShow,
+      });
       expect(vk.overlaysContent).toBe(true);
       editor.view.focus();
       vk.dispatchEvent(new Event('geometrychange'));
@@ -281,17 +284,81 @@ describe('createAccessoryBar', () => {
       vk.boundingRect = new DOMRect(0, innerHeight - 300, innerWidth, 300);
       vk.dispatchEvent(new Event('geometrychange'));
       expect(bar.element.hidden).toBe(false);
+      // The host hears the keyboard open, once (#287).
+      expect(onShow).toHaveBeenLastCalledWith(true);
+      expect(onShow.mock.calls.filter(([shown]) => shown)).toHaveLength(1);
       // The editor keeps its line above the bar's top.
       expect(covered).toHaveBeenLastCalledWith(innerHeight - 300 - bar.element.offsetHeight);
       vk.boundingRect = new DOMRect(0, 0, 0, 0);
       vk.dispatchEvent(new Event('geometrychange'));
       expect(bar.element.hidden).toBe(true);
       expect(covered).toHaveBeenLastCalledWith(undefined);
+      expect(onShow).toHaveBeenLastCalledWith(false);
       bar.destroy();
       expect(vk.overlaysContent).toBe(false);
       editor.destroy();
     } finally {
       delete (navigator as { virtualKeyboard?: unknown }).virtualKeyboard;
+    }
+  });
+
+  it('measures the cover again when the editor’s box changes while shown (#287)', () => {
+    // jsdom has neither: a ResizeObserver that reports when told to, and
+    // a keyboard only the VirtualKeyboard API sees (Android).
+    let report: (() => void) | undefined;
+    const observed: { el: Element; box?: string }[] = [];
+    const disconnect = vi.fn();
+    class FakeObserver {
+      constructor(callback: () => void) {
+        report = callback;
+      }
+      observe(el: Element, options?: { box?: string }) {
+        observed.push({ el, box: options?.box });
+      }
+      disconnect = disconnect;
+    }
+    const vk = Object.assign(new EventTarget(), {
+      overlaysContent: false,
+      boundingRect: new DOMRect(0, 0, 0, 0),
+    });
+    Object.defineProperty(window, 'ResizeObserver', { value: FakeObserver, configurable: true });
+    Object.defineProperty(navigator, 'virtualKeyboard', { value: vk, configurable: true });
+    try {
+      const parent = document.createElement('div');
+      document.body.append(parent);
+      const editor = createNoteEditor({ parent });
+      const bar = createAccessoryBar(editor, [{ label: 'B', run: () => undefined }]);
+      // The editor's outer box, by its border: the padding the cover sets
+      // is inside it, so setting it cannot report again.
+      // (CodeMirror watches its own boxes too; the bar's is the last made.)
+      expect(observed.at(-1)).toEqual({ el: editor.view.dom, box: 'border-box' });
+      const covered = vi.spyOn(editor, 'setCoveredFrom');
+      // Hidden: a resize measures nothing.
+      report!();
+      expect(covered).not.toHaveBeenCalled();
+      editor.view.focus();
+      vk.boundingRect = new DOMRect(0, innerHeight - 300, innerWidth, 300);
+      vk.dispatchEvent(new Event('geometrychange'));
+      expect(bar.element.hidden).toBe(false);
+      covered.mockClear();
+      // The host gives the note more room: no keyboard event, but the
+      // cover is measured again from the editor's new box.
+      report!();
+      expect(covered).toHaveBeenCalledOnce();
+      expect(covered).toHaveBeenLastCalledWith(innerHeight - 300 - bar.element.offsetHeight);
+      // Closed again, a resize measures nothing.
+      vk.boundingRect = new DOMRect(0, 0, 0, 0);
+      vk.dispatchEvent(new Event('geometrychange'));
+      covered.mockClear();
+      report!();
+      expect(covered).not.toHaveBeenCalled();
+      disconnect.mockClear();
+      bar.destroy();
+      expect(disconnect).toHaveBeenCalledOnce();
+      editor.destroy();
+    } finally {
+      delete (navigator as { virtualKeyboard?: unknown }).virtualKeyboard;
+      delete (window as { ResizeObserver?: unknown }).ResizeObserver;
     }
   });
 
