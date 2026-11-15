@@ -87,6 +87,15 @@ function fakeSource(initial: Spot = {}) {
 }
 
 describe('the last place (#272)', () => {
+  it('keeps no place while signed out (review on #281)', async () => {
+    const { router, place, stored, settle } = await coldOpen('/settings', { signedIn: false });
+    await settle();
+    await router.navigateByUrl('/home');
+    await settle();
+    place.save();
+    expect(stored()).toBeNull();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     localStorage.clear();

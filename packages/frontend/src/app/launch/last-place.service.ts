@@ -148,7 +148,8 @@ export class LastPlaceService {
   /** Remembers the screen shown now, at once. */
   save(): void {
     clearTimeout(this.saveTimer);
-    if (!this.url || this.scrolling) return;
+    // Nothing is kept while signed out: a place belongs to a gardener.
+    if (!this.url || this.scrolling || !this.signedIn()) return;
     const place: LastPlace = { url: this.url, ...this.read() };
     if (this.url.startsWith('/reader/a/')) {
       const visited = this.sessionGet(VISITED_KEY);

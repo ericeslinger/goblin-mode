@@ -4695,7 +4695,7 @@ until it opens. Kept writes
 `goblin.pendingInstructions`) for a locked note are neither replayed
 nor forgotten: they wait, and are checked against the note's opened
 text as soon as it opens, as on any load. Typing in a note before the
-notes load (the five-minute resume) is kept as the pending draft if
+notes load (the note a launch resumes) is kept as the pending draft if
 the note turns out to be locked, and merges into its text when it
 opens, as typing before a note arrives does. Everything that is not
 locked writes as before, so no keystroke in capture, a plain note or
