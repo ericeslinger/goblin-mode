@@ -92,6 +92,10 @@ export class ThemeSync {
   private pendingStart = false;
   /** That choice included Home's tiles, likewise. */
   private pendingTiles = false;
+  /** This device's writes to this gardener's doc not yet acknowledged (#278). */
+  private unacked = 0;
+  /** Bumped as the gardener changes, so an older account's writes are not counted. */
+  private epoch = 0;
 
   constructor() {
     effect(() => {
@@ -103,6 +107,8 @@ export class ThemeSync {
       this.stop?.();
       this.stop = undefined;
       this.uid = uid;
+      this.unacked = 0;
+      this.epoch++;
       if (!uid) return;
       this.stop = this.api.listen(
         this.fb.db,
@@ -146,6 +152,15 @@ export class ThemeSync {
     // The echo of this device's own write: a newer choice may already be
     // showing, and adopting the echo would briefly undo it.
     if (local) return;
+    // Not its own, yet heard while a write of this device's is
+    // unacknowledged: made before that write, since once a write is
+    // made every snapshot carries it until the server answers, and the
+    // answer settles the write before its snapshot is heard. The SDK
+    // hands each snapshot over a task after making it, so on a page
+    // just loaded the cached doc could land just after a tap and undo
+    // it, and a second tap then wrote the undone value back (#278,
+    // 2026-11-15). As ModulesService and KeysService do.
+    if (this.unacked > 0) return;
     // Start on (#219) first, so a pending theme's write carries it on,
     // unless it was chosen here while sign-in was restoring: that choice
     // is newer than the doc and is what gets written. Absent, as on a
@@ -207,8 +222,13 @@ export class ThemeSync {
         : {}),
       updatedAt: this.api.now(),
     };
-    this.api.set(this.fb.db, paths.settings(this.uid), data).catch((err) => {
-      console.error('settings write failed', err);
-    });
+    const written = this.api.set(this.fb.db, paths.settings(this.uid), data);
+    const epoch = this.epoch;
+    this.unacked++;
+    written
+      .catch((err) => console.error('settings write failed', err))
+      .finally(() => {
+        if (epoch === this.epoch) this.unacked--;
+      });
   }
 }
