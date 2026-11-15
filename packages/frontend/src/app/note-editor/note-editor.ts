@@ -631,6 +631,32 @@ export class NoteEditorComponent {
     this.editor?.focus();
   }
 
+  /** How far the note is scrolled, and its caret, for the last place (#272). */
+  place(): { top?: number; caret: number } | undefined {
+    const view = this.editor?.view;
+    if (!view) return undefined;
+    const top = Math.round(view.scrollDOM.scrollTop);
+    return { ...(top > 0 ? { top } : {}), caret: view.state.selection.main.head };
+  }
+
+  /** Whether the editor shows `text` now, so it has something to scroll. */
+  shows(text: string): boolean {
+    return this.editor?.getText() === text;
+  }
+
+  /**
+   * Puts the caret back (within the text as it is now) and then the
+   * scroll, without scrolling the caret into view: the place wins.
+   */
+  restorePlace(top: number, caret?: number): void {
+    const view = this.editor?.view;
+    if (!view) return;
+    if (caret !== undefined) {
+      view.dispatch({ selection: { anchor: Math.min(caret, view.state.doc.length) } });
+    }
+    view.scrollDOM.scrollTop = top;
+  }
+
   protected tooltip(action: FormatAction): string {
     return action.keys ? `${action.name} (${keyLabel(action.keys, IS_MAC)})` : action.name;
   }

@@ -4,6 +4,7 @@ import { merge3, shouldStartFreshNote, templateParts } from '@mossgoblin/schema'
 import { type NoteRecord, NotesService } from '../notes/notes.service';
 import { LocalStore } from '../platform/local-store';
 import { NOW } from '../platform/platform';
+import { LAST_PLACE_KEY, noteOf, readPlace } from '../launch/place';
 
 /**
  * What the editor should show: a note id and its text. With `base`, the
@@ -44,8 +45,11 @@ const SENT_KEPT = 50;
  * The capture loop (DESIGN.md, Client): which note is open, saving it as
  * it is typed, and the rules for launch.
  *
- * - Away 5 minutes or more (or first run): a fresh note. Otherwise the
- *   note that was open.
+ * - At launch, `/` shows the capture note it showed when the app was
+ *   last left there, however long ago (#272, 2026-11-15); left anywhere
+ *   else, a fresh one, and the app goes back there (LastPlaceService).
+ *   With no place kept yet: within 5 minutes the note that was open,
+ *   else a fresh one, as before. Coming back to the app changes nothing.
  * - Typing is saved 300 ms after it pauses, and at once when the app is
  *   hidden. Until the user is known and their notes have loaded, it is
  *   kept as a pending draft on the device and written after, so nothing
@@ -62,13 +66,11 @@ export class CaptureService {
   /** The note in the editor; `text` changes when a note is opened or merged into. */
   readonly open = signal<OpenNote>({ id: '', text: '' });
   /**
-   * The capture note, the one `/` shows: chosen at launch by the
-   * five-minute rule, and replaced by New. Other notes have their own
-   * URL, `/n/<id>`.
+   * The capture note, the one `/` shows: chosen at launch (the one `/`
+   * showed when the app was left there, else a fresh one), and replaced
+   * by New. Other notes have their own URL, `/n/<id>`.
    */
   readonly home = signal('');
-  /** Bumped when coming back after five minutes starts a fresh note. */
-  readonly renewed = signal(0);
 
   private readonly typed = signal('');
   /** The open note's text as it is now, typing included. */
@@ -111,10 +113,24 @@ export class CaptureService {
       this.untouched = false;
     } else {
       const seen = this.store.get<LastSeen>(LAST_SEEN_KEY);
-      const fresh = shouldStartFreshNote(seen?.hiddenAt, this.now()) || !seen?.noteId;
-      // A fresh note after five minutes away settles the one left then.
-      if (fresh && seen?.noteId) this.store.set(PENDING_SETTLE_KEY, seen.noteId);
-      const resume = fresh ? undefined : seen?.noteId;
+      const place = readPlace(this.store.get<unknown>(LAST_PLACE_KEY));
+      let resume: string | undefined;
+      if (place) {
+        // Where he left off (#272, 2026-11-15), however long ago: `/`
+        // shows the capture note it showed then; with any other place
+        // to go back to, a fresh one. The note left open is settled, as
+        // leaving it does, unless it is the one he is going back to.
+        resume = place.url === '/' ? place.note : undefined;
+        const back = resume ?? noteOf(place.url);
+        if (seen?.noteId && seen.noteId !== back) this.store.set(PENDING_SETTLE_KEY, seen.noteId);
+      } else {
+        // No place kept yet (a device on its first launch of this
+        // version): the rule before, the note open within five minutes.
+        const fresh = shouldStartFreshNote(seen?.hiddenAt, this.now()) || !seen?.noteId;
+        // A fresh note after five minutes away settles the one left then.
+        if (fresh && seen?.noteId) this.store.set(PENDING_SETTLE_KEY, seen.noteId);
+        resume = fresh ? undefined : seen?.noteId;
+      }
       this.show({ id: resume ?? this.notes.newId(), text: '' });
     }
     this.home.set(this.open().id);
@@ -207,7 +223,12 @@ export class CaptureService {
     });
 
     const doc = inject(DOCUMENT);
-    const onVisibility = () => (doc.hidden ? this.leave() : this.returned());
+    // Coming back to the app, however long after, changes nothing: the
+    // note open stays open (#272, 2026-11-15; until then five minutes
+    // away opened a fresh one).
+    const onVisibility = () => {
+      if (doc.hidden) this.leave();
+    };
     const onPageHide = () => this.leave();
     doc.addEventListener('visibilitychange', onVisibility);
     doc.defaultView?.addEventListener('pagehide', onPageHide);
@@ -425,15 +446,6 @@ export class CaptureService {
   leave(): void {
     this.flush();
     this.store.set(LAST_SEEN_KEY, { hiddenAt: this.now(), noteId: this.open().id });
-  }
-
-  /** The app is visible again: after 5 minutes away, a fresh note. */
-  returned(): void {
-    const seen = this.store.get<LastSeen>(LAST_SEEN_KEY);
-    if (shouldStartFreshNote(seen?.hiddenAt, this.now())) {
-      this.newNote();
-      this.renewed.update((n) => n + 1);
-    }
   }
 
   private closeCurrent(): void {

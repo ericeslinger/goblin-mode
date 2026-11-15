@@ -53,7 +53,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
       }
       <h2 id="start-on">Start on</h2>
       <p class="muted">
-        The screen the app opens on. Home is one tap away from everywhere either way.
+        The screen the app opens on. Home and New note are one tap away from everywhere either way.
       </p>
       <div role="radiogroup" aria-labelledby="start-on" class="start-on">
         @for (c of startChoices; track c.value) {
@@ -716,10 +716,18 @@ export class Settings {
   }
   protected readonly moduleList = MODULES;
   protected readonly startOn = inject(StartOnService);
-  /** Start on's choices (#219), as the Settings sketch words them. */
+  /**
+   * Start on's choices (#219), as the Settings sketch words them. `note`
+   * was A new note until 2026-11-15, when it became Where I left off
+   * (#272, Eric); New note beside the leaf gives the fresh note.
+   */
   protected readonly startChoices: { value: StartOn; label: string; about: string }[] = [
     { value: 'home', label: 'Home', about: 'Capture, Right Now and the modules' },
-    { value: 'note', label: 'A new note', about: 'As before: the editor, ready to type' },
+    {
+      value: 'note',
+      label: 'Where I left off',
+      about: 'The note, article or screen open last on this device',
+    },
     { value: 'right-now', label: 'Right Now', about: 'Reminders and what is new' },
     { value: 'kitchen', label: 'Kitchen', about: 'This week’s meals' },
     { value: 'reader', label: 'Reader', about: 'Unread articles' },

@@ -38,6 +38,7 @@ import { ShareWaiting } from '../share/share-waiting';
 import { SignIn } from '../sign-in/sign-in';
 import { HomeTilesService, arrange, moveBy, moveTo, nearestSlot, type Slot } from './home-tiles';
 import { Icon, type IconName } from './icon';
+import { NewNoteButton } from './new-note';
 
 /** Right Now's row names at most this many reminders, of those due today. */
 export const HOME_REMINDERS = 2;
@@ -84,7 +85,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  */
 @Component({
   selector: 'app-home',
-  imports: [RouterLink, Icon, ShareWaiting, SignIn],
+  imports: [RouterLink, Icon, NewNoteButton, ShareWaiting, SignIn],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
@@ -178,6 +179,8 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
       <div class="home">
         <header>
           <app-icon name="leaf" [size]="26" />
+          <!-- New note (#272), just right of the leaf, as on every screen. -->
+          <app-new-note />
           <h1>Mossgoblin</h1>
           <span class="sync" role="status">
             <span class="dot" [class.offline]="!online()" aria-hidden="true"></span>

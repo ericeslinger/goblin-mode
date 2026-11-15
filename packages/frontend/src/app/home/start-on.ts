@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 import { type CanActivateFn, RedirectCommand, Router } from '@angular/router';
 import { StartOn } from '@mossgoblin/schema';
+import { LastPlaceService } from '../launch/last-place.service';
 import { ModulesService } from '../modules/modules.service';
 import { LocalStore } from '../platform/local-store';
 
@@ -29,7 +30,11 @@ export interface StartModules {
   podcasts: boolean;
 }
 
-/** Where a cold open of `/` goes, for a choice and the modules on. */
+/**
+ * Where a cold open of `/` goes, for a choice and the modules on. For
+ * `note`, Where I left off since 2026-11-15 (#272), `/` here: the guard
+ * asks LastPlaceService where that is.
+ */
 export function startPath(choice: StartOn, on: StartModules): string {
   switch (choice) {
     case 'note':
@@ -52,7 +57,11 @@ export class StartOnService {
   private readonly store = inject(LocalStore);
   private stored = this.store.get<Stored>(START_ON_KEY) ?? {};
 
-  /** The choice; a new note until one is made, as before #219. */
+  /**
+   * The choice; `note` until one is made. Stored as `note` since #219,
+   * when it meant a new note; since 2026-11-15 (#272, Eric) it means
+   * Where I left off, the place open last on this device.
+   */
   readonly choice = signal<StartOn>(StartOn.safeParse(this.stored.choice).data ?? 'note');
   /** Counts choices made here, for ThemeSync to write; adopted ones do not count. */
   readonly chosen = signal(0);
@@ -83,14 +92,18 @@ export class StartOnService {
 
   /** Where a cold open goes: the modules as read, else as last known. */
   path(modules: ModulesService): string {
-    const on = modules.loaded()
+    return startPath(this.choice(), this.on(modules));
+  }
+
+  /** Which modules are on: as read, else as last known on this device. */
+  on(modules: ModulesService): StartModules {
+    return modules.loaded()
       ? { kitchen: modules.kitchen(), reader: modules.reader(), podcasts: modules.podcasts() }
       : {
           kitchen: !!this.stored.kitchen,
           reader: !!this.stored.reader,
           podcasts: !!this.stored.podcasts,
         };
-    return startPath(this.choice(), on);
   }
 
   private keep(change: Stored): void {
@@ -117,16 +130,22 @@ export function rememberModules(): void {
 }
 
 /**
- * On a cold open of `/` and nothing else, the screen chosen in Start on.
- * A share, a Send to, a note's link or any URL with more to it opens as
- * it says, and moving around the app never comes back through here. It
- * reads only this device's store: nothing waits on auth or the network.
+ * On a cold open of `/` and nothing else, the screen chosen in Start on:
+ * by default (Where I left off, #272) the place open last on this
+ * device, its scroll and all. A share, a Send to, a note's link, a
+ * notification or any URL with more to it opens as it says, and moving
+ * around the app (the Home box, New note, a link to `/`) never comes
+ * back through here: only the first navigation does. It reads only
+ * this device's store: nothing waits on auth or the network.
  */
 export const startOnGuard: CanActivateFn = (_route, state) => {
   const router = inject(Router);
   if (router.navigated || state.url !== '/') return true;
   const startOn = inject(StartOnService);
-  if (startOn.choice() === 'note') return true;
-  const path = startOn.path(inject(ModulesService));
+  const modules = inject(ModulesService);
+  const path =
+    startOn.choice() === 'note'
+      ? inject(LastPlaceService).launch(startOn.on(modules))
+      : startOn.path(modules);
   return path === '/' ? true : new RedirectCommand(router.parseUrl(path), { replaceUrl: true });
 };

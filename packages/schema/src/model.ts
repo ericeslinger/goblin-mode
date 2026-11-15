@@ -378,9 +378,10 @@ export const ThemeMode = z.enum(['system', 'light', 'dark']);
 export type ThemeMode = z.infer<typeof ThemeMode>;
 
 /**
- * The screen a cold open of `/` lands on (#219, 2026-11-09): Home, a
- * new note (as before, the default), Right Now, Kitchen, the Reader,
- * or since 2026-11-10 Podcasts (#245).
+ * The screen a cold open of `/` lands on (#219, 2026-11-09): Home,
+ * `note` (the default), Right Now, Kitchen, the Reader, or since
+ * 2026-11-10 Podcasts (#245). `note` was a new note; since 2026-11-15
+ * it means where he left off (#272, Eric), the stored value unchanged.
  */
 export const StartOn = z.enum(['home', 'note', 'right-now', 'kitchen', 'reader', 'podcasts']);
 export type StartOn = z.infer<typeof StartOn>;
@@ -389,7 +390,7 @@ export type StartOn = z.infer<typeof StartOn>;
 export const Settings = z.object({
   theme: ThemeId,
   mode: ThemeMode,
-  /** Absent until chosen, and on every doc from before #219: a new note. */
+  /** Absent until chosen, and on every doc from before #219: `note`. */
   startOn: StartOn.optional(),
   /**
    * Home's tiles in the gardener's order (#222, 2026-11-09), by id.

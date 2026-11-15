@@ -45,6 +45,15 @@ describe('AuthService', () => {
     expect(localStorage.getItem('goblin.signedIn')).toBeNull();
   });
 
+  it('forgets the last place when the gardener signs out (review on #281)', () => {
+    localStorage.clear();
+    const { emit } = setup(false);
+    emit({ uid: 'u1' } as User);
+    localStorage.setItem('goblin.lastPlace', JSON.stringify({ url: '/n/a' }));
+    emit(null);
+    expect(localStorage.getItem('goblin.lastPlace')).toBeNull();
+  });
+
   it('signs in with the Google popup', async () => {
     const { service, api } = setup(false);
     await service.signInWithGoogle();

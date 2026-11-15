@@ -21,6 +21,7 @@ import {
   PENDING_SETTLE_KEY,
   SAVE_DELAY_MS,
 } from './capture.service';
+import { LAST_PLACE_KEY } from '../launch/place';
 
 const MIN = 60_000;
 let clock = 1_000_000;
@@ -318,6 +319,66 @@ describe('CaptureService', () => {
     expect(capture.open().id).toBe('new1');
   });
 
+  describe('with a last place kept (#272, 2026-11-15)', () => {
+    it('resumes the capture note / showed when the app was left there, however long ago', () => {
+      const { capture, notes } = setup({
+        [LAST_PLACE_KEY]: { url: '/', note: 'n1', saved: true },
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 3 * 24 * 60 * MIN, noteId: 'n1' },
+      });
+      expect(capture.open().id).toBe('n1');
+      expect(capture.home()).toBe('n1');
+      notes.signIn([note('n1', 'groceries')]);
+      TestBed.tick();
+      expect(capture.open()).toMatchObject({ id: 'n1', text: 'groceries' });
+      // Going back to it is not leaving it.
+      expect(notes.settle).not.toHaveBeenCalled();
+    });
+
+    it('starts a fresh capture note when the place is elsewhere, settling the note left open', () => {
+      const { capture, notes } = setup({
+        [LAST_PLACE_KEY]: { url: '/reader/a/x1?in=all', top: 900 },
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'n1' },
+      });
+      expect(capture.open()).toEqual({ id: 'new1', text: '' });
+      notes.signIn([note('n1', 'left in the editor')]);
+      TestBed.tick();
+      expect(notes.settle).toHaveBeenCalledExactlyOnceWith('n1', { edited: false });
+    });
+
+    it('leaves unsettled the note the place goes back to', () => {
+      const { capture, notes } = setup({
+        [LAST_PLACE_KEY]: { url: '/n/n1', top: 400, caret: 30 },
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 60 * MIN, noteId: 'n1' },
+      });
+      expect(capture.open().id).toBe('new1');
+      notes.signIn([note('n1', 'a long note')]);
+      TestBed.tick();
+      expect(notes.settle).not.toHaveBeenCalled();
+    });
+
+    it('still reopens a pending draft first, and writes it once the notes load, wherever the place is', () => {
+      const { capture, notes } = setup({
+        [PENDING_DRAFT_KEY]: { id: 'd1', body: 'typed before the notes loaded' },
+        [LAST_PLACE_KEY]: { url: '/reader' },
+      });
+      expect(capture.open()).toEqual({ id: 'd1', text: 'typed before the notes loaded' });
+      notes.signIn();
+      TestBed.tick();
+      expect(notes.save).toHaveBeenCalledWith('d1', 'typed before the notes loaded');
+      expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+    });
+
+    it('shows held words for the resumed capture note, as after any reload', () => {
+      const { capture, notes } = setup({
+        [LAST_PLACE_KEY]: { url: '/', note: 'held1', saved: true },
+      });
+      notes.held.set({ held1: 'Kept on the device' });
+      notes.signIn([]);
+      TestBed.tick();
+      expect(capture.open()).toMatchObject({ id: 'held1', text: 'Kept on the device' });
+    });
+  });
+
   it('saves typing after a pause, and only non-empty text', () => {
     const { capture, notes } = setup();
     notes.signIn();
@@ -376,7 +437,7 @@ describe('CaptureService', () => {
     expect(capture.open()).toEqual({ id: 'd1', text: 'unsaved' });
   });
 
-  it('saves and stamps the time when the app is hidden, then a fresh note after 5 minutes', () => {
+  it('saves and stamps the time when the app is hidden; back, however long after, the note stays (#272)', () => {
     const { capture, notes } = setup();
     notes.signIn();
     capture.onText('half a thought');
@@ -386,12 +447,11 @@ describe('CaptureService', () => {
       hiddenAt: clock,
       noteId: 'new1',
     });
-    clock += 2 * MIN;
-    capture.returned();
+    clock += 3 * 60 * MIN;
+    document.dispatchEvent(new Event('visibilitychange'));
     expect(capture.open().id).toBe('new1');
-    clock += 3 * MIN;
-    capture.returned();
-    expect(capture.open().id).toBe('new2');
+    expect(capture.current()).toBe('half a thought');
+    expect(notes.settle).not.toHaveBeenCalled();
   });
 
   it('deletes a note emptied by typing when you leave it', () => {
@@ -541,17 +601,6 @@ describe('CaptureService', () => {
     );
   });
 
-  it('settles on returning after five minutes, through New', () => {
-    const { capture, notes } = setup();
-    notes.signIn();
-    capture.onText('written before lunch');
-    capture.leave();
-    clock += 5 * MIN;
-    capture.returned();
-    expect(notes.settle).toHaveBeenCalledWith('new1', { edited: true });
-    expect(capture.open().id).toBe('new2');
-  });
-
   it('keeps the capture note: other notes come and go, New replaces it', () => {
     const { capture, notes } = setup();
     notes.signIn([note('n1', 'elsewhere')]);
@@ -580,18 +629,6 @@ describe('CaptureService', () => {
     notes.signIn();
     TestBed.tick();
     expect(notes.save).toHaveBeenCalledWith('h1', 'typed before the notes load, and more');
-  });
-
-  it('says when coming back starts a fresh note', () => {
-    const { capture, notes } = setup();
-    notes.signIn();
-    capture.leave();
-    clock += 2 * MIN;
-    capture.returned();
-    expect(capture.renewed()).toBe(0);
-    clock += 5 * MIN;
-    capture.returned();
-    expect(capture.renewed()).toBe(1);
   });
 
   it('opens another note with its text', () => {

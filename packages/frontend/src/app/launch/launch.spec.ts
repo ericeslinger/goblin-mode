@@ -14,10 +14,11 @@ import {
   noteRecord,
   remindersTestProviders,
 } from '../testing/fakes';
-import { CaptureService } from '../capture/capture.service';
+import { CaptureService, LAST_SEEN_KEY } from '../capture/capture.service';
 import { ModulesService } from '../modules/modules.service';
 import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
 import { Launch, sharedText } from './launch';
+import { LastPlaceService, type PlaceSource } from './last-place.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { SHARE_INBOX } from '../share/share-inbox';
 import { ACTIVITY_API, type ActivityApi } from '../claude/activity';
@@ -59,6 +60,9 @@ async function render(options: { signedIn?: boolean; notes?: FakeNotes; url?: st
 
 const buttonNamed = (el: HTMLElement, text: string) =>
   [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+/** New note, beside the leaf (#272): an icon, named by its label. */
+const newNote = (el: HTMLElement) =>
+  el.querySelector<HTMLButtonElement>('button[aria-label="New note"]')!;
 
 /** Opens More and waits for it to show. */
 async function openMore(el: HTMLElement, fixture: { whenStable(): Promise<void> }) {
@@ -205,15 +209,20 @@ describe('Launch', () => {
     expect(el.querySelector('.cm-content')?.textContent).not.toContain('Kiln day');
   });
 
-  it('goes to / when coming back after five minutes starts a fresh note', async () => {
+  it('stays on the note open when the app comes back, however long after (#272)', async () => {
     const notes = new FakeNotes();
     notes.signIn([noteRecord('n7', 'Left open')]);
-    const { fixture, url } = await render({ notes, url: '/n/n7' });
-    const capture = TestBed.inject(CaptureService);
-    capture.newNote();
-    capture.renewed.update((n) => n + 1);
+    const { el, fixture, url } = await render({ notes, url: '/n/n7' });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    const seen = JSON.parse(localStorage.getItem(LAST_SEEN_KEY)!);
+    localStorage.setItem(LAST_SEEN_KEY, JSON.stringify({ ...seen, hiddenAt: seen.hiddenAt - 6e5 }));
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    delete (document as { hidden?: boolean }).hidden;
     await fixture.whenStable();
-    expect(url()).toBe('/');
+    expect(url()).toBe('/n/n7');
+    expect(el.querySelector('.cm-content')?.textContent).toContain('Left open');
   });
 
   it('follows a tapped link to its note, making a concept for a new name', async () => {
@@ -254,7 +263,7 @@ describe('Launch', () => {
     const notes = new FakeNotes();
     notes.signIn([noteRecord('n1', 'Old')]);
     const { el, fixture, url } = await render({ notes, url: '/n/n1' });
-    buttonNamed(el, 'New')!.click();
+    newNote(el).click();
     await fixture.whenStable();
     expect(url()).toBe('/');
     expect(el.querySelector('.cm-content')?.textContent).not.toContain('Old');
@@ -266,8 +275,8 @@ describe('Launch', () => {
     notes.signIn([noteRecord('n1', 'Old')]);
     const { el, fixture, url } = await render({ notes, url: '/n/n1' });
     const content = () => el.querySelector('.cm-content') as HTMLElement;
-    buttonNamed(el, 'New')!.focus();
-    buttonNamed(el, 'New')!.click();
+    newNote(el).focus();
+    newNote(el).click();
     // Before any navigation settles, typing would already land in the editor.
     expect(document.activeElement).toBe(content());
     await fixture.whenStable();
@@ -285,12 +294,74 @@ describe('Launch', () => {
     const old = capture.open().id;
     capture.onText('Kiln log');
     // Straight away: the 300 ms save has not run yet.
-    buttonNamed(el, 'New')!.click();
+    newNote(el).click();
     await fixture.whenStable();
     // The capture entry in history became the typed note's own URL.
     expect(navigate).toHaveBeenCalledWith(['/n', old], { replaceUrl: true });
     expect(url()).toBe('/');
     expect(capture.open().id).not.toBe(old);
+  });
+
+  it('New note on an empty, untouched note at / stays there, the cursor in it (#272)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { el, fixture, url } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    const before = capture.open().id;
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate');
+    newNote(el).focus();
+    newNote(el).click();
+    await fixture.whenStable();
+    expect(capture.open().id).toBe(before);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(url()).toBe('/');
+    expect(document.activeElement).toBe(el.querySelector('.cm-content'));
+  });
+
+  it('New note on a note with text at / starts another, the first one saved (#272)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { el, fixture, url } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    const old = capture.open().id;
+    capture.onText('A thought');
+    newNote(el).click();
+    await fixture.whenStable();
+    expect(notes.save).toHaveBeenCalledWith(old, 'A thought', { base: '' });
+    expect(capture.open().id).not.toBe(old);
+    expect(capture.home()).toBe(capture.open().id);
+    expect(url()).toBe('/');
+    expect(el.querySelector('.cm-content')?.textContent).not.toContain('A thought');
+  });
+
+  it('keeps the note’s scroll and caret as its place, and puts them back once its text is in (#272)', async () => {
+    const notes = new FakeNotes();
+    const { fixture } = await render({ notes, url: '/n/n1' });
+    // This screen is the place's source while it shows.
+    const source = (TestBed.inject(LastPlaceService) as unknown as { source: PlaceSource }).source;
+    const scroller = document.querySelector('.cm-scroller') as HTMLElement;
+    // Before the notes load there is nothing to put back.
+    expect(source.apply({ top: 120, caret: 5 })).toBe(false);
+    notes.signIn([noteRecord('n1', 'Groceries\neggs and milk')]);
+    await fixture.whenStable();
+    expect(source.apply({ top: 120, caret: 5 })).toBe(true);
+    expect(scroller.scrollTop).toBe(120);
+    expect(source.read()).toMatchObject({ top: 120, caret: 5 });
+    // `/n/<id>` names its note: no capture note is kept with it.
+    expect(source.read().note).toBeUndefined();
+  });
+
+  it('on /, its place names the capture note and whether it was saved (#272)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([]);
+    const { fixture } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    const source = (TestBed.inject(LastPlaceService) as unknown as { source: PlaceSource }).source;
+    expect(source.read()).toMatchObject({ note: capture.open().id, saved: false });
+    capture.onText('Kept');
+    capture.flush();
+    await fixture.whenStable();
+    expect(source.read()).toMatchObject({ note: capture.open().id, saved: true });
   });
 
   it('starts a note from a template, and shows a template as one', async () => {

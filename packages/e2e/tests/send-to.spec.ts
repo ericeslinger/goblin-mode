@@ -1,5 +1,5 @@
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, openCapture, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Send to an assistant (#143): Eric sends a note from its back, with an
@@ -87,7 +87,7 @@ test('an item ending in @goblin is researched and answered under itself', async 
   await keys.getByRole('button', { name: 'Save' }).first().click();
   await expect(keys).toContainText('sk-ant-…0123');
 
-  await page.goto('/');
+  await openCapture(page);
   const note = page.getByRole('textbox', { name: 'New note' });
   await note.click();
   await typeLines(page, ['Presents', '- [ ] good presents for my nephews @goblin']);
@@ -130,7 +130,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await expect(toggle).toBeChecked();
   await letItSave(page);
 
-  await page.goto('/');
+  await openCapture(page);
   const note = page.getByRole('textbox', { name: 'New note' });
   await note.click();
   await typeLines(page, ['Kiln log', 'Cone 6 firing on Saturday']);
@@ -192,7 +192,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await skip.check();
   await expect(skip).toBeChecked();
   await letItSave(page);
-  await page.goto('/');
+  await openCapture(page);
   await page.getByRole('button', { name: 'From template' }).click();
   await page
     .getByRole('list', { name: 'Templates' })
@@ -218,7 +218,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
     'private, journal',
   );
   const call = await connectClaude(page);
-  await page.goto('/');
+  await openCapture(page);
   await note.click();
   await typeLines(page, ['Letter to Mum', 'Birthday plans']);
   await letItSave(page);
@@ -278,7 +278,7 @@ test('a ramble is split on arrival into a note a thought, and Put back makes it 
   await expect(toggle).toBeChecked();
   await letItSave(page);
 
-  await page.goto('/');
+  await openCapture(page);
   const note = page.getByRole('textbox', { name: 'New note' });
   await note.click();
   await typeLines(page, [

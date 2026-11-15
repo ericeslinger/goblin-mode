@@ -194,7 +194,11 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   await page.getByRole('button', { name: /^Started/ }).click();
   await expect(episodes(page)).toHaveCount(1);
   await expect(episodes(page).first()).toContainText('Started, notes read');
-  await page.getByRole('button', { name: /^New/ }).click();
+  // In Latest's filters: New note (#272) beside the leaf starts with New too.
+  await page
+    .getByRole('group', { name: 'Which episodes' })
+    .getByRole('button', { name: /^New/ })
+    .click();
   await expect(episodes(page)).toHaveCount(1);
   await expect(episodes(page).first()).toContainText('Wedging clay');
   await axe(page);
@@ -385,7 +389,11 @@ test('play an episode, keep the place across a reload and on another device', as
   await expect(episodes(page)).toHaveCount(0);
 
   // The episode's page: play, then pause past the first second.
-  await page.getByRole('button', { name: /^New/ }).click();
+  // In Latest's filters: New note (#272) beside the leaf starts with New too.
+  await page
+    .getByRole('group', { name: 'Which episodes' })
+    .getByRole('button', { name: /^New/ })
+    .click();
   await episodes(page)
     .getByRole('link', { name: /Reduction firing/ })
     .click();

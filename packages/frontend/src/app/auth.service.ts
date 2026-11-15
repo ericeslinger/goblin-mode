@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import { FIREBASE } from './firebase';
 import { LocalStore } from './platform/local-store';
+import { LAST_PLACE_KEY } from './launch/place';
 
 export const SIGNED_IN_KEY = 'goblin.signedIn';
 
@@ -46,7 +47,12 @@ export class AuthService {
       this.user.set(u);
       this.signedInBefore.set(u !== null);
       if (u) this.store.set(SIGNED_IN_KEY, true);
-      else this.store.remove(SIGNED_IN_KEY);
+      else {
+        this.store.remove(SIGNED_IN_KEY);
+        // The last place is the gardener's who left it (review on
+        // #281): the next account to sign in here starts without one.
+        this.store.remove(LAST_PLACE_KEY);
+      }
     });
   }
 

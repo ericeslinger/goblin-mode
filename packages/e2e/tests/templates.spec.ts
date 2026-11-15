@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, openCapture, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Templates (#38): made in Settings, edited like any note, with their
@@ -50,7 +50,9 @@ async function makeTemplate(
 }
 
 async function fromTemplate(page: Page, name: string): Promise<string> {
-  await page.goto('/');
+  // The capture screen, whatever was open last (#272): a plain `/` now
+  // goes back to the last place, here the Templates list or a note.
+  await openCapture(page);
   await page.getByRole('button', { name: 'From template' }).click();
   await page.getByRole('list', { name: 'Templates' }).getByRole('button', { name }).click();
   await expect(page).toHaveURL(/\/n\/\w+$/);

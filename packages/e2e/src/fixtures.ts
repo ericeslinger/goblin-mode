@@ -63,6 +63,20 @@ export async function signInAs(
   await page.getByLabel('Email').fill(persona.email);
   await page.getByLabel('Password').fill(persona.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
+  // Signing in moves to `/` inside the app, never a plain launch, so it
+  // lands on the capture note whatever was open last (#272).
+  await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible();
+}
+
+/**
+ * The capture screen, as a fresh page load, whatever was open last.
+ * Until 2026-11-15 `page.goto('/')` did this; since #272 a plain `/`
+ * goes back to the last place, so this comes in by Home and its box,
+ * an in-app link to `/`, which shows the capture note as `/` used to.
+ */
+export async function openCapture(page: Page): Promise<void> {
+  await page.goto('/home');
+  await page.getByRole('link', { name: 'Plant a thought' }).click();
   await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible();
 }
 
