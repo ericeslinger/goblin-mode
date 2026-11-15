@@ -11,6 +11,7 @@ export { health } from './health/health';
 export { mcp } from './mcp/http';
 export { oauth } from './oauth/http';
 export { removeKey, saveKey } from './keys/callables';
+export { checkNoteKey, checkNoteKeyRunner, checkNoteKeyTitles } from './note-keys/check';
 export { startRun } from './agent/callables';
 export { agentRun, itemAssigned, noteArrived } from './agent/triggers';
 export { noteHistory, noteTitle, trashSweep } from './notes/triggers';

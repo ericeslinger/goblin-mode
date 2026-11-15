@@ -10,6 +10,7 @@ import {
   NOTE_KEY_PREFIX,
   type NoteKeyApi,
   NoteKeyService,
+  NoteKeyUnavailable,
 } from './note-key.service';
 
 const raw = (n: number) => bytesToBase64(new Uint8Array(32).fill(n));
@@ -171,5 +172,25 @@ describe('NoteKeyService (note encryption step 2)', () => {
     signIn(gardener('u2'));
     expect(bytes()).toBeUndefined();
     await vi.waitFor(() => expect(bytes()).toBe(raw(2)));
+  });
+
+  describe('fetchNow, for the check before sealing (2026-11-15)', () => {
+    it('asks again at once, even after this load asked, and holds what it got', async () => {
+      const { api, signIn, keys, bytes } = setup();
+      signIn(gardener('u1'));
+      await vi.waitFor(() => expect(bytes()).toBe(raw(1)));
+      const key = await keys.fetchNow();
+      expect(api.fetch).toHaveBeenCalledTimes(2);
+      expect(bytesToBase64(exportDataKey(key))).toBe(raw(1));
+    });
+
+    it('says why it could not: offline, signed out, or the service refused', async () => {
+      const { signIn, keys, isOnline } = setup(async () => new Response('', { status: 503 }));
+      await expect(keys.fetchNow()).rejects.toBeInstanceOf(NoteKeyUnavailable);
+      signIn(gardener('u1'));
+      await expect(keys.fetchNow()).rejects.toThrow('the note key service answered 503');
+      isOnline.value = false;
+      await expect(keys.fetchNow()).rejects.toThrow('offline');
+    });
   });
 });

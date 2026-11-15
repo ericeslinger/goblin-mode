@@ -167,13 +167,13 @@ Without it a photo shows only on the device that took it, until that
 device's copy is gone; elsewhere its caption shows instead. To check:
 a photo taken on the phone shows in a browser tab on another device.
 
-Notes are to be sealed (encrypted at rest) with a key for each
-gardener that the Worker derives from one master secret (DESIGN.md,
-Note encryption). The master is set once by hand, never through
-GitHub or the deploy. Until it is, the app and the functions carry on
-without keys; nothing is sealed yet in any case. Set it before the
-step that first seals notes ships. With Cloudflare credentials for
-`wrangler` (`npx wrangler login`, or `CLOUDFLARE_API_TOKEN` and
+Notes can be sealed (encrypted at rest) with a key for each gardener
+that the Worker derives from one master secret (DESIGN.md, Note
+encryption). The master is set once by hand, never through GitHub or
+the deploy. Until it is, the app and the functions carry on without
+keys, and sealing cannot be turned on. Nothing is sealed until a
+gardener turns on Settings, Sealed notes. With Cloudflare credentials
+for `wrangler` (`npx wrangler login`, or `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID`):
 
 ```sh
@@ -205,6 +205,14 @@ functions that read notes run as. Set the `NOTE_KEY_CALLERS` variable
 only to replace that list (exact emails, comma-separated). Without a
 list the Worker refuses the functions (503), and sealed notes stay
 locked to them.
+
+Turning on Settings, Sealed notes, first checks that the app gets its
+key from `/api/note-key` and that the functions get the same one as
+each of the three accounts (`checkNoteKey`, `checkNoteKeyTitles` and
+`checkNoteKeyRunner`, run as the default compute account,
+`goblin-titles` and `goblin-runner`), and stays off saying which part
+failed. So it is also the check that the master and
+`NOTE_KEY_CALLERS` are right, including a list you set yourself.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only

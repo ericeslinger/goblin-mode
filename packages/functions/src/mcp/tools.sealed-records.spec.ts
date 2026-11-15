@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NoteKeysUnconfigured } from '../note-keys/client';
 import { applyAccepted } from '../organize/apply';
 import { type Data, type Store, fakeDb } from '../testing/fake-firestore';
-import { NoteCodec } from './note-text';
+import { NoteCodec, sealingIn } from './note-text';
 import { NotesTools } from './tools';
 
 // Note encryption step 3e (2026-11-13): text about notes stored outside
@@ -185,7 +185,14 @@ describe('proposalAccepted, a sealed suggestion', () => {
     return id;
   }
   const accept = (id: string) =>
-    applyAccepted(fakeDb(store), UID, id, tools(), T, new NoteCodec(UID, keyFor));
+    applyAccepted(
+      fakeDb(store),
+      UID,
+      id,
+      tools(),
+      T,
+      new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID)),
+    );
 
   it('opens the proposed title and merges under it, the outcome naming no sealed text', async () => {
     const id = await proposeMerge();

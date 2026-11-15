@@ -131,11 +131,12 @@ import {
   NoteCodec,
   type NoteForms,
   NoteSnap,
-  PLAIN,
   SEALED_LEFT_OUT,
   SEALED_TITLE,
+  type Sealing,
   formFrom,
   sealFields,
+  sealingIn,
   shownTitle,
 } from './note-text';
 import { ToolError } from './tool-error';
@@ -210,12 +211,16 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * Since 2026-11-13 a note is sealed here when any of its fields is
  * (`recordForm`), so a plain title beside a sealed body is not named.
  */
-const touched = (id: string, d: Data, forms: NoteForms = PLAIN): Touched => ({
+const touched = (id: string, d: Data, forms: NoteForms): Touched => ({
   id,
   title: shownTitle(d['title'], recordForm(forms)),
 });
-/** A note the run made, so putting the run back archives it (#211). */
-const touchedNew = (id: string, d: Data, forms: NoteForms = PLAIN): Touched => ({
+/**
+ * A note the run made, so putting the run back archives it (#211). Its
+ * forms are the ones it was written in (`NotesTools.newForms`, or
+ * `formFrom` its sources), so a note born sealed is named as one.
+ */
+const touchedNew = (id: string, d: Data, forms: NoteForms): Touched => ({
   ...touched(id, d, forms),
   made: true,
 });
@@ -242,7 +247,9 @@ export const touchedFields = (
     throw new Error('touchedFields needs the hash of the body before');
   }
   return {
-    ...touched(id, d),
+    // Named by the caller, as its own rule says; never in the clear here.
+    id,
+    title: SEALED_TITLE,
     before: Object.fromEntries(
       Object.keys(update)
         .filter((k) => k !== 'baseHash')
@@ -296,6 +303,8 @@ export async function parentTitle(
   notes: CollectionReference,
   id: string,
   parent: string,
+  /** The gardener's switch is on (2026-11-15): a record names no project in the clear. */
+  sealing = false,
 ): Promise<string> {
   let title = '';
   const seen = new Set<string>();
@@ -316,7 +325,7 @@ export async function parentTitle(
     }
     // A plain note's title only: a sealed one is left unsaid (2026-11-12),
     // and since 2026-11-13 so is a plain title beside a sealed field.
-    if (at === parent && recordForm(formsFound(data)) === 'plain')
+    if (at === parent && !sealing && recordForm(formsFound(data)) === 'plain')
       title = String(data['title'] ?? '');
     at = data['parent'] as string | undefined;
   }
@@ -662,8 +671,10 @@ export class NotesTools {
      * only when one is met, once per NotesTools (one request) at most.
      */
     keyFor: KeyFor = dataKeyFor,
+    /** The gardener's switch (2026-11-15); read from `db` unless given. */
+    sealing?: Sealing,
   ) {
-    this.codec = new NoteCodec(uid, keyFor);
+    this.codec = new NoteCodec(uid, keyFor, sealing ?? sealingIn(db, uid));
   }
 
   /** Opens and seals note text for this request (DESIGN.md, Note encryption). */
@@ -721,7 +732,7 @@ export class NotesTools {
   /**
    * Writes `data` to note `ref` in `w` (a transaction or batch; none for
    * a direct update), each sealed field in it stored as `forms` says:
-   * the note's own forms when it rewrites a note, PLAIN or `formFrom`
+   * the note's own forms when it rewrites a note, `newForms` or `formFrom`
    * its sources for a new one.
    */
   private async writeNote(
@@ -782,6 +793,15 @@ export class NotesTools {
    */
   private bodyHash(note: NoteSnap, text: unknown): Promise<string> {
     return this.codec.hashText(note.id, String(text ?? ''), note.hashForm);
+  }
+
+  /**
+   * The forms a new note made from no other note's text is written in,
+   * and everything about it: sealed throughout with the gardener's
+   * switch on, plain with it off (2026-11-15).
+   */
+  private newForms(): Promise<NoteForms> {
+    return this.codec.forms();
   }
 
   // End of the note text boundary.
@@ -1076,9 +1096,10 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    // A new note is plain until the gardener's switch (a later step).
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
-    batch.set(...this.activity('create_note', 'Wrote a new note', [touchedNew(id, data)]));
+    // Born sealed with the gardener's switch on, plain with it off.
+    const forms = await this.newForms();
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
+    batch.set(...this.activity('create_note', 'Wrote a new note', [touchedNew(id, data, forms)]));
     await batch.commit();
     return { id, title: data.title };
   }
@@ -1186,12 +1207,13 @@ export class NotesTools {
       if (had.exists) throw new ToolError(`${name} is already a concept (${id})`);
       // A sealed concept or recipe that did not open may have this name.
       this.refuseWhileUnnamed(`making the concept ${name}`);
-      await this.writeNote(tx, 'set', ref, data, PLAIN);
+      const forms = await this.newForms();
+      await this.writeNote(tx, 'set', ref, data, forms);
       tx.set(
         ...this.activity(
           'create_concept',
-          `Made ${data.title} a ${data.conceptType === 'other' ? 'concept' : data.conceptType}`,
-          [touchedNew(id, data)],
+          `Made ${titleIn(data.title, forms)} a ${data.conceptType === 'other' ? 'concept' : data.conceptType}`,
+          [touchedNew(id, data, forms)],
         ),
       );
       return { id, title: data.title, type: data.conceptType };
@@ -1253,7 +1275,8 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
+    const forms = await this.newForms();
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
     if (owner !== undefined) {
       await this.writeNote(
         batch,
@@ -1263,7 +1286,11 @@ export class NotesTools {
         stubDoc!.forms,
       );
     }
-    batch.set(...this.activity('create_recipe', `Made the recipe ${name}`, [touchedNew(id, data)]));
+    batch.set(
+      ...this.activity('create_recipe', `Made the recipe ${titleIn(name, forms)}`, [
+        touchedNew(id, data, forms),
+      ]),
+    );
     await batch.commit();
     return {
       id,
@@ -1338,10 +1365,11 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
+    const forms = await this.newForms();
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
     batch.set(
       ...this.activity('import_recipe', `Asked to import a recipe from ${hostOf(url)}`, [
-        touchedNew(id, data),
+        touchedNew(id, data, forms),
       ]),
     );
     await batch.commit();
@@ -1497,13 +1525,13 @@ export class NotesTools {
       // The recipe keeps the form its text was found in.
       await this.writeNote(tx, 'update', ref, update, doc.forms);
       if (rename?.stub) {
-        // No text in this write, so no form to keep.
+        // No text in this write, so no form to keep; none is sealed.
         await this.writeNote(
           tx,
           'update',
           this.notes().doc(rename.stub),
           { archived: true, mergedInto: id, ...this.stamp() },
-          PLAIN,
+          await this.newForms(),
         );
       }
       const after = { ...current, ...shown } as Data;
@@ -1556,6 +1584,8 @@ export class NotesTools {
       const base = { links: [], tags: [], archived: false, createdAt: now, updatedAt: now };
       const by = this.by();
       const body = planBody(start, config);
+      // Both born sealed with the gardener's switch on (2026-11-15).
+      const forms = await this.newForms();
       const fishNamed = names.get(normalizeName(FISH_NAME));
       // Not while a sealed concept or recipe's name is unknown here: it
       // may be the placeholder's own, made with another id.
@@ -1577,7 +1607,7 @@ export class NotesTools {
             title: FISH_NAME,
             titleSource: 'user',
           }),
-          PLAIN,
+          forms,
         );
         names.set(normalizeName(FISH_NAME), FISH_ID);
       }
@@ -1595,7 +1625,7 @@ export class NotesTools {
           periodStart: start,
           links: resolveLinks(targetsOf(body), names),
         }),
-        PLAIN,
+        forms,
       );
       return true;
     });
@@ -2122,7 +2152,13 @@ export class NotesTools {
         }
         names.push(name);
         added.push(touched(to.id, d, to.forms));
-        linkedTo.push(touched(to.id, d, opts.recorded ? to.forms : PLAIN));
+        // The answer to the model names each note by its title; only what
+        // is recorded (`recorded`) names a sealed one "Sealed note".
+        linkedTo.push(
+          opts.recorded
+            ? touched(to.id, d, to.forms)
+            : { id: to.id, title: String(d['title'] ?? '') },
+        );
       }
       if (names.length === 0) return { id: from.id, linked: [] };
       // Claude's own line, under the gardener's text, which stays as it is.
@@ -2376,7 +2412,13 @@ export class NotesTools {
           said.push('moved to the top level');
         }
       } else if (args.parent !== undefined && args.parent !== current['parent']) {
-        const title = await parentTitle(tx, this.notes(), args.id, args.parent);
+        const title = await parentTitle(
+          tx,
+          this.notes(),
+          args.id,
+          args.parent,
+          await this.codec.sealingOn(),
+        );
         update['parent'] = args.parent;
         said.push(`filed under ${title || args.parent}`);
       }
@@ -3316,13 +3358,18 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    // A page's words, not a note's: plain, as every new note is for now.
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, PLAIN);
+    // A page's words: plain with the switch off, as before; with it on a
+    // clipping is a note like any other, born sealed (2026-11-15).
+    const forms = await this.newForms();
+    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
     batch.update(ref, { noteId: id, updatedAt: now });
+    const filed = titleIn(data.title, forms);
     batch.set(
-      ...this.activity('clip_feed_item', `Filed “${data.title}” from the Reader`, [
-        touchedNew(id, data),
-      ]),
+      ...this.activity(
+        'clip_feed_item',
+        `Filed ${filed === data.title ? `“${filed}”` : filed} from the Reader`,
+        [touchedNew(id, data, forms)],
+      ),
     );
     await batch.commit();
     return { id, title: data.title };
@@ -3404,7 +3451,7 @@ export class NotesTools {
           updatedAt: now,
           ...this.by(),
         }),
-        PLAIN,
+        await this.newForms(),
       );
       return true;
     });

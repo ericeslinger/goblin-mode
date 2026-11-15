@@ -50,6 +50,7 @@ import {
   SealedNoteError,
   logLeftSealed,
   sealFields,
+  sealingIn,
   shownTitle,
   storedText,
 } from '../mcp/note-text';
@@ -405,7 +406,7 @@ async function putBackRun(
   keyFor: KeyFor,
 ): Promise<PutBackResult> {
   const recordId = putBackId(runId);
-  const codec = new NoteCodec(uid, keyFor);
+  const codec = new NoteCodec(uid, keyFor, sealingIn(db, uid));
   // Names only, for the links of a text put back; read before the transaction.
   const { index, locked } = await namesOf(db, uid, codec);
   const activity = db.collection(paths.activity(uid));
@@ -649,7 +650,7 @@ async function rerouteRun(
   const modules = await db.doc(paths.modules(uid)).get();
   if (!moduleOn(modules.data() as Parameters<typeof moduleOn>[0], 'projects'))
     throw new PutBackRefused('failed-precondition', 'Projects is switched off in Settings.');
-  const codec = new NoteCodec(uid, keyFor);
+  const codec = new NoteCodec(uid, keyFor, sealingIn(db, uid));
   const { index, locked } = await namesOf(db, uid, codec);
   const activity = db.collection(paths.activity(uid));
   const notesCol = db.collection(paths.notes(uid));
@@ -718,7 +719,7 @@ async function rerouteRun(
       if (current['conceptType'] === 'project') {
         if (current['parent'] === projectId) continue;
         try {
-          await parentTitle(tx, notesCol, id, projectId);
+          await parentTitle(tx, notesCol, id, projectId, await codec.sealingOn());
         } catch (err) {
           if (err instanceof ToolError)
             throw new PutBackRefused('failed-precondition', err.message);

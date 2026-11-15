@@ -5,6 +5,7 @@ import {
   NoteCodec,
   SealedRecordError,
   formsOf,
+  sealingIn,
   shownTitle,
   storedText,
 } from '../mcp/note-text';
@@ -24,7 +25,7 @@ export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): R
   const codecs = new Map<string, NoteCodec>();
   const codecFor = (uid: string) => {
     let codec = codecs.get(uid);
-    if (!codec) codecs.set(uid, (codec = new NoteCodec(uid, keyFor)));
+    if (!codec) codecs.set(uid, (codec = new NoteCodec(uid, keyFor, sealingIn(db, uid))));
     return codec;
   };
   /**

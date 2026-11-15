@@ -11,6 +11,7 @@ import {
   PENDING_SAVES_KEY,
   SEALED_TITLE,
 } from '../notes/notes.service';
+import { NOTE_SEALING } from '../notes/sealing.service';
 import { FakeNotes, fakeFirebase, noteRecord } from '../testing/fakes';
 import { NOW, ONLINE } from '../platform/platform';
 import {
@@ -58,6 +59,26 @@ describe('CaptureService', () => {
     notes.signIn([note('n1', 'groceries')]);
     TestBed.tick();
     expect(capture.open()).toMatchObject({ id: 'n1', text: 'groceries' });
+  });
+
+  it('shows words held on the device for the key after a reload, never an empty note (2026-11-15)', () => {
+    const { capture, notes } = setup({
+      [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'held1' },
+    });
+    notes.held.set({ held1: 'Typed while the key was away' });
+    notes.signIn([]);
+    TestBed.tick();
+    expect(capture.open()).toMatchObject({ id: 'held1', text: 'Typed while the key was away' });
+    // Typing goes on from them, and the save carries all of it.
+    capture.onText('Typed while the key was away, and more');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith('held1', 'Typed while the key was away, and more', {
+      base: 'Typed while the key was away',
+    });
+    // Opened again from elsewhere, likewise.
+    capture.newNote();
+    capture.openNote('held1');
+    expect(capture.open().text).toBe('Typed while the key was away');
   });
 
   it('merges a change made elsewhere into what is being typed, and saves both (#37)', () => {
@@ -528,6 +549,7 @@ describe('CaptureService, when the page goes before the cache has the text (#200
         { provide: FIREBASE, useValue: fakeFirebase(true) },
         { provide: AuthService, useValue: { user } },
         { provide: NOTES_API, useValue: api },
+        { provide: NOTE_SEALING, useValue: { on: signal(false), known: signal(true) } },
         { provide: ONLINE, useValue: () => true },
         { provide: NOW, useValue: () => clock },
       ],

@@ -4457,6 +4457,10 @@ error, to be tried again, not a service never set up (review on
   `goblin-runner` (`agentRun`, `attachmentTranscribe`) and the
   default compute account (`mcp`, `itemAssigned`, `noteArrived`,
   `noteHistory`, `proposalAccepted`, `revertRun`, `rerouteRun`).
+  Since 2026-11-15 each account also runs one key check callable
+  (`checkNoteKey` as the default account, `checkNoteKeyTitles` as
+  `goblin-titles`, `checkNoteKeyRunner` as `goblin-runner`), which
+  reads no notes but asks for a key to prove the account can.
   `goblin-keys` reads no notes and is not on it. `scripts/deploy.sh`
   passes the variable of that name if set, else derives the three
   from the project id and the project number in the web config
@@ -5061,23 +5065,235 @@ hashing (`createHash`, `createHmac`, `subtle.digest`) outside the two
 places that hash OAuth codes and the local sealer's secret. No MCP
 tool's name, input or documented behaviour changed.
 
+**The gardener's switch (2026-11-15).** Eric set the master at
+Cloudflare on 2026-11-15, so the key service answers in production
+(`/api/note-key` and `/api/note-key/for` both refuse an
+unauthenticated call with 401). This step adds the switch that turns
+sealing on, and makes every writer, in the app and on the server,
+honour it. The migration of notes nobody touches is the next step.
+
+*The setting.* `sealNotes`, a boolean in `settings/assistant`
+(`AssistantSettings`, packages/schema/src/model.ts), off when absent.
+That doc is already written by the app, read by the functions, and
+kept until acknowledged on the device (#224, #259). A stored-schema
+change (Eric to read): the field went into the zod schema, `npm run
+rules:gen` added `(!('sealNotes' in data) || data.sealNotes is bool)`
+to `isValidAssistantSettings`, and the rules tests check a bool is
+taken, anything else refused, the theme's doc refused it, and another
+gardener can neither set nor read it.
+
+*Settings.* A section, Sealed notes: three sentences on what sealing
+means (the text is encrypted before it is stored; the key is kept
+apart from the notes, with Cloudflare; attachments, the links pages
+came from and reminder text are not sealed), the switch, and a status
+line saying its state or how the check went.
+
+*The check before it turns on* (`SealingService.turnOn`,
+notes/sealing.service.ts; packages/functions/src/note-keys/check.ts).
+Turning the switch on first proves, end to end, that (a) this device
+gets its key from `/api/note-key` now (`NoteKeyService.fetchNow`, a
+fresh ask), and (b) every part of the server gets the same key its
+normal way (`dataKeyFor`: an identity token for its own account, the
+Worker's `/api/note-key/for`). The app sends the same fresh nonce (24
+random bytes, base64url) to three callables at once, one per account
+on `NOTE_KEY_CALLERS`; each answers
+`keyCheckProof` (packages/schema/src/key-check.ts): HMAC-SHA-256
+under the data key's text-hash key (`keyedDigest`) of the
+length-prefixed `mossgoblin/key-check`, `v1`, the uid and the nonce.
+The app computes the same with its own key and compares. A proof says
+nothing of the key, binds the gardener and the nonce, and starts with
+its own purpose where a text hash starts with `k1`, so neither is
+ever the other. Only when all three match does the switch go on.
+Otherwise it stays off and the page says which side failed: offline
+(the check needs a connection), this device could not get its key, or
+a part of the server could not get it (in the callable's words where
+it gave them: not set up to ask, or the service refused, with its
+status) or was given a different key. A part is named by what it
+does, never by its account: "the part that answers Claude and keeps
+History", "the part that titles notes and reads recipes", "the part
+that runs the assistant". This is also the live key fetch from the
+functions Eric wanted before anything is sealed in production.
+
+*Three callables, one handler (Eric, 2026-11-15).* The accounts do
+different jobs for a sealed note, so a pass that proved one would let
+sealing go on with titles or runs unable to open notes.
+`keyCheckCallable(serviceAccount)` declares the same handler three
+times: `checkNoteKey` with no `serviceAccount` (the default compute
+account: `mcp`, `noteHistory`, `proposalAccepted`, put back),
+`checkNoteKeyTitles` as `goblin-titles@` (`noteTitle`, `recipeImport`,
+`importPastedRecipe`) and `checkNoteKeyRunner` as `goblin-runner@`
+(`agentRun`, `attachmentTranscribe`). In the emulators all three use
+the stand-in key source, so they agree with the static server's.
+
+*Off again* is the write alone, with no check. Writers keep the form
+they find (`writtenForms`, 2026-11-13): a sealed note stays sealed
+when written, and opens as before. Nothing is unsealed by the switch.
+
+*What on means: every write of a sealed field writes it sealed.* One
+rule, `writtenForms(found, sealing)` (sealed-note.ts): with the
+switch on every field a write holds is sealed, whatever was found;
+off, the form found, as before. So a new note is born sealed in every
+field, and an existing plain note is sealed in the fields a write
+touches. Not the rest of it: a write that changes the body seals the
+body and its words title, but a plain other name or Instructions for
+Claude the write did not touch stays plain until a write touches it
+or the migration does. That is narrower than "a note is never half and
+half" and was chosen on purpose. On the app every write is a merged
+write from the device's cached copy, and offline that copy can be old:
+writing back the fields it did not change, to seal them, would put an
+old title, other names or instructions back over newer ones another
+device or Claude wrote, and only the body has a three-way merge
+(noteHistory). The server could upgrade a whole note inside its
+transactions, but the app could not, so the rule would not hold
+anyway; one rule on both sides, and the migration, which reads each
+note whole, seals what is left. Readers have taken mixed notes since
+step 3d.
+
+Everything about a note follows the same switch. With it on, the
+forms a write and its records go by are sealed throughout
+(`NoteCodec.forms`, and a NoteSnap's `forms`; reading goes by its
+`storedForms`), so:
+
+- Text about notes is sealed or labelled as for a sealed note
+  (`recordForm`): an activity entry names any note "Sealed note", a
+  summary "a sealed note", a suggestion's title and reason and a
+  run's item text, key and outcome are sealed (`sealRecord` seals
+  with the switch on, whatever form it is given). A note born sealed
+  gets sealed records from its first. A record naming a note the write
+  does not touch, a project a note is filed under, is labelled too
+  (`parentTitle`). The model's answers still name notes by their
+  titles; only what is stored is labelled.
+- Every hash stored is keyed (`NoteCodec.hashText` keys with the
+  switch on): a `baseHash`, a replaced text's id, an entry's
+  `before.body`, and an item run's id (`itemAssigned`). A note born
+  sealed never gets a plain hash.
+- History and replaced texts. With the switch on, a plain version
+  noteHistory keeps (the text a write replaced, often the plain text
+  the write that sealed the note replaced) is sealed as it is kept,
+  under the note's own aad, as is a replaced text
+  (`keptForm`, notes/firestore-store.ts). This changes "a kept
+  version is the stored body and title as they are" (step 3c) for
+  plain versions with the switch on; a sealed version is still kept
+  as stored. Without the key a plain version is kept as stored, plain,
+  rather than lost: it was stored plain already.
+- `baseHash` across the write that seals a note. The app writes the
+  sealed body with a keyed `baseHash` of the plain text it was typed
+  over. noteHistory matches every stored hash as the kind it is and
+  every replaced text and History version by its opened text, so a
+  keyed base finds the plain text kept under a plain id before the
+  switch, and a merge across the turn writes the note sealed with a
+  keyed base (on-write.sealed.spec.ts).
+- Clippings. "Clippings are a page's words and stay plain"
+  (2026-11-12) holds with the switch off. With it on a clipping is a
+  note like any other and is born sealed (`clip_feed_item`, the app's
+  File in the garden): any edit would seal it anyway, and a note is
+  either under the switch or not. The Reader's item, the page's own
+  copy, stays plain (Eric to read).
+
+*Every writer.* On the server every write of note text already went
+through `sealFields`; it now reads the switch from its codec, so no
+writer can write a sealed field plain past it, whatever forms it is
+handed. Each `NoteCodec` takes the switch (`sealingIn(db, uid)`, read
+once a request or event, lazily: the first time a note is opened or
+written with text, never for a write with no text), so every tool
+(create_note, capture, add_lines, update_note, link, split, merge,
+refile, check and uncheck, the recipes and the importer, including
+`finishPastedImport`, the meal plan, the grocery list, the pantry,
+clip_feed_item, use_template, finish_queued), noteTitle,
+noteHistory's merge, agent runs and their web findings, put back and
+reroute, accepted suggestions and the context note's correction lines
+honour it. A new note's forms come from the codec (`newForms`) or its
+sources (`formFrom`), never a bare plain. In the app every
+NotesService write goes through one seam (`sealWrite`), beside the one
+that refuses writes to locked notes: every sealed field in it is
+written in the rule's form with the device's key, so capture, the
+editor, titles, renames, other names, Instructions for Claude, Send
+to, recipes and their imports, templates, concepts, the grocery list,
+the meal plan, clippings and the share landing's notes are sealed with
+the switch on. With it off the seam keeps the form found, which also
+means the app, which until now wrote a body and title plain even over
+a sealed note (step 3a), no longer writes one plainer than it was.
+
+*No key on the app.* With the switch on and no key on the device (a
+new device offline, or the key service down), nothing is written in
+the clear and no keystroke is lost.
+
+- Typing (capture and the editor, `NotesService.save`) is kept on the
+  device in the kept saves (`goblin.pendingSaves`, #200), marked
+  `held` with the text it was first typed over, and not written. The
+  note reads as existing here (`exists`, `heldText`), so the editor
+  keeps it, and after a reload shows the held words rather than an
+  empty note. Under the editor a calm line says sealing is on, this
+  device does not have its key yet, and what is written is kept and
+  saved sealed once it is online and has the key.
+- Renames and Instructions for Claude are refused at the seam
+  (`KeyWaitError`) and wait in their kept writes, as for a locked
+  note.
+- A write that holds no sealed field (archive, Trash, tags, a
+  project's filing, settle) goes out as ever: there is nothing to
+  seal, so it needs no key. Only a write that would carry note text is
+  refused, and only on a note not written yet is every write held
+  back.
+- Any other write that would carry text (a template made, a concept,
+  a recipe and its import, a clipping, Send to's ask, the grocery list
+  or a meal plan) is refused and not kept. The page says so where Eric
+  acted, in a calm line over every screen (`KeyWaitLine`,
+  notes/key-wait-notice.ts): it was not done, this device is waiting
+  for its note key, and needs a connection once. The line goes when
+  the key arrives, or when put away. Kept writes say nothing there,
+  since they are done later.
+- When the key arrives, or the switch is turned off, every kept write
+  is checked again as at a load and written: held saves over the base
+  they were typed over, so a note that moved on meanwhile is merged
+  on the server, not overwritten.
+- Before the switch has been heard from the cache or the server since
+  sign-in, nothing is written: capture keeps its draft (`ready` waits
+  for it), and held words stay held.
+
+*Its limits.* A device that never gets online, or never gets its key,
+keeps its words in local storage for good, and only there. A new note
+held so shows nowhere but its own editor until it is written: not in
+lists, links or search. The refused writes above have to be done again
+once the key is here. And a device that has not heard the switch from the
+server since it was turned on elsewhere writes as before until it
+does, as an older app version would; the migration seals what it
+wrote.
+
+*No key on the server.* A write that must seal and cannot get the key
+fails as a write to an unopenable note does: `SealedNoteError`,
+nothing written, never a plain write. A trigger leaves the note as
+stored and logs it once; an item run starts nothing; a setting that
+cannot be read fails the write too.
+
+*Guards.* `mcp/sealing-boundary.spec.ts` reads the functions' and the
+app's source and fails where a writer names the plain forms on the
+server, seals outside the codec, decides a write's form outside
+`sealFields`, builds a codec without the switch, writes a NotesTools
+note with forms that did not go by it, or, in the app, seals or
+writes a note document outside NotesService's seam.
+
 *What is left before sealing can be switched on.* (Binding a service
 secret left this list on 2026-11-13: there is none to bind. Step 3d
 took the other text fields off it the same day, and step 3e the text
 about notes stored outside them. Attachment text left it on 2026-11-13
 and `source.url` on 2026-11-14, both decided plain, and the keyed
-hashes on 2026-11-14, above.)
+hashes on 2026-11-14, above. The gardener's switch and the writers
+that seal left it on 2026-11-15, above.)
 
-- The gardener's switch, and the app writing sealed: it still writes
-  body and title plain, and the other fields sealed only where it
-  found them sealed.
-- The migration of existing notes. Records written before a note is
-  sealed keep its words as they were (an activity summary, a
-  suggestion's reason, a run's outcome, a correction line); whether
-  the migration rewrites them or leaves them to age out is not
-  decided. The same holds for the plain hashes written before it: a
-  plain `baseHash`, a replaced text's plain id, a `before.body`, and
-  an item run under its plain id.
+- The migration of existing notes: the notes nobody touched since the
+  switch, and the fields a write left plain on a note it sealed
+  (other names, instructions, the Send to ask and outcome, an import
+  error, a recipe's source text, and a title no write rewrote), plus
+  History, which keeps every version with no expiry until the note's
+  Trash sweep, so its plain versions stay until rewritten. Records
+  written before a note is sealed keep its words as they were (an
+  activity summary, a suggestion's reason, a run's outcome, a
+  correction line); whether the migration rewrites them or leaves
+  them to age out is not decided, and none of them has a TTL. The
+  same holds for the plain hashes written before it: a plain
+  `baseHash`, a replaced text's plain id (replaced texts expire two
+  days after they are written, `REPLACED_TTL_MS`), a `before.body`,
+  and an item run under its plain id.
 
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,

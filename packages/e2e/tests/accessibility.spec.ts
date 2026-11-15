@@ -62,6 +62,9 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
 
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  // Sealed notes (2026-11-15) is on the page, its switch off; on is in
+  // sealing-switch.spec.ts.
+  await expect(page.getByRole('switch', { name: 'Seal note text' })).toBeVisible();
   await expectNoSeriousViolations(page);
 
   // Share to Mossgoblin (2026-11-14): what was shared, and the ways to file it.

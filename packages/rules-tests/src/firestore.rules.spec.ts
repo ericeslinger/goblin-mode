@@ -423,6 +423,32 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(owner().doc('users/owner/usage/digest').set({ sentFor: '2026-11-09' }));
   });
 
+  it('keeps the switch that seals note text in settings/assistant, a bool only, the owner’s (2026-11-15)', async () => {
+    const ref = owner().doc('users/owner/settings/assistant');
+    const assistant = valid['users/owner/settings/assistant'];
+    await assertSucceeds(ref.set({ ...assistant(), sealNotes: true }));
+    // A merge write beside the other switches, as the app makes it, on and off.
+    await assertSucceeds(ref.set({ sealNotes: false, updatedAt: now() }, { merge: true }));
+    await assertSucceeds(ref.set({ sealNotes: true, updatedAt: now() }, { merge: true }));
+    await assertFails(ref.set({ ...assistant(), sealNotes: 'on' }));
+    await assertFails(ref.set({ ...assistant(), sealNotes: 1 }));
+    await assertFails(ref.set({ ...assistant(), sealNotes: { on: true } }));
+    await assertFails(ref.set({ ...assistant(), sealNote: true }));
+    // Never in the theme's doc, and never another gardener's to set or read.
+    await assertFails(
+      owner()
+        .doc('users/owner/settings/app')
+        .set({ theme: 'moss', mode: 'system', sealNotes: true, updatedAt: now() }),
+    );
+    await assertFails(
+      intruder()
+        .doc('users/owner/settings/assistant')
+        .set({ ...assistant(), sealNotes: true }),
+    );
+    await seed('users/owner/settings/assistant', { ...assistant(), sealNotes: true });
+    await assertFails(intruder().doc('users/owner/settings/assistant').get());
+  });
+
   it('lets the owner set and clear how a note takes new material, a known mode only (#231)', async () => {
     const note = valid['users/owner/notes/n1'];
     const ref = owner().doc('users/owner/notes/n1');

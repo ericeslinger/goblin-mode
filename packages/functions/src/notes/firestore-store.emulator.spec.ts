@@ -29,7 +29,11 @@ afterAll(() => deleteApp(app));
 const T = Date.parse('2026-10-06T13:00:00Z');
 // Plain notes only here: a key is never asked for (tools.sealed.spec.ts
 // and the sealed trigger specs cover sealed text).
-const plainOnly = new NoteCodec('u1', () => Promise.reject(new Error('no key asked for')));
+const plainOnly = new NoteCodec(
+  'u1',
+  () => Promise.reject(new Error('no key asked for')),
+  async () => false,
+);
 
 describe('firestoreNotesStore', () => {
   it('keeps every replaced text from saves arriving all at once, newest read first', async () => {

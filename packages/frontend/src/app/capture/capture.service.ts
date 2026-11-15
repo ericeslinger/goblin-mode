@@ -124,12 +124,20 @@ export class CaptureService {
     // the last sync, so neither side's text is lost (#37). A locked
     // note's placeholder is not its text (step 3a): nothing is merged
     // from it, and once it opens its text merges in then.
+    // Words held on this device for the key (2026-11-15), for a note
+    // not on the server yet, are its text here: after a reload they are
+    // shown, never an empty note that typing would replace them with.
     effect(() => {
       const list = this.notes.notes();
+      this.notes.waitingForKey();
       untracked(() => {
         const { id } = this.open();
         const note = list.find((n) => n.id === id);
         if (note && !note.locked) this.merge(id, note.body, note.deviceId);
+        else if (!note) {
+          const held = this.notes.heldText(id);
+          if (held !== undefined && this.body === this.synced) this.merge(id, held);
+        }
       });
     });
 
@@ -138,7 +146,9 @@ export class CaptureService {
     // until it opens (step 3a), and then merges into its text, as
     // typing before it arrived does.
     effect(() => {
-      if (!this.notes.loaded()) return;
+      // Ready: loaded, and the gardener's switch heard (2026-11-15), so a
+      // draft is never written plain before sealing is known.
+      if (!this.notes.loaded() || !this.notes.ready) return;
       const list = this.notes.notes();
       untracked(() => {
         // The draft first, so the settle's title sees the final text.
@@ -287,8 +297,9 @@ export class CaptureService {
       return;
     }
     // `known`: the text of a note just made here, which may not be in
-    // the list yet; typing must never start on an empty stand-in.
-    this.show({ id, text: this.notes.find(id)?.body ?? known ?? '' });
+    // the list yet; typing must never start on an empty stand-in. Nor on
+    // a note whose words wait here for the key (2026-11-15).
+    this.show({ id, text: this.notes.find(id)?.body ?? known ?? this.notes.heldText(id) ?? '' });
   }
 
   /**
