@@ -365,9 +365,10 @@ async function expectPageHeader(page: Page, title: string, parent?: string): Pro
   // in the back link gives way first.
   if (!/\s/.test(title)) {
     const lines = await h1.evaluate(
-      (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+      (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).fontSize),
     );
-    expect(lines, `${title}: the title is broken mid-word`).toBeLessThan(1.5);
+    // One line is under two font sizes tall, whatever the line height.
+    expect(lines, `${title}: the title is broken mid-word`).toBeLessThan(2);
   }
   for (const action of await header.locator('.actions > *').all()) {
     if (await action.isVisible()) await inside(await action.boundingBox(), `${title}: an action`);
