@@ -2360,6 +2360,24 @@ describe('NotesService', () => {
       expect(writesTo(next.api, 'a')[0][2]).toMatchObject({ body: 'Buy milk\n- eggs' });
     });
 
+    it('held words for a note in Trash wait for the server’s snapshot too (review on #277)', () => {
+      const trashedNote = () => {
+        const n = note('a', 'Buy milk');
+        return { ...n, data: { ...n.data, deletedAt: { toMillis: () => CLOCK - 1000 } } };
+      };
+      const first = setup();
+      first.sealing.known.set(false);
+      first.signIn(UID);
+      first.push([trashedNote()]);
+      first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
+      const next = setup({ reload: true });
+      next.signIn(UID);
+      next.push([trashedNote()], { fromCache: true });
+      TestBed.tick();
+      // Not written as a new note from the cache: that would replace it.
+      expect(writesTo(next.api, 'a')).toEqual([]);
+    });
+
     it('a fresh device offline, then back: held words reach the server once it hears, whatever comes first (e2e capture offline)', () => {
       for (const order of ['setting first', 'notes first'] as const) {
         TestBed.resetTestingModule();
