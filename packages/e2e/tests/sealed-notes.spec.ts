@@ -12,7 +12,8 @@ import { OWNER } from '../src/personas';
 // emulator; the app opens it with the key, and without one shows it
 // locked and never writes over it. Since step 3d (2026-11-13) a
 // concept's other names and its instructions are sealed too, and open
-// the same way.
+// the same way. Since 2026-11-15 every note the app writes is sealed
+// (always-sealed.spec.ts); the note typed here is too.
 
 const SEALED_ID = 'SealedJourneyNote001';
 const BODY = 'Kiln firing\nCone 6, slow cool over the night';
@@ -106,17 +107,19 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
     .route('**/api/note-key', (route) => route.fulfill({ status: 503, body: '' }));
   await page.evaluate((uid) => localStorage.removeItem(`goblin.noteKey.${uid}`), OWNER.uid);
   await page.goto('/browse');
-  await expect(list.getByRole('link', { name: 'Sealed note' })).toBeVisible();
+  // Every note is sealed now (2026-11-15), the one typed above too: both
+  // locked on this device.
+  await expect(list.getByRole('link', { name: 'Sealed note' })).toHaveCount(2);
   // As it stands now, locked on this device, and after anything that
   // leaving the opened note wrote: nothing may write to it from here on.
   await letItSave(page);
   const whileLocked = await storedDocument();
-  await expect(list.getByRole('link', { name: /Kiln firing/ })).toHaveCount(0);
+  await expect(list.getByRole('link', { name: /Kiln firing|Plain words/ })).toHaveCount(0);
   await expect(page.locator('body')).not.toContainText('\uE000');
   await expectNoSeriousViolations(page);
 
   // Opened: one calm line, no editor, no sealed text.
-  await list.getByRole('link', { name: 'Sealed note' }).click();
+  await page.goto(`/n/${SEALED_ID}`);
   await expect(
     page.getByText('This note is sealed, and its key is not on this device yet.'),
   ).toBeVisible();
@@ -124,16 +127,20 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
   await expect(page.locator('body')).not.toContainText('\uE000');
   await expectNoSeriousViolations(page);
 
-  // Plain notes work as ever beside it.
-  await page.goto('/browse');
-  await list.getByRole('link', { name: /Plain words stay plain/ }).click();
-  await expect(editor).toContainText('Plain words stay plain');
-  await editor.click();
-  await page.keyboard.press('ControlOrMeta+End');
-  await page.keyboard.type(', still');
+  // A new note still takes typing: with no key the words wait on this
+  // device (always sealed, 2026-11-15), and the line under the editor
+  // says why. The service answered 503, as it does with no master, so
+  // it says the service is not set up rather than that a connection is
+  // wanted (a fork's owner, README).
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New' }).click();
+  await expect(editor.getByText('Plant a thought')).toBeVisible();
+  await typeLines(page, ['Typed while the key is away']);
   await letItSave(page);
-  await page.reload();
-  await expect(editor).toContainText('Plain words stay plain, still');
+  await expect(page.getByText("This garden's note key service is not set up yet")).toBeVisible();
+  const held = await page.evaluate(() => localStorage.getItem('goblin.pendingSaves'));
+  expect(held).toContain('Typed while the key is away');
+  expect(held).toContain('"held"');
 
   // Nothing was written over the sealed note: its text as seeded, and
   // not one field or write time changed while it was locked (review

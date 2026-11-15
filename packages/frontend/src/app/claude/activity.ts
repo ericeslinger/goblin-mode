@@ -350,10 +350,17 @@ export class Activity {
   protected readonly putBack = computed(() => putBackState(this.runs()));
   private readonly now = inject(NOW);
   private readonly timeZone = inject(TIME_ZONE);
-  /** Yesterday in one line (#237), or today's so far; read when the runs change. */
+  /**
+   * Yesterday in one line (#237), or today's so far; read when the runs
+   * change. Each note is named by its own title, as the list names it:
+   * a record names every note "Sealed note" (always sealed, 2026-11-15).
+   */
   protected readonly digest = computed(() =>
     digestLine(
-      this.runs(),
+      this.runs().map((r) => ({
+        ...r,
+        notes: r.notes.map((n) => ({ ...n, title: this.title(n) })),
+      })),
       this.now(),
       this.timeZone,
       (id) => this.notes.find(id)?.conceptType === 'project',

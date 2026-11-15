@@ -65,10 +65,10 @@ describe('applyAccepted, sealed notes', () => {
     expect(await apply('p2')).toBe('Merged into Sealed note');
   });
 
-  it('quotes plain titles as before', async () => {
+  it('says a plain title as "Sealed note" too: every note is sealed (2026-11-15)', async () => {
     put('a', 'Plain note');
     put('b', 'Other plain');
     propose('p1', { kind: 'link', notes: [{ id: 'a' }, { id: 'b' }] });
-    expect(await apply('p1')).toBe('Linked Other plain');
+    expect(await apply('p1')).toBe('Linked Sealed note');
   });
 });

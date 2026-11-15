@@ -10,7 +10,6 @@ import {
   formsFound,
   recordForm,
   withFieldValue,
-  writtenForms,
 } from './sealed-note';
 
 const key = newDataKey();
@@ -59,33 +58,6 @@ describe('formsFound', () => {
     expect(forms.instructions).toBe('plain');
     expect(anySealed(forms)).toBe(true);
     expect(anySealed(formsFound({ body: 'x', synonyms: ['y'] }))).toBe(false);
-  });
-});
-
-describe('writtenForms', () => {
-  it('keeps the form each field was found in', () => {
-    expect(writtenForms(PLAIN_FORMS)).toEqual(PLAIN_FORMS);
-    const found = { ...PLAIN_FORMS, instructions: 'sealed' as const };
-    expect(writtenForms(found)).toEqual(found);
-  });
-
-  it('makes no field plainer than a sealed body', () => {
-    expect(writtenForms({ ...PLAIN_FORMS, body: 'sealed' })).toEqual(SEALED_FORMS);
-  });
-
-  it('makes the other names no plainer than a sealed title, which a rename keeps among them', () => {
-    const out = writtenForms({ ...PLAIN_FORMS, title: 'sealed' });
-    expect(out.synonyms).toBe('sealed');
-    expect(out.body).toBe('plain');
-    expect(out.instructions).toBe('plain');
-  });
-
-  it('seals every field with the gardener’s switch on, and only then (2026-11-15)', () => {
-    expect(writtenForms(PLAIN_FORMS, true)).toEqual(SEALED_FORMS);
-    expect(writtenForms({ ...PLAIN_FORMS, title: 'sealed' }, true)).toEqual(SEALED_FORMS);
-    // Off is the rule of the form found: nothing is unsealed.
-    expect(writtenForms(SEALED_FORMS, false)).toEqual(SEALED_FORMS);
-    expect(writtenForms(PLAIN_FORMS, false)).toEqual(PLAIN_FORMS);
   });
 });
 

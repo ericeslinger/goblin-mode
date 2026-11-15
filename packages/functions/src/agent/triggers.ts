@@ -2,7 +2,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { GARDEN_AGENT } from '@mossgoblin/schema';
-import { NoteCodec, sealingIn } from '../mcp/note-text';
+import { NoteCodec } from '../mcp/note-text';
 import { dataKeyFor } from '../note-keys/client';
 import { firestoreKeyStore } from '../keys/firestore-store';
 import { sealerFromEnv } from '../keys/sealer';
@@ -102,7 +102,7 @@ export const itemAssigned = onDocumentWritten(
     const db = getFirestore();
     const started = await assignedOnWrite(
       db,
-      new NoteCodec(uid, dataKeyFor, sealingIn(db, uid)),
+      new NoteCodec(uid, dataKeyFor),
       uid,
       noteId,
       event.data?.before.data(),

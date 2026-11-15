@@ -34,5 +34,3 @@ export * from './sealed';
 export * from './sealed-note';
 export * from './text-hash';
 export * from './note-key';
-export * from './key-check';
-export * from './seal-all';

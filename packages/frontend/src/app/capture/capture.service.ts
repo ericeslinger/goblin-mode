@@ -140,11 +140,11 @@ export class CaptureService {
     // the last sync, so neither side's text is lost (#37). A locked
     // note's placeholder is not its text (step 3a): nothing is merged
     // from it, and once it opens its text merges in then.
-    // Words held on this device (for the key, or until the switch is
-    // known, 2026-11-15) are the open note's text here, a new note's or
-    // an existing one's (review on #276): after a reload they are shown,
-    // merged over the note's text now, never the server's alone, which
-    // typing would then replace them with (`showHeld`).
+    // Words held on this device for the key (2026-11-15) are the open
+    // note's text here, a new note's or an existing one's (review on
+    // #276): after a reload they are shown, merged over the note's text
+    // now, never the server's alone, which typing would then replace
+    // them with (`showHeld`).
     effect(() => {
       const list = this.notes.notes();
       this.notes.waitingForKey();
@@ -161,8 +161,8 @@ export class CaptureService {
     // until it opens (step 3a), and then merges into its text, as
     // typing before it arrived does.
     effect(() => {
-      // Loaded. Before the switch is known `save` holds the draft on the
-      // device (review on #276), so nothing waits on it here.
+      // Loaded. Without the key `save` holds the draft on the device
+      // (2026-11-15), so nothing waits on it here.
       if (!this.notes.loaded()) return;
       const list = this.notes.notes();
       untracked(() => {

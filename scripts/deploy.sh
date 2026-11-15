@@ -21,10 +21,13 @@
 #   ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_WORKSPACE_ID   Claude titles
 #   NOTE_KEY_CALLERS        the service accounts the Worker's note key
 #                           service answers, comma-separated; derived
-#                           below from the project when unset
+#                           below from the project when unset (and
+#                           required: the deploy stops without them)
 # Never passed through here: the note key service's Worker secret
 # NOTE_KEYS_MASTER is set once by hand (README, Run your own), so the
-# master exists only at Cloudflare and in the owner's own backup.
+# master exists only at Cloudflare and in the owner's own backup. It is
+# required: note text is always sealed (2026-11-15), and without it no
+# note can be saved. The deploy checks it is set, at the end.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -53,6 +56,30 @@ node -e '
     console.error("error: FIREBASE_WEB_CONFIG has no storageBucket (Project settings, Your apps)");
     process.exit(1);
   }'
+
+# The service accounts the functions that read notes run as, which the
+# Worker's note key service answers (DESIGN.md, Note encryption, Key
+# custody, 2026-11-13): goblin-titles, goblin-runner, and the default
+# compute account for the rest. The project number is in the web
+# config twice (messagingSenderId, and the middle of appId); both must
+# agree, or NOTE_KEY_CALLERS must be set. Required since note text is
+# always sealed (2026-11-15): without them no function can open or
+# write a note, so the deploy stops here, before anything ships.
+if [ -z "${NOTE_KEY_CALLERS:-}" ]; then
+  number="$(node -e '
+    const c = JSON.parse(process.env.FIREBASE_WEB_CONFIG);
+    const n = String(c.messagingSenderId ?? "");
+    if (/^[0-9]+$/.test(n) && String(c.appId ?? "").split(":")[1] === n) process.stdout.write(n);')"
+  if [ -z "$number" ]; then
+    echo "error: no project number in FIREBASE_WEB_CONFIG; set NOTE_KEY_CALLERS (README, Run your own)" >&2
+    exit 1
+  fi
+  NOTE_KEY_CALLERS="$number-compute@developer.gserviceaccount.com"
+  for account in goblin-titles goblin-runner; do
+    NOTE_KEY_CALLERS+=",$account@$FIREBASE_PROJECT_ID.iam.gserviceaccount.com"
+  done
+fi
+
 web_config="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.env.FIREBASE_WEB_CONFIG)))')"
 push_key="$(node -e 'process.stdout.write(JSON.stringify(process.env.WEB_PUSH_PUBLIC_KEY || null))')"
 
@@ -80,38 +107,32 @@ for name in APP_DOMAIN OWNER_UID ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZA
 done
 bash scripts/deploy-functions.sh --project "$FIREBASE_PROJECT_ID"
 
-# The service accounts the functions that read notes run as, which the
-# Worker's note key service answers (DESIGN.md, Note encryption, Key
-# custody, 2026-11-13): goblin-titles, goblin-runner, and the default
-# compute account for the rest. The project number is in the web
-# config twice (messagingSenderId, and the middle of appId); both must
-# agree, or NOTE_KEY_CALLERS must be set, or the service stays off.
-if [ -z "${NOTE_KEY_CALLERS:-}" ]; then
-  number="$(node -e '
-    const c = JSON.parse(process.env.FIREBASE_WEB_CONFIG);
-    const n = String(c.messagingSenderId ?? "");
-    if (/^[0-9]+$/.test(n) && String(c.appId ?? "").split(":")[1] === n) process.stdout.write(n);')"
-  if [ -n "$number" ]; then
-    NOTE_KEY_CALLERS="$number-compute@developer.gserviceaccount.com"
-    for account in goblin-titles goblin-runner; do
-      NOTE_KEY_CALLERS+=",$account@$FIREBASE_PROJECT_ID.iam.gserviceaccount.com"
-    done
-  else
-    echo "warning: no project number in FIREBASE_WEB_CONFIG; note keys stay off for the functions" >&2
-  fi
-fi
-
 # The project id and the owner's uid let the Worker check ID tokens for
 # the episode proxy (#180); without OWNER_UID the proxy stays off (503).
 # APP_DOMAIN fixes the audience the functions' identity tokens must
-# name, and NOTE_KEY_CALLERS who may present one; without either the
-# functions' note key route stays off (503).
+# name, and NOTE_KEY_CALLERS who may present one.
 worker_vars=(--var "FUNCTIONS_ORIGIN:https://$region-$FIREBASE_PROJECT_ID.cloudfunctions.net"
   --var "FIREBASE_PROJECT_ID:$FIREBASE_PROJECT_ID" --var "APP_DOMAIN:$APP_DOMAIN")
 if [ -n "${OWNER_UID:-}" ]; then worker_vars+=(--var "OWNER_UID:$OWNER_UID"); fi
-if [ -n "${NOTE_KEY_CALLERS:-}" ]; then
-  worker_vars+=(--var "NOTE_KEY_CALLERS:$(printf '%s' "$NOTE_KEY_CALLERS" | tr -d '[:space:]')")
-fi
+worker_vars+=(--var "NOTE_KEY_CALLERS:$(printf '%s' "$NOTE_KEY_CALLERS" | tr -d '[:space:]')")
 npx wrangler deploy --config infra/worker/wrangler.toml --domain "$APP_DOMAIN" "${worker_vars[@]}"
+
+# The master is set by hand, never here, and Cloudflare never shows it
+# again; only its name can be checked. Without it the note key service
+# answers 503, and the app keeps every note on the device, waiting
+# (2026-11-15). Checked after the deploy, since a first deploy is what
+# makes the Worker it is set on. The deploy fails only when the list
+# was read and the name is not in it: a list that could not be read
+# (a token that may deploy but not list secrets) is said, not failed
+# on, so it never stops a deploy that worked.
+if secrets="$(npx wrangler secret list --config infra/worker/wrangler.toml --format json 2>/dev/null)"; then
+  if ! grep -q '"NOTE_KEYS_MASTER"' <<<"$secrets"; then
+    echo "error: the Worker has no NOTE_KEYS_MASTER, so no note can be saved." >&2
+    echo "Set it, and keep a copy of it, as README, Run your own, says; then deploy again." >&2
+    exit 1
+  fi
+else
+  echo "warning: could not list the Worker's secrets, so NOTE_KEYS_MASTER was not checked." >&2
+fi
 
 echo "deployed $sha"

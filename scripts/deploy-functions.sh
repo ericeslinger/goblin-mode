@@ -87,6 +87,31 @@ setpolicies() {
 # that would create it; the pass after a failed deploy stays strict.
 setpolicies || echo "note: a clean-up policy could not be set yet; set after the deploy"
 
+# Functions taken out of the code. A non-interactive deploy aborts when
+# the project still has a function the source no longer exports, so
+# each one is deleted here first, by name, where it is deployed: the
+# sealing switch's key checks and the one-time migration (2026-11-15,
+# always sealed; DESIGN.md, Note encryption). A fork that never had
+# them, or a later run, finds nothing to delete. A failed list deletes
+# nothing, and the deploy then says what is left over.
+retired=(checkNoteKey checkNoteKeyTitles checkNoteKeyRunner sealEverything)
+deployed="$(npx firebase functions:list --project "$project" --non-interactive --json 2>/dev/null |
+  node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      try {
+        for (const f of JSON.parse(s).result ?? []) console.log(`${f.id} ${f.region}`);
+      } catch {}
+    });' || true)"
+for name in "${retired[@]}"; do
+  while read -r id where; do
+    if [ "$id" = "$name" ]; then
+      npx firebase functions:delete "$name" --region "$where" --project "$project" \
+        --force --non-interactive
+    fi
+  done <<<"$deployed"
+done
+
 log="$(mktemp)"
 if ! npx firebase deploy --only functions --non-interactive --project "$project" 2>&1 | tee "$log"; then
   # The first deploy to a new region deploys, then stops for the policy

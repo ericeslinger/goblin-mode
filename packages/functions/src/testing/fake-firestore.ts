@@ -151,7 +151,8 @@ class Coll {
     return this.with({ filter: (d) => test[op](at(d, field)) });
   }
   orderBy(field: string | FieldPath, dir: 'asc' | 'desc' = 'asc') {
-    // By document id, ascending, as the seal-all pass pages (2026-11-15).
+    // By document id, ascending, as the seal-all pass paged (2026-11-15,
+    // since removed).
     if (field instanceof FieldPath) return this.with({ byId: {} });
     return this.with({ sort: { field, dir }, filter: (d) => at(d, field) !== undefined });
   }

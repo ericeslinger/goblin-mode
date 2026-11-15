@@ -50,7 +50,7 @@ export async function resetAccount(persona: Persona): Promise<void> {
 
 /**
  * Signs in through the emulator-only /dev-sign-in page and waits for the
- * launch screen. Resets the account first, so it is retry-safe; pass
+ * launch screen and the device's note key. Resets the account first, so it is retry-safe; pass
  * `{ reset: false }` to sign a second device into the same account.
  */
 export async function signInAs(
@@ -66,6 +66,13 @@ export async function signInAs(
   // Signing in moves to `/` inside the app, never a plain launch, so it
   // lands on the capture note whatever was open last (#272).
   await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible();
+  // Note text is always sealed (2026-11-15): until this device has its
+  // key from the static server's `/api/note-key`, what is typed waits
+  // on the device. The key comes at sign-in, online; waiting for it
+  // here keeps journeys that read what was written from racing it.
+  await expect
+    .poll(() => page.evaluate((uid) => localStorage.getItem(`goblin.noteKey.${uid}`), persona.uid))
+    .not.toBeNull();
 }
 
 /**

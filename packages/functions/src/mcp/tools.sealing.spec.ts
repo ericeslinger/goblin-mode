@@ -16,15 +16,15 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NoteKeysUnconfigured } from '../note-keys/client';
 import { type Store, copy, fakeDb } from '../testing/fake-firestore';
-import { NoteCodec, SealedNoteError, sealFields, sealingIn } from './note-text';
+import { NoteCodec, SealedNoteError, sealFields } from './note-text';
 import { NotesTools } from './tools';
 
-// The gardener's switch (2026-11-15): with `sealNotes` on in
-// settings/assistant, every tool that writes a note's text writes it
+// Always sealed (Eric, 2026-11-15, after the migration; before, the
+// gardener's switch): every tool that writes a note's text writes it
 // sealed, a new note is born sealed, every hash it stores is keyed and
-// every record about a note it writes is sealed or labelled. Off, every
-// stored byte is as before and no key is asked for. Against the small
-// in-memory Firestore, with a fake key source.
+// every record about a note it writes is sealed or labelled, whatever
+// `settings/assistant` says. Plain notes are still read as they are.
+// Against the small in-memory Firestore, with a fake key source.
 
 const UID = 'u1';
 const T = Date.parse('2026-11-15T10:00:00Z');
@@ -62,7 +62,6 @@ function put(id: string, body: string, over: Data = {}) {
 }
 
 const tools = () => new NotesTools(fakeDb(store), UID, () => T, undefined, undefined, keyFor);
-const switchOn = (on = true) => store.set(SETTINGS, { sealNotes: on, updatedAt: T });
 
 /** Every sealed field present on note `id` is stored sealed. */
 function sealedThroughout(id: string) {
@@ -84,40 +83,30 @@ beforeEach(() => {
   keyFor = vi.fn(async () => key);
 });
 
-describe('the switch off', () => {
-  it('writes every byte as before and asks for no key, whether the setting is absent or off', async () => {
-    for (const setting of [undefined, false]) {
+describe('every write sealed', () => {
+  it('whatever settings/assistant says: an old app’s sealNotes false changes nothing', async () => {
+    for (const setting of [undefined, false, true]) {
       store.delete(SETTINGS);
-      if (setting === false) switchOn(false);
+      if (setting !== undefined) store.set(SETTINGS, { sealNotes: setting, updatedAt: T });
       put('a', 'Buy milk');
       const t = tools();
       const { id } = await t.createNote({ body: 'Plumber on Tuesday' });
       await t.addLines({ id: 'a', lines: ['- eggs'] });
-      expect(stored(id)).toMatchObject({ body: 'Plumber on Tuesday', title: 'Plumber on Tuesday' });
-      expect(stored('a')).toMatchObject({
-        body: 'Buy milk\n- eggs',
-        baseHash: textHash('Buy milk'),
-      });
-      expect(everything()).toContain('Plumber on Tuesday');
-      expect(keyFor).not.toHaveBeenCalled();
+      sealedThroughout(id);
+      expect(opened('a', 'body')).toBe('Buy milk\n- eggs');
+      expect(everything()).not.toContain('Plumber on Tuesday');
+      expect(everything()).not.toContain(textHash('Buy milk'));
     }
   });
 
-  it('reads the setting once a request, at most', async () => {
-    put('a', 'One');
-    put('b', 'Two');
-    const sealing = vi.fn(async () => false);
-    const t = new NotesTools(fakeDb(store), UID, () => T, undefined, undefined, keyFor, sealing);
-    await t.listNotes({});
-    await t.addLines({ id: 'a', lines: ['- more'] });
-    await t.createNote({ body: 'Three' });
-    expect(sealing).toHaveBeenCalledTimes(1);
+  it('reads a plain note as it is, asking for the key only to write', async () => {
+    put('a', 'Buy milk');
+    const t = tools();
+    expect(await t.getNote({ id: 'a' })).toMatchObject({ body: 'Buy milk', title: 'Buy milk' });
     expect(keyFor).not.toHaveBeenCalled();
+    await t.addLines({ id: 'a', lines: ['- eggs'] });
+    expect(keyFor).toHaveBeenCalledTimes(1);
   });
-});
-
-describe('the switch on', () => {
-  beforeEach(() => switchOn());
 
   it('create_note: born sealed, its hashes none, its record labelled; the words nowhere in the clear', async () => {
     const { id, title } = await tools().createNote({ body: 'Plumber on Tuesday\nbring the key' });
@@ -141,7 +130,8 @@ describe('the switch on', () => {
     const baseHash = String(stored('a')['baseHash']);
     expect(isKeyedHash(baseHash)).toBe(true);
     expect(baseHash).toBe(noteTextHash('a', 'Buy milk', 'sealed', () => key));
-    // A field the write did not touch keeps its form until written or migrated.
+    // A field the write did not touch keeps its form until written; the
+    // write's own trigger seals it (notes/seal-plain.ts).
     expect(stored('a')['synonyms']).toEqual(['groceries']);
     // The summary names no sealed note's lines.
     const [[, entry]] = entries('activity');
@@ -151,7 +141,7 @@ describe('the switch on', () => {
     expect(everything()).not.toContain(textHash('Buy milk'));
   });
 
-  it('update_note seals a new title and other names, never plainer than the switch', async () => {
+  it('refile seals the other names it writes', async () => {
     put('c-kiln', '', {
       kind: 'concept',
       conceptType: 'other',
@@ -258,14 +248,6 @@ describe('the switch on', () => {
     expect(copy([...store.entries()])).toEqual(before);
   });
 
-  it('a setting that cannot be read writes nothing', async () => {
-    const sealing = vi.fn(async () => Promise.reject(new Error('unavailable')));
-    put('a', 'Buy milk');
-    const t = new NotesTools(fakeDb(store), UID, () => T, undefined, undefined, keyFor, sealing);
-    await expect(t.addLines({ id: 'a', lines: ['- eggs'] })).rejects.toThrow('unavailable');
-    expect(stored('a')['body']).toBe('Buy milk');
-  });
-
   it('reads a sealed note back through get_note', async () => {
     const { id } = await tools().createNote({ body: 'Sealed from birth' });
     const note = await tools().getNote({ id });
@@ -273,30 +255,15 @@ describe('the switch on', () => {
   });
 });
 
-describe('turned off again', () => {
-  it('unseals nothing: a sealed note stays sealed when written, a new note is plain', async () => {
-    switchOn();
-    const { id } = await tools().createNote({ body: 'Born sealed' });
-    switchOn(false);
-    const t = tools();
-    await t.addLines({ id, lines: ['- still sealed'] });
-    expect(opened(id, 'body')).toBe('Born sealed\n- still sealed');
-    sealedThroughout(id);
-    const plain = await t.createNote({ body: 'Born plain' });
-    expect(stored(plain.id)['body']).toBe('Born plain');
-  });
-});
-
 describe('sealFields itself', () => {
-  it('seals every field of a write with the switch on, whatever forms it is given', async () => {
-    switchOn();
-    const codec = new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID));
-    const out = await sealFields(
-      codec,
-      'n1',
-      { body: 'b', title: 't', synonyms: ['s'], source: { url: 'https://x.invalid', text: 'x' } },
-      { ...(await new NoteCodec(UID, keyFor, async () => false).forms()) },
-    );
+  it('seals every field of a write', async () => {
+    const codec = new NoteCodec(UID, keyFor);
+    const out = await sealFields(codec, 'n1', {
+      body: 'b',
+      title: 't',
+      synonyms: ['s'],
+      source: { url: 'https://x.invalid', text: 'x' },
+    });
     expect(isSealed(out['body'])).toBe(true);
     expect(isSealed(out['title'])).toBe(true);
     expect((out['synonyms'] as string[]).every(isSealed)).toBe(true);
@@ -304,23 +271,15 @@ describe('sealFields itself', () => {
     expect(isSealed((out['source'] as Data)['text'])).toBe(true);
   });
 
-  it('reads no setting for a write with no note text in it', async () => {
-    const sealing = vi.fn(async () => true);
-    const codec = new NoteCodec(UID, keyFor, sealing);
+  it('asks for no key for a write with no note text in it', async () => {
+    const codec = new NoteCodec(UID, keyFor);
     const plain = { archived: true };
-    expect(
-      await sealFields(
-        codec,
-        'n1',
-        plain,
-        await new NoteCodec(UID, keyFor, async () => false).forms(),
-      ),
-    ).toEqual(plain);
-    expect(sealing).not.toHaveBeenCalled();
+    expect(await sealFields(codec, 'n1', plain)).toEqual(plain);
+    expect(keyFor).not.toHaveBeenCalled();
     // A value sealed already, under another key, is refused rather than written.
     const other = sealText(newDataKey(), aadFor(UID, 'n1', 'body'), 'x');
     await expect(
-      sealFields(codec, 'n1', { body: other }, await codec.forms(), new Set(['body'])),
+      sealFields(codec, 'n1', { body: other }, new Set(['body'])),
     ).rejects.toBeInstanceOf(SealedNoteError);
   });
 });

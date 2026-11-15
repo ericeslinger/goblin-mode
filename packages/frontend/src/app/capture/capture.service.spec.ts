@@ -1,4 +1,5 @@
 import { signal } from '@angular/core';
+import { isSealed } from '@mossgoblin/schema';
 import { TestBed } from '@angular/core/testing';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
@@ -11,7 +12,8 @@ import {
   PENDING_SAVES_KEY,
   SEALED_TITLE,
 } from '../notes/notes.service';
-import { NOTE_SEALING } from '../notes/sealing.service';
+import { NoteKeyService } from '../notes/note-key.service';
+import { TEST_NOTE_KEY, openedWrite } from '../testing/sealed';
 import { FakeNotes, fakeFirebase, noteRecord } from '../testing/fakes';
 import { NOW, ONLINE } from '../platform/platform';
 import {
@@ -682,7 +684,11 @@ describe('CaptureService, when the page goes before the cache has the text (#200
         { provide: FIREBASE, useValue: fakeFirebase(true) },
         { provide: AuthService, useValue: { user } },
         { provide: NOTES_API, useValue: api },
-        { provide: NOTE_SEALING, useValue: { on: signal(false), known: signal(true) } },
+        // This device has its key: every save goes straight out, sealed.
+        {
+          provide: NoteKeyService,
+          useValue: { key: signal(TEST_NOTE_KEY), unconfigured: signal(false) },
+        },
         { provide: ONLINE, useValue: () => true },
         { provide: NOW, useValue: () => clock },
       ],
@@ -695,12 +701,17 @@ describe('CaptureService, when the page goes before the cache has the text (#200
       push(docs, false);
       TestBed.tick();
     };
+    // What was written, opened: stored sealed, every one (2026-11-15).
     const bodies = () =>
       api.set.mock.calls
         .filter(([, , d]) => 'body' in d)
-        .map(([, path, d, merge]) => ({
+        .map(([, path, d, merge]) => {
+          expect(isSealed(d['body'])).toBe(true);
+          return [path, d, merge] as const;
+        })
+        .map(([path, d, merge]) => ({
           path,
-          body: d['body'],
+          body: openedWrite(path, d)['body'],
           merge,
         }));
     return { capture, signIn, bodies };

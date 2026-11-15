@@ -827,10 +827,14 @@ export const AssistantSettings = z.object({
     })
     .optional(),
   /**
-   * Seal note text (note encryption, the gardener's switch, 2026-11-15):
-   * with it on, every write of a note's sealed fields, in the app and
-   * on the server, writes them sealed. Off when absent. Turned off,
-   * writers keep the form they find again; nothing is unsealed.
+   * Read by nothing since 2026-11-15 (always sealed: note text is sealed
+   * whatever this says). It was the gardener's switch that turned
+   * sealing on, the same day. Kept so a document that holds it still
+   * validates: the rules' generated `isValidAssistantSettings` allows
+   * only the fields named here, and Eric's settings/assistant holds
+   * `sealNotes: true`, so taking it out would refuse that document's
+   * next write. An app still running a cached copy from before reads it
+   * to seal its writes, so it is not removed either.
    */
   sealNotes: z.boolean().optional(),
   updatedAt: Timestamp,

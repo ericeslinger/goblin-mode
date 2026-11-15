@@ -168,17 +168,17 @@
       }
       <app-share-waiting class="note-status" />
       @if (notes.heldForKey(capture.open().id)) {
-        <!-- Words held on this device (2026-11-15): polite, not a second
-             status, so the capture screen keeps one status (review on #276). -->
-        @if (!notes.sealingKnown()) {
+        <!-- Words held on this device for the key (2026-11-15): polite, not
+             a second status, so the capture screen keeps one status (review
+             on #276). -->
+        @if (notes.keyServiceMissing()) {
           <p class="note-status" aria-live="polite">
-            This device has not yet heard whether your notes are sealed. What you write is kept
-            here, and saved once it is online.
+            {{ keyServiceMissing }} What you write is kept here on this device until then.
           </p>
-        } @else if (notes.sealingOn()) {
+        } @else {
           <p class="note-status" aria-live="polite">
-            Sealing is on, and this device does not have its key yet. What you write is kept here,
-            and saved sealed once this device is online and has the key.
+            This device does not have its note key yet. What you write is kept here, and saved
+            sealed once this device is online and has the key.
           </p>
         }
       }

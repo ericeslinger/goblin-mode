@@ -1,13 +1,19 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { App } from './app';
 import { configFor, isLocalHost } from './firebase';
+import { NoteKeyService } from './notes/note-key.service';
 
 describe('App', () => {
   it('creates', async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter([])],
+      providers: [
+        provideRouter([]),
+        // The key-wait line asks whether the key service is set up (2026-11-15).
+        { provide: NoteKeyService, useValue: { unconfigured: signal(false) } },
+      ],
     }).compileComponents();
     expect(TestBed.createComponent(App).componentInstance).toBeTruthy();
   });

@@ -23,10 +23,10 @@ test('text shared from another app becomes a new note', async ({ page }) => {
   const note = page.getByRole('textbox', { name: 'New note' });
   await expect(note).toContainText('what if seeds could talk');
   await expect(note).toContainText('https://claude.ai/chat/1');
-  // On a device's first load the sealing switch may not be heard yet,
-  // and the words wait on the device (2026-11-15): the status says
-  // "waiting" until they are written. Then the write itself is waited
-  // for, so the list after the reload is read from what was written.
+  // Words wait on the device only while it has no note key (2026-11-15):
+  // the status says "waiting" until they are written. Then the write
+  // itself is waited for, so the list after the reload is read from
+  // what was written.
   await expect(page.getByRole('status')).toHaveText('synced');
   await letItSave(page);
 

@@ -22,7 +22,8 @@ import { AuthService } from '../auth.service';
 import { buildInfo } from '../build-info';
 import { CLAUDE_ACCESS_API } from '../claude/claude-access';
 import { KeysService } from '../keys/keys.service';
-import { type SealCheck, SealingService, type ServerPart } from '../notes/sealing.service';
+import { KEY_SERVICE_MISSING } from '../notes/key-wait-notice';
+import { NoteKeyService } from '../notes/note-key.service';
 import { GroceryService } from '../kitchen/grocery.service';
 import { CAP_CHOICES, DownloadPrefs } from '../reader/download-prefs';
 import { ReaderService } from '../reader/reader.service';
@@ -33,14 +34,13 @@ import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
 import { reloadPage } from '../unknown-route';
 import { HomeLink } from '../home/home-link';
-import { SealEverything } from './seal-everything';
 
 /** The weekly reminder to plan the meals (#129). */
 export const PLAN_REMINDER = 'Plan next week’s meals';
 
 @Component({
   selector: 'app-settings',
-  imports: [HomeLink, RouterLink, SealEverything, ThemePicker],
+  imports: [HomeLink, RouterLink, ThemePicker],
   template: `
     <main class="page">
       <app-home-link />
@@ -461,25 +461,18 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
       @if (auth.user()) {
         <h2 id="sealing">Sealed notes</h2>
         <p>
-          Sealing encrypts the text of your notes before it is stored, so a copy of the database or
-          a backup shows only scrambled text. The key is kept apart from the notes, with Cloudflare
-          rather than Google, and this device and the server fetch it when they need it.
+          The text of your notes is always sealed (encrypted) before it is stored, so a copy of the
+          database or a backup shows only scrambled text. The key is kept apart from the notes, with
+          Cloudflare rather than Google, and this device and the server fetch it when they need it.
           Attachments, the links pages came from, and reminder text are not sealed.
         </p>
-        <label class="sealing">
-          <input
-            type="checkbox"
-            role="switch"
-            aria-describedby="sealing-status"
-            [checked]="sealing.on()"
-            [disabled]="sealBusy()"
-            (change)="setSealing($event)"
-          />
-          Seal note text
-        </label>
-        <p id="sealing-status" class="muted" aria-live="polite">{{ sealingStatus() }}</p>
-        @if (sealing.on()) {
-          <app-seal-everything />
+        @if (noteKeys.unconfigured()) {
+          <p class="muted">{{ keyServiceMissing }}</p>
+        } @else if (!noteKeys.key()) {
+          <p class="muted">
+            This device does not have its note key yet. It gets it the next time it is online, and
+            until then what you write is kept here and saved sealed afterwards.
+          </p>
         }
       }
       <h2>Version</h2>
@@ -607,12 +600,6 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
     .muted {
       color: var(--quiet);
       font-size: 14px;
-    }
-    .sealing {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      min-height: 44px;
     }
     .actions {
       display: flex;
@@ -894,43 +881,9 @@ export class Settings {
   }
   private readonly claude = inject(CLAUDE_ACCESS_API);
 
-  /** The gardener's switch that seals note text (2026-11-15). */
-  protected readonly sealing = inject(SealingService);
-  protected readonly sealBusy = signal(false);
-  private readonly sealMessage = signal('');
-  /** What the section says: the last thing done here, else the switch's state. */
-  protected readonly sealingStatus = computed(
-    () =>
-      this.sealMessage() ||
-      (this.sealing.on()
-        ? 'Sealing is on: note text is stored sealed.'
-        : 'Sealing is off: notes are stored as they are now.'),
-  );
-
-  /**
-   * Turning sealing on runs the check first, and the switch stays off
-   * unless it passes; turning it off is the write alone, and unseals
-   * nothing.
-   */
-  protected async setSealing(event: Event): Promise<void> {
-    const box = event.target as HTMLInputElement;
-    if (!box.checked) {
-      this.sealing.turnOff();
-      this.sealMessage.set(
-        'Sealing is off. Notes sealed already stay sealed and still open; new text is stored as the note it goes in already is.',
-      );
-      return;
-    }
-    // Off until the check passes.
-    box.checked = false;
-    this.sealBusy.set(true);
-    this.sealMessage.set('Checking that this device and the server both get your key…');
-    try {
-      this.sealMessage.set(sealCheckMessage(await this.sealing.turnOn()));
-    } finally {
-      this.sealBusy.set(false);
-    }
-  }
+  /** This device's note key, for the Sealed notes line (always sealed, 2026-11-15). */
+  protected readonly noteKeys = inject(NoteKeyService);
+  protected readonly keyServiceMissing = KEY_SERVICE_MISSING;
 
   /** Drops every token any assistant holds; each must connect again. */
   protected async disconnect(): Promise<void> {
@@ -947,43 +900,5 @@ export class Settings {
   protected async signOut(): Promise<void> {
     await this.push.beforeSignOut();
     await this.auth.signOut();
-  }
-}
-
-/** Each part of the server, as the gardener knows it: never an account. */
-export const SERVER_PART_NAMES: Record<ServerPart, string> = {
-  main: 'the part that answers Claude and keeps History',
-  titles: 'the part that titles notes and reads recipes',
-  runner: 'the part that runs the assistant',
-};
-
-/** `a`, `a and b`, `a, b and c`. */
-function listed(names: string[]): string {
-  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-}
-
-/** What the check before sealing is switched on says, in plain words. */
-export function sealCheckMessage(check: SealCheck): string {
-  switch (check.result) {
-    case 'ok':
-      return 'Sealing is on. This device and every part of the server got the same key, and note text written from now on is stored sealed.';
-    case 'offline':
-      return 'This device is offline, and the check needs a connection, so sealing stays off.';
-    case 'device':
-      return 'This device could not get your key, so sealing stays off. Try again once it is online.';
-    case 'server': {
-      const said: string[] = [];
-      if (check.failed.length) {
-        const names = listed(check.failed.map((f) => SERVER_PART_NAMES[f.part]));
-        // The server's own words when it said why (a sentence).
-        const why = check.failed.map((f) => f.why.trim()).find((w) => /[.!?]$/.test(w));
-        said.push(`The server could not get your key in ${names}.${why ? ` ${why}` : ''}`);
-      }
-      if (check.mismatched.length) {
-        const names = listed(check.mismatched.map((p) => SERVER_PART_NAMES[p]));
-        said.push(`The server was given a different key from this device in ${names}.`);
-      }
-      return `${said.join(' ')} Sealing stays off, and nothing was sealed.`;
-    }
   }
 }

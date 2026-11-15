@@ -1,9 +1,20 @@
 import { Component, Injectable, inject, signal } from '@angular/core';
+import { NoteKeyService } from './note-key.service';
 
 /**
- * A write refused for want of the note key (the gardener's switch,
- * 2026-11-15): sealing is on, this device has no key yet, and the write
- * would have had to carry note text, so it was not done and not kept.
+ * What the app says when the garden's note key service is not set up
+ * (`/api/note-key` answered 503, 2026-11-15): a deployment whose owner
+ * has not set its master. Not a connection to wait for, so it says
+ * where its owner finds out how.
+ */
+export const KEY_SERVICE_MISSING =
+  "This garden's note key service is not set up yet, so nothing can be saved to it. " +
+  'Whoever runs it can set it up as the README, Run your own, says.';
+
+/**
+ * A write refused for want of the note key (2026-11-15): note text is
+ * always sealed, this device has no key yet, and the write would have
+ * had to carry note text, so it was not done and not kept.
  * NotesService says so here; the line below shows it on whatever page
  * the gardener acted on. Words typed, renames and Instructions for
  * Claude are kept and written later, so they say nothing here.
@@ -28,10 +39,14 @@ export class KeyWaitNotice {
   template: `
     @if (notice.refused()) {
       <p class="key-wait" role="status">
-        <span>
-          That was not done: this device is waiting for its note key, and needs a connection once to
-          get it. Try again then.
-        </span>
+        @if (keys.unconfigured()) {
+          <span>That was not done. {{ missing }}</span>
+        } @else {
+          <span>
+            That was not done: this device is waiting for its note key, and needs a connection once
+            to get it. Try again then.
+          </span>
+        }
         <button type="button" (click)="notice.clear()">OK</button>
       </p>
     }
@@ -55,4 +70,6 @@ export class KeyWaitNotice {
 })
 export class KeyWaitLine {
   protected readonly notice = inject(KeyWaitNotice);
+  protected readonly keys = inject(NoteKeyService);
+  protected readonly missing = KEY_SERVICE_MISSING;
 }

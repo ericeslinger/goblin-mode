@@ -85,8 +85,7 @@ export function firestoreNotesStore(
       const savedAt = FieldValue.serverTimestamp();
       // Every field the NoteVersion schema names, nothing more. The body
       // and title are the note's as stored (recordHistory, keepUnopened),
-      // sealed as they are kept when the gardener's switch is on
-      // (`keptForm`, 2026-11-15).
+      // sealed as they are kept (`keptForm`, 2026-11-15).
       const [body, title] = await Promise.all([
         keptForm(codec, noteId, 'body', v.body),
         keptForm(codec, noteId, 'title', v.title),
@@ -127,15 +126,14 @@ export function firestoreNotesStore(
       return out;
     },
 
-    async rememberReplaced(uid, noteId, body, form, writtenAt, stored = body) {
+    async rememberReplaced(uid, noteId, body, writtenAt, stored = body) {
       const col = db.collection(paths.replaced(uid, noteId));
-      // Keyed by the text, so the same text twice is one document. It
-      // holds the note's stored form, so a sealed note's text is never
-      // kept here in the clear; its id is the text's hash as baseHash
-      // holds it, keyed for a sealed note (2026-11-14), and with no key
-      // it throws, keeping nothing rather than a plain id.
-      await col.doc(await codec.hashText(noteId, body, form)).set({
-        // Sealed as it is kept with the switch on (2026-11-15).
+      // Keyed by the text, so the same text twice is one document. Its
+      // id is the text's keyed hash, as baseHash holds it (2026-11-14,
+      // always keyed since 2026-11-15), and with no key it throws,
+      // keeping nothing rather than a plain id.
+      await col.doc(await codec.hashText(noteId, body)).set({
+        // Sealed as it is kept (2026-11-15).
         body: await keptForm(codec, noteId, 'body', stored),
         writtenAt:
           writtenAt === undefined ? FieldValue.serverTimestamp() : Timestamp.fromMillis(writtenAt),
@@ -165,15 +163,15 @@ export function firestoreNotesStore(
         if (!write) return false;
         const update: Record<string, unknown> = {
           body: write.body,
-          // Keyed when the note is sealed (2026-11-14), as it stands now.
-          baseHash: await codec.hashText(noteId, write.over, note.hashForm),
+          // Keyed, as every hash written is (2026-11-15).
+          baseHash: await codec.hashText(noteId, write.over),
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: current['updatedBy'] === 'claude' ? 'claude' : 'user',
           deviceId: MERGE_DEVICE,
         };
         if (current['titleSource'] === 'words') update['title'] = firstWordsTitle(write.body);
-        // The merge keeps the note's form: sealed again under its own id.
-        tx.update(ref, await sealFields(codec, noteId, update, note.forms));
+        // Sealed under the note's own id, as every write is.
+        tx.update(ref, await sealFields(codec, noteId, update));
         return true;
       });
     },
@@ -185,10 +183,8 @@ export function firestoreNotesStore(
         if (!note.exists || note.get('titleSource') === 'user') return false;
         if (millis(note.get('settledAt')) !== forSettledAt) return false;
         // Only the title: updatedAt, updatedBy and deviceId stay the
-        // writer's. Sealed when the note's title or body is stored sealed
-        // (formsOf reads the stored values, opening nothing).
-        const forms = formsOf(note.data());
-        tx.update(ref, await sealFields(codec, noteId, { title, titleSource: 'llm' }, forms));
+        // writer's. Sealed, as every write is (2026-11-15).
+        tx.update(ref, await sealFields(codec, noteId, { title, titleSource: 'llm' }));
         return true;
       });
     },
@@ -197,9 +193,8 @@ export function firestoreNotesStore(
 
 /**
  * A copy of note `noteId`'s `field` as History or a replaced text keeps
- * it (2026-11-15): as stored, or, with the gardener's switch on, a plain
- * value sealed under the note's own id, so it opens as the note's does.
- * A sealed value is kept as it is. With the switch on and no key it is
+ * it (2026-11-15): a plain value sealed under the note's own id, so it
+ * opens as the note's does; a sealed value as it is. With no key it is
  * kept as stored: History keeps a text a write replaced so it is never
  * lost, and that text was stored plain already.
  */
@@ -209,9 +204,9 @@ async function keptForm(
   field: 'body' | 'title',
   value: string,
 ): Promise<string> {
-  if (isSealed(value) || !(await codec.sealingOn())) return value;
+  if (isSealed(value)) return value;
   try {
-    return await codec.seal(noteId, field, value, 'sealed');
+    return await codec.seal(noteId, field, value);
   } catch (err) {
     if (err instanceof SealedNoteError && err.reason === 'no-key') return value;
     throw err;

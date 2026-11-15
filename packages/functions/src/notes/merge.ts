@@ -39,16 +39,15 @@ export interface MergeStore {
   keptBodies(uid: string, noteId: string, limit: number): Promise<string[]>;
   /**
    * Keeps a text a write replaced, as of when it was written (ms),
-   * until a TTL policy removes it (`REPLACED_TTL_MS`): under the hash of
-   * `body`, the text, in `form` (keyed when sealed, 2026-11-14), and as
-   * `stored`, the note's own stored form of it (sealed when the note's
-   * body was), which opens with the note's aad.
+   * until a TTL policy removes it (`REPLACED_TTL_MS`): under the keyed
+   * hash of `body`, the text (always keyed since 2026-11-15), and as
+   * `stored`, the note's own stored form of it, sealed as it is kept,
+   * which opens with the note's aad.
    */
   rememberReplaced(
     uid: string,
     noteId: string,
     body: string,
-    form: NoteForm,
     writtenAt?: number,
     stored?: string,
   ): Promise<void>;
@@ -103,14 +102,7 @@ export async function rememberReplaced(
   const stored = before.stored?.body ?? before.body;
   if (stored.length > REPLACED_CHARS) return false;
   try {
-    await store.rememberReplaced(
-      uid,
-      noteId,
-      before.body,
-      hashFormOf(before, after),
-      before.updatedAt,
-      stored,
-    );
+    await store.rememberReplaced(uid, noteId, before.body, before.updatedAt, stored);
     return true;
   } catch (err) {
     warn('rememberReplaced failed', err);

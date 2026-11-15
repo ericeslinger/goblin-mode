@@ -104,6 +104,7 @@ import {
   type Takes,
   formsFound,
   recordForm,
+  SEALED_FORMS,
 } from '@mossgoblin/schema';
 import {
   type CollectionReference,
@@ -133,10 +134,7 @@ import {
   NoteSnap,
   SEALED_LEFT_OUT,
   SEALED_TITLE,
-  type Sealing,
-  formFrom,
   sealFields,
-  sealingIn,
   shownTitle,
 } from './note-text';
 import { ToolError } from './tool-error';
@@ -217,8 +215,8 @@ const touched = (id: string, d: Data, forms: NoteForms): Touched => ({
 });
 /**
  * A note the run made, so putting the run back archives it (#211). Its
- * forms are the ones it was written in (`NotesTools.newForms`, or
- * `formFrom` its sources), so a note born sealed is named as one.
+ * forms are the ones it was written in (sealed throughout, as every new
+ * note is since 2026-11-15), so it is named as a sealed note.
  */
 const touchedNew = (id: string, d: Data, forms: NoteForms): Touched => ({
   ...touched(id, d, forms),
@@ -294,19 +292,18 @@ export function withSeeAlso(body: string, names: readonly string[]): string {
 }
 
 /**
- * The title of project `parent`, refusing it unless it is a live
- * project that is neither `id` nor under it. Up the parent's chain, read
- * in `tx`, so two moves at once cannot make a loop (review on #95).
+ * Refuses project `parent` unless it is a live project that is neither
+ * `id` nor under it. Up the parent's chain, read in `tx`, so two moves
+ * at once cannot make a loop (review on #95). It said the project's
+ * title too, for a record, until 2026-11-15: a record names no project
+ * in the clear now that every note is sealed, so it reads no title.
  */
-export async function parentTitle(
+export async function checkParent(
   tx: Transaction,
   notes: CollectionReference,
   id: string,
   parent: string,
-  /** The gardener's switch is on (2026-11-15): a record names no project in the clear. */
-  sealing = false,
-): Promise<string> {
-  let title = '';
+): Promise<void> {
   const seen = new Set<string>();
   for (let at: string | undefined = parent; at;) {
     if (at === id) throw new ToolError('a project cannot go under itself or a project under it');
@@ -323,13 +320,8 @@ export async function parentTitle(
       if (at === parent) throw new ToolError(`no project ${parent}`);
       break;
     }
-    // A plain note's title only: a sealed one is left unsaid (2026-11-12),
-    // and since 2026-11-13 so is a plain title beside a sealed field.
-    if (at === parent && !sealing && recordForm(formsFound(data)) === 'plain')
-      title = String(data['title'] ?? '');
     at = data['parent'] as string | undefined;
   }
-  return title;
 }
 
 /**
@@ -671,10 +663,8 @@ export class NotesTools {
      * only when one is met, once per NotesTools (one request) at most.
      */
     keyFor: KeyFor = dataKeyFor,
-    /** The gardener's switch (2026-11-15); read from `db` unless given. */
-    sealing?: Sealing,
   ) {
-    this.codec = new NoteCodec(uid, keyFor, sealing ?? sealingIn(db, uid));
+    this.codec = new NoteCodec(uid, keyFor);
   }
 
   /** Opens and seals note text for this request (DESIGN.md, Note encryption). */
@@ -731,19 +721,16 @@ export class NotesTools {
 
   /**
    * Writes `data` to note `ref` in `w` (a transaction or batch; none for
-   * a direct update), each sealed field in it stored as `forms` says:
-   * the note's own forms when it rewrites a note, `newForms` or `formFrom`
-   * its sources for a new one.
+   * a direct update), each sealed field in it sealed (`sealFields`, as
+   * every write is since 2026-11-15).
    */
   private async writeNote(
     w: Transaction | WriteBatch | null,
     how: 'set' | 'update',
     ref: DocumentReference,
     data: Data,
-    forms: NoteForms,
   ): Promise<void> {
-    // No field is plainer than its body (review on #263): sealFields.
-    const out = await sealFields(this.codec, ref.id, data, forms);
+    const out = await sealFields(this.codec, ref.id, data);
     if (!w) {
       if (how === 'set') await ref.set(out);
       else await ref.update(out);
@@ -787,21 +774,12 @@ export class NotesTools {
 
   /**
    * The hash of `text`, a body of note `note`, as a `baseHash` or an
-   * activity entry's `before.body` holds it: plain for a plain note,
-   * keyed for a sealed one (`hashForm`, 2026-11-14), so a sealed note's
-   * text is never stored as a hash a guess can be checked against.
+   * activity entry's `before.body` holds it: keyed (2026-11-14, always
+   * since 2026-11-15), so a note's text is never stored as a hash a
+   * guess can be checked against.
    */
   private bodyHash(note: NoteSnap, text: unknown): Promise<string> {
-    return this.codec.hashText(note.id, String(text ?? ''), note.hashForm);
-  }
-
-  /**
-   * The forms a new note made from no other note's text is written in,
-   * and everything about it: sealed throughout with the gardener's
-   * switch on, plain with it off (2026-11-15).
-   */
-  private newForms(): Promise<NoteForms> {
-    return this.codec.forms();
+    return this.codec.hashText(note.id, String(text ?? ''));
   }
 
   // End of the note text boundary.
@@ -1096,9 +1074,9 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    // Born sealed with the gardener's switch on, plain with it off.
-    const forms = await this.newForms();
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
+    // Born sealed, as every note is (2026-11-15).
+    const forms = SEALED_FORMS;
+    await this.writeNote(batch, 'set', this.notes().doc(id), data);
     batch.set(...this.activity('create_note', 'Wrote a new note', [touchedNew(id, data, forms)]));
     await batch.commit();
     return { id, title: data.title };
@@ -1186,13 +1164,7 @@ export class NotesTools {
           baseHash: await this.bodyHash(had, kept['body']),
         };
         Note.parse({ ...kept, ...update });
-        await this.writeNote(
-          tx,
-          'update',
-          ref,
-          { ...update, deletedAt: FieldValue.delete() },
-          had.forms,
-        );
+        await this.writeNote(tx, 'update', ref, { ...update, deletedAt: FieldValue.delete() });
         const title = String(kept['title'] ?? name);
         tx.set(
           ...this.activity(
@@ -1207,8 +1179,8 @@ export class NotesTools {
       if (had.exists) throw new ToolError(`${name} is already a concept (${id})`);
       // A sealed concept or recipe that did not open may have this name.
       this.refuseWhileUnnamed(`making the concept ${name}`);
-      const forms = await this.newForms();
-      await this.writeNote(tx, 'set', ref, data, forms);
+      const forms = SEALED_FORMS;
+      await this.writeNote(tx, 'set', ref, data);
       tx.set(
         ...this.activity(
           'create_concept',
@@ -1275,16 +1247,14 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    const forms = await this.newForms();
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
+    const forms = SEALED_FORMS;
+    await this.writeNote(batch, 'set', this.notes().doc(id), data);
     if (owner !== undefined) {
-      await this.writeNote(
-        batch,
-        'update',
-        this.notes().doc(owner),
-        { archived: true, mergedInto: id, ...this.stamp() },
-        stubDoc!.forms,
-      );
+      await this.writeNote(batch, 'update', this.notes().doc(owner), {
+        archived: true,
+        mergedInto: id,
+        ...this.stamp(),
+      });
     }
     batch.set(
       ...this.activity('create_recipe', `Made the recipe ${titleIn(name, forms)}`, [
@@ -1365,8 +1335,8 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    const forms = await this.newForms();
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
+    const forms = SEALED_FORMS;
+    await this.writeNote(batch, 'set', this.notes().doc(id), data);
     batch.set(
       ...this.activity('import_recipe', `Asked to import a recipe from ${hostOf(url)}`, [
         touchedNew(id, data, forms),
@@ -1404,7 +1374,7 @@ export class NotesTools {
       const source = data?.['source'] as { url?: unknown } | undefined;
       if (data?.['kind'] !== 'recipe' || data['importState'] !== 'requested') return undefined;
       if (typeof source?.url !== 'string') return undefined;
-      await this.writeNote(tx, 'update', ref, { importState: 'working' }, found.forms);
+      await this.writeNote(tx, 'update', ref, { importState: 'working' });
       return source.url;
     });
     if (url === undefined) return 'skipped';
@@ -1417,13 +1387,10 @@ export class NotesTools {
       const why = err instanceof Error ? err.message : String(err);
       const still = await this.readNote(id);
       if (still.exists) {
-        await this.writeNote(
-          null,
-          'update',
-          ref,
-          { importState: 'failed', importError: why.slice(0, 500) },
-          still.forms,
-        );
+        await this.writeNote(null, 'update', ref, {
+          importState: 'failed',
+          importError: why.slice(0, 500),
+        });
       }
       return 'failed';
     }
@@ -1458,7 +1425,7 @@ export class NotesTools {
       if (data['importState'] !== 'failed') {
         throw new ToolError('only a recipe whose import failed takes a pasted page');
       }
-      await this.writeNote(tx, 'update', ref, { importState: 'working' }, found.forms);
+      await this.writeNote(tx, 'update', ref, { importState: 'working' });
       return source.url;
     });
     try {
@@ -1467,7 +1434,7 @@ export class NotesTools {
     } catch (err) {
       const still = await this.readNote(id);
       if (still.exists) {
-        await this.writeNote(null, 'update', ref, { importState: 'failed' }, still.forms);
+        await this.writeNote(null, 'update', ref, { importState: 'failed' });
       }
       return {
         state: 'failed',
@@ -1523,16 +1490,14 @@ export class NotesTools {
       const { importError: _, ...shown } = update;
       Note.parse({ ...current, ...shown });
       // The recipe keeps the form its text was found in.
-      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      await this.writeNote(tx, 'update', ref, update);
       if (rename?.stub) {
         // No text in this write, so no form to keep; none is sealed.
-        await this.writeNote(
-          tx,
-          'update',
-          this.notes().doc(rename.stub),
-          { archived: true, mergedInto: id, ...this.stamp() },
-          await this.newForms(),
-        );
+        await this.writeNote(tx, 'update', this.notes().doc(rename.stub), {
+          archived: true,
+          mergedInto: id,
+          ...this.stamp(),
+        });
       }
       const after = { ...current, ...shown } as Data;
       tx.set(
@@ -1584,8 +1549,8 @@ export class NotesTools {
       const base = { links: [], tags: [], archived: false, createdAt: now, updatedAt: now };
       const by = this.by();
       const body = planBody(start, config);
-      // Both born sealed with the gardener's switch on (2026-11-15).
-      const forms = await this.newForms();
+      // Both born sealed, as every note is (2026-11-15).
+      const forms = SEALED_FORMS;
       const fishNamed = names.get(normalizeName(FISH_NAME));
       // Not while a sealed concept or recipe's name is unknown here: it
       // may be the placeholder's own, made with another id.
@@ -1607,7 +1572,6 @@ export class NotesTools {
             title: FISH_NAME,
             titleSource: 'user',
           }),
-          forms,
         );
         names.set(normalizeName(FISH_NAME), FISH_ID);
       }
@@ -1625,7 +1589,6 @@ export class NotesTools {
           periodStart: start,
           links: resolveLinks(targetsOf(body), names),
         }),
-        forms,
       );
       return true;
     });
@@ -1758,7 +1721,7 @@ export class NotesTools {
       if (was === undefined) {
         const update = { ...this.stamp(), periodStart: start };
         Note.parse({ ...old.data(), ...update });
-        await this.writeNote(tx, 'update', oldRef, update, old.forms);
+        await this.writeNote(tx, 'update', oldRef, update);
         tx.set(
           ...this.activity(
             'plan_meal',
@@ -1778,10 +1741,8 @@ export class NotesTools {
       let ref = this.notes().doc(shoppingListId(start));
       const derived = await this.readNote(ref.id, tx);
       const name = shoppingListTitle(start);
-      // A new list holds the template's and the old list's text: their form.
-      let forms = derived.forms;
+      const forms = SEALED_FORMS;
       if (!derived.exists || derived.get('archived') === true || inTrash(derived.known())) {
-        forms = formFrom([template, old]);
         if (derived.exists) ref = this.notes().doc(newId());
         const body = shoppingListBody(
           String(template.get('body') ?? ''),
@@ -1803,11 +1764,11 @@ export class NotesTools {
           updatedAt: now,
           ...this.by(),
         });
-        await this.writeNote(tx, 'set', ref, data, forms);
+        await this.writeNote(tx, 'set', ref, data);
       }
       const archived = { ...this.stamp(), archived: true };
       Note.parse({ ...old.data(), ...archived });
-      await this.writeNote(tx, 'update', oldRef, archived, old.forms);
+      await this.writeNote(tx, 'update', oldRef, archived);
       tx.set(
         ...this.activity('plan_meal', `Started ${titleIn(name, forms)} and archived ${title}`, [
           touched(ref.id, { title: name }, forms),
@@ -2020,7 +1981,7 @@ export class NotesTools {
       }
       Note.parse(withoutDeletes({ ...current, ...update }));
       // Each field stays in the form it was found in.
-      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      await this.writeNote(tx, 'update', ref, update);
       const changed = [
         args.body !== undefined && 'text',
         args.title !== undefined && 'title',
@@ -2170,7 +2131,7 @@ export class NotesTools {
         links: this.relink(next, index, current['links']),
       };
       Note.parse({ ...current, ...update });
-      await this.writeNote(tx, 'update', from.ref, update, from.forms);
+      await this.writeNote(tx, 'update', from.ref, update);
       tx.set(
         ...this.activity('link_notes', `Linked a note to ${plural(names.length, 'other')}`, [
           touched(from.id, current, from.forms),
@@ -2241,11 +2202,11 @@ export class NotesTools {
       Note.parse({ ...current, ...update });
       // What is left keeps its form; each piece, the source's text opened
       // under its id and sealed again under the piece's own, takes it too.
-      const pieceForms = formFrom([doc]);
-      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      const pieceForms = SEALED_FORMS;
+      await this.writeNote(tx, 'update', ref, update);
       for (const p of pieces) {
         p.data['links'] = resolveLinks(targetsOf(String(p.data['body'])), after);
-        await this.writeNote(tx, 'set', this.notes().doc(p.id), Note.parse(p.data), pieceForms);
+        await this.writeNote(tx, 'set', this.notes().doc(p.id), Note.parse(p.data));
       }
       tx.set(
         ...this.activity('split_note', `Split a note into ${cuts.length}`, [
@@ -2323,12 +2284,12 @@ export class NotesTools {
       ).filter((l) => l !== id);
       // The originals' text, each opened under its own id, sealed again
       // under the merged note's when any of them was sealed.
-      const forms = formFrom(snaps);
-      await this.writeNote(tx, 'set', this.notes().doc(id), Note.parse(merged), forms);
+      const forms = SEALED_FORMS;
+      await this.writeNote(tx, 'set', this.notes().doc(id), Note.parse(merged));
       for (const o of originals) {
         const update = { ...this.stamp(), archived: true, mergedInto: id };
         Note.parse({ ...o.data, ...update });
-        await this.writeNote(tx, 'update', this.notes().doc(o.id), update, o.forms);
+        await this.writeNote(tx, 'update', this.notes().doc(o.id), update);
       }
       tx.set(
         ...this.activity('merge_notes', `Merged ${plural(ids.length, 'note')} into one`, [
@@ -2412,15 +2373,9 @@ export class NotesTools {
           said.push('moved to the top level');
         }
       } else if (args.parent !== undefined && args.parent !== current['parent']) {
-        const title = await parentTitle(
-          tx,
-          this.notes(),
-          args.id,
-          args.parent,
-          await this.codec.sealingOn(),
-        );
+        await checkParent(tx, this.notes(), args.id, args.parent);
         update['parent'] = args.parent;
-        said.push(`filed under ${title || args.parent}`);
+        said.push(`filed under ${args.parent}`);
       }
       if (args.kind && args.kind !== current['projectKind']) {
         update['projectKind'] = args.kind;
@@ -2507,7 +2462,7 @@ export class NotesTools {
       const entry = await this.touchedFieldsOf(doc, update);
       Object.assign(update, this.stamp());
       Note.parse(withoutDeletes({ ...current, ...update }));
-      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      await this.writeNote(tx, 'update', ref, update);
       const what = `Refiled ${titleIn(current['title'], doc.forms) || 'a note'}: ${said.join('; ')}`;
       tx.set(...this.activity('refile', what, [entry]));
       return { id: args.id, changed: said, refused };
@@ -2526,7 +2481,7 @@ export class NotesTools {
       if ((current['archived'] === true) === archived) return { id: args.id, archived };
       const update = { ...this.stamp(), archived };
       Note.parse({ ...current, ...update });
-      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      await this.writeNote(tx, 'update', ref, update);
       tx.set(
         ...this.activity('archive_note', archived ? 'Archived a note' : 'Restored a note', [
           touched(args.id, current, doc.forms),
@@ -2592,7 +2547,7 @@ export class NotesTools {
       }
       const update = { sendState: 'done', sendOutcome: outcome };
       Note.parse({ ...current, ...update });
-      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      await this.writeNote(tx, 'update', ref, update);
       // A sealed note's outcome is not said in the clear (2026-11-13).
       const what =
         recordForm(doc.forms) === 'sealed'
@@ -2770,8 +2725,8 @@ export class NotesTools {
     const batch = this.db.batch();
     // The template's text, opened under its id, sealed again under the
     // new note's when the template was sealed.
-    const forms = formFrom([doc]);
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
+    const forms = SEALED_FORMS;
+    await this.writeNote(batch, 'set', this.notes().doc(id), data);
     batch.set(
       ...this.activity(
         'use_template',
@@ -2829,12 +2784,21 @@ export class NotesTools {
       Note.parse({ ...current, ...update });
       await opts.also?.(tx);
       // The text stays in the form it was found in.
-      await this.writeNote(tx, 'update', ref, update, doc.forms);
+      await this.writeNote(tx, 'update', ref, update);
       const entry = opts.made
         ? touchedNew(id, current, doc.forms)
         : touched(id, current, doc.forms);
-      // A summary can quote the lines it wrote: for a sealed note it says only that.
-      const summary = doc.forms.body === 'sealed' ? 'Changed a sealed note' : result.summary;
+      // A summary can quote the lines it wrote: for a sealed note, which
+      // every note is since 2026-11-15, it says only how many lines it
+      // added (the digest counts them, as the migration's relabel kept
+      // them), else only that it changed one.
+      const added = /^Added (\d+) (lines?)\b/.exec(result.summary);
+      const summary =
+        doc.forms.body !== 'sealed'
+          ? result.summary
+          : added
+            ? `Added ${added[1]} ${added[2]} to a sealed note`
+            : 'Changed a sealed note';
       tx.set(...this.activity(tool, summary, [entry]));
       return { id, changed: true, body: result.body };
     });
@@ -2958,7 +2922,7 @@ export class NotesTools {
       // does, so a retry never makes a second copy (review on #97). It
       // names the project, so it takes a sealed project's form.
       const names = new Map(index).set(normalizeName(title), id);
-      const forms = formFrom([snap]);
+      const forms = SEALED_FORMS;
       await this.editBody(
         projectId,
         'capture',
@@ -2969,7 +2933,7 @@ export class NotesTools {
         {
           names,
           also: async (tx) => {
-            await this.writeNote(tx, 'set', this.notes().doc(id), data, forms);
+            await this.writeNote(tx, 'set', this.notes().doc(id), data);
             tx.set(...this.activity('capture', 'Wrote a new note', [touchedNew(id, data, forms)]));
           },
         },
@@ -3358,10 +3322,9 @@ export class NotesTools {
     });
     const id = newId();
     const batch = this.db.batch();
-    // A page's words: plain with the switch off, as before; with it on a
-    // clipping is a note like any other, born sealed (2026-11-15).
-    const forms = await this.newForms();
-    await this.writeNote(batch, 'set', this.notes().doc(id), data, forms);
+    // A page's words, but a note like any other: born sealed (2026-11-15).
+    const forms = SEALED_FORMS;
+    await this.writeNote(batch, 'set', this.notes().doc(id), data);
     batch.update(ref, { noteId: id, updatedAt: now });
     const filed = titleIn(data.title, forms);
     batch.set(
@@ -3430,7 +3393,7 @@ export class NotesTools {
       const doc = await this.readNote(PANTRY_ID, tx);
       if (doc.exists) {
         if (doc.get('archived') === true) {
-          await this.writeNote(tx, 'update', ref, { archived: false, ...this.stamp() }, doc.forms);
+          await this.writeNote(tx, 'update', ref, { archived: false, ...this.stamp() });
         }
         return false;
       }
@@ -3451,7 +3414,6 @@ export class NotesTools {
           updatedAt: now,
           ...this.by(),
         }),
-        await this.newForms(),
       );
       return true;
     });

@@ -12,15 +12,15 @@ import { describe, expect, it } from 'vitest';
 // what the boundary does.
 const source = readFileSync(new URL('./tools.ts', import.meta.url), 'utf8');
 
-/** tools.ts without the boundary itself, and without parentTitle (below). */
+/** tools.ts without the boundary itself, and without checkParent (below). */
 function outsideBoundary(): string[] {
   const start = source.indexOf('// The note text boundary (2026-11-12).');
   const end = source.indexOf('// End of the note text boundary.');
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
-  // parentTitle is exported for put back and reads only a project's
-  // filing and its title, which it leaves unsaid when sealed.
-  const pStart = source.indexOf('export async function parentTitle(');
+  // checkParent is exported for put back and reads only a project's
+  // filing, never its text.
+  const pStart = source.indexOf('export async function checkParent(');
   const pEnd = source.indexOf('\n}\n', pStart);
   expect(pStart).toBeGreaterThan(0);
   return [source.slice(0, pStart), source.slice(pEnd, start), source.slice(end)].flatMap((part) =>

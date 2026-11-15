@@ -4340,11 +4340,19 @@ them to `scripts/deploy.sh`:
   `APP_DOMAIN` as a var, and `NOTE_KEY_CALLERS`, the service accounts
   it answers: the variable of that name if set, else worked out from
   `FIREBASE_PROJECT_ID` and the project number in the web config
-  (2026-11-13).
+  (2026-11-13). Required since 2026-11-15 (always sealed): with
+  neither, the deploy stops before building.
 - Not through the deploy at all: the note key service's master,
   `NOTE_KEYS_MASTER` on the Worker, set once by hand (Note
   encryption, Key custody, 2026-11-12). The service secret that
-  stood beside it is gone (2026-11-13).
+  stood beside it is gone (2026-11-13). Required since 2026-11-15:
+  the deploy checks its name is among the Worker's secrets after the
+  Worker deploys, and fails if it is not.
+- Functions taken out of the code are deleted by name before the
+  functions deploy (`scripts/deploy-functions.sh`, 2026-11-15): a
+  non-interactive deploy aborts on a function the source no longer
+  exports. The first are the sealing switch's three key checks and
+  the migration's callable.
 
 The deploy fails before building when a required variable is missing
 or the web config names another project. Optional ones leave their
@@ -4521,7 +4529,10 @@ under `/api/*`, which runs the Worker first):
 
 Both answer `Cache-Control: no-store`, send no CORS headers, and refuse
 a request the browser marks as cross-site or same-site. Without the
-master both answer 503; the app carries on without a key.
+master both answer 503; the app carries on without a key. (Changed
+2026-11-15, Always sealed, below: without a key the app keeps what is
+typed on the device and saves nothing, so the master is required, and a
+503 is said as the service not being set up.)
 
 *The app* (`NoteKeyService`, started at launch with the other root
 services) asks once a load when a gardener is signed in and online,
@@ -4529,7 +4540,10 @@ holds the key in memory as a signal, and keeps the raw key on the
 device under `goblin.noteKey.<uid>`, so a later start offline has it
 at once. A failure goes to the console and is tried again when the
 device is back online or on the next load; no key is simply none, and
-nothing waits on it. Signing out forgets every device copy. A copy on
+nothing waits on it. (Changed 2026-11-15: note text is always written
+sealed, so saves wait on the device for the key, Always sealed,
+below; a 503 also sets `unconfigured`.) Signing out forgets every
+device copy. A copy on
 the device is as exposed as the notes in the device's Firestore cache
 it would open.
 
@@ -4594,16 +4608,17 @@ error, to be tried again, not a service never set up (review on
   `goblin-runner` (`agentRun`, `attachmentTranscribe`) and the
   default compute account (`mcp`, `itemAssigned`, `noteArrived`,
   `noteHistory`, `proposalAccepted`, `revertRun`, `rerouteRun`).
-  Since 2026-11-15 each account also runs one key check callable
-  (`checkNoteKey` as the default account, `checkNoteKeyTitles` as
-  `goblin-titles`, `checkNoteKeyRunner` as `goblin-runner`), which
-  reads no notes but asks for a key to prove the account can.
+  From the gardener's switch to always sealed, both 2026-11-15, each
+  account also ran one key check callable (`checkNoteKey`,
+  `checkNoteKeyTitles`, `checkNoteKeyRunner`), and the default
+  account the migration's `sealEverything`; all four are gone.
   `goblin-keys` reads no notes and is not on it. `scripts/deploy.sh`
   passes the variable of that name if set, else derives the three
   from the project id and the project number in the web config
   (`messagingSenderId`, which must agree with the middle of
   `appId`). With no list the route answers 503 to everyone; a good
-  token for an account not on it gets 403.
+  token for an account not on it gets 403. (Since 2026-11-15 the
+  deploy stops when it can work out no list.)
 
 *What a stolen token is worth.* An hour, at most, of asking this one
 route for any gardener's key, as the account it was minted for. It
@@ -4622,7 +4637,14 @@ would narrow that; it is not done.
 development master (`dev-master.emulator.ts`). The e2e static server
 (`scripts/serve-static.mjs`) answers `POST /api/note-key` the same
 way for an Auth emulator token. `ng serve` has no `/api/*` at all, so
-there the app has no key, as it has no episode proxy.
+there the app has no key, as it has no episode proxy. (Changed
+2026-11-15, always sealed: with no key nothing typed is saved, so
+`npm run emulators` starts the same stand-in on its own,
+`scripts/note-key-stand-in.mjs` on 127.0.0.1:5099, and the dev
+server's development configuration proxies `/api/note-key` to it,
+`packages/frontend/proxy.dev.json`. The static server imports the same
+handler. Neither is bundled or deployed; each file carries
+`EMULATOR_ONLY`.)
 
 *What it protects.* A copy of Firestore, a backup or a console read
 shows ciphertext, and so does anything holding Google credentials
@@ -4634,7 +4656,9 @@ identity token is good for an hour (Identity tokens, above).
 *Losing the master loses the notes.* Cloudflare never shows a secret
 again once it is set, so Eric keeps the master in his own backup,
 apart from both providers, before any note is sealed (README, Run
-your own). Replacing it changes every key.
+your own). Replacing it changes every key. (Since 2026-11-15 every
+note is sealed from its first save, so a fork sets it before first
+use.)
 
 *Rotation* means a new key version: `v2` derived from a new master
 (or the same one with the new version in its info), the routes
@@ -4741,7 +4765,8 @@ written beside a sealed body is sealed too, since a title made from
 the body's first words would say them in the clear (review on #263).
 A new note is plain until the
 gardener's switch (a later step), but for one made from another note's
-text: split pieces, a merged note, a note from a template, a new
+text (since 2026-11-15 every new note is born sealed, Always sealed,
+below): split pieces, a merged note, a note from a template, a new
 week's grocery list, and an idea or question `capture` files (it names
 its project) are sealed, both fields, when any field of any source is
 sealed. Each source's text is opened under its own id and sealed again
@@ -5229,9 +5254,16 @@ Cloudflare on 2026-11-15, so the key service answers in production
 unauthenticated call with 401). This step adds the switch that turns
 sealing on, and makes every writer, in the app and on the server,
 honour it. The migration of notes nobody touches is the next step.
+(Removed the same day, once the migration had run: Always sealed,
+below. What is said here of the switch, its check, its setting and of
+writes with it off is history; what is said of writes with it on is
+how every write goes now, and the key-less paths stand as written but
+for the setting not yet heard, which is gone.)
 
 *The setting.* `sealNotes`, a boolean in `settings/assistant`
 (`AssistantSettings`, packages/schema/src/model.ts), off when absent.
+(Read by nothing since 2026-11-15; kept in the schema so a document
+holding it still validates, Always sealed, below.)
 That doc is already written by the app, read by the functions, and
 kept until acknowledged on the device (#224, #259). A stored-schema
 change (Eric to read): the field went into the zod schema, `npm run
@@ -5244,10 +5276,12 @@ gardener can neither set nor read it.
 means (the text is encrypted before it is stored; the key is kept
 apart from the notes, with Cloudflare; attachments, the links pages
 came from and reminder text are not sealed), the switch, and a status
-line saying its state or how the check went.
+line saying its state or how the check went. (Since 2026-11-15 the
+sentences alone, read only, and a line when this device has no key.)
 
 *The check before it turns on* (`SealingService.turnOn`,
-notes/sealing.service.ts; packages/functions/src/note-keys/check.ts).
+notes/sealing.service.ts; packages/functions/src/note-keys/check.ts;
+all removed 2026-11-15, with `key-check.ts` and the three callables).
 Turning the switch on first proves, end to end, that (a) this device
 gets its key from `/api/note-key` now (`NoteKeyService.fetchNow`, a
 fresh ask), and (b) every part of the server gets the same key its
@@ -5297,16 +5331,21 @@ the stand-in key source, so they agree with the static server's.
 *Off again* is the write alone, with no check. Writers keep the form
 they find (`writtenForms`, 2026-11-13): a sealed note stays sealed
 when written, and opens as before. Nothing is unsealed by the switch.
+(There is no off since 2026-11-15, and `writtenForms` is gone.)
 
 *What on means: every write of a sealed field writes it sealed.* One
 rule, `writtenForms(found, sealing)` (sealed-note.ts): with the
 switch on every field a write holds is sealed, whatever was found;
-off, the form found, as before. So a new note is born sealed in every
-field, and an existing plain note is sealed in the fields a write
+off, the form found, as before. (Since 2026-11-15 there is no rule to
+apply: `sealFields` and the app's `sealWrite` seal every sealed field
+a write holds, and `writtenForms` is gone.) So a new note is born
+sealed in every field, and an existing plain note is sealed in the fields a write
 touches. Not the rest of it: a write that changes the body seals the
 body and its words title, but a plain other name or Instructions for
 Claude the write did not touch stays plain until a write touches it
-or the migration does. That is narrower than "a note is never half and
+or the migration does (since 2026-11-15, until noteHistory seals it
+after that write, in a transaction of its own: Always sealed, below).
+That is narrower than "a note is never half and
 half" and was chosen on purpose. On the app every write is a merged
 write from the device's cached copy, and offline that copy can be old:
 writing back the fields it did not change, to seal them, would put an
@@ -5362,7 +5401,9 @@ forms a write and its records go by are sealed throughout
 *Every writer.* On the server every write of note text already went
 through `sealFields`; it now reads the switch from its codec, so no
 writer can write a sealed field plain past it, whatever forms it is
-handed. Each `NoteCodec` takes the switch (`sealingIn(db, uid)`, read
+handed. (Since 2026-11-15 the codec takes no switch, `sealingIn` and
+`sealingOn` are gone, and `sealFields` takes no forms.) Each
+`NoteCodec` takes the switch (`sealingIn(db, uid)`, read
 once a request or event, lazily: the first time a note is opened or
 written with text, never for a write with no text), so every tool
 (create_note, capture, add_lines, update_note, link, split, merge,
@@ -5430,9 +5471,13 @@ the clear and no keystroke is lost.
 - Two tabs on one device share the kept saves: the last save of a
   held note, from either tab, is the one kept. A tab's words not yet
   in it are in that tab alone.
-- Until the switch is known (review on #276), enforced in the seam,
-  not by callers: known means heard from the server, a cached copy of
-  the doc, or what this device remembers the server last said
+- (Removed 2026-11-15 with the switch: no save is held for want of
+  hearing a setting, and no write waits in memory for one; the only
+  hold left is for the key. Saves held so by an app from before stay
+  in the kept saves and are written once the key is here, as any held
+  save is.) Until the switch is known (review on #276), enforced in
+  the seam, not by callers: known means heard from the server, a
+  cached copy of the doc, or what this device remembers the server last said
   (`goblin.sealNotes.<uid>`). A cache with no doc is not knowing. Every
   save is held as above, so typing is accepted at once; any other write
   that holds note text waits in memory for the switch and then goes out
@@ -5458,7 +5503,8 @@ the clear and no keystroke is lost.
   write in flight is. `ready` no longer waits for the switch.
 
 *Its limits.* A device that never gets online, or never gets its key,
-keeps its words in local storage for good, and only there. A device
+keeps its words in local storage for good, and only there. (The rest
+of this paragraph went with the switch, 2026-11-15.) A device
 signed in but never told the switch by the server (it cached nothing
 of `settings/assistant` and remembers nothing, then went offline)
 accepts every keystroke and holds every save on the device, plain
@@ -5504,7 +5550,8 @@ item, the same day, below.)
 
 - Nothing, once Eric has run Seal everything now and its check finds
   nothing left in the clear. What stays plain on purpose is listed
-  under The migration, below.
+  under The migration, below. (He ran it on 2026-11-15, and the check
+  found nothing: Always sealed, below.)
 
 **The migration (2026-11-15).** With the switch on, every write seals
 what it touches; everything written before it, and the fields a write
@@ -5512,6 +5559,8 @@ did not touch, stayed plain. Seal everything now, in Settings, Sealed
 notes, seals the rest, once, when Eric asks. It is shown only with the
 switch on. No stored schema, rules or auth changed: every value it
 writes is a string where a string was, and nothing records progress.
+(Eric ran it the same day, and the runner was then removed: Always
+sealed, below, says what of it was kept. What follows is how it ran.)
 
 *Eric's decisions (2026-11-15).*
 
@@ -5801,7 +5850,165 @@ out.
 nothing left in the clear; two days later the plain replaced texts are
 gone. Then readers can move to `openSealedText` (2026-11-12), which
 refuses plain text, and `noteTextHashMatches` can stop accepting plain
-hashes; both are later steps, not this one.
+hashes; both are later steps, not this one. (2026-11-15: he ran it;
+readers still take plain text for the reasons under Always sealed,
+below, so the move to `openSealedText` stays a later step.)
+
+**Always sealed (2026-11-15).** Eric ran the migration on his garden
+the same day: 86 notes and 182 versions sealed, 317 entries in What
+assistants changed relabelled, and the check after found nothing left
+in the clear; he saw in the Firestore console that titles and bodies
+are stored sealed. 42 plain replaced texts expire by 2026-11-16. Then
+he decided, in his words: "now that the notes are all sealed, can you
+remove the seal option and seal-all runner button from the settings
+panel (and their respective RPCs?) - I want seal to be always on, not
+an option, post migration." This change waits for him: it deletes
+deployed functions and keeps a stored field nothing reads.
+
+*No switch.* Every writer, in the app and on the server, writes note
+text sealed, always, as it did with the switch on. On the server
+`NoteCodec` takes the uid and a key source only: `seal`, `hashText`
+and `sealRecord` seal or key whatever they are given, `sealFields`
+seals every sealed field a write holds and takes no forms, a
+NoteSnap's `forms` is sealed throughout (reading still goes by its
+`storedForms`), and `sealingIn`, `sealingOn`, `forms()`, `formFrom`,
+`PLAIN` and `writtenForms` are gone. So every record about notes is
+sealed or labelled and every hash stored is keyed, as with the switch
+on. In the app `SealingService` and `NOTE_SEALING` are gone; the seam
+(`sealWrite`) and `inForm` seal every field with the device's key, and
+are synchronous again, so with the key a save goes straight into the
+persistent cache, as before #276, only sealed. `sealing-boundary.spec.ts`
+now says it plainly: nothing on either side names a plain form or
+reads a sealing setting, every direct write of note text goes through
+`sealFields` or the app's seam, and neither has a plain way out.
+
+*The one reason a save waits: no key.* With the switch went "the
+setting is not known yet", and every write that waited on it, in
+local storage or in memory (`whenKnown`). The app holds a save on the
+device only while it has no key (a new device that has not yet reached
+`/api/note-key`, or one whose key service is down), and everything
+that made that safe stands: held saves shown after a reload and merged
+with typing, replayed in either order (key or server snapshot first),
+a new note's held save written from the cache as soon as the key is
+here, the Trash guard, the `waiting` status and the calm line, and
+refused writes that carry text saying so. A device with its key, on
+its first load or after a reload, online or offline, holds nothing.
+Saves an app from before held while it had not heard the switch are
+kept saves of the same shape, and are written once the key is here.
+What it remembered of the switch (`goblin.sealNotes.<uid>`) holds
+nothing now and is cleared at every sign-in and sign-out.
+
+*The stored setting.* `sealNotes` stays in `AssistantSettings` as an
+optional boolean that nothing reads, and Eric's document keeps it
+`true`. The generated validator allows only the fields the schema
+names, so taking the field out would refuse his document's next write;
+removing it from the document first would need a deploy of its own,
+and an app still running a cached copy from before reads it to seal.
+No rules change: `npm run rules:gen -- --check` finds no drift.
+
+*Removed.* Settings' switch and its check, Seal everything now and its
+component; the callables `checkNoteKey`, `checkNoteKeyTitles`,
+`checkNoteKeyRunner` and `sealEverything` (and the deploy deletes them
+by name, Deploy configuration); `freshDataKeyFor`; `key-check.ts` and
+`seal-all.ts` in schema; the runner's pass, cursor, dry run, report,
+page loop, and its suggestion, run and activity relabels
+(`notes/seal-all.ts`, `notes/seal-everything.ts`, `agent/seal-runs.ts`).
+Settings keeps a short, read-only Sealed notes paragraph: note text is
+always sealed before it is stored, the key is kept apart from the
+notes with Cloudflare, and attachments, the links pages came from and
+reminder text are not; and, when this device has no key, a line that
+says so.
+
+*Kept from the migration: the server seals a plain write.* With the
+runner gone, a note written plain, by an app still running a cached
+copy from before #276 (which writes body and title plain), would stay
+plain for ever. So noteHistory, which runs on every note write, ends by
+looking at the document the write left (`sealWrittenPlain`,
+`notes/seal-plain.ts`): when any sealed field holds plain text, or
+`baseHash` is a plain hash, it seals that note with the migration's
+per-note pass (`sealNote`), kept for this alone. The check reads only
+the snapshot the trigger already holds, before any key is asked for or
+any document read, so a write from an up-to-date writer costs nothing
+more. The pass is the migration's: a transaction that reads the note
+as it is now, changes the form of its text and its hash and nothing
+else (no `updatedAt`, `updatedBy` or `deviceId`), and checks that each
+sealed value opens back to exactly the text it replaces before
+writing. A plain `baseHash` is keyed to the text it names, found among
+the texts the trigger already opened (the body the write replaced),
+the replaced texts and the newest History versions, or to nothing
+(`UNKEPT_TEXT`) when it is kept nowhere. A recipe whose import was
+asked for in the last 15 minutes is left to the import's own next
+write, which this trigger sees in turn.
+
+- *No loop.* The seal's own write fires noteHistory again: before and
+  after open to the same text, so nothing is kept, remembered or
+  merged (the migration's analysis), and the check finds nothing
+  plain. noteTitle, itemAssigned and noteArrived start on `settledAt`,
+  which it never writes. Specs over the fake Firestore show it
+  (on-write.sealed.spec.ts).
+- *A device mid-edit.* The seal is a transaction, so a device's write
+  landing at the same moment makes it read again and seal the newest
+  text, or comes after it. An up-to-date device opens the sealed text
+  to the same words and its editor sees no change; its next save has
+  a base keyed to them. An out-of-date device's next save carries a
+  plain base of the text it saw, which the merge matches as plain
+  against the opened text before it (2026-11-14): its write stands,
+  and is sealed in turn.
+- *No key.* The note is left as stored, the log says so by its id and
+  the reason (never text), and its next write tries again. Nothing
+  throws, so nothing retries in a loop.
+- *History.* The version noteHistory keeps of a plain write's text is
+  sealed as it is kept (`keptForm`, since #276; without the key kept
+  as stored, plain, rather than lost).
+
+*Records written plain.* Activity entries, suggestions and runs are
+written only by the functions, which always run the deployed code,
+so no out-of-date device can write one plain. A run the app starts
+(Do it now, Send to) carries no note text. So nothing seals records
+after the fact, and the relabel passes went with the runner.
+
+*What still reads plain, and why.* Plain text can still exist: the
+replaced texts kept plain until they expire, anything restored from a
+backup made before the migration, and a note an out-of-date app wrote
+before noteHistory sealed it. Every reader opens a plain value as it
+is, as since step 3a, and plain hashes are still matched as plain
+(2026-11-14). Moving readers to `openSealedText` stays a later step.
+
+*Running your own.* The note key service is no longer optional: a
+deployment without `NOTE_KEYS_MASTER` cannot save a note, and the app
+waits for a key that never comes. So the README says the master is
+required and set before first use, with the warning to save it; the
+deploy stops before building when it cannot work out
+`NOTE_KEY_CALLERS`, and fails at its end, after the Worker is up, when
+the master is not among the Worker's secrets. When `/api/note-key`
+answers 503, as it does with no master, `NoteKeyService.unconfigured`
+is set and the waiting line, the refused line and Settings say this
+garden's note key service is not set up and point at the README, Run
+your own, instead of asking for a connection. There is no deployment
+switch to turn sealing off.
+
+*Local development.* Every journey and the dev server need a key from
+the first keystroke. The e2e static server already answered
+`/api/note-key`; its handler is now `scripts/note-key-stand-in.mjs`,
+which `npm run emulators` also runs on its own for `ng serve`
+(Localhost, above). `signInAs` waits for the device's key, so journeys
+that read what was written do not race it. The functions emulator's
+stand-in key source is as it was, and the functions dry run still
+fails if `EMULATOR_ONLY` reaches the bundle. `always-sealed.spec.ts`
+is the journey: a fresh sign-in types a note, its stored body and
+title are sealed, a reload reads it, Claude reads it through MCP, and
+a note written plain straight into the emulator is found sealed
+shortly after.
+
+*Summaries.* A line edit's record for a sealed note said only
+"Changed a sealed note" (#276); for `add_lines` it now says how many
+lines it added ("Added 2 lines to a sealed note"), as the migration's
+relabel kept it, so the daily digest counts them. The app's digest
+names each note by its own title, as the list beside it does. The
+scheduled digest push reads the records alone and names every note
+"Sealed note" (Eric to read). No MCP tool's name or input changed; a
+refile's answer no longer lists the names it added, as for any sealed
+concept since step 3d.
 
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,

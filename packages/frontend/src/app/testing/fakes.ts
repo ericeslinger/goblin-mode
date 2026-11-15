@@ -96,8 +96,8 @@ export class FakeNotes {
           ...(id in this.heldBases() ? { base: this.heldBases()[id] } : {}),
         }
       : undefined;
-  sealingKnown = () => true;
-  sealingOn = () => false;
+  /** The note key service answered 503: not set up (2026-11-15). */
+  readonly keyServiceMissing = signal(false);
   private n = 0;
   readonly written = new Set<string>();
   save = vi.fn(

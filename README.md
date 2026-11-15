@@ -19,7 +19,11 @@ npm start -w packages/frontend   # terminal 2: http://localhost:4200
 
 On localhost the app always talks to the emulators. Sign in at
 `/dev-sign-in` with any email and password you created in the Auth
-emulator, or with the Google button (emulated).
+emulator, or with the Google button (emulated). `npm run emulators`
+also starts a stand-in for the Worker's note key service on port 5099,
+which `ng serve` sends `/api/note-key` to: note text is always sealed,
+so without it nothing typed on the dev server is saved. It derives
+keys from a fixed, public development master, never a deployment's.
 
 ## Run your own
 
@@ -43,7 +47,7 @@ and variables, Actions); nothing in the code names a deployment.
 | `ANTHROPIC_SERVICE_ACCOUNT_ID` | variable, optional | Claude titles |
 | `ANTHROPIC_WORKSPACE_ID` | variable, optional | Only if the federation rule covers several workspaces |
 | `STORAGE_REGION` | variable, optional | The default Storage bucket's region, e.g. `us-east1` (`gcloud storage buckets describe gs://<bucket> --format='value(location)'`, lower case); default `us-central1` |
-| `NOTE_KEY_CALLERS` | variable, optional | The service accounts the Worker's note key service answers, comma-separated; leave unset to derive them (below) |
+| `NOTE_KEY_CALLERS` | variable, optional | The service accounts the Worker's note key service answers, comma-separated; leave unset to derive them (below). The list itself is required |
 
 Also create a Google service account named `goblin-titles` in the
 project, with `roles/datastore.user`, and let the deploy service
@@ -167,14 +171,18 @@ Without it a photo shows only on the device that took it, until that
 device's copy is gone; elsewhere its caption shows instead. To check:
 a photo taken on the phone shows in a browser tab on another device.
 
-Notes can be sealed (encrypted at rest) with a key for each gardener
-that the Worker derives from one master secret (DESIGN.md, Note
-encryption). The master is set once by hand, never through GitHub or
-the deploy. Until it is, the app and the functions carry on without
-keys, and sealing cannot be turned on. Nothing is sealed until a
-gardener turns on Settings, Sealed notes. With Cloudflare credentials
-for `wrangler` (`npx wrangler login`, or `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID`):
+Note text is always sealed (encrypted at rest) with a key for each
+gardener that the Worker derives from one master secret (DESIGN.md,
+Note encryption; always, with no switch, since 2026-11-15). **The
+master is required, and must be set before the app is first used:**
+without it the note key service answers 503, the app keeps everything
+typed on the device and saves nothing, and says that the garden's note
+key service is not set up. It is set once by hand, never through
+GitHub or the deploy; the deploy checks that it is there, and fails at
+its end, after the Worker is up, until it is. With Cloudflare
+credentials for `wrangler` (`npx wrangler login`, or
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`), before the first
+deploy (wrangler offers to make the Worker) or straight after it:
 
 ```sh
 # The master: base64 of 32 random bytes.
@@ -184,14 +192,14 @@ npx wrangler secret put NOTE_KEYS_MASTER --config infra/worker/wrangler.toml < n
 rm note-keys-master.txt
 ```
 
-**The master secret is the only way to read sealed notes.** Cloudflare
+**The master secret is the only way to read your notes.** Cloudflare
 never shows a secret again once it is set, and Firestore and its
 backups hold only ciphertext, so save the master somewhere safe, apart
-from both, before any note is sealed. Losing it loses every sealed
-note, for good. Never replace the master outside a key rotation
-(DESIGN.md, Note encryption): every gardener's key would change, and
-sealed notes would no longer open. To check the master is set: the
-app's request to `/api/note-key` answers 200, not 503.
+from both, before you write a note. Losing it loses every note, for
+good. Never replace the master outside a key rotation (DESIGN.md, Note
+encryption): every gardener's key would change, and their notes would
+no longer open. To check the master is set: the app's request to
+`/api/note-key` answers 200, not 503.
 
 The functions need no secret to ask the Worker for keys: each presents
 a Google-signed identity token for its own service account, and the
@@ -202,31 +210,12 @@ and the project number in `FIREBASE_WEB_CONFIG`:
 `goblin-titles@<project>.iam.gserviceaccount.com` and
 `goblin-runner@<project>.iam.gserviceaccount.com`, the accounts the
 functions that read notes run as. Set the `NOTE_KEY_CALLERS` variable
-only to replace that list (exact emails, comma-separated). Without a
-list the Worker refuses the functions (503), and sealed notes stay
-locked to them.
-
-Turning on Settings, Sealed notes, first checks that the app gets its
-key from `/api/note-key` and that the functions get the same one as
-each of the three accounts (`checkNoteKey`, `checkNoteKeyTitles` and
-`checkNoteKeyRunner`, run as the default compute account,
-`goblin-titles` and `goblin-runner`), and stays off saying which part
-failed. So it is also the check that the master and
-`NOTE_KEY_CALLERS` are right, including a list you set yourself.
-
-With the switch on, every write seals what it touches; what nobody
-touches stays plain. Settings, Sealed notes, Seal everything now seals
-the rest once (DESIGN.md, Note encryption, The migration): it counts
-first and changes nothing, then on a second tap the `sealEverything`
-callable does the whole pass on the server, as the default compute
-account. Before the second tap, open the app on your other devices,
-let them sync, and close them. Keep the page open until it says it
-has finished; if it is interrupted, nothing is harmed, and tapping the
-button again carries on. It adds no
-backup: point-in-time recovery on Firestore, or a backup you made
-before, is your safety net, and backups made before it still hold
-plain text until they age out. It is started from that Settings
-button only.
+only to replace that list (exact emails, comma-separated). The list is
+required too: the deploy stops before building when it can neither
+read the project number nor find the variable. With a wrong list the
+Worker refuses the functions, and they leave notes as they are (and
+write none) until it is right. Attachments, the links pages came from
+and reminder text are not sealed.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only

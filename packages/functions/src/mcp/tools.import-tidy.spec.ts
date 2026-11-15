@@ -1,8 +1,11 @@
 import {
   type DataKey,
   SEAL_SENTINEL,
+  SEALED_FIELDS,
   type SealedField,
   aadFor,
+  fieldValue,
+  withFieldValue,
   isSealed,
   newDataKey,
   openSealedText,
@@ -45,6 +48,17 @@ const seal = (id: string, field: SealedField, text: string) =>
   sealText(key, aadFor(UID, id, field), text);
 const open = (id: string, field: SealedField, value: unknown) =>
   openSealedText(key, aadFor(UID, id, field), String(value));
+/** Note `id` as stored, each sealed field opened: every write seals (2026-11-15). */
+function read(id: string): Data {
+  let d: Data = { ...stored(id) };
+  for (const f of SEALED_FIELDS) {
+    const v = fieldValue(d, f);
+    if (v === undefined) continue;
+    const one = (x: string) => (isSealed(x) ? open(id, f, x) : x);
+    d = withFieldValue(d, f, Array.isArray(v) ? v.map(one) : one(v));
+  }
+  return d;
+}
 const activity = () =>
   [...store.entries()].filter(([p]) => p.startsWith(`users/${UID}/activity/`)).map(([, d]) => d);
 const noCiphertext = (value: unknown) => expect(JSON.stringify(value)).not.toContain(SEAL_SENTINEL);
@@ -155,7 +169,7 @@ describe('a title renamed when asked (Eric, 2026-11-15)', () => {
     put('m', { title: 'Mine', titleSource: 'user' });
     const result = await tools().updateNote({ id: 'm', title: '  Better ' });
     expect(result.updated).toEqual(expect.arrayContaining(['title', 'titleSource']));
-    expect(stored('m')).toMatchObject({ title: 'Better', titleSource: 'user' });
+    expect(read('m')).toMatchObject({ title: 'Better', titleSource: 'user' });
     expect(activity()).toEqual([
       expect.objectContaining({
         tool: 'update_note',
@@ -163,7 +177,7 @@ describe('a title renamed when asked (Eric, 2026-11-15)', () => {
         notes: [
           expect.objectContaining({
             id: 'm',
-            title: 'Better',
+            title: 'Sealed note',
             before: { title: 'Mine', titleSource: 'user' },
           }),
         ],
@@ -176,18 +190,18 @@ describe('a title renamed when asked (Eric, 2026-11-15)', () => {
     failed('r2', { title: 'Recipe from seriouseats.com (2)', importState: 'done' });
     await tools().updateNote({ id: 'r1', title: 'Hasselback potato gratin' });
     await tools().updateNote({ id: 'r2', title: 'Gratin' });
-    expect(stored('r1')).toMatchObject({
+    expect(read('r1')).toMatchObject({
       title: 'Hasselback potato gratin',
       titleSource: 'user',
     });
-    expect(stored('r2')['title']).toBe('Gratin');
+    expect(read('r2')['title']).toBe('Gratin');
   });
 
   it('leaves a renamed title, and one Eric set, to the titler: neither is retitled', async () => {
     put('w', { body: 'call the bank about the loan', title: 'call the bank' });
     await tools().updateNote({ id: 'w', title: 'Bank' });
     // A words title would be the titler's; renamed, it is not.
-    expect(stored('w')['titleSource']).toBe('user');
+    expect(read('w')['titleSource']).toBe('user');
     const titler = vi.fn(async () => 'Loan call');
     const store = { setTitle: vi.fn(async () => true) } satisfies TitleStore;
     const state = (over: Data) =>
@@ -198,12 +212,12 @@ describe('a title renamed when asked (Eric, 2026-11-15)', () => {
         deviceId: 'phone',
         ...over,
       }) as NoteState;
-    const settled = state({ titleSource: stored('w')['titleSource'], settledAt: 9 });
+    const settled = state({ titleSource: read('w')['titleSource'], settledAt: 9 });
     expect(await titleNote(store, titler, UID, 'w', state({}), settled)).toBe('skipped');
     expect(titler).not.toHaveBeenCalled();
     // A body written by a tool after it keeps the name too.
     await tools().updateNote({ id: 'w', body: 'ring the bank instead' });
-    expect(stored('w')['title']).toBe('Bank');
+    expect(read('w')['title']).toBe('Bank');
   });
 
   it("keeps a concept's old name as another name, so links still reach it", async () => {
@@ -215,7 +229,7 @@ describe('a title renamed when asked (Eric, 2026-11-15)', () => {
       synonyms: ['Oven'],
     });
     await tools().updateNote({ id: 'c-kiln', title: 'Oven' });
-    expect(stored('c-kiln')).toMatchObject({ title: 'Oven', synonyms: ['Kiln'] });
+    expect(read('c-kiln')).toMatchObject({ title: 'Oven', synonyms: ['Kiln'] });
     expect(activity()[0]['notes']).toEqual([
       expect.objectContaining({
         before: { title: 'Kiln', titleSource: 'user', synonyms: ['Oven'] },
@@ -230,7 +244,7 @@ describe('a title renamed when asked (Eric, 2026-11-15)', () => {
       'already a name in the garden: gratin (c-gratin)',
     );
     await expect(tools().updateNote({ id: 'r3', title: '  ' })).rejects.toBeInstanceOf(ToolError);
-    expect(stored('r3')['title']).toBe('Recipe from seriouseats.com');
+    expect(read('r3')['title']).toBe('Recipe from seriouseats.com');
     expect(activity()).toEqual([]);
   });
 });
@@ -239,7 +253,7 @@ describe('a recipe Eric filled in by hand, imported again', () => {
   it('keeps his text through a retry: the page goes on the back', async () => {
     failed('r1', { body: BY_HAND, importState: 'requested', importError: undefined });
     expect(await tools().finishRecipeImport('r1', async () => gratin)).toBe('done');
-    const doc = stored('r1');
+    const doc = read('r1');
     expect(doc['body']).toBe(BY_HAND);
     expect((doc['source'] as Data)['text']).toContain('- 4 pounds potatoes');
     expect((doc['source'] as Data)['url']).toBe(URL_);
@@ -248,7 +262,7 @@ describe('a recipe Eric filled in by hand, imported again', () => {
   it('keeps his text through a pasted page too', async () => {
     failed('r1', { body: BY_HAND });
     expect(await tools().finishPastedImport('r1', async () => gratin)).toEqual({ state: 'done' });
-    const doc = stored('r1');
+    const doc = read('r1');
     expect(doc['body']).toBe(BY_HAND);
     expect((doc['source'] as Data)['text']).toContain('1. Slice the potatoes.');
     expect(doc['importState']).toBe('done');
@@ -257,8 +271,8 @@ describe('a recipe Eric filled in by hand, imported again', () => {
   it('fills an untouched recipe in from the page, as before', async () => {
     failed('r1');
     expect(await tools().finishPastedImport('r1', async () => gratin)).toEqual({ state: 'done' });
-    expect(stored('r1')['body']).toContain('- 4 pounds potatoes');
-    expect(stored('r1')['title']).toBe('Hasselback potato gratin');
+    expect(read('r1')['body']).toContain('- 4 pounds potatoes');
+    expect(read('r1')['title']).toBe('Hasselback potato gratin');
   });
 });
 

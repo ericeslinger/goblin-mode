@@ -83,11 +83,10 @@ export interface Stored {
  * The garden is the caller's: the MCP tools read it through their note
  * text boundary, so sealed text is opened (2026-11-12). A suggestion
  * about a note in `sealed` (step 3e, 2026-11-13) names it "Sealed
- * note", never its title in the clear, and stores its proposed title
- * and reason sealed under the suggestion's own id (`recordAadFor`),
- * with `codec`; a refile of such a concept stores the names it proposes
- * sealed, and its key a keyed hash of them (2026-11-15). With only
- * plain notes nothing is sealed and the key is never asked for.
+ * note", never its title in the clear. Every suggestion's proposed
+ * title and reason are stored sealed under its own id (`recordAadFor`),
+ * with `codec` (always, 2026-11-15); a refile stores the names it
+ * proposes sealed, and its key a keyed hash of them (2026-11-15).
  */
 export async function storeSuggestions(
   db: Firestore,
@@ -103,8 +102,8 @@ export async function storeSuggestions(
   const known = await proposals.select('key', 'status').get();
   const waiting = known.docs.filter((d) => d.get('status') === 'open').length;
   const room = Math.max(0, Math.min(PER_ROUND, MAX_OPEN - waiting));
-  // A refile of a sealed concept (any concept, with the gardener's
-  // switch on) keeps the names it proposes (2026-11-15): stored sealed,
+  // A refile of a sealed concept (any concept, since everything is
+  // sealed) keeps the names it proposes (2026-11-15): stored sealed,
   // and its key holds a keyed hash of them, never the names. The key is
   // asked for only when there is such a refile.
   const sealedRefile = raw.some(
@@ -126,21 +125,20 @@ export async function storeSuggestions(
   for (const c of checked) {
     // The id is made here, before its text is sealed under it.
     const id = autoId((bytes) => void randomFillSync(bytes));
-    const as = c.notes.some((n) => read.sealed.has(n.id)) ? 'sealed' : 'plain';
     const doc: Checked = {
       ...c,
       notes: c.notes.map((n) => (read.sealed.has(n.id) ? { ...n, title: SEALED_TITLE } : n)),
-      reason: await codec.sealRecord('proposals', id, 'reason', c.reason, as),
+      reason: await codec.sealRecord('proposals', id, 'reason', c.reason),
       ...(c.synonyms === undefined
         ? {}
         : {
             synonyms: await Promise.all(
-              c.synonyms.map((n) => codec.sealRecord('proposals', id, 'synonyms', n, as)),
+              c.synonyms.map((n) => codec.sealRecord('proposals', id, 'synonyms', n)),
             ),
           }),
       ...(c.title === undefined
         ? {}
-        : { title: await codec.sealRecord('proposals', id, 'title', c.title, as) }),
+        : { title: await codec.sealRecord('proposals', id, 'title', c.title) }),
     };
     batch.set(
       proposals.doc(id),
