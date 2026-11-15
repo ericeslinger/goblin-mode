@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import {
   type DataKey,
+  NOTE_KEYS_NOT_CONFIGURED,
   bytesToBase64,
   exportDataKey,
   importDataKey,
@@ -57,9 +58,11 @@ export const NOTE_KEY_API = new InjectionToken<NoteKeyApi>('note-key-api', {
  * the next load. Signing out forgets every device copy. It never
  * blocks anything and never throws: without a key, `key()` is simply
  * undefined, and failures go to the console alone. `unconfigured`
- * says the service answered 503, which it does when its master is not
- * set: a garden that cannot seal until its owner sets it up (README,
- * Run your own).
+ * says the service answered 503 with its own body,
+ * NOTE_KEYS_NOT_CONFIGURED, which it does when its master is not set:
+ * a garden that cannot seal until its owner sets it up (README, Run
+ * your own). Any other 503, such as an edge error page, is a failed
+ * ask like any other (2026-11-15).
  */
 @Injectable({ providedIn: 'root' })
 export class NoteKeyService {
@@ -73,9 +76,10 @@ export class NoteKeyService {
   readonly key = this.held.asReadonly();
   private readonly notSetUp = signal(false);
   /**
-   * The note key service answered 503 at its last ask: it is not set up
-   * (no master at Cloudflare), not merely out of reach. Cleared by any
-   * other answer.
+   * The note key service answered 503 with NOTE_KEYS_NOT_CONFIGURED
+   * at its last ask: it is not set up (no master at Cloudflare), not
+   * merely out of reach. A 503 with any other body does not set it
+   * (2026-11-15). Cleared by any other answer.
    */
   readonly unconfigured = this.notSetUp.asReadonly();
 
@@ -134,8 +138,10 @@ export class NoteKeyService {
       headers: { authorization: `Bearer ${token}` },
       cache: 'no-store',
     });
-    // 503: the service has no master, so this garden cannot seal yet.
-    if (this.uid === uid) this.notSetUp.set(res.status === 503);
+    // The Worker's own 503: it has no master, so this garden cannot seal
+    // yet. A 503 from anything in between says nothing of the sort.
+    const notSetUp = res.status === 503 && (await bodyOf(res)) === NOTE_KEYS_NOT_CONFIGURED;
+    if (this.uid === uid) this.notSetUp.set(notSetUp);
     if (!res.ok) throw new NoteKeyUnavailable(`the note key service answered ${res.status}`);
     const wire = noteKeyFromWire(await res.json());
     if (!wire) throw new NoteKeyUnavailable('the note key service answered with no key');
@@ -192,5 +198,27 @@ export class NoteKeyService {
     } catch {
       // Nothing to do.
     }
+  }
+}
+
+/** How long a refusal's body may take before it is given up on. */
+const BODY_WAIT_MS = 2000;
+
+/**
+ * A refusal's plain-text body, trimmed; empty when it cannot be read
+ * or does not arrive within BODY_WAIT_MS, so a stalled body never
+ * keeps the ask from settling (and from being tried again).
+ */
+async function bodyOf(res: Response): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const late = new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve(''), BODY_WAIT_MS);
+    });
+    return (await Promise.race([res.text(), late])).trim();
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
   }
 }

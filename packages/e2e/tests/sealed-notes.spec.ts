@@ -1,7 +1,11 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { DEV_NOTE_KEYS_MASTER } from '../../functions/src/note-keys/dev-master.emulator';
-import { deriveNoteKey, masterFromBase64 } from '../../schema/src/note-key';
+import {
+  NOTE_KEYS_NOT_CONFIGURED,
+  deriveNoteKey,
+  masterFromBase64,
+} from '../../schema/src/note-key';
 import { aadFor, importDataKey, sealText } from '../../schema/src/sealed';
 import { FIRESTORE_EMULATOR, expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
@@ -100,11 +104,15 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
   await expect(editor).toContainText('Cone 6, slow cool over the night');
   await expect(page.locator('body')).not.toContainText('\uE000');
 
-  // The key leaves the device, and the service cannot give it again.
-  // Routed on the context, which also sees the service worker's requests.
+  // The key leaves the device, and the service cannot give it again: it
+  // answers as the Worker does with no master, its own body included,
+  // since only that 503 reads as "not set up" (2026-11-15). Routed on the
+  // context, which also sees the service worker's requests.
   await page
     .context()
-    .route('**/api/note-key', (route) => route.fulfill({ status: 503, body: '' }));
+    .route('**/api/note-key', (route) =>
+      route.fulfill({ status: 503, body: NOTE_KEYS_NOT_CONFIGURED }),
+    );
   await page.evaluate((uid) => localStorage.removeItem(`goblin.noteKey.${uid}`), OWNER.uid);
   await page.goto('/browse');
   // Every note is sealed now (2026-11-15), the one typed above too: both
@@ -129,7 +137,7 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
 
   // A new note still takes typing: with no key the words wait on this
   // device (always sealed, 2026-11-15), and the line under the editor
-  // says why. The service answered 503, as it does with no master, so
+  // says why. The service answered its own 503, as with no master, so
   // it says the service is not set up rather than that a connection is
   // wanted (a fork's owner, README).
   await page.goto('/');

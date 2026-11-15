@@ -622,9 +622,9 @@ export class NotesService {
   readonly waitingForKey = computed(() => this.heldIds().size > 0);
   /**
    * The garden's note key service is not set up (`/api/note-key`
-   * answered 503): a fork whose owner has not set the master (README,
-   * Run your own). Said in the waiting line, so it is not mistaken for
-   * a missing connection.
+   * answered the Worker's own 503, NoteKeyService.unconfigured): a fork
+   * whose owner has not set the master (README, Run your own). Said in
+   * the waiting line, so it is not mistaken for a missing connection.
    */
   readonly keyServiceMissing = computed(() => this.keys.unconfigured());
   /** A kept write was refused for want of the key; tried again when it comes. */

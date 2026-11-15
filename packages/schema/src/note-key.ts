@@ -12,6 +12,15 @@ export const NOTE_KEY_VERSION = 1;
 /** Every key version this build can derive. */
 export const NOTE_KEY_VERSIONS: readonly number[] = [1];
 
+/**
+ * The Worker's whole plain-text body when it answers 503 because note
+ * keys are not set up there (no master, project, domain or allowlist;
+ * infra/worker/src/note-key.ts). The app says "not set up" only for a
+ * 503 with exactly this body, so a 503 from anything in between, such
+ * as an edge error page, is not taken for it (2026-11-15).
+ */
+export const NOTE_KEYS_NOT_CONFIGURED = 'note keys are not configured';
+
 /** The master secret's length, and each data key's. */
 const KEY_BYTES = 32;
 /** The longest uid Firebase Auth makes. */

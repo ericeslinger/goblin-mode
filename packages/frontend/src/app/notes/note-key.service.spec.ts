@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { bytesToBase64, exportDataKey } from '@mossgoblin/schema';
+import { NOTE_KEYS_NOT_CONFIGURED, bytesToBase64, exportDataKey } from '@mossgoblin/schema';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
 import { ONLINE } from '../platform/platform';
@@ -109,7 +109,7 @@ describe('NoteKeyService (note encryption step 2)', () => {
     const { api, signIn, bytes } = setup(
       async () => {
         calls++;
-        if (calls === 1) return new Response('note keys are not configured', { status: 503 });
+        if (calls === 1) return new Response(NOTE_KEYS_NOT_CONFIGURED, { status: 503 });
         if (calls === 2) throw new TypeError('Failed to fetch');
         return answer(2);
       },
@@ -177,7 +177,7 @@ describe('NoteKeyService (note encryption step 2)', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     let status = 503;
     const { signIn, keys, bytes } = setup(async () =>
-      status === 200 ? answer(3) : new Response('note keys are not configured', { status }),
+      status === 200 ? answer(3) : new Response(NOTE_KEYS_NOT_CONFIGURED, { status }),
     );
     signIn(gardener('u1'));
     await vi.waitFor(() => expect(keys.unconfigured()).toBe(true));
@@ -197,6 +197,42 @@ describe('NoteKeyService (note encryption step 2)', () => {
     status = 503;
     signIn(null);
     expect(keys.unconfigured()).toBe(false);
+  });
+
+  it("says not set up only for the Worker's own 503 body, not any 503 (2026-11-15)", async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let reply = (): Response => new Response('<html>502 Bad gateway</html>', { status: 503 });
+    const { api, signIn, keys, bytes } = setup(async () => reply());
+    signIn(gardener('u1'));
+    await vi.waitFor(() => expect(api.fetch).toHaveBeenCalledTimes(1));
+    // A 503 from an edge error page: a failed ask, tried again, no claim.
+    await vi.waitFor(() => expect(console.warn).toHaveBeenCalledTimes(1));
+    expect(keys.unconfigured()).toBe(false);
+    expect(keys.key()).toBeUndefined();
+    reply = () => new Response(NOTE_KEYS_NOT_CONFIGURED, { status: 503 });
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(keys.unconfigured()).toBe(true));
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+    reply = () => answer(4);
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(bytes()).toBe(raw(4)));
+    expect(keys.unconfigured()).toBe(false);
+  });
+
+  it('gives up on a 503 body that never arrives, and asks again (2026-11-15)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const stalled = (): Response =>
+      ({ status: 503, ok: false, text: () => new Promise<string>(() => undefined) }) as Response;
+    let reply = stalled;
+    const { api, signIn, keys, bytes } = setup(async () => reply());
+    signIn(gardener('u1'));
+    // The ask settles as a failure once the wait for the body is over.
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(keys.unconfigured()).toBe(false);
+    reply = () => answer(5);
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(bytes()).toBe(raw(5)));
+    expect(api.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('clears what the old sealing switch left on the device, at sign-in and sign-out', async () => {

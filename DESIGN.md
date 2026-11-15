@@ -4532,7 +4532,8 @@ a request the browser marks as cross-site or same-site. Without the
 master both answer 503; the app carries on without a key. (Changed
 2026-11-15, Always sealed, below: without a key the app keeps what is
 typed on the device and saves nothing, so the master is required, and a
-503 is said as the service not being set up.)
+503 is said as the service not being set up; since corrected to the
+Worker's own 503 alone, Running your own, below.)
 
 *The app* (`NoteKeyService`, started at launch with the other root
 services) asks once a load when a gardener is signed in and online,
@@ -4542,7 +4543,8 @@ at once. A failure goes to the console and is tried again when the
 device is back online or on the next load; no key is simply none, and
 nothing waits on it. (Changed 2026-11-15: note text is always written
 sealed, so saves wait on the device for the key, Always sealed,
-below; a 503 also sets `unconfigured`.) Signing out forgets every
+below; a 503 also sets `unconfigured`, since corrected to the Worker's
+own 503 alone, Running your own, below.) Signing out forgets every
 device copy. A copy on
 the device is as exposed as the notes in the device's Firestore cache
 it would open.
@@ -5984,7 +5986,10 @@ the master is not among the Worker's secrets. When `/api/note-key`
 answers 503, as it does with no master, `NoteKeyService.unconfigured`
 is set and the waiting line, the refused line and Settings say this
 garden's note key service is not set up and point at the README, Run
-your own, instead of asking for a connection. There is no deployment
+your own, instead of asking for a connection. (Corrected 2026-11-15:
+only a 503 whose body is the Worker's own, `NOTE_KEYS_NOT_CONFIGURED`
+in packages/schema note-key.ts, sets it; any other 503, such as an
+edge error page, is a failed ask like any other.) There is no deployment
 switch to turn sealing off.
 
 *Local development.* Every journey and the dev server need a key from
