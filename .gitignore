@@ -11,3 +11,5 @@ playwright-report/
 firebase-debug*.log
 firestore-debug.log
 ui-debug.log
+# Per-stack copies scripts/e2e.sh writes while journeys run in parallel
+firebase.e2e-[1-9].json

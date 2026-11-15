@@ -16,7 +16,9 @@ test('a note sent to an assistant waits in its queue, and shows what it did', as
   const back = page.getByRole('region', { name: 'Back of the note' });
   await back.getByRole('textbox', { name: 'What should it do?' }).fill('File this under pottery');
   await back.getByRole('button', { name: 'Send' }).click();
-  await expect(back.getByRole('status')).toContainText('Waiting for your assistant');
+  // The send's status is the back's first: What assistants changed,
+  // below it, can still say Loading… on a busy machine (2026-11-15).
+  await expect(back.getByRole('status').first()).toContainText('Waiting for your assistant');
   await letItSave(page);
 
   await expect
@@ -26,7 +28,7 @@ test('a note sent to an assistant waits in its queue, and shows what it did', as
     .toEqual([expect.objectContaining({ id, ask: 'File this under pottery' })]);
   const [{ sentAt }] = (await call('list_queue', {})) as { sentAt: string }[];
   await call('finish_queued', { id, sentAt, outcome: 'Linked it to pottery.' });
-  await expect(back.getByRole('status')).toContainText('Done: Linked it to pottery.', {
+  await expect(back.getByRole('status').first()).toContainText('Done: Linked it to pottery.', {
     timeout: 15_000,
   });
   expect(await call('list_queue', {})).toEqual([]);
@@ -60,7 +62,7 @@ test('Do it now runs the garden’s agent on the gardener’s key, and the back 
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   const back = page.getByRole('region', { name: 'Back of the note' });
   await back.getByRole('button', { name: 'Send' }).click();
-  await expect(back.getByRole('status')).toContainText('Waiting for your assistant');
+  await expect(back.getByRole('status').first()).toContainText('Waiting for your assistant');
   await letItSave(page);
   await back.getByRole('button', { name: 'Do it now' }).click();
   await expect(back.getByRole('status').first()).toContainText(
