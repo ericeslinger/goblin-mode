@@ -158,6 +158,36 @@ export class CaptureService {
           if (!pending.forLocked) {
             this.store.set(PENDING_DRAFT_KEY, { ...pending, forLocked: true });
           }
+        } else if (pending && this.notes.heldSave(pending.id)) {
+          // A draft typed before the notes loaded, for a note whose words
+          // are held on this device (review on #276): never saved over
+          // them. The open note's merges with them in the editor; another
+          // note's merges into them here, over the server's text.
+          if (pending.id === this.open().id) {
+            this.showHeld(
+              pending.id,
+              list.find((n) => n.id === pending.id),
+            );
+            // The draft's words are in the editor now: saved, held, from there.
+            if (this.body !== this.notes.heldSave(pending.id)?.value) {
+              this.dirty = true;
+              clearTimeout(this.timer);
+              this.timer = setTimeout(() => this.flush(), SAVE_DELAY_MS);
+            }
+          } else if (pending.body.trim()) {
+            const held = this.notes.heldSave(pending.id)!;
+            const note = list.find((n) => n.id === pending.id);
+            const base = held.base ?? '';
+            const into =
+              note === undefined || note.body === base
+                ? held.value
+                : merge3(base, held.value, note.body);
+            this.notes.save(pending.id, merge3('', pending.body, into), {
+              ...(note ? { base: note.body } : held.base === undefined ? {} : { base: held.base }),
+            });
+          }
+          this.store.remove(PENDING_DRAFT_KEY);
+          this.draftWaited = false;
         } else if (pending) {
           const waited = this.draftWaited || pending.forLocked === true;
           const note = waited ? list.find((n) => n.id === pending.id) : undefined;
@@ -258,6 +288,13 @@ export class CaptureService {
       }
       return;
     }
+    // Words held on this device for this note not shown yet (review on
+    // #276): merged in first, so this save is built on them.
+    if (this.heldShown !== id && this.notes.heldSave(id)) {
+      this.showHeld(id, this.notes.find(id));
+      clearTimeout(this.timer);
+      this.dirty = false;
+    }
     // This text is newer than any pending draft, which must not land
     // on top of it later.
     this.dropDraft();
@@ -272,7 +309,11 @@ export class CaptureService {
     // other names are what it is (review on #66). Nor is a template.
     if (this.body.trim() || this.isKept(id)) {
       this.notes.save(id, this.body, keep ? { base, keep } : { base });
-      if (heldBefore || this.notes.heldForKey(id)) this.synced = base;
+      if (heldBefore || this.notes.heldForKey(id)) {
+        this.synced = base;
+        // Held from this editor's own text: it is what shows already.
+        this.heldShown = id;
+      }
     } else if (this.notes.exists(id)) this.notes.remove(id);
   }
 
@@ -288,21 +329,27 @@ export class CaptureService {
    * typing extends the held words and is saved over that.
    */
   private showHeld(id: string, note?: NoteRecord): void {
-    if (this.heldShown === id || this.body !== this.synced || note?.locked) return;
+    if (this.heldShown === id || note?.locked) return;
     const held = this.notes.heldSave(id);
     if (!held) return;
     this.heldShown = id;
     const server = note?.body;
     const base = held.base ?? '';
-    const text =
+    const shown =
       server === undefined || server === base ? held.value : merge3(base, held.value, server);
-    const before = this.body;
+    // Typed before the held words were shown (review on #276: before the
+    // notes list arrived): merged with them, typed against what the
+    // editor showed, so neither the held words nor the new keystrokes
+    // are dropped (merge3 keeps both sides).
+    const local = this.body;
+    const text = local === this.synced ? shown : merge3(this.synced, local, shown);
     this.synced = server ?? base;
     this.body = text;
-    this.open.set({ id, text, base: before });
+    this.open.set({ id, text, base: local });
     this.untouched = false;
-    // Merged over newer text: saved again over that, still held.
-    if (server !== undefined && server !== base) {
+    // Merged over newer text or with typing: saved again over the
+    // server's text, still held.
+    if (text !== held.value) {
       this.dirty = true;
       clearTimeout(this.timer);
       this.timer = setTimeout(() => this.flush(), SAVE_DELAY_MS);

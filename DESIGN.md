@@ -5296,6 +5296,12 @@ the clear and no keystroke is lost.
   save is held as above, so typing is accepted at once; any other write
   that holds note text waits in memory for the switch and then goes out
   as it says (`whenKnown`); a write with no note text goes out at once.
+  Held saves are replayed at the first snapshot from the server as well
+  as when the switch becomes known, so a fresh device back online
+  writes them whichever comes first. While any save is held the
+  capture screen's status says "waiting", not "synced", and the line
+  under the editor says why, as a polite live region rather than a
+  second status.
   Nothing is sent plain for want of knowing, and nothing is dropped,
   but for a waiting write the page is closed on, which is lost as a
   write in flight is. `ready` no longer waits for the switch.

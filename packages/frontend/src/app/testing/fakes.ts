@@ -97,6 +97,7 @@ export class FakeNotes {
         }
       : undefined;
   sealingKnown = () => true;
+  sealingOn = () => false;
   private n = 0;
   readonly written = new Set<string>();
   save = vi.fn(

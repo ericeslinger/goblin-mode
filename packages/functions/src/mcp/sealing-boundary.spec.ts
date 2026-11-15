@@ -76,50 +76,106 @@ function definitionOf(lines: string[], name: string, at: number) {
   return undefined;
 }
 
+/** The expression a `.method(` at `dot` is called on: walked back over names, dots and calls. */
+function receiverAt(text: string, dot: number): string {
+  let i = dot;
+  for (;;) {
+    let j = i;
+    while (j > 0 && /\s/.test(text[j - 1])) j--;
+    if (text[j - 1] === ')') {
+      let depth = 0;
+      let k = j - 1;
+      for (; k >= 0; k--) {
+        if (text[k] === ')') depth++;
+        else if (text[k] === '(' && --depth === 0) break;
+      }
+      j = k;
+    }
+    let k = j;
+    while (k > 0 && /[\w$!?]/.test(text[k - 1])) k--;
+    if (k === j && text[j] !== '(') return text.slice(i, dot).trim();
+    i = k;
+    let b = i;
+    while (b > 0 && /\s/.test(text[b - 1])) b--;
+    if (text[b - 1] !== '.') return text.slice(i, dot).trim();
+    i = b - 1;
+  }
+}
+
+/** The arguments of the call whose `(` is at `open`, split at top-level commas. */
+function argsAt(text: string, open: number): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let from = open + 1;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) {
+      if (--depth === 0) {
+        out.push(text.slice(from, i).trim());
+        break;
+      }
+    } else if (c === ',' && depth === 1) {
+      out.push(text.slice(from, i).trim());
+      from = i + 1;
+    }
+  }
+  return out.filter(Boolean);
+}
+
 /**
- * The direct Firestore writes in `source` (`x.create(`, `.set(`,
- * `.update(`, on a transaction, a batch or a ref) that land on a note
- * document, or on a ref handed in as a DocumentReference, and carry a
- * sealed field, a parsed note or a variable built with one, without
- * going through `sealFields`. A guard, not a proof: a value built in
- * another function and passed in is not followed.
+ * The direct Firestore writes in `source` (`.create(`, `.set(`,
+ * `.update(` or `.add(`, on a transaction, a batch, a ref or a chain
+ * such as `db.doc(paths.note(uid, id)).update(`, whatever the receiver
+ * is called) that land on a note document or the notes collection, or
+ * on a ref handed in as a DocumentReference, and carry a sealed field,
+ * a parsed note or a variable built with one, without going through
+ * `sealFields`. A guard, not a proof: a value built in another function
+ * and passed in is not followed.
  */
 function directNoteWrites(source: string): string[] {
   const lines = source.split('\n').map((l) => (/^\s*(\/\/|\*)/.test(l) ? '' : l));
+  const text = lines.join('\n');
+  const lineAt = (at: number) => text.slice(0, at).split('\n').length - 1;
+  /** What `expr` names: its definition when it is a bare name, with itself. */
+  const about = (expr: string, at: number) =>
+    `${expr}\n${/^\w+$/.test(expr) ? (definitionOf(lines, expr, at)?.text ?? '') : ''}`;
+  const isNote = (expr: string, at: number) => {
+    const known = about(expr, at);
+    return NOTE_DOC.test(known) || /:\s*DocumentReference/.test(known);
+  };
   const found: string[] = [];
-  lines.forEach((line, i) => {
-    const m = /\b(\w+)\.(create|set|update)\(/.exec(line);
-    if (!m) return;
-    const s = statement(lines, i);
-    const call = s.slice(s.indexOf(m[0]) + m[0].length);
-    let target: string;
-    let data: string;
-    if (/^(tx|batch|writer|t|w)$/.test(m[1])) {
-      const comma = topLevelComma(call);
-      target = call.slice(0, comma).trim();
-      data = call.slice(comma + 1).trim();
-    } else {
-      target = m[1];
-      data = call;
-    }
-    const about = /^\w+$/.test(target) ? (definitionOf(lines, target, i)?.text ?? '') : '';
-    if (!NOTE_DOC.test(`${target}\n${about}`) && !/:\s*DocumentReference/.test(about)) return;
-    if (/^\s*await sealFields\(/.test(data)) return;
-    let text = data;
-    const name = /^\s*(\w+)\s*[,)]/.exec(data)?.[1];
+  for (const m of text.matchAll(/\.\s*(create|set|update|add)\(/g)) {
+    const at = lineAt(m.index);
+    const receiver = receiverAt(text, m.index);
+    const args = argsAt(text, m.index + m[0].length - 1);
+    if (!receiver || !args.length) continue;
+    // A writer (transaction, batch) takes the ref first, then the data;
+    // a ref or a collection takes the data. Told by the arguments, not
+    // by the receiver's name.
+    const writer =
+      m[1] !== 'add' && args.length >= 2 && !/^[{[]/.test(args[0]) && isNote(args[0], at);
+    const target = writer ? args[0] : receiver;
+    const data = writer ? args[1] : args[0];
+    if (!isNote(target, at)) continue;
+    if (/^await sealFields\(/.test(data)) continue;
+    let held = data;
+    const name = /^(\w+)$/.exec(data)?.[1];
     if (name) {
-      const d = definitionOf(lines, name, i);
-      if (d && /=\s*await sealFields\(/.test(d.text)) return;
-      if (d) text = lines.slice(d.i, i + 1).join('\n');
+      const d = definitionOf(lines, name, at);
+      if (d && /=\s*await sealFields\(/.test(d.text)) continue;
+      if (d) held = lines.slice(d.i, at + 1).join('\n');
     }
-    const spread = /^\s*\{\s*\.\.\.(\w+)/.exec(data)?.[1];
+    const spread = /^\{\s*\.\.\.(\w+)/.exec(data)?.[1];
     if (spread) {
-      const d = definitionOf(lines, spread, i);
-      if (d) text += `\n${lines.slice(d.i, i + 1).join('\n')}`;
+      const d = definitionOf(lines, spread, at);
+      if (d) held += `\n${lines.slice(d.i, at + 1).join('\n')}`;
     }
-    const plainText = text.replace(/['"]?[\w.]+['"]?\s*:\s*FieldValue\.delete\(\)/g, '');
-    if (/Note\.parse\(/.test(data) || SEALED_KEY.test(plainText)) found.push(line.trim());
-  });
+    const plainText = held.replace(/['"]?[\w.]+['"]?\s*:\s*FieldValue\.delete\(\)/g, '');
+    if (/Note\.parse\(/.test(data) || SEALED_KEY.test(plainText)) {
+      found.push(lines[at].trim() || text.slice(m.index, m.index + 60).trim());
+    }
+  }
   return found;
 }
 
@@ -198,6 +254,14 @@ describe('the sealing boundary', () => {
       `const ref = db.doc(paths.note(uid, id));\nawait ref.update({ title, titleSource: 'llm' });`,
       `const update: Data = { updatedAt: now };\nupdate['body'] = next;\ntx.update(this.notes().doc(id), update);`,
       `batch.set(notesCol.doc(id), { ...base, instructions: text });`,
+      // Chained onto a note path or the notes collection (re-review on #276).
+      `await db.doc(paths.note(uid, id)).update({ body });`,
+      `await db\n  .doc(paths.note(uid, id))\n  .set({ title: next }, { merge: true });`,
+      `await db.collection(paths.notes(uid)).doc(id).create(Note.parse(made));`,
+      `await this.notes().add({ kind: 'text', body: words });`,
+      // Whatever the writer is called.
+      `await db.runTransaction(async (txn) => {\n  txn.update(db.doc(paths.note(uid, id)), { sendAsk: ask });\n});`,
+      `const ops = db.batch();\nops.set(this.notes().doc(id), { synonyms: names });`,
     ];
     for (const p of planted) expect(directNoteWrites(p), p).not.toEqual([]);
     // And what it lets through: sealed writes, and writes with no note text.
@@ -206,6 +270,11 @@ describe('the sealing boundary', () => {
       `const ref = db.doc(paths.note(uid, id));\nawait ref.update({ archived: true, sendAsk: FieldValue.delete() });`,
       `const out = await sealFields(this.codec, ref.id, data, forms);\nwriter.set(ref, out);`,
       `batch.update(feedRef, { noteId: id, title: 'x' });`,
+      `await db.doc(paths.note(uid, id)).update({ archived: true });`,
+      `await db.doc(paths.run(uid, id)).set({ outcome, title: 'x' });`,
+      `await db.collection(paths.notes(uid)).doc(id).update(await sealFields(codec, id, d, forms));`,
+      `const names = new Map<string, string>();\nnames.set(normalizeName(title), id);`,
+      `txn.update(db.doc(paths.note(uid, id)), { settledAt: now });`,
     ];
     for (const p of fine) expect(directNoteWrites(p), p).toEqual([]);
   });

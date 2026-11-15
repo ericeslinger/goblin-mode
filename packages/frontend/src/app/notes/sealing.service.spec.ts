@@ -103,6 +103,19 @@ describe('SealingService', () => {
     expect(next.sealing.on()).toBe(true);
   });
 
+  it('a garden with no settings doc: known, off, as soon as the server says so (e2e capture offline)', () => {
+    const { sealing, settings } = setup();
+    // Offline: the cache has no doc, which says nothing.
+    settings(undefined, true);
+    expect(sealing.known()).toBe(false);
+    // Back online: the listener asks for metadata changes, so the
+    // server's "no doc" comes as its own snapshot.
+    settings(undefined, false);
+    expect(sealing.known()).toBe(true);
+    expect(sealing.on()).toBe(false);
+    expect(localStorage.getItem('goblin.sealNotes.u1')).toBe('off');
+  });
+
   it('turns on when every part of the server proves the same key, with a merge write of the switch alone', async () => {
     const { sealing, api, check, keys } = setup();
     expect(await sealing.turnOn()).toEqual({ result: 'ok' });

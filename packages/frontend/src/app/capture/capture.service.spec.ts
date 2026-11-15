@@ -106,6 +106,62 @@ describe('CaptureService', () => {
     expect(capture.open().text).toBe('Shopping: Buy milk\n- eggs\n- bread');
   });
 
+  describe('typing before held words are shown (review on #276)', () => {
+    const saved = (notes: FakeNotes) => notes.save.mock.lastCall?.[1];
+
+    it('an existing note: keystrokes before the notes list arrive are merged with the held words', () => {
+      const { capture, notes } = setup({
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+      });
+      notes.held.set({ a: 'Buy milk\n- eggs' });
+      notes.heldBases.set({ a: 'Buy milk' });
+      // Before the list: the editor is empty, and typing is kept as a draft.
+      capture.onText('- bread');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      expect(notes.save).not.toHaveBeenCalled();
+      notes.signIn([note('a', 'Buy milk')]);
+      TestBed.tick();
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      const text = capture.open().text;
+      expect(text).toContain('Buy milk\n- eggs');
+      expect(text).toContain('- bread');
+      expect(saved(notes)).toBe(text);
+      expect(notes.save).toHaveBeenLastCalledWith('a', text, { base: 'Buy milk' });
+      expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+    });
+
+    it('an existing note: a save made before the held words reached the editor is built on them', () => {
+      const { capture, notes } = setup({
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+      });
+      notes.signIn([note('a', 'Buy milk')]);
+      // The held state turns up before the editor has shown it, and Eric types at once.
+      notes.held.set({ a: 'Buy milk\n- eggs' });
+      notes.heldBases.set({ a: 'Buy milk' });
+      capture.onText('Buy milk!');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      const text = String(saved(notes));
+      expect(text).toContain('- eggs');
+      expect(text).toContain('Buy milk!');
+    });
+
+    it('a new note: keystrokes before the list arrive and the held words are both kept', () => {
+      const { capture, notes } = setup({
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'held1' },
+      });
+      notes.held.set({ held1: 'Typed while the key was away' });
+      capture.onText('And more at once');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      notes.signIn([]);
+      TestBed.tick();
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      const text = capture.open().text;
+      expect(text).toContain('Typed while the key was away');
+      expect(text).toContain('And more at once');
+      expect(saved(notes)).toBe(text);
+    });
+  });
+
   it('merges held words over the note’s text when it moved on since they were typed', () => {
     const { capture, notes } = setup({
       [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },

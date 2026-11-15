@@ -753,6 +753,19 @@ export class NotesService {
           // #204). Offline, they wait on the device for the server.
           if (!fromCache && !this.replayed) {
             this.replayed = true;
+            // Saves held on the device since sign-in (for the key, or
+            // until the switch was known) are replayed here too: nothing
+            // else wakes them once the switch is known before this
+            // snapshot (review on #276, a fresh device back online kept
+            // its words held until a reload).
+            const held = this.store.get<PendingSaves>(PENDING_SAVES_KEY) ?? {};
+            for (const id of this.heldIds()) {
+              if (held[id])
+                this.atLoad[PENDING_SAVES_KEY] = {
+                  ...this.atLoad[PENDING_SAVES_KEY],
+                  [id]: held[id],
+                };
+            }
             this.replayKept();
           }
           this.loaded.set(true);
@@ -811,6 +824,11 @@ export class NotesService {
   /** Whether the gardener's switch is known yet on this device (`NoteSealing.known`). */
   sealingKnown(): boolean {
     return this.sealing.known();
+  }
+
+  /** Whether the gardener's switch is on, as this device knows it. */
+  sealingOn(): boolean {
+    return this.sealing.on();
   }
 
   newId(): string {

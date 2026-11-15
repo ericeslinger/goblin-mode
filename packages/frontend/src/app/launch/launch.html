@@ -58,11 +58,20 @@
           }
           <span class="sync" [class.offline]="!online()" aria-hidden="true"></span>
         </button>
-        <span class="visually-hidden" role="status">{{ online() ? 'synced' : 'offline' }}</span>
+        <!-- Synced only when nothing waits on this device (2026-11-15). -->
+        <span class="visually-hidden" role="status">{{
+          !online() ? 'offline' : notes.waitingForKey() ? 'waiting' : 'synced'
+        }}</span>
         @if (moreOpen()) {
           <nav id="more-menu" class="more-menu" aria-label="More" (click)="moreOpen.set(false)">
             <p class="sync-line" [class.offline]="!online()">
-              {{ online() ? 'Synced' : 'Offline. Changes are kept here and sync when back.' }}
+              {{
+                !online()
+                  ? 'Offline. Changes are kept here and sync when back.'
+                  : notes.waitingForKey()
+                    ? 'Some words are kept on this device until it can save them.'
+                    : 'Synced'
+              }}
             </p>
             <ul>
               <li class="browse-link"><a routerLink="/browse">Browse</a></li>
@@ -159,16 +168,19 @@
       }
       <app-share-waiting class="note-status" />
       @if (notes.heldForKey(capture.open().id)) {
-        <!-- Sealing is on and the key is not here yet (2026-11-15). -->
-        <p class="note-status" role="status">
-          @if (notes.sealingKnown()) {
-            Sealing is on, and this device does not have its key yet. What you write is kept here,
-            and saved sealed once this device is online and has the key.
-          } @else {
+        <!-- Words held on this device (2026-11-15): polite, not a second
+             status, so the capture screen keeps one status (review on #276). -->
+        @if (!notes.sealingKnown()) {
+          <p class="note-status" aria-live="polite">
             This device has not yet heard whether your notes are sealed. What you write is kept
             here, and saved once it is online.
-          }
-        </p>
+          </p>
+        } @else if (notes.sealingOn()) {
+          <p class="note-status" aria-live="polite">
+            Sealing is on, and this device does not have its key yet. What you write is kept here,
+            and saved sealed once this device is online and has the key.
+          </p>
+        }
       }
       @if (waiting() && notes.loaded()) {
         <p class="note-status" role="status">

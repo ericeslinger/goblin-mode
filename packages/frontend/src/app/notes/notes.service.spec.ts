@@ -2308,6 +2308,38 @@ describe('NotesService', () => {
       expect(sent(t.api)).not.toContain('Journal');
     });
 
+    it('a fresh device offline, then back: held words reach the server once it hears, whatever comes first (e2e capture offline)', () => {
+      for (const order of ['setting first', 'notes first'] as const) {
+        TestBed.resetTestingModule();
+        const t = setup();
+        t.sealing.known.set(false);
+        t.signIn(UID);
+        // Offline: the notes come from the cache only, the setting not at all.
+        t.push([], { fromCache: true });
+        t.notes.save('fresh', 'Written on the train');
+        expect(t.api.set).not.toHaveBeenCalled();
+        expect(t.notes.waitingForKey()).toBe(true);
+        // Back online: the server says no setting (off) and sends the notes.
+        if (order === 'setting first') {
+          t.sealing.known.set(true);
+          TestBed.tick();
+          expect(t.api.set).not.toHaveBeenCalled();
+          t.push([]);
+        } else {
+          t.push([]);
+          TestBed.tick();
+          expect(t.api.set).not.toHaveBeenCalled();
+          t.sealing.known.set(true);
+        }
+        TestBed.tick();
+        expect(writesTo(t.api, 'fresh')[0]?.[2], order).toMatchObject({
+          body: 'Written on the train',
+        });
+        expect(t.notes.waitingForKey(), order).toBe(false);
+        expect(t.notes.heldForKey('fresh'), order).toBe(false);
+      }
+    });
+
     it('a plain garden, setting unknown at a cold start: typing is held at once, then written plain once heard', () => {
       const t = setup();
       t.sealing.known.set(false);
