@@ -1,13 +1,27 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
-import { textHash } from '@mossgoblin/schema';
+import { noteTextHash, textHash } from '@mossgoblin/schema';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NotesTools } from '../mcp/tools';
-import { DAILY_PUT_BACKS, putBack, reroute } from './firestore';
+import { TEST_KEY, openedNote, testKeyFor } from '../testing/test-key';
+import { DAILY_PUT_BACKS, putBack as putBackWith, reroute as rerouteWith } from './firestore';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
 // its own project id. No functions run here, so the texts noteHistory
-// would remember are written by `remember`.
+// would remember are written by `remember`. Every write is sealed
+// (2026-11-15), with the spec's own key, so what is stored is opened to
+// be checked, and records name every note as a sealed one.
+
+const putBack = (db: Firestore, uid: string, runId: string, now?: number, timeZone?: string) =>
+  putBackWith(db, uid, runId, now, timeZone, testKeyFor);
+const reroute = (
+  db: Firestore,
+  uid: string,
+  run: string,
+  projectId: string,
+  now?: number,
+  timeZone?: string,
+) => rerouteWith(db, uid, run, projectId, now, timeZone, testKeyFor);
 const PROJECT = 'demo-mossgoblin-putback';
 const HOST = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 const app = initializeApp({ projectId: PROJECT }, 'putback-spec');
@@ -66,8 +80,12 @@ async function remember(id: string, body: string, where: 'replaced' | 'history' 
   }
 }
 
-const tools = (at: number) => new NotesTools(db, 'u1', () => at);
-const read = async (id: string) => (await db.doc(`users/u1/notes/${id}`).get()).data()!;
+/** A body hash as every writer now stores it: keyed (2026-11-15). */
+const keyed = (id: string, text: string) => noteTextHash(id, text, 'sealed', () => TEST_KEY);
+
+const tools = (at: number) => new NotesTools(db, 'u1', () => at, undefined, undefined, testKeyFor);
+const read = async (id: string) =>
+  openedNote('u1', id, (await db.doc(`users/u1/notes/${id}`).get()).data())!;
 
 /** The id of the newest run of `tool`. */
 async function runOf(tool: string): Promise<string> {
@@ -99,7 +117,7 @@ describe('putBack', () => {
       tool: 'put_back',
       agent: 'Mossgoblin',
       summary: expect.stringMatching(/^Put back “/),
-      notes: [{ id: 'a', title: 'Shopping' }],
+      notes: [{ id: 'a', title: 'Sealed note' }],
       reminders: [],
     });
     expect((await db.doc('users/u1/usage/2026-11-08').get()).get('putBacks')).toBe(1);
@@ -121,7 +139,7 @@ describe('putBack', () => {
     await tools(T).addLines({ id: 'j', lines: ['- [ ] fire'] });
     expect(
       (await db.doc(`users/u1/activity/${await runOf('add_lines')}`).get()).get('notes'),
-    ).toEqual([{ id: 'j', title: 'Pottery' }]);
+    ).toEqual([{ id: 'j', title: 'Sealed note' }]);
     await remember('j', 'Pottery\n- [ ] glaze');
 
     await putBack(db, 'u1', await runOf('add_lines'), T + 1000);
@@ -245,7 +263,11 @@ describe('putBack', () => {
     });
     const record = (await db.doc(`users/u1/activity/putback-${runId}`).get()).data()!;
     expect(record['notes']).toEqual([
-      { id: 'c-vase', title: 'Vase', before: { tags: [...(tags ?? []), 'gift'], stage: 'glazed' } },
+      {
+        id: 'c-vase',
+        title: 'Sealed note',
+        before: { tags: [...(tags ?? []), 'gift'], stage: 'glazed' },
+      },
     ]);
 
     // Putting back the put back files it again.
@@ -265,8 +287,8 @@ describe('putBack', () => {
     expect((await db.doc(`users/u1/activity/${runId}`).get()).get('notes')).toEqual([
       {
         id: 'c-kiln',
-        title: 'Kiln',
-        before: { conceptType: null, body: textHash('Kiln\nCone 6.') },
+        title: 'Sealed note',
+        before: { conceptType: null, body: keyed('c-kiln', 'Kiln\nCone 6.') },
       },
     ]);
     await remember('c-kiln', 'Kiln\nCone 6.');
@@ -279,7 +301,7 @@ describe('putBack', () => {
       {
         id: 'c-kiln',
         title: expect.any(String),
-        before: { conceptType: 'project', body: textHash(sectioned) },
+        before: { conceptType: 'project', body: keyed('c-kiln', sectioned) },
       },
     ]);
 
@@ -385,12 +407,12 @@ describe('reroute (#235)', () => {
     expect(record).toMatchObject({
       tool: 'reroute',
       agent: 'Mossgoblin',
-      summary: 'Filed Kiln log under Garden',
+      summary: 'Filed a sealed note under a sealed project',
       notes: [
         {
           id: 'k',
-          title: 'Kiln log',
-          before: { body: textHash('Kiln log\nCone 6.'), links: [] },
+          title: 'Sealed note',
+          before: { body: keyed('k', 'Kiln log\nCone 6.'), links: [] },
         },
       ],
       reminders: [],
@@ -425,7 +447,7 @@ describe('reroute (#235)', () => {
     expect((await read('y'))['body']).toBe('Firing notes\nShelf 2.\n\nSee also [[Pottery]]');
     expect((await read(merged.id))['archived']).toBe(true);
     const record = (await db.doc(`users/u1/activity/reroute-putback-${runId}`).get()).data()!;
-    expect(record['summary']).toBe('Filed 2 notes under Pottery');
+    expect(record['summary']).toBe('Filed 2 notes under a sealed project');
   });
 
   it('files a project under another with parent, and puts that back', async () => {
@@ -440,7 +462,7 @@ describe('reroute (#235)', () => {
     expect((await read('c-glazes'))['parent']).toBe('c-garden');
     const record = (await db.doc(`users/u1/activity/reroute-putback-${runId}`).get()).data()!;
     expect(record['notes']).toEqual([
-      { id: 'c-glazes', title: 'Glazes', before: { parent: null } },
+      { id: 'c-glazes', title: 'Sealed note', before: { parent: null } },
     ]);
 
     await putBack(db, 'u1', `reroute-putback-${runId}`, T + 3000);
@@ -500,7 +522,8 @@ describe('reroute (#235)', () => {
 });
 
 describe('learn from the correction (#239)', () => {
-  const context = async () => (await db.doc('users/u1/notes/context').get()).data();
+  const context = async () =>
+    openedNote('u1', 'context', (await db.doc('users/u1/notes/context').get()).data());
   const lines = (body: unknown) =>
     String(body)
       .split('\n')
@@ -539,7 +562,7 @@ describe('learn from the correction (#239)', () => {
     expect(after).toMatchObject({
       title: 'Context for Claude',
       deviceId: `agent:Mossgoblin~reroute-putback-${runId}`,
-      baseHash: textHash(String(made['body'])),
+      baseHash: keyed('context', String(made['body'])),
     });
     expect(
       (await db.doc(`users/u1/activity/reroute-putback-${runId}`).get()).get('notes'),

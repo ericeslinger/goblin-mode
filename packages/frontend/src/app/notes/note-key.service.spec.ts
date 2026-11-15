@@ -10,7 +10,6 @@ import {
   NOTE_KEY_PREFIX,
   type NoteKeyApi,
   NoteKeyService,
-  NoteKeyUnavailable,
 } from './note-key.service';
 
 const raw = (n: number) => bytesToBase64(new Uint8Array(32).fill(n));
@@ -174,23 +173,41 @@ describe('NoteKeyService (note encryption step 2)', () => {
     await vi.waitFor(() => expect(bytes()).toBe(raw(2)));
   });
 
-  describe('fetchNow, for the check before sealing (2026-11-15)', () => {
-    it('asks again at once, even after this load asked, and holds what it got', async () => {
-      const { api, signIn, keys, bytes } = setup();
-      signIn(gardener('u1'));
-      await vi.waitFor(() => expect(bytes()).toBe(raw(1)));
-      const key = await keys.fetchNow();
-      expect(api.fetch).toHaveBeenCalledTimes(2);
-      expect(bytesToBase64(exportDataKey(key))).toBe(raw(1));
-    });
+  it('says when the service is not set up (503), not merely out of reach (2026-11-15)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let status = 503;
+    const { signIn, keys, bytes } = setup(async () =>
+      status === 200 ? answer(3) : new Response('note keys are not configured', { status }),
+    );
+    signIn(gardener('u1'));
+    await vi.waitFor(() => expect(keys.unconfigured()).toBe(true));
+    expect(keys.key()).toBeUndefined();
+    // Another failure is not "not set up".
+    status = 502;
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(keys.unconfigured()).toBe(false));
+    status = 503;
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(keys.unconfigured()).toBe(true));
+    status = 200;
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(bytes()).toBe(raw(3)));
+    expect(keys.unconfigured()).toBe(false);
+    // Signing out forgets it.
+    status = 503;
+    signIn(null);
+    expect(keys.unconfigured()).toBe(false);
+  });
 
-    it('says why it could not: offline, signed out, or the service refused', async () => {
-      const { signIn, keys, isOnline } = setup(async () => new Response('', { status: 503 }));
-      await expect(keys.fetchNow()).rejects.toBeInstanceOf(NoteKeyUnavailable);
-      signIn(gardener('u1'));
-      await expect(keys.fetchNow()).rejects.toThrow('the note key service answered 503');
-      isOnline.value = false;
-      await expect(keys.fetchNow()).rejects.toThrow('offline');
+  it('clears what the old sealing switch left on the device, at sign-in and sign-out', async () => {
+    const { signIn } = setup(undefined, {
+      stored: { 'goblin.sealNotes.u1': 'on', 'goblin.sealNotes.u2': 'off' },
     });
+    signIn(gardener('u1'));
+    expect(localStorage.getItem('goblin.sealNotes.u1')).toBeNull();
+    expect(localStorage.getItem('goblin.sealNotes.u2')).toBeNull();
+    localStorage.setItem('goblin.sealNotes.u1', 'on');
+    signIn(null);
+    expect(localStorage.getItem('goblin.sealNotes.u1')).toBeNull();
   });
 });

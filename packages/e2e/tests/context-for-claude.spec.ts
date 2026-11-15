@@ -36,8 +36,11 @@ test('Context for Claude reaches Claude, and shows on the back what Claude added
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   const back = page.getByRole('region', { name: 'Back of the note' });
   await expect(back).toContainText('Made');
+  // The entry no longer names the note (always sealed, 2026-11-15):
+  // what is stored about a sealed note says "a sealed note". This is
+  // the note's own back, so which note it means is not in doubt.
   await expect(back.getByRole('list', { name: 'What assistants changed' })).toContainText(
-    'Context for Claude',
+    'Added 1 line to a sealed note',
   );
   const { violations } = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

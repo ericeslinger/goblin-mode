@@ -152,28 +152,17 @@ describe('putting back a sealed field as stored', () => {
     expect(stored('c-moss')).toEqual(now);
   });
 
-  it('writes a plain value before in the form the rule gives: sealed beside a sealed body', async () => {
+  it('writes a plain value before sealed: a plain note puts back sealed (2026-11-15)', async () => {
     put('c-moss', { synonyms: ['Mossy'] });
     await tools().refile({ id: 'c-moss', addSynonyms: ['Lichen-ish'] });
-    expect(stored('c-moss')['synonyms']).toEqual(['Mossy', 'Lichen-ish']);
-    // Sealed since, as a migration would, leaving its stamp as it was.
-    const doc = stored('c-moss');
-    doc['body'] = seal('c-moss', 'body', 'Notes on moss');
-    doc['synonyms'] = (doc['synonyms'] as string[]).map((n) => seal('c-moss', 'synonyms', n));
+    const added = stored('c-moss')['synonyms'] as string[];
+    expect(added.map((n) => open('c-moss', 'synonyms', n))).toEqual(['Mossy', 'Lichen-ish']);
     expect(await putBack(db(), UID, runOf('refile'), T + 60_000, undefined, keyFor)).toMatchObject({
       status: 'done',
     });
+    // The plain list it replaced, put back sealed.
     const names = stored('c-moss')['synonyms'] as string[];
     expect(names.every(isSealed)).toBe(true);
     expect(names.map((n) => open('c-moss', 'synonyms', n))).toEqual(['Mossy']);
-  });
-
-  it('a plain note puts back plain, asking for no key', async () => {
-    put('c-moss', { synonyms: ['Mossy'] });
-    await tools().refile({ id: 'c-moss', addSynonyms: ['Lichen-ish'] });
-    keyFor.mockClear();
-    await putBack(db(), UID, runOf('refile'), T + 60_000, undefined, keyFor);
-    expect(stored('c-moss')['synonyms']).toEqual(['Mossy']);
-    expect(keyFor).not.toHaveBeenCalled();
   });
 });

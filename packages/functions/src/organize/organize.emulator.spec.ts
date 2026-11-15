@@ -2,11 +2,13 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NotesTools } from '../mcp/tools';
+import { openedNote, openedRecord, testKeyFor } from '../testing/test-key';
 import { applyAccepted } from './apply';
 import { KEEP_DONE_DAYS, STALE_CLAIM_MS, sweepProposals } from './store';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
-// its own project id.
+// its own project id. Every write is sealed (2026-11-15), with the
+// spec's own key; what was stored is opened to be checked.
 const PROJECT = 'demo-mossgoblin-organize';
 const HOST = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 const app = initializeApp({ projectId: PROJECT }, 'organize-spec');
@@ -50,7 +52,7 @@ async function proposals() {
 }
 
 describe('suggest_changes', () => {
-  const tools = () => new NotesTools(db, 'u1', () => T);
+  const tools = () => new NotesTools(db, 'u1', () => T, undefined, undefined, testKeyFor);
 
   it('stores the suggestions that check out as open proposals, changing no notes', async () => {
     await eric('a', 'Kiln log\nCone 6.');
@@ -62,18 +64,22 @@ describe('suggest_changes', () => {
       ],
     });
     expect(result).toMatchObject({ stored: [{ kind: 'merge' }], dropped: 1, waiting: 1 });
-    expect(await proposals()).toEqual([
+    // Its reason sealed under its own id, and its notes named as sealed.
+    const stored = await proposals();
+    expect(stored).toEqual([
       expect.objectContaining({
         kind: 'merge',
         key: 'merge:a,b',
         status: 'open',
-        reason: 'One firing.',
         notes: [
-          { id: 'a', title: 'Kiln log' },
-          { id: 'b', title: 'Firing notes' },
+          { id: 'a', title: 'Sealed note' },
+          { id: 'b', title: 'Sealed note' },
         ],
       }),
     ]);
+    expect(
+      openedRecord('u1', 'proposals', String(stored[0].id), 'reason', stored[0]['reason']),
+    ).toBe('One firing.');
     expect((await db.doc('users/u1/notes/a').get()).get('archived')).toBe(false);
     expect((await db.collection('users/u1/activity').get()).size).toBe(0);
 
@@ -141,7 +147,7 @@ describe('applyAccepted', () => {
       ...data,
     });
   }
-  const tools = () => new NotesTools(db, 'u1', () => T);
+  const tools = () => new NotesTools(db, 'u1', () => T, undefined, undefined, testKeyFor);
   const status = async (id: string) => (await db.doc(`users/u1/proposals/${id}`).get()).data();
 
   it('merges with the organize tool, once, and records it in What assistants changed', async () => {
@@ -158,7 +164,7 @@ describe('applyAccepted', () => {
     expect(await applyAccepted(db, 'u1', 'p1', tools(), T)).toBe('applied');
     expect(await status('p1')).toMatchObject({
       status: 'applied',
-      outcome: 'Merged into Kiln log',
+      outcome: 'Merged into Sealed note',
     });
     expect((await db.doc('users/u1/notes/a').get()).get('archived')).toBe(true);
     const runs = await db.collection('users/u1/activity').get();
@@ -197,14 +203,14 @@ describe('applyAccepted', () => {
     await applyAccepted(db, 'u1', 'p1', tools(), T);
     await applyAccepted(db, 'u1', 'p2', tools(), T);
     expect(await applyAccepted(db, 'u1', 'p3', tools(), T)).toBe('failed');
-    expect(await status('p1')).toMatchObject({ outcome: 'Linked Firing notes' });
+    // Outcomes name notes as an activity entry does: every one sealed.
+    expect(await status('p1')).toMatchObject({ outcome: 'Linked Sealed note' });
     expect(await status('p2')).toMatchObject({
-      outcome: 'filed as a person; added another name: Vik',
+      outcome: 'filed as a person; added another name',
     });
     expect(await status('p3')).toMatchObject({ status: 'failed', outcome: 'no note zz' });
-    expect((await db.doc('users/u1/notes/a').get()).get('body')).toBe(
-      'Kiln log\n\nSee also [[Firing notes]]',
-    );
+    const a = openedNote('u1', 'a', (await db.doc('users/u1/notes/a').get()).data());
+    expect(a?.['body']).toBe('Kiln log\n\nSee also [[Firing notes]]');
   });
 
   it('leaves a proposal the gardener has not accepted', async () => {

@@ -330,6 +330,25 @@ describe('Activity', () => {
     ).toBeTruthy();
   });
 
+  it('names the notes in the line by their own titles, as records say "Sealed note" (2026-11-15)', async () => {
+    const { el, push } = await render([], Date.parse('2026-11-09T14:00:00Z'));
+    await push([
+      {
+        id: 'y1',
+        data: {
+          at: at(Date.parse('2026-11-08T15:00:00Z')),
+          tool: 'add_lines',
+          summary: 'Added 2 lines to a sealed note',
+          notes: [{ id: 'm1', title: 'Sealed note' }],
+          reminders: [],
+        },
+      },
+    ]);
+    expect(el.querySelector('section.digest p')?.textContent?.trim()).toBe(
+      'Yesterday: 2 lines added to Kiln log.',
+    );
+  });
+
   it('says today so far when yesterday had nothing, and nothing when neither had', async () => {
     const now = Date.parse('2026-11-09T14:00:00Z');
     const runs = [

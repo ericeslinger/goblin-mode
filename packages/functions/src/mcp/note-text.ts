@@ -17,26 +17,27 @@
 // Since step 3d (2026-11-13) every sealed field of a note goes the same
 // way, not only body and title: the other names, the instructions, the
 // Send to ask and outcome, a recipe's import error and its source text
-// (SEALED_FIELDS). The form a write keeps is `writtenForms`, shared with
-// the app (packages/schema/src/sealed-note.ts).
+// (SEALED_FIELDS). Until 2026-11-15 the form a write kept was the one it
+// found (`writtenForms`, shared with the app); now it is always sealed.
 //
 // Hashes of a note's text (keyed hashes, 2026-11-14) are made and
 // matched here too, `hashText`, `hashMatcher` and `itemHash`, keyed for
 // a sealed note (packages/schema/src/text-hash.ts) with the same key,
 // asked for as lazily: never for a plain note with plain hashes.
 //
-// The gardener's switch (2026-11-15): with `sealNotes` on in
-// `settings/assistant`, every write through the codec seals every
-// sealed field it writes, a new note's included, keys every hash it
-// stores, and seals every record it writes about notes. The codec reads
-// the setting once, lazily, the first time a note is opened or written
-// (`sealing`), and never asks for the key with the switch off and only
-// plain notes. Off, writers keep the form they find, as before.
+// Always sealed (Eric, 2026-11-15, after the migration): every write
+// through the codec seals every sealed field it writes, a new note's
+// included, keys every hash it stores, and seals every record it writes
+// about notes. There is no switch and nothing is written plain. Reading
+// still opens plain values as they are (DESIGN.md, Always sealed): a
+// replaced text kept before, a restored backup, a write from an
+// out-of-date app, which noteHistory then seals (notes/seal-plain.ts).
+// The key is asked for lazily, the first time a value is opened or
+// sealed, once a codec at most.
 import {
   type DataKey,
   type NoteForm,
   type NoteForms,
-  PLAIN_FORMS,
   SEALED_FIELDS,
   SEALED_FORMS,
   SealError,
@@ -46,10 +47,8 @@ import {
   type SealedRecordCollection,
   type SealedRecordField,
   aadFor,
-  anySealed,
   fieldValue,
   formsFound,
-  hashForm,
   isKeyedHash,
   isSealed,
   isSealedValue,
@@ -57,36 +56,20 @@ import {
   noteTextHash,
   noteTextHashMatches,
   openText,
-  paths,
   refileNamesHash,
   recordAadFor,
   sealText,
   withFieldValue,
-  writtenForms,
 } from '@mossgoblin/schema';
-import type { DocumentReference, DocumentSnapshot, Firestore } from 'firebase-admin/firestore';
+import type { DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore';
 import { ToolError } from './tool-error';
 
 type Data = Record<string, unknown>;
 
 export type { NoteForm, NoteForms };
-/** Every field plain: a new note, or one with nothing sealed. */
-export const PLAIN: NoteForms = PLAIN_FORMS;
 
 /** Where the gardener's data key comes from: `dataKeyFor` in production. */
 export type KeyFor = (uid: string) => Promise<DataKey>;
-
-/**
- * Whether the gardener's switch is on (`sealNotes`, settings/assistant,
- * 2026-11-15): asked once per codec, lazily. A failed read throws, so a
- * writer that cannot tell writes nothing rather than plain.
- */
-export type Sealing = () => Promise<boolean>;
-
-/** The gardener's switch as `db` holds it: `sealingIn(getFirestore(), uid)` in production. */
-export function sealingIn(db: Firestore, uid: string): Sealing {
-  return async () => (await db.doc(paths.assistant(uid)).get()).data()?.['sealNotes'] === true;
-}
 
 /** What an activity entry or summary says for a sealed title. */
 export const SEALED_TITLE = 'Sealed note';
@@ -139,40 +122,11 @@ export class SealedRecordError extends ToolError {
 /** One gardener's opener and sealer, for one request. */
 export class NoteCodec {
   private key?: Promise<DataKey>;
-  private switched?: Promise<boolean>;
 
   constructor(
     private readonly uid: string,
     private readonly keyFor: KeyFor,
-    /** The gardener's switch (2026-11-15), read once, lazily. */
-    private readonly sealing: Sealing,
   ) {}
-
-  /**
-   * Whether the gardener's switch is on, read the first time it is
-   * needed and kept for the codec (one request or event); a failed read
-   * stays failed, so nothing is written plain because it went unread.
-   */
-  sealingOn(): Promise<boolean> {
-    this.switched ??= this.sealing();
-    return this.switched;
-  }
-
-  /**
-   * The forms a write and everything about it go by, for a note found
-   * in `found` (PLAIN for a new note): every field sealed with the
-   * switch on, else `found`. A note sealed throughout needs no read of
-   * the switch.
-   */
-  async forms(found: NoteForms = PLAIN_FORMS): Promise<NoteForms> {
-    if (SEALED_FIELDS.every((f) => found[f] === 'sealed')) return found;
-    return (await this.sealingOn()) ? SEALED_FORMS : found;
-  }
-
-  /** The form text about a note in `form` is stored in: sealed with the switch on. */
-  private async formFor(form: NoteForm): Promise<NoteForm> {
-    return form === 'sealed' || (await this.sealingOn()) ? 'sealed' : form;
-  }
 
   /** The key, asked for once; a failed ask stays failed for this codec. */
   private dataKey(
@@ -216,31 +170,26 @@ export class NoteCodec {
 
   /**
    * `text` as stored in field `field` of note `noteId`: sealed under that
-   * note's id when `as` is 'sealed', else as it is. Text that would read
-   * as a sealed value is refused either way: stored plain it would lock
-   * the note, and sealing it is refused by the library.
+   * note's id. Text that would read as a sealed value is refused: sealing
+   * it is refused by the library, and it could never be told apart.
    */
-  async seal(noteId: string, field: SealedField, text: string, as: NoteForm): Promise<string> {
+  async seal(noteId: string, field: SealedField, text: string): Promise<string> {
     if (isSealed(text)) {
       throw new ToolError(`the ${field} cannot start with the sealed-text marker (U+E000 mg)`);
     }
-    if (as === 'plain') return text;
     const key = await this.dataKey(noteId);
     return sealText(key, aadFor(this.uid, noteId, field), text);
   }
 
   /**
    * The hash of `text`, the body of note `noteId`, to store (`baseHash`,
-   * a replaced text's id, an activity entry's `before.body`): plain for
-   * a note whose `hashForm` is plain, asking for no key; keyed for a
-   * sealed one. No key throws SealedNoteError, so nothing is written
-   * with a plain hash in a keyed one's place.
+   * a replaced text's id, an activity entry's `before.body`): always
+   * keyed (2026-11-15). No key throws SealedNoteError, so nothing is
+   * written with a plain hash in a keyed one's place.
    */
-  async hashText(noteId: string, text: string, given: NoteForm): Promise<string> {
-    // With the switch on, every hash written is keyed (2026-11-15).
-    const form = await this.formFor(given);
-    const key = form === 'sealed' ? await this.dataKey(noteId) : undefined;
-    const hash = noteTextHash(noteId, text, form, () => key);
+  async hashText(noteId: string, text: string): Promise<string> {
+    const key = await this.dataKey(noteId);
+    const hash = noteTextHash(noteId, text, 'sealed', () => key);
     if (hash === undefined) throw new SealedNoteError(noteId, 'no-key');
     return hash;
   }
@@ -285,8 +234,9 @@ export class NoteCodec {
 
   /**
    * The hash part of an item run's id (`itemRunId`) for the item whose
-   * key is `item`, on note `noteId`: plain for a plain note, keyed for a
-   * sealed one (`hashForm`). No key throws SealedNoteError.
+   * key is `item`, on note `noteId`: keyed for 'sealed', which every new
+   * run is named by; 'plain' only to find a run named before its note
+   * was sealed (agent/assigned.ts). No key throws SealedNoteError.
    */
   async itemHash(noteId: string, item: string, form: NoteForm): Promise<string> {
     const key = form === 'sealed' ? await this.dataKey(noteId) : undefined;
@@ -320,22 +270,18 @@ export class NoteCodec {
 
   /**
    * `text` as stored in field `field` of record `docId`: sealed under
-   * that record's own aad when `as` is 'sealed' (`recordForm` of the
-   * notes it is about), else as it is. Text that reads as a sealed value
-   * is refused, as for a note.
+   * that record's own aad, as every record about notes is (2026-11-15).
+   * Text that reads as a sealed value is refused, as for a note.
    */
   async sealRecord<C extends SealedRecordCollection>(
     collection: C,
     docId: string,
     field: SealedRecordField<C>,
     text: string,
-    given: NoteForm,
   ): Promise<string> {
     if (isSealed(text)) {
       throw new ToolError(`the ${field} cannot start with the sealed-text marker (U+E000 mg)`);
     }
-    // With the switch on, every record about notes is sealed (2026-11-15).
-    if ((await this.formFor(given)) === 'plain') return text;
     const key = await this.dataKey(docId, () => new SealedRecordError(collection, docId, 'no-key'));
     return sealText(key, recordAadFor(this.uid, collection, docId, field), text);
   }
@@ -363,15 +309,15 @@ export class NoteSnap {
     private readonly opened: Partial<Record<SealedField, SealedFieldValue>>,
     /** How each text field is stored. */
     readonly storedForms: NoteForms,
-    /**
-     * The forms a write to this note, and every record and hash about
-     * it, go by (2026-11-15): `storedForms`, or every field sealed with
-     * the gardener's switch on (`NoteCodec.forms`). Reading goes by
-     * `storedForms`.
-     */
-    readonly forms: NoteForms,
     private readonly unreadable?: SealedNoteError,
   ) {}
+
+  /**
+   * The forms every write to this note, and every record and hash about
+   * it, go by: sealed throughout, always (2026-11-15). Reading goes by
+   * `storedForms`.
+   */
+  readonly forms: NoteForms = SEALED_FORMS;
 
   /**
    * Opens `snap`'s sealed fields, a list element by element; asks for
@@ -395,7 +341,7 @@ export class NoteSnap {
         unreadable ??= err;
       }
     }
-    return new NoteSnap(snap, opened, forms, await codec.forms(forms), unreadable);
+    return new NoteSnap(snap, opened, forms, unreadable);
   }
 
   get id(): string {
@@ -410,19 +356,6 @@ export class NoteSnap {
   /** Sealed, and did not open here. */
   get locked(): boolean {
     return this.unreadable !== undefined;
-  }
-  /**
-   * Any text field is stored sealed (opened or not), or the gardener's
-   * switch is on, so whatever is made from it or said about it is
-   * sealed (`forms`, 2026-11-15).
-   */
-  get sealed(): boolean {
-    return anySealed(this.forms);
-  }
-
-  /** Whether hashes of this note's text are keyed (`hashForm`, 2026-11-14). */
-  get hashForm(): NoteForm {
-    return hashForm(this.forms);
   }
 
   /** Field `field` is stored sealed and did not open here. */
@@ -472,17 +405,6 @@ export class NoteSnap {
 }
 
 /**
- * The form a new note made from others' text takes (2026-11-12): sealed,
- * both fields, if any field of any source is sealed, or the gardener's
- * switch is on (a source's `sealed`, 2026-11-15), so moved text is
- * never written out in the clear; else plain. Each source's text is
- * opened under its own id and sealed again under the new note's.
- */
-export function formFrom(sources: readonly (NoteSnap | undefined)[]): NoteForms {
-  return sources.some((s) => s?.sealed) ? SEALED_FORMS : PLAIN;
-}
-
-/**
  * Field `field` of a stored note document, as stored: a sealed value as
  * it is, '' when absent. The one raw read of note text outside
  * `NoteSnap`, for a trigger that opens it with `NoteCodec.open` or
@@ -504,33 +426,26 @@ export function formsOf(values: Record<string, unknown> | undefined): NoteForms 
 
 /**
  * `data` for a write to note `noteId`, each sealed field in it (a list
- * element by element, `source.text` inside its map) stored as
- * `writtenForms(forms)` says: `forms` is the note's own when it
- * rewrites a note, the codec's `forms()` or `formFrom` its sources for
- * a new one. So a field keeps the form it was found in, and no field is
- * plainer than a sealed body (sealed-note.ts, the one rule). With the
- * gardener's switch on every field written is sealed, whatever `forms`
- * says (2026-11-15): the codec reads the switch here, so no writer can
- * write a sealed field plain past it. Every write of note text goes
- * through here.
+ * element by element, `source.text` inside its map) sealed under the
+ * note's id: every field written is sealed, always (2026-11-15), so no
+ * writer can write a sealed field plain. A value sealed already (moved
+ * text is opened and sealed again under the new id before it gets
+ * here) is refused, as `NoteCodec.seal` refuses it. Every write of note
+ * text goes through here.
  *
  * `restored` names the fields that put back writes as they were stored
  * before (`Touched.before`). A sealed value there is written back as it
  * is, never sealed again, once it is shown to open as that field of this
  * note (`NoteCodec.check`), so a value recorded on another note or field
- * is refused; a plain one is written in the form the rule gives.
+ * is refused; a plain one is sealed.
  */
 export async function sealFields(
   codec: NoteCodec,
   noteId: string,
   data: Data,
-  forms: NoteForms,
   restored: ReadonlySet<string> = NONE,
 ): Promise<Data> {
   let out: Data = { ...data };
-  // The switch read only when the write holds note text.
-  const holds = SEALED_FIELDS.some((f) => fieldValue(out, f) !== undefined);
-  const as = writtenForms(forms, holds && (await codec.sealingOn()));
   for (const field of SEALED_FIELDS) {
     const value = fieldValue(out, field);
     if (value === undefined) continue;
@@ -540,7 +455,7 @@ export async function sealFields(
         await codec.check(noteId, field, text);
         return text;
       }
-      return codec.seal(noteId, field, text, as[field]);
+      return codec.seal(noteId, field, text);
     };
     out = withFieldValue(
       out,

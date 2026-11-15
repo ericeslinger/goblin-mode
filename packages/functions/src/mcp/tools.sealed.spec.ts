@@ -18,8 +18,10 @@ import { type Store, copy, fakeDb } from '../testing/fake-firestore';
 import { SealedNoteError } from './note-text';
 import { NotesTools, ToolError } from './tools';
 
-// Note encryption step 3b (2026-11-12): the tools open sealed notes and
-// keep each in the form they found it. Against a small in-memory
+// Note encryption step 3b (2026-11-12): the tools open sealed notes.
+// They kept each in the form they found it until 2026-11-15; since then
+// every write is sealed, and plain notes are still read as they are.
+// Against a small in-memory
 // Firestore (testing/fake-firestore.ts), with a fake key source, so no
 // emulator is needed.
 
@@ -86,9 +88,8 @@ function noCiphertext(value: unknown) {
 const listed = <T>(r: T[] | { items: T[] }): T[] => (Array.isArray(r) ? r : r.items);
 
 describe('plain notes', () => {
-  it('read, edit and list as before, and never ask for a key', async () => {
+  it('are read and listed as they are, with no key; an edit writes them sealed', async () => {
     put('a', 'Buy *milk*\nand eggs');
-    const before = copy(stored('a')) as Data;
     const t = tools();
     const note = await t.getNote({ id: 'a' });
     expect(note).toMatchObject({ body: 'Buy *milk*\nand eggs', title: 'Buy *milk*' });
@@ -96,14 +97,15 @@ describe('plain notes', () => {
       expect.objectContaining({ id: 'a', title: 'Buy *milk*' }),
     ]);
     expect(await t.searchNotes({ query: 'eggs' })).toEqual([expect.objectContaining({ id: 'a' })]);
-    await t.addLines({ id: 'a', lines: ['- bread'] });
-    expect(stored('a')['body']).toBe('Buy *milk*\nand eggs\n- bread');
-    expect(stored('a')['title']).toBe(before['title']);
-    expect(stored('a')['baseHash']).toBe(textHash('Buy *milk*\nand eggs'));
     expect(keyFor).not.toHaveBeenCalled();
+    await t.addLines({ id: 'a', lines: ['- bread'] });
+    expect(opened('a', 'body')).toBe('Buy *milk*\nand eggs\n- bread');
+    expect(stored('a')['baseHash']).toBe(
+      noteTextHash('a', 'Buy *milk*\nand eggs', 'sealed', () => key),
+    );
   });
 
-  it('split, merged and made from a template stay plain, with no key', async () => {
+  it('split, merged and made from a template are born sealed', async () => {
     put('a', 'One\n\nTwo');
     put('b', 'Three');
     put('tpl', 'Journal\n\n## Today', { kind: 'template', titleSource: 'user', title: 'Journal' });
@@ -112,10 +114,9 @@ describe('plain notes', () => {
     const merged = await t.mergeNotes({ ids: ['a', 'b'] });
     const used = await t.useTemplate({ id: 'tpl' });
     for (const id of [split.pieces[0].id, merged.id, used.note.id]) {
-      expect(isSealed(stored(id)['body'])).toBe(false);
-      expect(isSealed(stored(id)['title'])).toBe(false);
+      expect(isSealed(stored(id)['body'])).toBe(true);
+      expect(isSealed(stored(id)['title'])).toBe(true);
     }
-    expect(keyFor).not.toHaveBeenCalled();
   });
 
   it('refuses to write plain text that would read as sealed', async () => {
@@ -301,7 +302,7 @@ describe('keyed hashes (2026-11-14)', () => {
     expect(stored('a')['baseHash']).not.toBe(stored('b')['baseHash']);
   });
 
-  it('a plain note keeps its plain hashes, byte for byte, and asks for no key', async () => {
+  it('a plain note gets keyed hashes when written, never plain ones', async () => {
     put('c-kiln', 'Our *kiln* project', {
       kind: 'concept',
       conceptType: 'other',
@@ -310,9 +311,10 @@ describe('keyed hashes (2026-11-14)', () => {
     });
     await tools().refile({ id: 'c-kiln', type: 'project' });
     const before = (activity()[0]['notes'] as { before: Data }[])[0].before;
-    expect(before['body']).toBe(textHash('Our *kiln* project'));
-    expect(stored('c-kiln')['baseHash']).toBe(textHash('Our *kiln* project'));
-    expect(keyFor).not.toHaveBeenCalled();
+    const keyed = noteTextHash('c-kiln', 'Our *kiln* project', 'sealed', () => key);
+    expect(before['body']).toBe(keyed);
+    expect(stored('c-kiln')['baseHash']).toBe(keyed);
+    expect(JSON.stringify([...store.values()])).not.toContain(textHash('Our *kiln* project'));
   });
 });
 
@@ -327,11 +329,13 @@ describe('suggest_changes', () => {
     const [proposal] = [...store.entries()]
       .filter(([p]) => p.startsWith(`users/${UID}/proposals/`))
       .map(([, d]) => d);
+    // Every note a record names is labelled (2026-11-15), a plain one too.
     expect(proposal['notes']).toEqual([
-      { id: 'b', title: 'About clay' },
+      { id: 'b', title: 'Sealed note' },
       { id: 'k', title: 'Sealed note' },
     ]);
     expect(JSON.stringify(proposal)).not.toContain('Kiln');
+    expect(JSON.stringify(proposal)).not.toContain('About clay');
   });
 });
 
@@ -421,10 +425,21 @@ describe('sealed notes, without the key', () => {
     expect('snippet' in list[0]).toBe(false);
   });
 
+  /**
+   * A note sealed under another key: it cannot be opened here though the
+   * key can be had, so the plain notes beside it can still be written
+   * (every write is sealed, 2026-11-15).
+   */
+  function putLocked(id: string, body: string, over: Data = {}) {
+    keyFor.mockImplementation(async () => key);
+    const other = newDataKey();
+    put(id, seal(id, 'body', body, other), { ...over, title: seal(id, 'title', body, other) });
+  }
+
   // Locked notes have no name (review of step 3b, closed in 3c, 2026-11-13).
   it('keeps a stored link to a note it cannot open when the links are worked out again', async () => {
     // Renamed since it was made, so its id is not the one its name makes.
-    putSealed('c-old-name', 'Secret project', { kind: 'concept', titleSource: 'user' });
+    putLocked('c-old-name', 'Secret project', { kind: 'concept', titleSource: 'user' });
     put('b', 'See [[Secret project]]', { links: ['c-old-name'] });
     const t = tools();
     await t.updateNote({ id: 'b', body: 'See [[Secret project]] soon' });
@@ -443,7 +458,7 @@ describe('sealed notes, without the key', () => {
       projects: { enabled: true },
       kitchen: { enabled: true },
     });
-    putSealed('c-x', 'Hidden name', { kind: 'concept', titleSource: 'user' });
+    putLocked('c-x', 'Hidden name', { kind: 'concept', titleSource: 'user' });
     const t = tools();
     for (const call of [
       () => t.createConcept({ name: 'Anything' }),

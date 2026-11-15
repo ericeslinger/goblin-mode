@@ -1,11 +1,10 @@
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
-import { type NoteForm, formsFound, isSealed, paths, recordForm } from '@mossgoblin/schema';
+import { paths, recordForm } from '@mossgoblin/schema';
 import {
   type KeyFor,
   NoteCodec,
   SealedRecordError,
   formsOf,
-  sealingIn,
   shownTitle,
   storedText,
 } from '../mcp/note-text';
@@ -19,40 +18,19 @@ const iso = (v: unknown) => (v instanceof Timestamp ? v.toDate().toISOString() :
  * transcriptions. One codec a gardener, for the run's note state and
  * the run's own text (step 3e, 2026-11-13): a claimed item run comes
  * back with its key and text opened, and an outcome is stored sealed
- * when its item was, or its note is (`recordForm`).
+ * (always, since 2026-11-15; before, when its item was, or its note
+ * is).
  */
 export function firestoreRunStore(db: Firestore, keyFor: KeyFor = dataKeyFor): RunStore {
   const codecs = new Map<string, NoteCodec>();
   const codecFor = (uid: string) => {
     let codec = codecs.get(uid);
-    if (!codec) codecs.set(uid, (codec = new NoteCodec(uid, keyFor, sealingIn(db, uid))));
+    if (!codec) codecs.set(uid, (codec = new NoteCodec(uid, keyFor)));
     return codec;
   };
-  /**
-   * The form a run's outcome is stored in: its item's, else its note's
-   * now. A note gone since the run began cannot say, so its outcome is
-   * sealed where there is a key ('if-keyed', review on #267).
-   */
-  const outcomeForm = async (uid: string, runId: string): Promise<NoteForm | 'if-keyed'> => {
-    const run = (await db.doc(paths.run(uid, runId)).get()).data();
-    if (isSealed(run?.['itemKey']) || isSealed(run?.['itemText'])) return 'sealed';
-    const noteId = run?.['noteId'];
-    if (typeof noteId !== 'string' || !noteId) return 'plain';
-    const note = await db.doc(paths.note(uid, noteId)).get();
-    return note.exists ? recordForm(formsFound(note.data())) : 'if-keyed';
-  };
-  const sealOutcome = async (uid: string, runId: string, outcome: string) => {
-    const as = await outcomeForm(uid, runId);
-    const seal = (form: NoteForm) =>
-      codecFor(uid).sealRecord('runs', runId, 'outcome', outcome, form);
-    if (as !== 'if-keyed') return seal(as);
-    try {
-      return await seal('sealed');
-    } catch (err) {
-      if (!(err instanceof SealedRecordError) || err.reason !== 'no-key') throw err;
-      return seal('plain');
-    }
-  };
+  /** A run's outcome, sealed under the run's own id, as every record about notes is (2026-11-15). */
+  const sealOutcome = (uid: string, runId: string, outcome: string) =>
+    codecFor(uid).sealRecord('runs', runId, 'outcome', outcome);
   /** A claimed run with its item's text opened; one that did not open says why. */
   const opened = async (uid: string, runId: string, run: Record<string, unknown>) => {
     const out: Record<string, unknown> = { ...run };

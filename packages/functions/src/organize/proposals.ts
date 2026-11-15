@@ -70,7 +70,8 @@ export function checkProposals(
   room: number,
   /**
    * A refile's key when it must not say its names (a sealed concept,
-   * or the switch on, 2026-11-15): the caller's, with the names hashed.
+   * which since 2026-11-15 is every one): the caller's, with the names
+   * hashed.
    */
   refileKey?: (p: Extract<RawProposal, { kind: 'refile' }>) => string | undefined,
 ): Checked[] {

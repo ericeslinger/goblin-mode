@@ -21,7 +21,7 @@ import { fakeFirebase } from '../testing/fakes';
 import { NOW, ONLINE } from '../platform/platform';
 import { NoteKeyService } from './note-key.service';
 import { KeyWaitNotice } from './key-wait-notice';
-import { NOTE_SEALING } from './sealing.service';
+import { TEST_NOTE_KEY, openedWrite } from '../testing/sealed';
 import {
   NOTES_API,
   type NotesApi,
@@ -37,11 +37,36 @@ import {
   SHARED_IMPORT_WAITING,
 } from './notes.service';
 
+/**
+ * What `removeField` gives here: not a string, as Firestore's deleteField
+ * is not, so the seam never takes it for note text.
+ */
+const REMOVED = Object.freeze({ removed: true });
+
+/** What each recorded write went out as, sealed, by the opened copy specs read. */
+const RAW = new WeakMap<object, Record<string, unknown>>();
+/** A write's data as it went out: its sealed values as they were sent. */
+const asSent = <C extends unknown[]>(call: C): C =>
+  call.map((v, i) => (i === 2 && v && typeof v === 'object' ? (RAW.get(v) ?? v) : v)) as C;
+/** A body hash as every save now writes it: keyed with the device's key (2026-11-15). */
+const keyedHash = (id: string, text: string, key: DataKey = TEST_NOTE_KEY) =>
+  noteTextHash(id, text, 'sealed', () => key);
+
 /** The device's clock in these specs. */
 const CLOCK = Date.parse('2026-11-09T12:00:00Z');
 
-/** `reload` keeps this device's storage, as a page loaded again does. */
-function setup({ reload = false }: { reload?: boolean } = {}) {
+/**
+ * `reload` keeps this device's storage, as a page loaded again does.
+ * The device has its note key unless `key` says otherwise (always
+ * sealed, 2026-11-15): every note text it writes is sealed. `api.set`
+ * and `api.createIfAbsent` record each write with its sealed fields
+ * opened with the key it was sealed with, so specs read the words; the
+ * writes as they went out, sealed, are in `sent`.
+ */
+function setup(opts: { reload?: boolean; key?: DataKey | undefined } = {}) {
+  const reload = opts.reload ?? false;
+  // An explicit `key: undefined` is a device with no key, not the default.
+  const startKey = 'key' in opts ? opts.key : TEST_NOTE_KEY;
   if (reload) TestBed.resetTestingModule();
   else localStorage.clear();
   const user = signal<User | null | undefined>(undefined);
@@ -60,20 +85,31 @@ function setup({ reload = false }: { reload?: boolean } = {}) {
     remove: vi.fn((_db: unknown, _path: string) => Promise.resolve()),
     serverTime: () => 'SERVER_TIME',
     timestamp: (ms: number) => ({ ms }),
-    removeField: () => 'REMOVED',
+    removeField: () => REMOVED,
   } satisfies NotesApi;
   const online = signal(true);
   /** The gardener's note key as NoteKeyService holds it (step 3a). */
-  const key = signal<DataKey | undefined>(undefined);
-  /** The gardener's switch (2026-11-15): off, and heard, unless a spec says. */
-  const sealing = { on: signal(false), known: signal(true) };
+  const key = signal<DataKey | undefined>(startKey);
+  /** Every note write as it went out, sealed. */
+  const sent: { path: string; data: Record<string, unknown> }[] = [];
+  const opened = (path: string, data: Record<string, unknown>) => {
+    sent.push({ path, data });
+    const k = key();
+    const seenData = k ? openedWrite(path, data, k) : data;
+    if (seenData !== data) RAW.set(seenData, data);
+    return seenData;
+  };
+  const seen: NotesApi = {
+    ...api,
+    set: (db, path, data, merge) => api.set(db, path, opened(path, data), merge),
+    createIfAbsent: (db, path, data) => api.createIfAbsent(db, path, opened(path, data)),
+  };
   TestBed.configureTestingModule({
     providers: [
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: AuthService, useValue: { user } },
-      { provide: NoteKeyService, useValue: { key } },
-      { provide: NOTE_SEALING, useValue: sealing },
-      { provide: NOTES_API, useValue: api },
+      { provide: NoteKeyService, useValue: { key, unconfigured: signal(false) } },
+      { provide: NOTES_API, useValue: seen },
       { provide: ONLINE, useValue: () => online() },
       { provide: NOW, useValue: () => CLOCK },
     ],
@@ -92,7 +128,7 @@ function setup({ reload = false }: { reload?: boolean } = {}) {
     user,
     online,
     key,
-    sealing,
+    sent,
   };
 }
 
@@ -383,7 +419,7 @@ describe('NotesService', () => {
       expect(writes[0][2]).toMatchObject({
         body: 'one two',
         title: 'one two',
-        baseHash: textHash('one'),
+        baseHash: keyedHash(writes[0][1].split('/').pop()!, 'one'),
       });
     });
 
@@ -755,14 +791,14 @@ describe('NotesService', () => {
         sendState: 'queued',
         sendAsk: 'file this under pottery',
         sentAt: 'SERVER_TIME',
-        sendOutcome: 'REMOVED',
+        sendOutcome: REMOVED,
         // Sent by Eric himself now, not on arrival (#214).
-        sentOnArrival: 'REMOVED',
+        sentOnArrival: REMOVED,
       },
       true,
     );
     notes.sendToAssistant('n1', ' ');
-    expect(api.set.mock.lastCall![2]).toMatchObject({ sendState: 'queued', sendAsk: 'REMOVED' });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ sendState: 'queued', sendAsk: REMOVED });
     notes.sendToAssistant('nope', 'x');
     expect(api.set.mock.lastCall![1]).toBe('users/u1/notes/n1');
   });
@@ -870,7 +906,7 @@ describe('NotesService', () => {
       },
     };
     const restores = (api: ReturnType<typeof setup>['api']) =>
-      api.set.mock.calls.filter(([, , data]) => data['deletedAt'] === 'REMOVED');
+      api.set.mock.calls.filter(([, , data]) => data['deletedAt'] === REMOVED);
 
     it('brings it back as Restore does, its text and filing kept, nothing made', () => {
       const { notes, api, signIn, push } = setup();
@@ -883,7 +919,7 @@ describe('NotesService', () => {
           expect.anything(),
           'users/u1/notes/c-kiln',
           {
-            deletedAt: 'REMOVED',
+            deletedAt: REMOVED,
             updatedAt: 'SERVER_TIME',
             updatedBy: 'user',
             deviceId: notes.deviceId(),
@@ -999,7 +1035,7 @@ describe('NotesService', () => {
     notes.updateConcept('leaf', { parent: 'studio', projectStatus: 'waiting' });
     expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'studio', projectStatus: 'waiting' });
     notes.updateConcept('leaf', { parent: null, projectKind: 'content' });
-    expect(api.set.mock.lastCall![2]).toMatchObject({ parent: 'REMOVED', projectKind: 'content' });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ parent: REMOVED, projectKind: 'content' });
   });
 
   it('makes a recipe with its sections, refusing a name already taken (#127)', () => {
@@ -1108,8 +1144,8 @@ describe('NotesService', () => {
       ['deviceId', 'importError', 'importState', 'updatedAt', 'updatedBy'].sort(),
     );
     expect(data).toMatchObject({
-      importState: 'REMOVED',
-      importError: 'REMOVED',
+      importState: REMOVED,
+      importError: REMOVED,
       updatedBy: 'user',
     });
   });
@@ -1164,7 +1200,7 @@ describe('NotesService', () => {
       source: { url: 'https://x.test' },
     });
     notes.updateRecipe('r1', { servings: null });
-    expect(api.set.mock.lastCall![2]).toMatchObject({ servings: 'REMOVED' });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ servings: REMOVED });
     api.set.mockClear();
     notes.updateRecipe('c-kiln', { servings: 3 });
     expect(api.set).not.toHaveBeenCalled();
@@ -1197,7 +1233,7 @@ describe('NotesService', () => {
     notes.updateConcept('vase', { stage: 'plan', tags: ['gift'] });
     expect(api.set.mock.lastCall![2]).toMatchObject({ stage: 'plan', tags: ['gift'] });
     notes.updateConcept('vase', { stage: null });
-    expect(api.set.mock.lastCall![2]).toMatchObject({ stage: 'REMOVED' });
+    expect(api.set.mock.lastCall![2]).toMatchObject({ stage: REMOVED });
   });
 
   it('makes a new item in a project, or files the concept a name has (2026-10-17)', () => {
@@ -1374,7 +1410,7 @@ describe('NotesService', () => {
       push([{ id: 'n1', data: { ...glaze.data, deletedAt: at(CLOCK) } }]);
       notes.setDeleted('n1', false);
       expect(api.set.mock.lastCall![2]).toEqual({
-        deletedAt: 'REMOVED',
+        deletedAt: REMOVED,
         updatedAt: 'SERVER_TIME',
         updatedBy: 'user',
         deviceId: notes.deviceId(),
@@ -1432,7 +1468,7 @@ describe('NotesService', () => {
       true,
     ]);
     notes.setNoteMode('n1', undefined);
-    expect(api.set.mock.lastCall![2]['mode']).toBe('REMOVED');
+    expect(api.set.mock.lastCall![2]['mode']).toBe(REMOVED);
     // A recipe takes no mode.
     notes.setNoteMode('r1', 'list');
     expect(api.set).toHaveBeenCalledTimes(2);
@@ -1497,7 +1533,7 @@ describe('NotesService', () => {
     signIn('u1');
     push([{ id: 'n1', data: { body: 'one', archived: false } }]);
     notes.save('n1', 'one two', { base: 'one' });
-    expect(api.set.mock.lastCall![2]['baseHash']).toBe(textHash('one'));
+    expect(api.set.mock.lastCall![2]['baseHash']).toBe(keyedHash('n1', 'one'));
     notes.save('n1', 'one two three');
     expect(api.set.mock.lastCall![2]['baseHash']).toBe('');
   });
@@ -1565,9 +1601,12 @@ describe('NotesService', () => {
       id,
       data: { body: seal(id, 'body', body), title: seal(id, 'title', title), ...more },
     });
+    /** Writes to note `id` as they went out, sealed values as sent. */
     const writesTo = (api: ReturnType<typeof setup>['api'], id: string) => [
-      ...api.set.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`),
-      ...api.createIfAbsent.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`),
+      ...api.set.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`).map(asSent),
+      ...api.createIfAbsent.mock.calls
+        .filter(([, path]) => path === `users/${UID}/notes/${id}`)
+        .map(asSent),
       ...api.remove.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`),
     ];
 
@@ -1881,8 +1920,9 @@ describe('NotesService', () => {
     /** The text of a sealed value; plain text throws, so a spec sees it was sealed. */
     const open = (id: string, field: SealedField, value: unknown) =>
       openSealedText(KEY, aadFor(UID, id, field), String(value));
+    /** Writes to note `id` as they went out, sealed values as sent. */
     const writesTo = (api: ReturnType<typeof setup>['api'], id: string) =>
-      api.set.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`);
+      api.set.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`).map(asSent);
     const opener = (key?: DataKey) => new OpenedTexts().pass(() => key, UID);
 
     describe('toRecord', () => {
@@ -1964,8 +2004,8 @@ describe('NotesService', () => {
       expect(notes.find('c-kiln')?.synonyms).toEqual(['Oven']);
     });
 
-    describe('writes keep the form found', () => {
-      it('instructions found sealed are written sealed; plain ones plain', () => {
+    describe('writes are sealed (the form found until 2026-11-15)', () => {
+      it('instructions are written sealed, found sealed or plain', () => {
         const { notes, api, signIn, push, key } = setup();
         key.set(KEY);
         signIn(UID);
@@ -1974,11 +2014,14 @@ describe('NotesService', () => {
           { id: 'b', data: { kind: 'text', instructions: 'Plain' } },
         ]);
         notes.setInstructions('a', 'New way');
-        notes.setInstructions('b', 'Still plain');
+        notes.setInstructions('b', 'Now sealed');
         const [[, , a]] = writesTo(api, 'a');
         expect(isSealed(a['instructions'])).toBe(true);
         expect(open('a', 'instructions', a['instructions'])).toBe('New way');
-        expect(writesTo(api, 'b')[0][2]['instructions']).toBe('Still plain');
+        // Plain ones are written sealed too, since 2026-11-15.
+        expect(open('b', 'instructions', writesTo(api, 'b')[0][2]['instructions'])).toBe(
+          'Now sealed',
+        );
       });
 
       it('instructions beside a sealed body are sealed, as the server writes them', () => {
@@ -2018,15 +2061,17 @@ describe('NotesService', () => {
         notes.sendToAssistant('a', 'x'.repeat(SEND_ASK_MAX + 50));
         const [[, , update]] = writesTo(api, 'a');
         expect(open('a', 'sendAsk', update['sendAsk'])).toBe('x'.repeat(SEND_ASK_MAX));
-        expect(update['sendOutcome']).toBe('REMOVED');
+        expect(update['sendOutcome']).toBe(REMOVED);
       });
 
-      it('a plain ask is still cut to its limit, and written plain', () => {
-        const { notes, api, signIn, push } = setup();
+      it('a plain ask is still cut to its limit as plain text, and written sealed', () => {
+        const { notes, api, signIn, push } = setup({ key: KEY });
         signIn(UID);
         push([{ id: 'a', data: { kind: 'text' } }]);
         notes.sendToAssistant('a', 'y'.repeat(SEND_ASK_MAX + 50));
-        expect(writesTo(api, 'a')[0][2]['sendAsk']).toBe('y'.repeat(SEND_ASK_MAX));
+        expect(open('a', 'sendAsk', writesTo(api, 'a')[0][2]['sendAsk'])).toBe(
+          'y'.repeat(SEND_ASK_MAX),
+        );
       });
 
       it('a new link for a recipe writes its source text back as stored, never as read', () => {
@@ -2074,7 +2119,7 @@ describe('NotesService', () => {
     });
   });
 
-  describe('the gardener’s switch (note encryption, 2026-11-15)', () => {
+  describe('always sealed (note encryption, 2026-11-15)', () => {
     const UID = 'u1';
     const KEY = newDataKey();
     const open = (id: string, field: SealedField, value: unknown) =>
@@ -2083,62 +2128,87 @@ describe('NotesService', () => {
       id,
       data: { body, title: body, titleSource: 'words', kind: 'text', ...more },
     });
-    const writesTo = (api: ReturnType<typeof setup>['api'], id: string) =>
-      api.set.mock.calls.filter(([, path]) => path === `users/${UID}/notes/${id}`);
+    type T = ReturnType<typeof setup>;
+    /** What went out to note `id`, as sent: sealed. */
+    const sentTo = (t: T, id: string) =>
+      t.sent.filter((w) => w.path === `users/${UID}/notes/${id}`).map((w) => w.data);
     /** Everything every write sent, as one string. */
-    const sent = (api: ReturnType<typeof setup>['api']) =>
-      JSON.stringify([...api.set.mock.calls, ...api.createIfAbsent.mock.calls]);
+    const everything = (t: T) => JSON.stringify(t.sent);
+    const held = () =>
+      Object.values(JSON.parse(localStorage.getItem(PENDING_SAVES_KEY) ?? '{}')).filter(
+        (e) => !!(e as { held?: unknown }).held,
+      );
 
-    it('off: every write as before, nothing sealed, the key never needed', () => {
-      const t = setup();
+    it('with its key: a save goes straight into the cache, sealed, nothing held (the everyday path)', () => {
+      const t = setup({ key: KEY });
       t.signIn(UID);
-      t.push([note('a', 'one')]);
-      t.notes.save('a', 'one two', { base: 'one' });
-      t.notes.save('fresh', 'Fresh words');
-      t.notes.setInstructions('a', 'Keep it short.');
-      const [[, , edit]] = writesTo(t.api, 'a');
-      expect(edit).toMatchObject({ body: 'one two', title: 'one two', baseHash: textHash('one') });
-      expect(writesTo(t.api, 'fresh')[0][2]).toMatchObject({ body: 'Fresh words' });
-      expect(sent(t.api)).not.toContain('');
+      t.push([note('a', 'Buy milk')]);
+      t.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
+      t.notes.save('fresh', 'Plumber on Tuesday');
+      // Written at once, in the same call, with no tick or await between.
+      expect(t.api.set).toHaveBeenCalledTimes(2);
+      const [edit] = sentTo(t, 'a');
+      expect(open('a', 'body', edit['body'])).toBe('Buy milk\n- eggs');
+      expect(edit['baseHash']).toBe(noteTextHash('a', 'Buy milk', 'sealed', () => KEY));
+      expect(open('fresh', 'body', sentTo(t, 'fresh')[0]['body'])).toBe('Plumber on Tuesday');
       expect(t.notes.waitingForKey()).toBe(false);
+      expect(t.notes.heldForKey('fresh')).toBe(false);
+      expect(held()).toEqual([]);
+      expect(everything(t)).not.toMatch(/Plumber|eggs/);
     });
 
-    it('on: a new note is born sealed, body and title, nothing in the clear', () => {
-      const t = setup();
-      t.sealing.on.set(true);
-      t.key.set(KEY);
+    it('with its key: offline on a first load from the cache, and after a reload, written at once', () => {
+      const t = setup({ key: KEY });
+      t.online.set(false);
+      t.signIn(UID);
+      t.push([], { fromCache: true });
+      t.notes.save('fresh', 'Written on the train');
+      expect(t.api.set).toHaveBeenCalledTimes(1);
+      expect(open('fresh', 'body', sentTo(t, 'fresh')[0]['body'])).toBe('Written on the train');
+      const next = setup({ reload: true, key: KEY });
+      next.online.set(false);
+      next.signIn(UID);
+      next.push([note('fresh', 'Written on the train')], { fromCache: true });
+      next.notes.save('fresh', 'Written on the train, and more', { base: 'Written on the train' });
+      expect(sentTo(next, 'fresh')).toHaveLength(1);
+      expect(open('fresh', 'body', sentTo(next, 'fresh')[0]['body'])).toBe(
+        'Written on the train, and more',
+      );
+      expect(next.notes.waitingForKey()).toBe(false);
+      expect(held()).toEqual([]);
+    });
+
+    it('a new note is born sealed, body and title, nothing in the clear', () => {
+      const t = setup({ key: KEY });
       t.signIn(UID);
       t.push([]);
       t.notes.save('fresh', 'Plumber on Tuesday\nbring the key');
-      const [[, , data, merge]] = writesTo(t.api, 'fresh');
+      const [[, , , merge]] = t.api.set.mock.calls;
       expect(merge).toBe(false);
+      const [data] = sentTo(t, 'fresh');
       expect(isSealed(data['body'])).toBe(true);
       expect(isSealed(data['title'])).toBe(true);
       expect(open('fresh', 'body', data['body'])).toBe('Plumber on Tuesday\nbring the key');
       expect(open('fresh', 'title', data['title'])).toBe('Plumber on Tuesday');
-      expect(sent(t.api)).not.toContain('Plumber');
+      expect(everything(t)).not.toContain('Plumber');
     });
 
-    it('on: an edit to a plain note writes it sealed, its base keyed', () => {
-      const t = setup();
-      t.sealing.on.set(true);
-      t.key.set(KEY);
+    it('an edit to a plain note (read as it is) writes it sealed, its base keyed', () => {
+      const t = setup({ key: KEY });
       t.signIn(UID);
       t.push([note('a', 'Buy milk')]);
+      expect(t.notes.find('a')).toMatchObject({ body: 'Buy milk' });
       t.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
-      const [[, , data]] = writesTo(t.api, 'a');
+      const [data] = sentTo(t, 'a');
       expect(open('a', 'body', data['body'])).toBe('Buy milk\n- eggs');
       expect(open('a', 'title', data['title'])).toBe('Buy milk');
       expect(isKeyedHash(data['baseHash'])).toBe(true);
-      expect(data['baseHash']).toBe(noteTextHash('a', 'Buy milk', 'sealed', () => KEY));
-      expect(sent(t.api)).not.toContain('eggs');
-      expect(sent(t.api)).not.toContain(textHash('Buy milk'));
+      expect(everything(t)).not.toContain('eggs');
+      expect(everything(t)).not.toContain(textHash('Buy milk'));
     });
 
-    it('on: every writer’s note text goes out sealed, at the one seam', () => {
-      const t = setup();
-      t.sealing.on.set(true);
-      t.key.set(KEY);
+    it('every writer’s note text goes out sealed, at the one seam', () => {
+      const t = setup({ key: KEY });
       t.signIn(UID);
       t.push([note('a', 'Buy milk', { kind: 'template' })]);
       t.notes.setInstructions('a', 'Ask how the day went.');
@@ -2147,22 +2217,40 @@ describe('NotesService', () => {
       const clipped = t.notes.clip('Ash makes a runny celadon.', 'Wood ash glazes', {
         feedItemId: 'i1',
       });
-      expect(open('a', 'instructions', writesTo(t.api, 'a')[0][2]['instructions'])).toBe(
+      expect(open('a', 'instructions', sentTo(t, 'a')[0]['instructions'])).toBe(
         'Ask how the day went.',
       );
-      expect(open('t2', 'body', writesTo(t.api, 't2')[0][2]['body'])).toBe('Journal\n\n## Today');
-      expect(open(recipe, 'title', writesTo(t.api, recipe)[0][2]['title'])).toBe('Sourdough');
-      expect(open(clipped, 'title', writesTo(t.api, clipped)[0][2]['title'])).toBe(
-        'Wood ash glazes',
-      );
+      expect(open('t2', 'body', sentTo(t, 't2')[0]['body'])).toBe('Journal\n\n## Today');
+      expect(open(recipe, 'title', sentTo(t, recipe)[0]['title'])).toBe('Sourdough');
+      expect(open(clipped, 'title', sentTo(t, clipped)[0]['title'])).toBe('Wood ash glazes');
       for (const words of ['Ask how', 'Journal', 'Sourdough', 'celadon', 'Wood ash']) {
-        expect(sent(t.api)).not.toContain(words);
+        expect(everything(t)).not.toContain(words);
       }
     });
 
-    it('on with no key: typing is held on the device, never sent, then written sealed when the key comes', () => {
-      const t = setup();
-      t.sealing.on.set(true);
+    it('a sealed note stays sealed when written, and opens again', () => {
+      const t = setup({ key: KEY });
+      t.signIn(UID);
+      t.push([
+        {
+          id: 's',
+          data: {
+            kind: 'text',
+            body: sealText(KEY, aadFor(UID, 's', 'body'), 'Sealed words'),
+            title: sealText(KEY, aadFor(UID, 's', 'title'), 'Sealed words'),
+            titleSource: 'words',
+          },
+        },
+      ]);
+      t.notes.save('s', 'Sealed words, more', { base: 'Sealed words' });
+      const [edit] = sentTo(t, 's');
+      expect(open('s', 'body', edit['body'])).toBe('Sealed words, more');
+      expect(open('s', 'title', edit['title'])).toBe('Sealed words, more');
+      expect(isKeyedHash(edit['baseHash'])).toBe(true);
+    });
+
+    it('no key: typing is held on the device, never sent, then written sealed when the key comes', () => {
+      const t = setup({ key: undefined });
       t.signIn(UID);
       t.push([note('a', 'Buy milk')]);
       t.notes.save('fresh', 'Plumber on Tuesday');
@@ -2184,26 +2272,23 @@ describe('NotesService', () => {
       expect(t.api.set).not.toHaveBeenCalled();
       t.key.set(KEY);
       TestBed.tick();
-      const [[, , fresh, merge]] = writesTo(t.api, 'fresh');
-      expect(merge).toBe(false);
+      const [fresh] = sentTo(t, 'fresh');
       expect(fresh).toMatchObject({ kind: 'text', archived: false });
       expect(open('fresh', 'body', fresh['body'])).toBe('Plumber on Tuesday');
-      const [[, , edit]] = writesTo(t.api, 'a');
+      const [edit] = sentTo(t, 'a');
       expect(open('a', 'body', edit['body'])).toBe('Buy milk\n- eggs\n- bread');
       expect(edit['baseHash']).toBe(noteTextHash('a', 'Buy milk', 'sealed', () => KEY));
-      expect(sent(t.api)).not.toContain('Plumber');
-      expect(sent(t.api)).not.toContain('bread');
+      expect(everything(t)).not.toContain('Plumber');
+      expect(everything(t)).not.toContain('bread');
       expect(t.notes.waitingForKey()).toBe(false);
     });
 
     it('held words survive a reload, stay held without the key, and are written sealed after', () => {
-      const first = setup();
-      first.sealing.on.set(true);
+      const first = setup({ key: undefined });
       first.signIn(UID);
       first.push([]);
       first.notes.save('fresh', 'Typed on a new device');
-      const next = setup({ reload: true });
-      next.sealing.on.set(true);
+      const next = setup({ reload: true, key: undefined });
       next.signIn(UID);
       // Before the notes load, the editor can show them.
       expect(next.notes.heldForKey('fresh')).toBe(true);
@@ -2213,43 +2298,37 @@ describe('NotesService', () => {
       expect(next.notes.heldSave('fresh')?.value).toBe('Typed on a new device');
       next.key.set(KEY);
       TestBed.tick();
-      const [[, , data]] = writesTo(next.api, 'fresh');
-      expect(open('fresh', 'body', data['body'])).toBe('Typed on a new device');
+      expect(open('fresh', 'body', sentTo(next, 'fresh')[0]['body'])).toBe('Typed on a new device');
     });
 
-    it('held words wait while the switch is unheard, rather than go out before it', () => {
-      const first = setup();
-      first.sealing.on.set(true);
-      first.signIn(UID);
-      first.push([]);
-      first.notes.save('fresh', 'Held words');
-      const next = setup({ reload: true });
-      next.sealing.known.set(false);
-      next.signIn(UID);
-      next.push([]);
+    it('a save held by the app before this change (for the switch) is replayed once the key is here', () => {
+      // As the code of 2026-11-15 kept a save while the switch was unheard.
+      localStorage.clear();
+      localStorage.setItem(
+        PENDING_SAVES_KEY,
+        JSON.stringify({ old: { uid: UID, value: 'Held for the switch', base: null, held: {} } }),
+      );
+      localStorage.setItem('goblin.sealNotes.u1', 'on');
+      const t = setup({ reload: true, key: KEY });
+      t.signIn(UID);
+      expect(t.notes.heldSave('old')?.value).toBe('Held for the switch');
+      t.push([], { fromCache: true });
       TestBed.tick();
-      // Typing is accepted (ready), but nothing goes out before the switch is known.
-      expect(next.notes.ready).toBe(true);
-      next.notes.save('other', 'Typed before it was known');
-      expect(next.api.set).not.toHaveBeenCalled();
-      expect(next.notes.heldForKey('other')).toBe(true);
-      next.sealing.on.set(true);
-      next.sealing.known.set(true);
-      next.key.set(KEY);
+      expect(open('old', 'body', sentTo(t, 'old')[0]['body'])).toBe('Held for the switch');
+      t.push([]);
       TestBed.tick();
-      expect(open('fresh', 'body', writesTo(next.api, 'fresh')[0][2]['body'])).toBe('Held words');
+      expect(sentTo(t, 'old')).toHaveLength(1);
+      expect(t.notes.waitingForKey()).toBe(false);
     });
 
     it('an existing note’s held save survives a reload as the text shown, then is written over its base (review on #276)', () => {
-      const first = setup();
-      first.sealing.on.set(true);
+      const first = setup({ key: undefined });
       first.signIn(UID);
       first.push([note('a', 'Buy milk')]);
       first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
       // The next save is typed over words only this device has: its base stays the server's.
       first.notes.save('a', 'Buy milk\n- eggs\n- bread', { base: 'Buy milk\n- eggs' });
-      const next = setup({ reload: true });
-      next.sealing.on.set(true);
+      const next = setup({ reload: true, key: undefined });
       next.signIn(UID);
       next.push([note('a', 'Buy milk')]);
       TestBed.tick();
@@ -2265,99 +2344,72 @@ describe('NotesService', () => {
       expect(next.notes.heldSave('a')?.base).toBe('Shopping: Buy milk');
       next.key.set(KEY);
       TestBed.tick();
-      const [[, , data]] = writesTo(next.api, 'a');
+      const [data] = sentTo(next, 'a');
       expect(open('a', 'body', data['body'])).toBe('Shopping: Buy milk\n- eggs\n- bread');
       expect(data['baseHash']).toBe(noteTextHash('a', 'Shopping: Buy milk', 'sealed', () => KEY));
     });
 
     it('a held save whose note went to Trash goes into the trashed note; one gone for good stays gone', () => {
-      const first = setup();
-      first.sealing.on.set(true);
+      const first = setup({ key: undefined });
       first.signIn(UID);
       first.push([note('a', 'Buy milk'), note('b', 'Old')]);
       first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
       first.notes.save('b', 'Old, more', { base: 'Old' });
-      const next = setup({ reload: true });
-      next.sealing.on.set(true);
-      next.key.set(KEY);
+      const next = setup({ reload: true, key: KEY });
       next.signIn(UID);
       next.push([note('a', 'Buy milk', { deletedAt: { toMillis: () => CLOCK - 1000 } })]);
       TestBed.tick();
-      expect(open('a', 'body', writesTo(next.api, 'a')[0][2]['body'])).toBe('Buy milk\n- eggs');
-      expect(writesTo(next.api, 'b')).toEqual([]);
+      expect(open('a', 'body', sentTo(next, 'a')[0]['body'])).toBe('Buy milk\n- eggs');
+      expect(sentTo(next, 'b')).toEqual([]);
       expect(next.notes.heldSave('b')).toBeUndefined();
     });
 
-    it('before the switch is known, a write holding note text waits, then goes out as it says; one with none goes at once', async () => {
-      const t = setup();
-      t.sealing.known.set(false);
-      t.signIn(UID);
-      t.push([note('a', 'Buy milk', { kind: 'template' })]);
-      t.notes.setArchived('a', true);
-      expect(writesTo(t.api, 'a')).toHaveLength(1);
-      t.notes.create('t2', 'Journal', { kind: 'template' });
-      await Promise.resolve();
-      expect(writesTo(t.api, 't2')).toEqual([]);
-      // Heard: on, with the key. The waiting write goes out sealed, never plain.
-      t.key.set(KEY);
-      t.sealing.on.set(true);
-      t.sealing.known.set(true);
-      TestBed.tick();
-      await vi.waitFor(() => expect(writesTo(t.api, 't2')).toHaveLength(1));
-      expect(open('t2', 'body', writesTo(t.api, 't2')[0][2]['body'])).toBe('Journal');
-      expect(sent(t.api)).not.toContain('Journal');
-    });
-
-    it('a note saved in the unknown window, then a reload, is written from the cache once known, without further typing (share journey)', () => {
-      const first = setup();
-      first.sealing.known.set(false);
+    it('a new note held, then a reload with the key: written from the cache at once, once (share journey)', () => {
+      const first = setup({ key: undefined });
       first.signIn(UID);
       first.push([], { fromCache: true });
       first.notes.save('fresh', 'Seeds\nwhat if seeds could talk');
       expect(first.api.set).not.toHaveBeenCalled();
-      // The page reloads before the server has answered anything.
-      const next = setup({ reload: true });
-      // This device heard the switch since (remembered): known at once.
+      // The page reloads before the server has answered anything; the key is on the device now.
+      const next = setup({ reload: true, key: KEY });
       next.signIn(UID);
       next.push([], { fromCache: true });
       TestBed.tick();
       // Written into the cache now: no server snapshot needed, no typing.
-      const [[, , data, merge]] = writesTo(next.api, 'fresh');
+      const [[, , data, merge]] = next.api.set.mock.calls;
       expect(merge).toBe(false);
       expect(data).toMatchObject({ kind: 'text', body: 'Seeds\nwhat if seeds could talk' });
       expect(next.notes.waitingForKey()).toBe(false);
       // And not written twice when the server's snapshot comes.
       next.push([]);
       TestBed.tick();
-      expect(writesTo(next.api, 'fresh')).toHaveLength(1);
+      expect(sentTo(next, 'fresh')).toHaveLength(1);
     });
 
-    it('a new note held in the unknown window is written as soon as the switch is heard, before the server’s notes', () => {
-      const t = setup();
-      t.sealing.known.set(false);
+    it('a new note held is written as soon as the key comes, before the server’s notes', () => {
+      const t = setup({ key: undefined });
       t.signIn(UID);
       t.push([], { fromCache: true });
       t.notes.save('fresh', 'Seeds');
       expect(t.api.set).not.toHaveBeenCalled();
-      t.sealing.known.set(true);
+      t.key.set(KEY);
       TestBed.tick();
-      expect(writesTo(t.api, 'fresh')).toHaveLength(1);
+      expect(sentTo(t, 'fresh')).toHaveLength(1);
     });
 
     it('an existing note’s held save still waits for the server’s snapshot, which says it is there', () => {
-      const first = setup();
-      first.sealing.known.set(false);
+      const first = setup({ key: undefined });
       first.signIn(UID);
       first.push([note('a', 'Buy milk')]);
       first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
-      const next = setup({ reload: true });
+      const next = setup({ reload: true, key: KEY });
       next.signIn(UID);
       next.push([note('a', 'Buy milk')], { fromCache: true });
       TestBed.tick();
-      expect(writesTo(next.api, 'a')).toEqual([]);
+      expect(sentTo(next, 'a')).toEqual([]);
       next.push([note('a', 'Buy milk')]);
       TestBed.tick();
-      expect(writesTo(next.api, 'a')[0][2]).toMatchObject({ body: 'Buy milk\n- eggs' });
+      expect(next.api.set.mock.calls[0][2]).toMatchObject({ body: 'Buy milk\n- eggs' });
     });
 
     it('held words for a note in Trash wait for the server’s snapshot too (review on #277)', () => {
@@ -2365,46 +2417,43 @@ describe('NotesService', () => {
         const n = note('a', 'Buy milk');
         return { ...n, data: { ...n.data, deletedAt: { toMillis: () => CLOCK - 1000 } } };
       };
-      const first = setup();
-      first.sealing.known.set(false);
+      const first = setup({ key: undefined });
       first.signIn(UID);
       first.push([trashedNote()]);
       first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
-      const next = setup({ reload: true });
+      const next = setup({ reload: true, key: KEY });
       next.signIn(UID);
       next.push([trashedNote()], { fromCache: true });
       TestBed.tick();
       // Not written as a new note from the cache: that would replace it.
-      expect(writesTo(next.api, 'a')).toEqual([]);
+      expect(sentTo(next, 'a')).toEqual([]);
     });
 
-    it('a fresh device offline, then back: held words reach the server once it hears, whatever comes first (e2e capture offline)', () => {
-      for (const order of ['setting first', 'notes first'] as const) {
+    it('a fresh device offline, then back: held words reach the server whichever comes first, key or notes (e2e capture offline)', () => {
+      for (const order of ['key first', 'notes first'] as const) {
         TestBed.resetTestingModule();
-        const t = setup();
-        t.sealing.known.set(false);
+        const t = setup({ key: undefined });
         t.signIn(UID);
-        // Offline: the notes come from the cache only, the setting not at all.
+        // Offline: the notes come from the cache only, and no key.
         t.push([], { fromCache: true });
         t.notes.save('fresh', 'Written on the train');
         expect(t.api.set).not.toHaveBeenCalled();
         expect(t.notes.waitingForKey()).toBe(true);
-        // Back online: the server says no setting (off) and sends the notes.
-        if (order === 'setting first') {
-          t.sealing.known.set(true);
+        if (order === 'key first') {
+          t.key.set(KEY);
           TestBed.tick();
-          // A new note goes from the cache as soon as the switch is heard.
-          expect(writesTo(t.api, 'fresh')).toHaveLength(1);
+          // A new note goes from the cache as soon as the key is here.
+          expect(sentTo(t, 'fresh')).toHaveLength(1);
           t.push([]);
         } else {
           t.push([]);
           TestBed.tick();
           expect(t.api.set).not.toHaveBeenCalled();
-          t.sealing.known.set(true);
+          t.key.set(KEY);
         }
         TestBed.tick();
-        expect(writesTo(t.api, 'fresh'), order).toHaveLength(1);
-        expect(writesTo(t.api, 'fresh')[0]?.[2], order).toMatchObject({
+        expect(sentTo(t, 'fresh'), order).toHaveLength(1);
+        expect(t.api.set.mock.calls[0]?.[2], order).toMatchObject({
           body: 'Written on the train',
         });
         expect(t.notes.waitingForKey(), order).toBe(false);
@@ -2412,23 +2461,8 @@ describe('NotesService', () => {
       }
     });
 
-    it('a plain garden, setting unknown at a cold start: typing is held at once, then written plain once heard', () => {
-      const t = setup();
-      t.sealing.known.set(false);
-      t.signIn(UID);
-      t.push([]);
-      expect(t.notes.ready).toBe(true);
-      t.notes.save('fresh', 'Offline first words');
-      expect(t.api.set).not.toHaveBeenCalled();
-      expect(t.notes.heldSave('fresh')?.value).toBe('Offline first words');
-      t.sealing.known.set(true);
-      TestBed.tick();
-      expect(writesTo(t.api, 'fresh')[0][2]).toMatchObject({ body: 'Offline first words' });
-    });
-
-    it('on with no key: a rename and instructions wait on the device, then go sealed', () => {
-      const t = setup();
-      t.sealing.on.set(true);
+    it('no key: a rename and instructions wait on the device, then go sealed', () => {
+      const t = setup({ key: undefined });
       t.signIn(UID);
       t.push([note('c-kiln', '', { kind: 'concept', title: 'Kiln', titleSource: 'user' })]);
       t.api.set.mockClear();
@@ -2440,32 +2474,29 @@ describe('NotesService', () => {
       });
       t.key.set(KEY);
       TestBed.tick();
-      const writes = writesTo(t.api, 'c-kiln').map(([, , d]) => d);
+      const writes = sentTo(t, 'c-kiln');
       const titled = writes.find((d) => 'title' in d)!;
       expect(open('c-kiln', 'title', titled['title'])).toBe('Big kiln');
       const told = writes.find((d) => 'instructions' in d)!;
       expect(open('c-kiln', 'instructions', told['instructions'])).toBe('Firing notes short.');
-      expect(sent(t.api)).not.toContain('Big kiln');
+      expect(everything(t)).not.toContain('Big kiln');
     });
 
-    it('on with no key: a write with no note text in it goes out as ever, archive included', () => {
-      const t = setup();
-      t.sealing.on.set(true);
+    it('no key: a write with no note text in it goes out as ever, archive included', () => {
+      const t = setup({ key: undefined });
       t.signIn(UID);
       t.push([note('a', 'Buy milk')]);
       t.notes.setArchived('a', true);
       t.notes.setDeleted('a', true);
-      const writes = writesTo(t.api, 'a').map(([, , d]) => d);
-      expect(writes).toEqual([
+      expect(sentTo(t, 'a')).toEqual([
         expect.objectContaining({ archived: true }),
         expect.objectContaining({ deletedAt: expect.anything() }),
       ]);
       expect(TestBed.inject(KeyWaitNotice).refused()).toBe(false);
     });
 
-    it('on with no key: a write that would carry text is refused, and the page is told', async () => {
-      const t = setup();
-      t.sealing.on.set(true);
+    it('no key: a write that would carry text is refused, and the page is told', async () => {
+      const t = setup({ key: undefined });
       t.signIn(UID);
       t.push([]);
       const notice = TestBed.inject(KeyWaitNotice);
@@ -2479,52 +2510,14 @@ describe('NotesService', () => {
       expect(notice.refused()).toBe(false);
     });
 
-    it('on with no key: a kept rename waits without telling the page it was not done', () => {
-      const t = setup();
-      t.sealing.on.set(true);
+    it('no key: a kept rename waits without telling the page it was not done', () => {
+      const t = setup({ key: undefined });
       t.signIn(UID);
       t.push([note('c-kiln', '', { kind: 'concept', title: 'Kiln', titleSource: 'user' })]);
       vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       t.notes.rename('c-kiln', 'Big kiln');
       t.notes.setInstructions('c-kiln', 'Short.');
       expect(TestBed.inject(KeyWaitNotice).refused()).toBe(false);
-    });
-
-    it('turned off while words are held: written as the note was found, never lost', () => {
-      const t = setup();
-      t.sealing.on.set(true);
-      t.signIn(UID);
-      t.push([note('a', 'Buy milk')]);
-      t.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
-      expect(t.api.set).not.toHaveBeenCalled();
-      t.sealing.on.set(false);
-      TestBed.tick();
-      const [[, , data]] = writesTo(t.api, 'a');
-      expect(data).toMatchObject({ body: 'Buy milk\n- eggs', baseHash: textHash('Buy milk') });
-    });
-
-    it('turned off: a sealed note stays sealed when written, a new one is plain', () => {
-      const t = setup();
-      t.key.set(KEY);
-      t.signIn(UID);
-      const sealed = {
-        id: 's',
-        data: {
-          kind: 'text',
-          body: sealText(KEY, aadFor(UID, 's', 'body'), 'Sealed words'),
-          title: sealText(KEY, aadFor(UID, 's', 'title'), 'Sealed words'),
-          titleSource: 'words',
-        },
-      };
-      t.push([sealed]);
-      t.notes.save('s', 'Sealed words, more', { base: 'Sealed words' });
-      t.notes.save('fresh', 'Plain again');
-      // The form found: the sealed note sealed, its base keyed; the new note plain.
-      const [[, , edit]] = writesTo(t.api, 's');
-      expect(open('s', 'body', edit['body'])).toBe('Sealed words, more');
-      expect(open('s', 'title', edit['title'])).toBe('Sealed words, more');
-      expect(isKeyedHash(edit['baseHash'])).toBe(true);
-      expect(writesTo(t.api, 'fresh')[0][2]['body']).toBe('Plain again');
     });
   });
 });

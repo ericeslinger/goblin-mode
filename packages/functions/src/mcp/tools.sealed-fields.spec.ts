@@ -95,17 +95,15 @@ describe('the other sealed fields, with the key', () => {
     noCiphertext(note);
   });
 
-  it('update_note keeps sealed instructions sealed, and plain ones plain with no key', async () => {
+  it('update_note writes instructions sealed, over sealed ones and plain ones alike', async () => {
     put('a', { instructions: seal('a', 'instructions', 'Old way') });
     put('b', { instructions: 'Plain way' });
     const t = tools();
     await t.updateNote({ id: 'a', instructions: 'New way' });
     expect(isSealed(stored('a')['instructions'])).toBe(true);
     expect(open('a', 'instructions', stored('a')['instructions'])).toBe('New way');
-    keyFor.mockClear();
-    await tools().updateNote({ id: 'b', instructions: 'Still plain' });
-    expect(stored('b')['instructions']).toBe('Still plain');
-    expect(keyFor).not.toHaveBeenCalled();
+    await tools().updateNote({ id: 'b', instructions: 'Now sealed' });
+    expect(open('b', 'instructions', stored('b')['instructions'])).toBe('Now sealed');
   });
 
   it('seals instructions written beside a sealed body, as a title is (no field plainer than its body)', async () => {
@@ -149,12 +147,14 @@ describe('the other sealed fields, with the key', () => {
     expect((entry['notes'] as Data[])[0]['before']).toEqual({ synonyms: before });
   });
 
-  it('refile: other names beside a plain title stay plain, said as before', async () => {
+  it('refile: other names beside a plain title are written sealed, and not said', async () => {
     put('c-fern', { kind: 'concept', title: 'Fern', titleSource: 'user', synonyms: ['Bracken'] });
     await tools().refile({ id: 'c-fern', addSynonyms: ['Frond'] });
-    expect(stored('c-fern')['synonyms']).toEqual(['Bracken', 'Frond']);
-    expect(activity()[0]['summary']).toBe('Refiled Fern: added another name: Frond');
-    expect(keyFor).not.toHaveBeenCalled();
+    const names = stored('c-fern')['synonyms'] as string[];
+    expect(names.every(isSealed)).toBe(true);
+    expect(names.map((n) => open('c-fern', 'synonyms', n))).toEqual(['Bracken', 'Frond']);
+    expect(activity()[0]['summary']).toBe('Refiled a sealed note: added another name');
+    expect(JSON.stringify(activity())).not.toMatch(/Frond|Fern/);
   });
 
   it('list_queue opens the ask; finish_queued seals the outcome and leaves it out of the entry', async () => {

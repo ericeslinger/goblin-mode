@@ -11,7 +11,7 @@ import {
 } from '@mossgoblin/schema';
 import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NoteCodec, sealingIn } from '../mcp/note-text';
+import { NoteCodec } from '../mcp/note-text';
 import { NotesTools } from '../mcp/tools';
 import { NoteKeysUnconfigured } from '../note-keys/client';
 import { type Data, type Store, copy, fakeDb } from '../testing/fake-firestore';
@@ -90,25 +90,26 @@ beforeEach(() => {
 });
 
 const assign = (after: Data) =>
-  assignedOnWrite(
-    fakeDb(store),
-    new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID)),
-    UID,
-    ID,
-    undefined,
-    after,
-    T,
-    log,
-  );
+  assignedOnWrite(fakeDb(store), new NoteCodec(UID, keyFor), UID, ID, undefined, after, T, log);
 
 describe('itemAssigned', () => {
-  it('reads a plain body as before, with no key', async () => {
+  it('reads a plain body as it is, and starts its item under a keyed id, its text sealed', async () => {
     expect(await assign(note(`Home\n- [ ] ${ITEM}`, settled))).toBe(1);
-    // Byte for byte the id it had before keyed hashes (2026-11-14).
+    expect(runs()).toEqual([paths.run(UID, sealedRun())]);
+    const run = store.get(paths.run(UID, sealedRun()))!;
+    expect(isSealed(run['itemText'])).toBe(true);
+    expect(isSealed(run['itemKey'])).toBe(true);
+    expect(JSON.stringify(run)).not.toContain('plumber');
+    // Not the plain id it had before keyed hashes (2026-11-14).
     const sha = createHash('sha256').update(KEY).digest('hex').slice(0, 16);
-    expect(runs()).toEqual([paths.run(UID, `item-${ID}-${sha}`)]);
     expect(plainRun()).toBe(`item-${ID}-${sha}`);
-    expect(keyFor).not.toHaveBeenCalled();
+    expect(runs().join()).not.toContain(sha);
+  });
+
+  it('with no key, starts nothing for a plain note rather than a plain run', async () => {
+    noKey();
+    expect(await assign(note(`Home\n- [ ] ${ITEM}`, settled))).toBe('sealed');
+    expect(runs()).toEqual([]);
   });
 
   it('opens a sealed body to find its items, its run under a keyed id', async () => {
@@ -255,7 +256,7 @@ describe('noteArrived', () => {
       ID,
       { settledAt: undefined },
       note(String(body), { ...settled }),
-      new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID)),
+      new NoteCodec(UID, keyFor),
     );
 
   it('opens a sealed body to see whether it has words', async () => {
@@ -273,7 +274,7 @@ describe('noteArrived', () => {
         ID,
         settled,
         note(seal('body', 'x'), settled),
-        new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID)),
+        new NoteCodec(UID, keyFor),
       ),
     ).toBe('not-arrival');
     expect(keyFor).not.toHaveBeenCalled();
@@ -286,38 +287,9 @@ describe('noteArrived', () => {
   });
 });
 
-describe('itemAssigned with the gardener’s switch on (2026-11-15)', () => {
-  it('starts a plain note’s item under a keyed id, its text sealed', async () => {
-    store.set(`users/${UID}/settings/assistant`, { sealNotes: true });
-    expect(await assign(note(`Home\n- [ ] ${ITEM}`, settled))).toBe(1);
-    expect(runs()).toEqual([paths.run(UID, sealedRun())]);
-    const run = store.get(paths.run(UID, sealedRun()))!;
-    expect(isSealed(run['itemText'])).toBe(true);
-    expect(isSealed(run['itemKey'])).toBe(true);
-    expect(JSON.stringify(run)).not.toContain('plumber');
-  });
-
-  it('with no key, starts nothing rather than a plain run', async () => {
-    store.set(`users/${UID}/settings/assistant`, { sealNotes: true });
-    noKey();
-    expect(await assign(note(`Home\n- [ ] ${ITEM}`, settled))).toBe('sealed');
-    expect(runs()).toEqual([]);
-  });
-
-  it('reads no setting for a note with no items', async () => {
-    const db = fakeDb(store);
-    const sealing = vi.fn(async () => true);
-    const out = await assignedOnWrite(
-      db,
-      new NoteCodec(UID, keyFor, sealing),
-      UID,
-      ID,
-      undefined,
-      note('Home, nothing assigned', settled),
-      T,
-      log,
-    );
-    expect(out).toBe(0);
-    expect(sealing).not.toHaveBeenCalled();
+describe('itemAssigned, always sealed (2026-11-15)', () => {
+  it('asks for no key for a note with no items', async () => {
+    expect(await assign(note('Home, nothing assigned', settled))).toBe(0);
+    expect(keyFor).not.toHaveBeenCalled();
   });
 });

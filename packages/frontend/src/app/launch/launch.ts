@@ -41,6 +41,7 @@ import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { ClippingHeader } from '../reader/clipping-header';
 import { CaptureService } from '../capture/capture.service';
+import { KEY_SERVICE_MISSING } from '../notes/key-wait-notice';
 import { NotesService } from '../notes/notes.service';
 import { SignIn } from '../sign-in/sign-in';
 import { EditorModeService } from '../note-editor/editor-mode.service';
@@ -108,6 +109,7 @@ export class Launch {
   protected readonly split = inject(SplitService);
   protected readonly minShare = MIN_SHARE;
   protected readonly maxShare = MAX_SHARE;
+  protected readonly keyServiceMissing = KEY_SERVICE_MISSING;
   /** Pointer distance below the panel's top edge at grab; null when idle. */
   private grabOffset: number | null = null;
 

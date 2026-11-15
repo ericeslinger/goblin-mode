@@ -1,7 +1,7 @@
 import { type Proposal, paths } from '@mossgoblin/schema';
 import { type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
-import { NoteCodec, sealingIn } from '../mcp/note-text';
+import { NoteCodec } from '../mcp/note-text';
 import { dataKeyFor } from '../note-keys/client';
 import { type NotesTools, ToolError } from '../mcp/tools';
 
@@ -65,7 +65,7 @@ export async function applyAccepted(
   tools: Tools,
   now: number,
   /** Opens its sealed text, lazily: with a plain suggestion no key is asked for. */
-  records: Records = new NoteCodec(uid, dataKeyFor, sealingIn(db, uid)),
+  records: Records = new NoteCodec(uid, dataKeyFor),
 ): Promise<'applied' | 'failed' | undefined> {
   const ref = db.doc(`${paths.proposals(uid)}/${id}`);
   const proposal = await db.runTransaction(async (tx) => {

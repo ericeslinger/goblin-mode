@@ -6,7 +6,7 @@
 import { FieldValue, type Firestore, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { RUN_STALE_MS, isSealed, paths } from '@mossgoblin/schema';
-import { NoteCodec, SealedNoteError, sealingIn } from '../mcp/note-text';
+import { NoteCodec, SealedNoteError } from '../mcp/note-text';
 import { dataKeyFor } from '../note-keys/client';
 import { firestoreKeyStore } from '../keys/firestore-store';
 import { DAILY_RUNS, dayOf } from './core';
@@ -208,7 +208,7 @@ export async function gardenOnArrival(
   noteId: string,
   before: NoteFields | undefined,
   raw: NoteFields | undefined,
-  codec: NoteCodec = new NoteCodec(uid, dataKeyFor, sealingIn(db, uid)),
+  codec: NoteCodec = new NoteCodec(uid, dataKeyFor),
 ): Promise<ArrivalOutcome> {
   // A sealed value is never blank, so this says nothing yet of its words.
   if (!arrives(noteId, before, raw)) return 'not-arrival';

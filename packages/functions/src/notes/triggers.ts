@@ -3,7 +3,7 @@ import { logger } from 'firebase-functions/v2';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { claudeTitler, federationFromEnv } from './claude-titler';
-import { NoteCodec, sealingIn } from '../mcp/note-text';
+import { NoteCodec } from '../mcp/note-text';
 import { dataKeyFor } from '../note-keys/client';
 import { historyOnWrite, titleOnWrite } from './on-write';
 import type { Titler } from './title';
@@ -22,7 +22,7 @@ export const noteHistory = onDocumentWritten(NOTE, async (event) => {
   const db = getFirestore();
   await historyOnWrite(
     db,
-    new NoteCodec(uid, dataKeyFor, sealingIn(db, uid)),
+    new NoteCodec(uid, dataKeyFor),
     uid,
     noteId,
     event.id,
@@ -53,7 +53,7 @@ export const noteTitle = onDocumentWritten(
     const db = getFirestore();
     const outcome = await titleOnWrite(
       db,
-      new NoteCodec(uid, dataKeyFor, sealingIn(db, uid)),
+      new NoteCodec(uid, dataKeyFor),
       titler,
       uid,
       noteId,

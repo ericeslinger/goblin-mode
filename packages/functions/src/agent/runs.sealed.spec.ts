@@ -13,7 +13,7 @@ import {
 } from '@mossgoblin/schema';
 import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NoteCodec, sealingIn } from '../mcp/note-text';
+import { NoteCodec } from '../mcp/note-text';
 import { NotesTools } from '../mcp/tools';
 import { NoteKeysUnconfigured } from '../note-keys/client';
 import { type Data, type Store, copy, fakeDb } from '../testing/fake-firestore';
@@ -75,16 +75,7 @@ const noKey = () =>
 
 const runDoc = (id = RUN) => store.get(paths.run(UID, id))!;
 const assign = (after: Data) =>
-  assignedOnWrite(
-    fakeDb(store),
-    new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID)),
-    UID,
-    ID,
-    undefined,
-    after,
-    T,
-    log,
-  );
+  assignedOnWrite(fakeDb(store), new NoteCodec(UID, keyFor), UID, ID, undefined, after, T, log);
 
 const model: AgentModel = async () => ({
   content: [{ type: 'text', text: 'Ask the neighbours', citations: null }],
@@ -119,13 +110,21 @@ beforeEach(() => {
 });
 
 describe('an item run on a plain note', () => {
-  it('stores its item text and key plain, as before, asking for no key', async () => {
+  beforeEach(() => {
+    RUN = itemRunId(
+      ID,
+      itemHash(ID, KEY, 'sealed', () => key)!,
+    );
+  });
+
+  it('stores its item text, key and outcome sealed all the same (2026-11-15)', async () => {
     store.set(NOTE, note(`Home\n- [ ] ${ITEM}`));
     expect(await assign(store.get(NOTE)!)).toBe(1);
-    expect(runDoc()).toMatchObject({ itemText: KEY, itemKey: KEY });
+    expect(isSealed(runDoc()['itemText'])).toBe(true);
+    expect(isSealed(runDoc()['itemKey'])).toBe(true);
     expect(await runItem()).toBe('done');
-    expect(runDoc()['outcome']).toBe(`${FINDINGS_MARK} 0 searches`);
-    expect(keyFor).not.toHaveBeenCalled();
+    expect(isSealed(runDoc()['outcome'])).toBe(true);
+    expect(JSON.stringify(runDoc())).not.toContain(KEY);
   });
 });
 
@@ -200,14 +199,13 @@ describe("a sent note's run", () => {
     });
   }
 
-  it('stores its outcome plain for a plain note, with no key', async () => {
+  it('stores its outcome sealed for a plain note too (2026-11-15)', async () => {
     queued('r1', note('Glaze notes'));
     await firestoreRunStore(fakeDb(store), keyFor).update(UID, 'r1', {
       status: 'done',
       outcome: 'Filed under Pottery',
     });
-    expect(runDoc('r1')['outcome']).toBe('Filed under Pottery');
-    expect(keyFor).not.toHaveBeenCalled();
+    expect(runField('r1', 'outcome', runDoc('r1')['outcome'])).toBe('Filed under Pottery');
   });
 
   it('a note gone since the run began: its outcome is sealed where there is a key', async () => {
@@ -222,15 +220,17 @@ describe("a sent note's run", () => {
     );
   });
 
-  it('a note gone and no key: the outcome is stored plain, as before', async () => {
+  it('no key: no outcome is stored, never a plain one (2026-11-15)', async () => {
     queued('r1', note('Glaze notes'));
     store.delete(NOTE);
     noKey();
-    await firestoreRunStore(fakeDb(store), keyFor).update(UID, 'r1', {
-      status: 'done',
-      outcome: 'Filed under Pottery',
-    });
-    expect(runDoc('r1')['outcome']).toBe('Filed under Pottery');
+    await expect(
+      firestoreRunStore(fakeDb(store), keyFor).update(UID, 'r1', {
+        status: 'done',
+        outcome: 'Filed under Pottery',
+      }),
+    ).rejects.toThrow();
+    expect(runDoc('r1')['outcome']).toBeUndefined();
   });
 
   it('stores its outcome sealed under the run when the note is sealed', async () => {

@@ -1,4 +1,4 @@
-import { textHash } from '@mossgoblin/schema';
+import { aadFor, isSealed, newDataKey, noteTextHash, openText } from '@mossgoblin/schema';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -27,22 +27,19 @@ beforeEach(async () => {
 afterAll(() => deleteApp(app));
 
 const T = Date.parse('2026-10-06T13:00:00Z');
-// Plain notes only here: a key is never asked for (tools.sealed.spec.ts
-// and the sealed trigger specs cover sealed text).
-const plainOnly = new NoteCodec(
-  'u1',
-  () => Promise.reject(new Error('no key asked for')),
-  async () => false,
-);
+// Every write here is sealed (always sealed, 2026-11-15), with a key of
+// the spec's own; plain fixtures are still read as they are.
+const KEY = newDataKey();
+const codec = () => new NoteCodec('u1', async () => KEY);
+const opened = (noteId: string, field: 'body' | 'title', value: unknown) =>
+  openText(KEY, aadFor('u1', noteId, field), String(value));
 
 describe('firestoreNotesStore', () => {
   it('keeps every replaced text from saves arriving all at once, newest read first', async () => {
-    const store = firestoreNotesStore(db, plainOnly);
+    const store = firestoreNotesStore(db, codec());
     const n = REPLACED_KEPT + 5;
     await Promise.all(
-      Array.from({ length: n }, (_, i) =>
-        store.rememberReplaced('u1', 'n2', `t${i}`, 'plain', T + i),
-      ),
+      Array.from({ length: n }, (_, i) => store.rememberReplaced('u1', 'n2', `t${i}`, T + i)),
     );
     // None lost to a race; a merge reads the newest few.
     const all = await db.collection('users/u1/notes/n2/replaced').get();
@@ -56,7 +53,7 @@ describe('firestoreNotesStore', () => {
   });
 
   it('keeps versions and reports when the newest was kept', async () => {
-    const store = firestoreNotesStore(db, plainOnly);
+    const store = firestoreNotesStore(db, codec());
     expect(await store.lastKept('u1', 'n1')).toBeUndefined();
     const version = {
       body: 'first',
@@ -72,9 +69,11 @@ describe('firestoreNotesStore', () => {
     const all = (await db.collection('users/u1/notes/n1/history').get()).docs;
     expect(all.map((d) => d.id)).toEqual(['event-1']);
     const [kept] = (await db.collection('users/u1/notes/n1/history').get()).docs;
+    // A plain version is sealed as it is kept, under the note's own aad.
+    expect(isSealed(kept.get('body'))).toBe(true);
+    expect(opened('n1', 'body', kept.get('body'))).toBe('first');
+    expect(opened('n1', 'title', kept.get('title'))).toBe('First');
     expect(kept.data()).toMatchObject({
-      body: 'first',
-      title: 'First',
       updatedBy: 'user',
       deviceId: 'd1',
       reason: 'device',
@@ -87,7 +86,7 @@ describe('firestoreNotesStore', () => {
   });
 
   it('writes a title only while the note is at that settle and the title is not Eric’s', async () => {
-    const store = firestoreNotesStore(db, plainOnly);
+    const store = firestoreNotesStore(db, codec());
     const ref = db.doc('users/u1/notes/n1');
     const updatedAt = Timestamp.fromMillis(T);
     const settledAt = Timestamp.fromMillis(T + 1000);
@@ -100,8 +99,8 @@ describe('firestoreNotesStore', () => {
     });
 
     expect(await store.setTitle('u1', 'n1', T + 1000, 'Bank call')).toBe(true);
+    expect(opened('n1', 'title', (await ref.get()).get('title'))).toBe('Bank call');
     expect((await ref.get()).data()).toMatchObject({
-      title: 'Bank call',
       titleSource: 'llm',
       updatedAt,
       settledAt,
@@ -115,7 +114,7 @@ describe('firestoreNotesStore', () => {
   });
 
   it('reads kept bodies newest first, and writes a merge only over the text it merged', async () => {
-    const store = firestoreNotesStore(db, plainOnly);
+    const store = firestoreNotesStore(db, codec());
     const v = (body: string) => ({
       body,
       title: 'T',
@@ -129,9 +128,9 @@ describe('firestoreNotesStore', () => {
     expect(await store.keptBodies('u1', 'n1', 5)).toEqual(['two', 'one']);
     // Texts writes replaced come first, newest written first, once
     // each, whatever order their triggers ran in.
-    await store.rememberReplaced('u1', 'n1', 'r2', 'plain', T + 2);
-    await store.rememberReplaced('u1', 'n1', 'r1', 'plain', T + 1);
-    await store.rememberReplaced('u1', 'n1', 'r2', 'plain', T + 2);
+    await store.rememberReplaced('u1', 'n1', 'r2', T + 2);
+    await store.rememberReplaced('u1', 'n1', 'r1', T + 1);
+    await store.rememberReplaced('u1', 'n1', 'r2', T + 2);
     expect(await store.keptBodies('u1', 'n1', 5)).toEqual(['r2', 'r1', 'two', 'one']);
 
     await db.doc('users/u1/notes/n1').set({
@@ -154,12 +153,13 @@ describe('firestoreNotesStore', () => {
     expect(
       await store.writeMerged('u1', 'n1', () => ({ body: 'merged\nmine', over: 'mine' })),
     ).toBe(true);
-    expect((await db.doc('users/u1/notes/n1').get()).data()).toMatchObject({
-      body: 'merged\nmine',
-      title: 'merged',
+    const merged = (await db.doc('users/u1/notes/n1').get()).data()!;
+    expect(opened('n1', 'body', merged['body'])).toBe('merged\nmine');
+    expect(opened('n1', 'title', merged['title'])).toBe('merged');
+    expect(merged).toMatchObject({
       deviceId: 'merge',
       updatedBy: 'user',
-      baseHash: textHash('mine'),
+      baseHash: noteTextHash('n1', 'mine', 'sealed', () => KEY),
     });
   });
 });

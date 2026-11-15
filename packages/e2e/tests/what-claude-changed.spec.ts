@@ -11,7 +11,10 @@ import { OWNER } from '../src/personas';
 // note under the project Eric picks, as a change of his own (#235). Each
 // correction leaves a line under Corrections in Context for Claude, which
 // the next run reads (#239). Show changes opens the text before a change
-// and after it, the changed lines marked (#241).
+// and after it, the changed lines marked (#241). Every note is sealed
+// (2026-11-15), so a change's own summary names its notes as sealed
+// ones; the list beside it, and the day in one line, name them by their
+// titles.
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -96,11 +99,11 @@ test('a merge by Claude shows in What assistants changed, with its notes and His
       .getByRole('button', { name: /Shelf 2 cracked/ }),
   ).toBeVisible();
   await page.goto('/activity');
-  await changes.getByRole('button', { name: 'Put back: Added 1 line to Firing notes' }).click();
+  await changes.getByRole('button', { name: 'Put back: Added 1 line to a sealed note' }).click();
   await expect(changes).toContainText('Put back 1 note?');
   await changes.getByRole('button', { name: 'Yes' }).click();
   await expect(changes).toContainText('Put back 1 note.');
-  await expect(changes).toContainText('Mossgoblin: Put back “Added 1 line to Firing notes”');
+  await expect(changes).toContainText('Mossgoblin: Put back “Added 1 line to a sealed note”');
   await page.goto(`/n/${firing.id}`);
   await expect(note(page)).toContainText('Shelf 2 cracked.');
   await expect(note(page)).not.toContainText('order a new shelf');
@@ -112,12 +115,12 @@ test('a merge by Claude shows in What assistants changed, with its notes and His
   await expect(back.getByRole('list', { name: 'Tags' })).toContainText('kiln');
   await page.goto('/activity');
   await changes
-    .getByRole('button', { name: 'Put back: Refiled Firing notes: tagged kiln' })
+    .getByRole('button', { name: 'Put back: Refiled a sealed note: tagged kiln' })
     .click();
   await expect(changes).toContainText('Put back 1 note?');
   await changes.getByRole('button', { name: 'Yes' }).click();
   await expect(changes).toContainText('Put back 1 note.');
-  await expect(changes).toContainText('Mossgoblin: Put back “Refiled Firing notes: tagged kiln”');
+  await expect(changes).toContainText('Mossgoblin: Put back “Refiled a sealed note: tagged kiln”');
   await page.goto(`/n/${firing.id}`);
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(back).toBeVisible();
@@ -158,10 +161,10 @@ test('after a filing is put back, File it under… files the note under another 
   await offer.getByRole('button', { name: 'Garden' }).click();
   await expect(changes).toContainText('Filed under Garden.', { timeout: 15_000 });
   await expect(offer).toHaveCount(0);
-  await expect(changes).toContainText('Mossgoblin: Filed Kiln log under Garden');
+  await expect(changes).toContainText('Mossgoblin: Filed a sealed note under a sealed project');
   // His own change, listed like any other, can itself be put back.
   await expect(
-    changes.getByRole('button', { name: 'Put back: Filed Kiln log under Garden' }),
+    changes.getByRole('button', { name: 'Put back: Filed a sealed note under a sealed project' }),
   ).toBeVisible();
 
   // His text stays word for word, with the link under it.
@@ -221,7 +224,7 @@ test('the day in one line tops What assistants changed, and the digest push is k
   const digest = page.getByRole('region', { name: 'The day in one line' });
   await expect(digest).toContainText('Today so far: 2 lines added to Kiln log, Gift ideas made.');
   await expect(page.getByRole('list', { name: 'Changes' })).toContainText(
-    'Added 2 lines to Kiln log',
+    'Added 2 lines to a sealed note',
   );
 
   await page.goto('/settings');

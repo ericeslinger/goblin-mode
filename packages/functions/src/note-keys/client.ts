@@ -220,12 +220,6 @@ export function workerSource({
 export interface NoteKeys {
   /** The gardener's data key; kept for the instance once fetched. */
   dataKeyFor(uid: string): Promise<DataKey>;
-  /**
-   * The key asked for afresh, past the instance's copy, which is left as
-   * it is (the check before sealing, 2026-11-15: it proves the Worker
-   * answers now, not that it once did).
-   */
-  freshKeyFor(uid: string): Promise<DataKey>;
 }
 
 /** A per-instance cache over a key source. A failed ask is not kept, so the next one tries again. */
@@ -244,10 +238,6 @@ export function noteKeys(source: KeySource): NoteKeys {
         key = asked;
       }
       return key;
-    },
-    freshKeyFor(uid) {
-      if (!uid) return Promise.reject(new RangeError('freshKeyFor needs a uid'));
-      return source(uid).then((bytes) => importDataKey(bytes));
     },
   };
 }
@@ -280,15 +270,4 @@ let instance: NoteKeys | undefined;
 export function dataKeyFor(uid: string): Promise<DataKey> {
   instance ??= noteKeysFromEnv(process.env);
   return instance.dataKeyFor(uid);
-}
-
-/**
- * A gardener's data key asked of the Worker now, for the check before
- * sealing is switched on (2026-11-15): the same path and errors as
- * `dataKeyFor`, but past its kept copy, which it neither reads nor
- * changes.
- */
-export function freshDataKeyFor(uid: string): Promise<DataKey> {
-  instance ??= noteKeysFromEnv(process.env);
-  return instance.freshKeyFor(uid);
 }

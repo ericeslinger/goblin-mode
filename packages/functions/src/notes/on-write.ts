@@ -5,12 +5,14 @@
 // cannot be opened here is left as stored, and the log says so once.
 // Neither throws for a sealed note, and onDocumentWritten retries only
 // with `retry: true`, which neither trigger sets, so a missing key
-// never loops.
+// never loops. Since 2026-11-15 (always sealed) noteHistory also seals
+// a note a write left plain (seal-plain.ts).
 import type { DocumentSnapshot, Firestore } from 'firebase-admin/firestore';
 import { type NoteCodec, SealedNoteError, logLeftSealed } from '../mcp/note-text';
 import { firestoreNotesStore, openState, storedState } from './firestore-store';
 import { type NoteState, keepUnopened, recordHistory } from './history';
 import { type MergeOutcome, hashFormOf, mergeConflict, rememberReplaced } from './merge';
+import { sealWrittenPlain } from './seal-plain';
 import { type TitleOutcome, type Titler, titleNote } from './title';
 
 export interface Log {
@@ -24,6 +26,11 @@ export interface HistoryOutcome {
   merged: MergeOutcome | 'none';
   /** Sealed, and it did not open here: left as stored. */
   sealed?: true;
+  /**
+   * The write left the note with text plain (an out-of-date app,
+   * 2026-11-15): sealed here, or left as stored for its next write.
+   */
+  plain?: 'sealed' | 'already' | 'busy' | 'left';
 }
 
 /**
@@ -32,7 +39,9 @@ export interface HistoryOutcome {
  * writer had not seen. For a sealed note that cannot be opened here, the
  * note is left as stored and what the write replaced is kept in History
  * as stored when the write's own facts say so (keepUnopened), so it is
- * not lost while nothing here can merge it.
+ * not lost while nothing here can merge it. Last, a note the write left
+ * with any text plain is sealed (`sealWrittenPlain`, 2026-11-15); that
+ * looks at the snapshot alone first, so a sealed write costs nothing.
  */
 export async function historyOnWrite(
   db: Firestore,
@@ -44,6 +53,36 @@ export async function historyOnWrite(
   afterSnap: DocumentSnapshot | undefined,
   now: number,
   log: Log,
+): Promise<HistoryOutcome> {
+  const known: string[] = [];
+  const outcome = await keepAndMerge(
+    db,
+    codec,
+    uid,
+    noteId,
+    eventId,
+    beforeSnap,
+    afterSnap,
+    now,
+    log,
+    known,
+  );
+  const plain = await sealWrittenPlain(db, codec, uid, noteId, afterSnap, known, now, log);
+  return plain ? { ...outcome, plain } : outcome;
+}
+
+/** History, the replaced text and the merge; `known` gets the texts it opened. */
+async function keepAndMerge(
+  db: Firestore,
+  codec: NoteCodec,
+  uid: string,
+  noteId: string,
+  eventId: string,
+  beforeSnap: DocumentSnapshot | undefined,
+  afterSnap: DocumentSnapshot | undefined,
+  now: number,
+  log: Log,
+  known: string[],
 ): Promise<HistoryOutcome> {
   const store = firestoreNotesStore(db, codec);
   const stored = [storedState(beforeSnap), storedState(afterSnap)] as const;
@@ -66,6 +105,8 @@ export async function historyOnWrite(
     logLeftSealed(log, 'noteHistory', err);
     return { kept, merged: 'none', sealed: true };
   }
+  // The text this write replaced, for a plain `baseHash` naming it.
+  if (before) known.push(before.body);
   const kept = await recordHistory(store, uid, noteId, eventId, before, after, now);
   if (kept) log.debug('noteHistory kept a version', { noteId, reason: kept });
   // The text this write replaced, for a later merge to start from.

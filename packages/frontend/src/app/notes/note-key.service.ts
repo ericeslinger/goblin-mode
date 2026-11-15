@@ -22,6 +22,12 @@ import { ONLINE, STORAGE } from '../platform/platform';
 export const NOTE_KEY_PATH = '/api/note-key';
 /** This device's copy of a gardener's key is kept under this, then the uid. */
 export const NOTE_KEY_PREFIX = 'goblin.noteKey.';
+/**
+ * What this device remembered of the gardener's sealing switch, then the
+ * uid (2026-11-15, the switch; removed the same day, always sealed). It
+ * holds nothing now, and is cleared on every sign-in and sign-out.
+ */
+export const OLD_SEALING_PREFIX = 'goblin.sealNotes.';
 
 /** This device could not get its key: offline, signed out, or the service refused. */
 export class NoteKeyUnavailable extends Error {
@@ -41,7 +47,8 @@ export const NOTE_KEY_API = new InjectionToken<NoteKeyApi>('note-key-api', {
 /**
  * The signed-in gardener's note data key (note encryption step 2;
  * DESIGN.md, "Note encryption", Key custody), held for the notes it
- * opens and, with the gardener's switch on (2026-11-15), seals.
+ * opens and, since 2026-11-15, for every note it writes, which is
+ * always sealed.
  *
  * Once a gardener is signed in and online it asks the Worker once a
  * load, with their ID token, and keeps the key in memory and on this
@@ -49,9 +56,10 @@ export const NOTE_KEY_API = new InjectionToken<NoteKeyApi>('note-key-api', {
  * failed ask is tried again when the device comes back online, or on
  * the next load. Signing out forgets every device copy. It never
  * blocks anything and never throws: without a key, `key()` is simply
- * undefined, and failures go to the console alone. `fetchNow`, for the
- * check before sealing is switched on (2026-11-15), asks at once and
- * says when it cannot.
+ * undefined, and failures go to the console alone. `unconfigured`
+ * says the service answered 503, which it does when its master is not
+ * set: a garden that cannot seal until its owner sets it up (README,
+ * Run your own).
  */
 @Injectable({ providedIn: 'root' })
 export class NoteKeyService {
@@ -63,6 +71,13 @@ export class NoteKeyService {
   private readonly held = signal<DataKey | undefined>(undefined);
   /** The gardener's data key, or undefined while there is none to hand. */
   readonly key = this.held.asReadonly();
+  private readonly notSetUp = signal(false);
+  /**
+   * The note key service answered 503 at its last ask: it is not set up
+   * (no master at Cloudflare), not merely out of reach. Cleared by any
+   * other answer.
+   */
+  readonly unconfigured = this.notSetUp.asReadonly();
 
   private uid?: string;
   /** The uid whose key this load has fetched, or is fetching. */
@@ -84,12 +99,15 @@ export class NoteKeyService {
     if (user === null) {
       this.uid = this.asked = undefined;
       this.held.set(undefined);
+      this.notSetUp.set(false);
       this.forgetAll();
       return;
     }
     if (user.uid === this.uid) return;
     this.uid = user.uid;
     this.asked = undefined;
+    this.notSetUp.set(false);
+    this.forget(OLD_SEALING_PREFIX);
     this.held.set(this.fromDevice(user.uid));
     void this.ask();
   }
@@ -108,25 +126,6 @@ export class NoteKeyService {
     }
   }
 
-  /**
-   * Asks the Worker for the signed-in gardener's key now, whatever this
-   * load asked before, and holds it as `ask` does: the check before
-   * sealing is switched on (2026-11-15), which must show this device can
-   * get it. Throws `NoteKeyUnavailable` when it cannot; never the key's
-   * bytes in a message.
-   */
-  async fetchNow(): Promise<DataKey> {
-    const user = this.auth.user();
-    if (!user || user.uid !== this.uid) throw new NoteKeyUnavailable('not signed in');
-    if (!this.online()) throw new NoteKeyUnavailable('offline');
-    try {
-      return await this.fetchKey(user);
-    } catch (err) {
-      if (err instanceof NoteKeyUnavailable) throw err;
-      throw new NoteKeyUnavailable(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   private async fetchKey(user: User): Promise<DataKey> {
     const uid = user.uid;
     const token = await user.getIdToken();
@@ -135,6 +134,8 @@ export class NoteKeyService {
       headers: { authorization: `Bearer ${token}` },
       cache: 'no-store',
     });
+    // 503: the service has no master, so this garden cannot seal yet.
+    if (this.uid === uid) this.notSetUp.set(res.status === 503);
     if (!res.ok) throw new NoteKeyUnavailable(`the note key service answered ${res.status}`);
     const wire = noteKeyFromWire(await res.json());
     if (!wire) throw new NoteKeyUnavailable('the note key service answered with no key');
@@ -173,13 +174,19 @@ export class NoteKeyService {
 
   /** Every gardener's device copy, not only the last one's. */
   private forgetAll(): void {
+    this.forget(NOTE_KEY_PREFIX);
+    this.forget(OLD_SEALING_PREFIX);
+  }
+
+  /** Every entry in this device's storage whose name starts with `prefix`. */
+  private forget(prefix: string): void {
     try {
       const storage = this.storage;
       if (!storage) return;
       const keys: string[] = [];
       for (let i = 0; i < storage.length; i++) {
         const name = storage.key(i);
-        if (name?.startsWith(NOTE_KEY_PREFIX)) keys.push(name);
+        if (name?.startsWith(prefix)) keys.push(name);
       }
       for (const name of keys) storage.removeItem(name);
     } catch {

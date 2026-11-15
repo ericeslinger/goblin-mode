@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NoteKeysUnconfigured } from '../note-keys/client';
 import { applyAccepted } from '../organize/apply';
 import { type Data, type Store, fakeDb } from '../testing/fake-firestore';
-import { NoteCodec, sealingIn } from './note-text';
+import { NoteCodec } from './note-text';
 import { NotesTools } from './tools';
 
 // Note encryption step 3e (2026-11-13): text about notes stored outside
@@ -77,19 +77,20 @@ beforeEach(() => {
 });
 
 describe('suggest_changes, plain notes', () => {
-  it('stores the title and reason plain, as before, with no key', async () => {
+  it('seals the title and reason and labels the notes all the same (2026-11-15)', async () => {
     put('a', 'Kiln log');
     put('b', 'Firing notes');
     await tools().suggestChanges({
       proposals: [{ kind: 'merge', ids: ['a', 'b'], title: 'Kiln', reason: 'Same firing' }],
     });
-    const [{ d }] = proposals();
-    expect(d).toMatchObject({ title: 'Kiln', reason: 'Same firing' });
+    const [{ id, d }] = proposals();
+    expect(openProposal(id, 'title', d['title'])).toBe('Kiln');
+    expect(openProposal(id, 'reason', d['reason'])).toBe('Same firing');
     expect(d['notes']).toEqual([
-      { id: 'a', title: 'Kiln log' },
-      { id: 'b', title: 'Firing notes' },
+      { id: 'a', title: 'Sealed note' },
+      { id: 'b', title: 'Sealed note' },
     ]);
-    expect(keyFor).not.toHaveBeenCalled();
+    expect(JSON.stringify(d)).not.toMatch(/Kiln|Firing/);
   });
 });
 
@@ -114,7 +115,7 @@ describe('suggest_changes, a sealed note', () => {
     expect(openProposal(id, 'title', d['title'])).toBe('Kiln and firing');
     expect(openProposal(id, 'reason', d['reason'])).toBe('Firing notes, cone 6');
     expect(d['notes']).toEqual([
-      { id: 'a', title: 'Kiln log' },
+      { id: 'a', title: 'Sealed note' },
       { id: 'b', title: 'Sealed note' },
     ]);
     expect(d['key']).toBe('merge:a,b');
@@ -162,7 +163,7 @@ describe('suggest_changes, a sealed note', () => {
     });
     const [{ id, d }] = proposals();
     store.set(`${paths.proposals(UID)}/${id}`, { ...d, status: 'accepted' });
-    const codec = new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID));
+    const codec = new NoteCodec(UID, keyFor);
     expect(await applyAccepted(fakeDb(store), UID, id, tools(), T, codec)).toBe('applied');
     const concept = docsIn(paths.notes(UID)).find((x) => x.id === 'k')!.d;
     const added = concept['synonyms'] as string[];
@@ -193,7 +194,7 @@ describe('what assistants changed, a plain title beside a sealed body', () => {
     await tools().refile({ id: 'n', parent: 'p' });
     const [entry] = activity();
     expect(JSON.stringify(entry)).not.toContain('Pottery');
-    expect(entry['summary']).toBe('Refiled Glaze: filed under p');
+    expect(entry['summary']).toBe('Refiled a sealed note: filed under p');
   });
 });
 
@@ -209,14 +210,7 @@ describe('proposalAccepted, a sealed suggestion', () => {
     return id;
   }
   const accept = (id: string) =>
-    applyAccepted(
-      fakeDb(store),
-      UID,
-      id,
-      tools(),
-      T,
-      new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID)),
-    );
+    applyAccepted(fakeDb(store), UID, id, tools(), T, new NoteCodec(UID, keyFor));
 
   it('opens the proposed title and merges under it, the outcome naming no sealed text', async () => {
     const id = await proposeMerge();

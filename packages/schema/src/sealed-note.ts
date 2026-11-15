@@ -16,7 +16,7 @@ const every = (form: NoteForm) =>
   Object.freeze(Object.fromEntries(SEALED_FIELDS.map((f) => [f, form]))) as NoteForms;
 /** Every field plain: a new note, or one with nothing sealed. */
 export const PLAIN_FORMS: NoteForms = every('plain');
-/** Every field sealed: a new note made from sealed text (DESIGN.md, Preserve the form found). */
+/** Every field sealed: the form every write takes since 2026-11-15 (DESIGN.md, Always sealed). */
 export const SEALED_FORMS: NoteForms = every('sealed');
 
 /** A sealed field's value: a string, or for a list field its strings. */
@@ -96,31 +96,10 @@ export function anySealed(forms: NoteForms): boolean {
   return SEALED_FIELDS.some((f) => forms[f] === 'sealed');
 }
 
-/**
- * The form a write puts each field in, given the forms found on the
- * note (or `formFrom` its sources, for a new one). The one rule, for
- * the app and the functions alike:
- *
- * - A field is written in the form it was found in. With the switch
- *   off nothing starts sealing a field that was plain.
- * - No field is plainer than the body (review on #263, widened
- *   2026-11-13): a title made from the body's first words would say
- *   them in the clear, and the other fields beside a sealed body are
- *   sealed with it, so a sealed note is sealed throughout.
- * - The other names are never plainer than the title: a concept's
- *   rename keeps its old title among them.
- * - With the gardener's switch on (`sealing`, 2026-11-15), every field
- *   is sealed, whatever was found: a new note is born sealed, and a
- *   field a write touches on a plain note is written sealed. Off, the
- *   rules above, so turning it off unseals nothing.
- */
-export function writtenForms(found: NoteForms, sealing = false): NoteForms {
-  if (sealing) return SEALED_FORMS;
-  const out = { ...found };
-  if (found.body === 'sealed') for (const f of SEALED_FIELDS) out[f] = 'sealed';
-  if (found.title === 'sealed') out.synonyms = 'sealed';
-  return out;
-}
+// `writtenForms`, the one rule for the form a write kept (2026-11-13,
+// the gardener's switch added 2026-11-15), is gone: since 2026-11-15
+// every write seals every sealed field it holds (DESIGN.md, Always
+// sealed), in the app (`sealWrite`) and on the server (`sealFields`).
 
 /**
  * The form of text about notes that is stored outside them (step 3e,

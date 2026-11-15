@@ -97,22 +97,22 @@ beforeEach(() => {
 });
 
 describe('putBack', () => {
-  it('a plain note as before, never asking for a key', async () => {
+  it('a plain note: its plain replaced text found by the keyed base, put back sealed', async () => {
     const text = 'Shopping\n- [ ] limes';
     put('a', text);
     await tools().addLines({ id: 'a', lines: ['- [ ] oats'] });
+    // Kept plain under its plain id, as before 2026-11-15.
     remember('a', text, text);
-    keyFor.mockClear();
     const runId = runOf('add_lines');
     expect(await putBack(db(), UID, runId, T + 60_000, undefined, keyFor)).toMatchObject({
       status: 'done',
       notes: 1,
     });
-    expect(stored('a')['body']).toBe(text);
+    expect(isSealed(stored('a')['body'])).toBe(true);
+    expect(opened('a', 'body')).toBe(text);
     expect(store.get(`users/${UID}/activity/${putBackId(runId)}`)!['notes']).toEqual([
-      { id: 'a', title: 'Shopping' },
+      { id: 'a', title: 'Sealed note' },
     ]);
-    expect(keyFor).not.toHaveBeenCalled();
   });
 
   it("puts back a sealed note's earlier text, sealed again, from its replaced copy", async () => {
@@ -135,8 +135,8 @@ describe('putBack', () => {
     expect(record['notes']).toEqual([{ id: 'a', title: 'Sealed note' }]);
     expect(JSON.stringify(record)).not.toContain('Dentist');
     expect(JSON.stringify(record)).not.toContain(SEAL_SENTINEL);
-    // The correction goes to the context note, made plain as the app makes it.
-    expect(store.get(notePath(CONTEXT_ID))?.['body']).toEqual(expect.stringContaining('Put back'));
+    // The correction goes to the context note, made sealed as every note is.
+    expect(opened(CONTEXT_ID, 'body')).toEqual(expect.stringContaining('Put back'));
   });
 
   it('finds the text in a sealed History version, opened with the note’s aad', async () => {
@@ -217,10 +217,30 @@ describe('the correction line (step 3e, 2026-11-13)', () => {
   }
   const contextBody = () => String(stored(CONTEXT_ID)['body']);
 
-  it("says a sealed note's title as 'a sealed note' in a plain context note", async () => {
+  it('makes the context note sealed, and names the notes in its line (2026-11-15)', async () => {
     await linkedAndPutBack();
-    expect(contextBody()).toContain('Put back: Linked Plain note to a sealed note');
-    expect(contextBody()).not.toContain('Private');
+    expect(isSealed(contextBody())).toBe(true);
+    expect(opened(CONTEXT_ID, 'body')).toContain('Put back: Linked Plain note to Private plans');
+  });
+
+  it('writes a plain context note sealed with the line, naming the notes', async () => {
+    store.set(notePath(CONTEXT_ID), {
+      kind: 'context',
+      body: 'Be brief.',
+      title: 'Context for Claude',
+      titleSource: 'user',
+      links: [],
+      tags: [],
+      archived: false,
+      createdAt: Timestamp.fromMillis(T - 86_400_000),
+      updatedAt: Timestamp.fromMillis(T - 86_400_000),
+      updatedBy: 'user',
+      deviceId: 'phone',
+    });
+    await linkedAndPutBack();
+    expect(isSealed(contextBody())).toBe(true);
+    expect(opened(CONTEXT_ID, 'body')).toContain('Be brief.');
+    expect(opened(CONTEXT_ID, 'body')).toContain('Put back: Linked Plain note to Private plans');
   });
 
   it('names it in a sealed context note, sealed with the line', async () => {
@@ -266,7 +286,7 @@ describe('reroute', () => {
     expect(opened('a', 'body')).toBe('Sow the kale\n\nSee also [[Garden]]');
     expect(stored('a')['links']).toEqual(['p']);
     const record = [...store.values()].find((d) => d['tool'] === 'reroute')!;
-    expect(record['summary']).toBe('Filed 2 notes under Garden');
+    expect(record['summary']).toBe('Filed 2 notes under a sealed project');
     expect(record['notes']).toEqual([
       expect.objectContaining({ id: 'a', title: 'Sealed note', before: expect.anything() }),
       expect.objectContaining({ id: 'b', title: 'Sealed note' }),
@@ -277,12 +297,13 @@ describe('reroute', () => {
     expect(JSON.stringify(record)).not.toContain('kale');
   });
 
-  it("keeps the sealed notes' titles out of a plain context note's line", async () => {
+  it("names the notes in the context note's line, sealed with it", async () => {
     const putBackRun = await mergedAndPutBack();
     await reroute(db(), UID, putBackRun, 'p', T + 120_000, undefined, keyFor);
     const body = String(stored(CONTEXT_ID)['body']);
-    expect(body).toContain('Filed a sealed note and a sealed note under Garden');
-    expect(body).not.toMatch(/kale|Mulch|Sow/);
+    expect(isSealed(body)).toBe(true);
+    expect(opened(CONTEXT_ID, 'body')).toMatch(/Sow the kale[\s\S]*under Garden/);
+    expect(JSON.stringify([...store.values()])).not.toMatch(/Sow the kale|Mulch the beds/);
   });
 
   it('a note it cannot open refuses, writing nothing', async () => {
@@ -296,13 +317,12 @@ describe('reroute', () => {
   });
 });
 
-describe('the gardener’s switch on (2026-11-15, review on #276)', () => {
+describe('always sealed (2026-11-15; review on #276)', () => {
   it('a put back that makes the context note makes it sealed, its words nowhere in the clear', async () => {
-    store.set(`users/${UID}/settings/assistant`, { sealNotes: true });
     put('a', 'Plain note');
     put('b', 'Kiln shelf plans');
     await tools().linkNotes({ from: 'a', to: ['b'] });
-    // The text the link replaced, as noteHistory keeps it with the switch on.
+    // The text the link replaced, as noteHistory keeps it.
     remember('a', 'Plain note', seal('a', 'body', 'Plain note'), keyed('a', 'Plain note'));
     expect(store.has(notePath(CONTEXT_ID))).toBe(false);
     await putBack(db(), UID, runOf('link_notes'), T + 60_000, undefined, keyFor);

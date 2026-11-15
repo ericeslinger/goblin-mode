@@ -1,6 +1,9 @@
 import { type Page, devices } from '@playwright/test';
 import { expect, letItSave, prepPage, signInAs, test, typeLines, openMore } from '../src/fixtures';
 import { OWNER } from '../src/personas';
+import { DEV_NOTE_KEYS_MASTER } from '../../functions/src/note-keys/dev-master.emulator';
+import { deriveNoteKey, masterFromBase64 } from '../../schema/src/note-key';
+import { type DataKey, aadFor, importDataKey, openText } from '../../schema/src/sealed';
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
@@ -52,8 +55,20 @@ test('a version another device wrote over can be found in History and restored',
 
 const FIRESTORE = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 
-/** Every note in the emulator with its body and settledAt, read as admin. */
+/** The owner's data key, derived from the development master, as the stand-ins do. */
+async function ownerKey(): Promise<DataKey> {
+  const master = masterFromBase64(DEV_NOTE_KEYS_MASTER);
+  if (!master) throw new Error('no development master');
+  return importDataKey(await deriveNoteKey(master, OWNER.uid, 1));
+}
+
+/**
+ * Every note in the emulator with its body and settledAt, read as admin;
+ * the body is stored sealed (always sealed, 2026-11-15) and opened here
+ * with the owner's key.
+ */
 async function storedNotes(): Promise<{ body: string; settled: boolean }[]> {
+  const key = await ownerKey();
   const res = await fetch(
     `http://${FIRESTORE}/v1/projects/demo-mossgoblin/databases/(default)/documents:runQuery`,
     {
@@ -65,18 +80,22 @@ async function storedNotes(): Promise<{ body: string; settled: boolean }[]> {
     },
   );
   const rows = (await res.json()) as {
-    document?: { fields: { body?: { stringValue: string }; settledAt?: unknown } };
+    document?: {
+      name: string;
+      fields: { body?: { stringValue: string }; settledAt?: unknown };
+    };
   }[];
-  return rows.flatMap((r) =>
-    r.document
-      ? [
-          {
-            body: r.document.fields.body?.stringValue ?? '',
-            settled: !!r.document.fields.settledAt,
-          },
-        ]
-      : [],
-  );
+  return rows.flatMap((r) => {
+    if (!r.document) return [];
+    const id = r.document.name.split('/').pop()!;
+    const stored = r.document.fields.body?.stringValue ?? '';
+    return [
+      {
+        body: openText(key, aadFor(OWNER.uid, id, 'body'), stored),
+        settled: !!r.document.fields.settledAt,
+      },
+    ];
+  });
 }
 
 test('leaving a note settles it, which is what asks for a Claude title', async ({ page }) => {

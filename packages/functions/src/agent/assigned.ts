@@ -13,8 +13,9 @@
 // text is sealed under it: keyed for a sealed note since 2026-11-14
 // (`NoteCodec.itemHash`). A run started under the plain id while the
 // note was plain still counts for a sealed note, so the same item is
-// not started twice under its new id.
-import { RUN_STALE_MS, assignedItems, formsFound, hashForm, paths } from '@mossgoblin/schema';
+// not started twice under its new id. Since 2026-11-15 every run's text
+// is sealed and its id keyed, whatever the note's form (always sealed).
+import { RUN_STALE_MS, assignedItems, paths } from '@mossgoblin/schema';
 import { type Firestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import {
   type NoteCodec,
@@ -55,27 +56,21 @@ export async function assignedOnWrite(
     return 'sealed';
   }
   const items = assignedItems(body).filter((i) => !i.done);
-  // The form of the run's text and of the hash in its id: `recordForm`
-  // of the note, which is what `hashForm` is; sealed with the
-  // gardener's switch on (2026-11-15), read only when there are items.
-  const as = items.length ? hashForm(await codec.forms(formsFound(after))) : 'plain';
   // Sealed before any run starts, so a missing key starts none of
   // them, and before the transactions, which may run more than once.
   const sealed: { runId: string; plainId?: string; itemText: string; itemKey: string }[] = [];
   try {
     for (const item of items) {
-      const runId = itemRunId(noteId, await codec.itemHash(noteId, item.key, as));
+      // Keyed, and the run's text sealed, always (2026-11-15).
+      const runId = itemRunId(noteId, await codec.itemHash(noteId, item.key, 'sealed'));
       // Where a run for this item made while the note was plain would
-      // be: only looked up, never written, for a sealed note.
-      const plainId =
-        as === 'sealed'
-          ? itemRunId(noteId, await codec.itemHash(noteId, item.key, 'plain'))
-          : undefined;
+      // be: only looked up, never written.
+      const plainId = itemRunId(noteId, await codec.itemHash(noteId, item.key, 'plain'));
       sealed.push({
         runId,
-        ...(plainId ? { plainId } : {}),
-        itemText: await codec.sealRecord('runs', runId, 'itemText', item.text, as),
-        itemKey: await codec.sealRecord('runs', runId, 'itemKey', item.key, as),
+        plainId,
+        itemText: await codec.sealRecord('runs', runId, 'itemText', item.text),
+        itemKey: await codec.sealRecord('runs', runId, 'itemKey', item.key),
       });
     }
   } catch (err) {
