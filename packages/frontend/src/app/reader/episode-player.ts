@@ -18,7 +18,7 @@ import { PlayerService } from './player.service';
     <section class="player" aria-label="Player" data-no-swipe>
       <button
         type="button"
-        class="main"
+        class="main primary"
         [attr.aria-label]="playing() ? 'Pause' : 'Play'"
         (click)="toggle(it)"
       >
@@ -95,6 +95,11 @@ import { PlayerService } from './player.service';
     .skips button {
       min-width: 48px;
       min-height: 40px;
+    }
+    @media (pointer: coarse) {
+      .skips button {
+        min-height: 44px;
+      }
     }
     .player > :is(button:not(.main), p) {
       grid-column: 1 / -1;

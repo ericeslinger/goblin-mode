@@ -216,9 +216,6 @@ function webLink(url: string | undefined): string | undefined {
       gap: 4px var(--space-2);
       align-items: center;
     }
-    .copy {
-      min-height: 32px;
-    }
     .said,
     .muted,
     .hint {

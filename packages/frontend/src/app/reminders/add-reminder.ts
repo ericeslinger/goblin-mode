@@ -88,14 +88,6 @@ import { RemindersService } from './reminders.service';
       opacity: 0.5;
       cursor: default;
     }
-    .link {
-      border: 0;
-      padding: 0;
-      font: inherit;
-      color: var(--accent);
-      background: none;
-      cursor: pointer;
-    }
   `,
 })
 export class AddReminder {

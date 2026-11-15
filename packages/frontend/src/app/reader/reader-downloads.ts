@@ -86,9 +86,6 @@ import { ReaderService } from './reader.service';
       color: var(--quiet);
       font-size: 14px;
     }
-    button {
-      min-height: 32px;
-    }
   `,
 })
 export class ReaderDownloads {

@@ -72,7 +72,9 @@ export const RECIPE_IMPORT_API = new InjectionToken<RecipeImportApi>('recipe-imp
             (input)="typed($any($event.target).value)"
           ></textarea>
           <div class="actions">
-            <button type="submit" [disabled]="busy() || !text().trim()">Import</button>
+            <button type="submit" class="primary" [disabled]="busy() || !text().trim()">
+              Import
+            </button>
             @if (!busy()) {
               <button type="button" class="quiet" (click)="close()">Cancel</button>
             }

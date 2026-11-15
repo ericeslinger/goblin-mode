@@ -16,7 +16,7 @@ import { AuthService } from '../auth.service';
         <form (submit)="submit($event, email.value, password.value)">
           <label>Email <input #email name="email" type="email" /></label>
           <label>Password <input #password name="password" type="password" /></label>
-          <button type="submit">Sign in</button>
+          <button type="submit" class="primary">Sign in</button>
         </form>
         @if (error()) {
           <p role="alert">{{ error() }}</p>

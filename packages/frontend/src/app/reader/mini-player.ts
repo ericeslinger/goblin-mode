@@ -51,7 +51,14 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
           }
         </span>
         <span class="controls">
-          <button type="button" aria-label="Back 15 seconds" (click)="player.skip(-15)">−15</button>
+          <button
+            type="button"
+            class="quiet"
+            aria-label="Back 15 seconds"
+            (click)="player.skip(-15)"
+          >
+            −15
+          </button>
           <button
             type="button"
             class="main"
@@ -60,10 +67,17 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
           >
             {{ player.playing() ? '❚❚' : '▶' }}
           </button>
-          <button type="button" aria-label="Forward 30 seconds" (click)="player.skip(30)">
+          <button
+            type="button"
+            class="quiet"
+            aria-label="Forward 30 seconds"
+            (click)="player.skip(30)"
+          >
             +30
           </button>
-          <button type="button" aria-label="Close the player" (click)="player.stop()">×</button>
+          <button type="button" class="quiet" aria-label="Close the player" (click)="player.stop()">
+            ×
+          </button>
         </span>
       </aside>
     }
@@ -119,9 +133,17 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
       display: flex;
       gap: 4px;
     }
+    /* The kinds are global (styles.css): Play outlined, the rest text.
+       Reached by touch at 44 px (2026-11-15). */
     .controls button {
       min-width: 40px;
       min-height: 40px;
+    }
+    @media (pointer: coarse) {
+      .controls button {
+        min-width: 44px;
+        min-height: 44px;
+      }
     }
   `,
 })

@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, openCapture, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, openCapture, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The layout pass, step 1 (#285): nothing widens the phone's page,
@@ -17,6 +17,68 @@ async function noSeriousViolations(page: Page): Promise<void> {
     .analyze();
   const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+}
+
+/**
+ * Where a tap 21 px from the control's centre, across, down and on the
+ * diagonals, does not land on it: none for a 44 px target, whether its
+ * box is that big or an invisible area around it is (step 2a, #286).
+ */
+async function missedTaps(control: Locator): Promise<string[]> {
+  await control.scrollIntoViewIfNeeded();
+  return control.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const [x, y] = [box.left + box.width / 2, box.top + box.height / 2];
+    const missed: string[] = [];
+    // 21 px each way across and down; 14 on the diagonals, which is
+    // still inside a round control 44 px across.
+    const points = [
+      [0, 0],
+      [-21, 0],
+      [21, 0],
+      [0, -21],
+      [0, 21],
+      [-14, -14],
+      [14, -14],
+      [-14, 14],
+      [14, 14],
+    ] as const;
+    for (const [dx, dy] of points) {
+      const hit = document.elementFromPoint(x + dx, y + dy);
+      if (!hit || !el.contains(hit)) missed.push(`${dx},${dy}: ${hit?.outerHTML.slice(0, 60)}`);
+    }
+    return missed;
+  });
+}
+
+/**
+ * The visible buttons still in the browser's own look: its outset
+ * border and button face (read from a button in a shadow root, where
+ * the app's styles do not reach), or a font of their own rather than
+ * their parent's.
+ */
+async function browserDefaultButtons(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const host = document.createElement('div');
+    const probe = document.createElement('button');
+    host.attachShadow({ mode: 'open' }).append(probe);
+    document.body.append(host);
+    const own = getComputedStyle(probe);
+    const plain = { border: own.borderTopStyle, face: own.backgroundColor };
+    host.remove();
+    return [...document.querySelectorAll('button')]
+      .filter((b) => b.checkVisibility())
+      .filter((b) => {
+        const s = getComputedStyle(b);
+        const parent = getComputedStyle(b.parentElement!);
+        return (
+          (s.borderTopStyle === plain.border && s.backgroundColor === plain.face) ||
+          s.borderTopStyle === 'outset' ||
+          s.fontFamily !== parent.fontFamily
+        );
+      })
+      .map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim() ?? '');
+  });
 }
 
 /** How an element scrolls: its sizes and its computed overflow-y. */
@@ -114,6 +176,109 @@ test.describe('on a phone', () => {
     await noSeriousViolations(page);
     await last.click();
     await expect(page).toHaveURL(/\/n\/c-project-19$/);
+  });
+
+  test('the controls a thumb reaches for take a 44 px tap', async ({ page }) => {
+    test.setTimeout(90_000);
+    await signInAs(page, OWNER);
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    const call = await connectClaude(page);
+    await call('create_reminder', {
+      text: 'Call the bank',
+      dueAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    // A note with text, saved, so View and Back are in the bar.
+    await openCapture(page);
+    await typeLines(page, ['Kiln log']);
+    await letItSave(page);
+    const back = page.getByRole('button', { name: 'Back', exact: true });
+    await expect(back).toBeVisible({ timeout: 15_000 });
+    // Off the note, so nothing docked to the keyboard sits over Right Now.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    const bar = page.locator('header.bar');
+    const rightNow = page.getByRole('region', { name: 'Right Now' });
+    await expect(rightNow.getByRole('button', { name: 'Done: Call the bank' })).toBeVisible({
+      timeout: 15_000,
+    });
+    for (const control of [
+      bar.getByRole('button', { name: 'New note' }),
+      bar.getByRole('button', { name: 'View', exact: true }),
+      back,
+      bar.getByRole('button', { name: 'More' }),
+      rightNow.getByRole('button', { name: 'Done: Call the bank' }),
+      rightNow.getByRole('button', { name: 'Snooze: Call the bank' }),
+    ]) {
+      expect(await missedTaps(control)).toEqual([]);
+    }
+    // The small text buttons keep their look: the box itself is smaller.
+    expect((await back.boundingBox())!.height).toBeLessThan(44);
+
+    await page.goto('/browse');
+    const lenses = page.getByRole('navigation', { name: 'Lenses' });
+    await expect(lenses.getByRole('link').first()).toBeVisible({ timeout: 15_000 });
+    for (const chip of [lenses.getByRole('link').first(), lenses.getByRole('link').last()]) {
+      expect(await missedTaps(chip)).toEqual([]);
+    }
+
+    await page.goto('/right-now');
+    const row = page.getByRole('main');
+    await expect(row.getByRole('button', { name: 'Done: Call the bank' })).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(await missedTaps(row.getByRole('button', { name: 'Done: Call the bank' }))).toEqual([]);
+    expect(await missedTaps(row.getByRole('button', { name: 'Snooze: Call the bank' }))).toEqual(
+      [],
+    );
+    expect(await missedTaps(row.getByRole('button', { name: 'Add a reminder' }))).toEqual([]);
+
+    await page.goto('/settings');
+    const signOut = page.getByRole('button', { name: 'Sign out' });
+    await expect(signOut).toBeVisible({ timeout: 15_000 });
+    expect(await missedTaps(signOut)).toEqual([]);
+    await noSeriousViolations(page);
+  });
+
+  test('no button is left in the browser’s own look', async ({ page }) => {
+    test.setTimeout(90_000);
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    await call('create_reminder', {
+      text: 'Call the bank',
+      dueAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    await page.goto('/settings');
+    const signOut = page.getByRole('button', { name: 'Sign out' });
+    await expect(signOut).toBeVisible({ timeout: 15_000 });
+    // The signal holds for the plain base: a themed border, not outset.
+    expect(await signOut.evaluate((b) => getComputedStyle(b).borderTopStyle)).toBe('solid');
+    expect(await browserDefaultButtons(page)).toEqual([]);
+
+    // Reader's feed management, with a feed followed so its row shows.
+    await page.getByRole('switch', { name: 'Reader' }).check();
+    await letItSave(page);
+    await page.goto('/reader/feeds');
+    await page.getByRole('textbox', { name: 'Feed link' }).fill('https://feeds.invalid/design.xml');
+    await page.getByRole('combobox', { name: 'Folder' }).fill('Design');
+    await page.getByRole('button', { name: 'Follow', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Feed link' })).toHaveValue('');
+    await page.locator('summary', { hasText: 'Design' }).click();
+    await expect(page.getByRole('button', { name: /^Remove: / })).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(await browserDefaultButtons(page)).toEqual([]);
+
+    await openCapture(page);
+    await typeLines(page, ['Kiln log']);
+    await letItSave(page);
+    await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole('button', { name: 'Done: Call the bank' })).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(await browserDefaultButtons(page)).toEqual([]);
   });
 });
 

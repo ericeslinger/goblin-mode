@@ -24,14 +24,6 @@ import { RemindersService } from './reminders.service';
       font-size: 14px;
       color: var(--quiet);
     }
-    .link {
-      border: 0;
-      padding: 0;
-      font: inherit;
-      color: var(--accent);
-      background: none;
-      cursor: pointer;
-    }
   `,
 })
 export class UndoBar {

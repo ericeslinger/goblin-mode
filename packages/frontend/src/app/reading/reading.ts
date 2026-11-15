@@ -118,7 +118,6 @@ import { HomeLink } from '../home/home-link';
       grid-column: 2;
       grid-row: 1 / span 2;
       align-self: center;
-      min-height: 32px;
     }
   `,
 })

@@ -49,12 +49,17 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
           <span class="when">{{ when() }}</span>
         }
       </span>
-      <button type="button" class="act" [attr.aria-label]="'Done: ' + r.text" (click)="done()">
+      <button
+        type="button"
+        class="act touch-target"
+        [attr.aria-label]="'Done: ' + r.text"
+        (click)="done()"
+      >
         Done
       </button>
       <button
         type="button"
-        class="act"
+        class="act touch-target"
         [attr.aria-label]="'Snooze: ' + r.text"
         [attr.aria-expanded]="menuOpen()"
         (click)="menuOpen.set(!menuOpen())"

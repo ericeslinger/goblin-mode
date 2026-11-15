@@ -133,9 +133,6 @@ import {
     .confirm p {
       flex-basis: 100%;
     }
-    button {
-      min-height: 32px;
-    }
     .danger {
       font-weight: 600;
     }

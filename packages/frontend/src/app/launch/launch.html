@@ -47,7 +47,7 @@
         <button
           #moreButton
           type="button"
-          class="more-button"
+          class="more-button touch-target"
           aria-controls="more-menu"
           [attr.aria-expanded]="moreOpen()"
           (click)="moreOpen.set(!moreOpen())"
@@ -222,7 +222,7 @@
             @if (previous().length > 0) {
               <button
                 type="button"
-                class="pill"
+                class="pill touch-target"
                 aria-controls="previous-notes"
                 [attr.aria-expanded]="previousOpen()"
                 (click)="previousOpen.set(!previousOpen()); projectsOpen.set(false)"
@@ -233,7 +233,7 @@
             @if (projects().length > 0) {
               <button
                 type="button"
-                class="pill"
+                class="pill touch-target"
                 aria-controls="project-list"
                 [attr.aria-expanded]="projectsOpen()"
                 (click)="projectsOpen.set(!projectsOpen()); previousOpen.set(false)"
