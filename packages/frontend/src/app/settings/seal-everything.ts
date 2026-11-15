@@ -2,6 +2,7 @@ import { Component, InjectionToken, Injector, computed, inject, signal } from '@
 import {
   SEAL_COUNTED,
   type SealCounted,
+  type SealLeftReason,
   type SealPass,
   type SealReport,
   type SealRequest,
@@ -100,7 +101,7 @@ export function summaryLines(done: SealReport, check: SealReport): string[] {
 /** What is left as it is, and why, in plain words. */
 function leftLines(r: SealReport): string[] {
   const out: string[] = [];
-  const by = (reason: 'cannot-open' | 'busy' | 'not-verified' | 'id-kept') =>
+  const by = (reason: SealLeftReason) =>
     SEAL_COUNTED.filter((k) => (r.left[k][reason] ?? 0) > 0).map((k) =>
       WHAT[k](r.left[k][reason] ?? 0),
     );
@@ -113,7 +114,26 @@ function leftLines(r: SealReport): string[] {
   const busy = by('busy');
   if (busy.length) {
     out.push(
-      `Left for next time: ${busy.join(', ')} in use right now (a recipe being read, an assistant at work, or a suggestion being carried out). Run it again later.`,
+      `Left for next time: ${busy.join(', ')} whose import was asked for a few minutes ago and is being read now. Run this again in a quarter of an hour.`,
+    );
+  }
+  const large = by('too-large');
+  if (large.length) {
+    out.push(
+      `Left as they are: ${large.join(', ')} too large to seal (sealed text is about a third longer, and one note can hold only so much). Split a very long note into two, then run this again.`,
+    );
+  }
+  const changing = by('contended');
+  if (changing.length) {
+    out.push(
+      `Left as they are: ${changing.join(', ')} that kept being changed while this ran. Run it again when nothing else is editing them.`,
+    );
+  }
+  const failed = by('failed');
+  if (failed.length) {
+    const names = Object.keys(r.failures ?? {});
+    out.push(
+      `Left as they are: ${failed.join(', ')} the server could not seal${names.length ? ` (${names.join(', ')})` : ''}. Nothing in them is changed. Run it again; if they are still left, please report it.`,
     );
   }
   const unchecked = by('not-verified');
@@ -125,7 +145,7 @@ function leftLines(r: SealReport): string[] {
   const kept = r.left.runs['id-kept'] ?? 0;
   if (kept) {
     out.push(
-      `${plural(kept, 'older assistant run is', 'older assistant runs are')} sealed but keep ${kept === 1 ? 'its' : 'their'} old name, because a newer run for the same item has the new one.`,
+      `${plural(kept, 'older assistant run is', 'older assistant runs are')} sealed but keep${kept === 1 ? 's' : ''} ${kept === 1 ? 'its' : 'their'} old name, because a newer run for the same item has the new one, or ${kept === 1 ? 'it has' : 'they have'} not finished. Run this again once ${kept === 1 ? 'it has' : 'they have'}.`,
     );
   }
   return out;
@@ -148,7 +168,8 @@ function replacedLines(r: SealReport): string[] {
  * second tap, the pass itself, which runs on the server. One call
  * normally does it all; the page calls again only when the server ran
  * out of time, and then once more as a dry run to check what is left.
- * Leaving the page does not stop the server; running it again later is
+ * If it is interrupted (the page closed, the connection lost), each
+ * document is sealed or as it was, and running it again carries on; it
  * harmless and shows what is left.
  */
 @Component({
@@ -258,7 +279,7 @@ export class SealEverything {
     this.phase.set('sealing');
     this.found.set([]);
     this.progress.set(
-      'Sealing on the server. This can take several minutes. You can leave this page: the server carries on, and running this again shows what is left.',
+      'Sealing on the server. This can take several minutes: keep this page open until it says it has finished. If it is interrupted, nothing is harmed, and tapping Seal everything now again carries on.',
     );
     let done: SealReport;
     try {
@@ -306,7 +327,7 @@ export class SealEverything {
     this.progress.set(
       during === 'count'
         ? 'Could not reach the server to count. Nothing was changed. Try again once online.'
-        : 'The connection to the server dropped. What was sealed stays sealed, and the server may still be working. Tap Seal everything now again in a little while to see what is left.',
+        : 'This was interrupted before it finished. Nothing is harmed: what was sealed stays sealed, and the rest is as it was. Tap Seal everything now again to carry on.',
     );
   }
 }

@@ -54,6 +54,7 @@ import {
   storedText,
 } from '../mcp/note-text';
 import { NotVerified, type SealedUnit, sealRun } from '../agent/seal-runs';
+import { logger } from 'firebase-functions/v2';
 
 type Data = Record<string, unknown>;
 
@@ -61,23 +62,82 @@ type Data = Record<string, unknown>;
 export const NOTE_PAGE = 25;
 /** History versions, suggestions, runs or activity entries a page. */
 export const RECORD_PAGE = 100;
-/** Transactions at once within a page, well inside Firestore's limits. */
-export const AT_ONCE = 8;
+/**
+ * Transactions at once within a page, well inside Firestore's limits.
+ * Four, not eight (review on #277): a transaction can hold a document
+ * near 1 MiB and its sealed copy, and an entry's can read a note's 50
+ * newest versions, so four at once stay well inside the callable's
+ * memory.
+ */
+export const AT_ONCE = 4;
 /** How many of a note's newest History versions a hash's text is looked for in, as put back does. */
 export const VERSIONS_SEARCHED = 50;
 
 /**
  * What a hash is made of when the text it named is kept nowhere any
- * more (not the note's body, not a replaced text, not in History): a
- * string no note can hold (it starts with NUL). Its keyed hash matches
- * no text, as the plain hash it replaces matched none that is kept, so
- * the merge, put back and Show changes behave exactly as before, and
- * nothing guessable is left.
+ * more (not the note's body, not a replaced text, not in History). A
+ * hash matches only a text exactly equal to this one, which starts
+ * with NUL and names itself, so in practice no note's text; its keyed
+ * hash then matches no text, as the plain hash it replaces matched
+ * none that is kept, so the merge, put back and Show changes behave
+ * exactly as before, and nothing guessable is left.
  */
 export const UNKEPT_TEXT = '\u0000mossgoblin/text-no-longer-kept';
 
-/** A recipe being read: its trigger runs on every write while it is requested. */
-const IMPORT_BUSY: readonly unknown[] = ['requested', 'working'];
+/**
+ * How long a recipe import asked for is left to its own function
+ * (recipeImport, 300 s, and a retry) before the pass seals it anyway.
+ */
+export const IMPORT_FRESH_MS = 15 * 60_000;
+
+/**
+ * Firestore's limit for one document, less room for its name and what
+ * an estimate leaves out: a document sealed past it is not written.
+ */
+export const MAX_DOC_BYTES = 1_048_576 - 16_384;
+
+/** Sealed, a document would pass Firestore's limit: it is left as stored. */
+export class TooLargeToSeal extends Error {
+  override readonly name = 'TooLargeToSeal';
+}
+
+const utf8 = new TextEncoder();
+const bytesOf = (s: string) => utf8.encode(s).length;
+
+/**
+ * The stored size of a sealed value of `text`, in bytes: U+E000 (three
+ * bytes in UTF-8), `mg1.`, and base64url of the 12-byte nonce, the text
+ * and the 16-byte tag (sealed.ts).
+ */
+export function sealedBytes(text: string): number {
+  return 3 + 4 + Math.ceil(((12 + bytesOf(text) + 16) * 4) / 3);
+}
+
+/** Firestore's storage size of a value (a string's bytes and one, a map's names too). */
+function valueBytes(v: unknown): number {
+  if (typeof v === 'string') return bytesOf(v) + 1;
+  if (typeof v === 'number' || v instanceof Timestamp) return 8;
+  if (typeof v === 'boolean' || v === null || v === undefined) return 1;
+  if (Array.isArray(v)) return v.reduce<number>((n, x) => n + valueBytes(x), 0);
+  if (typeof v === 'object') {
+    return Object.entries(v as Data).reduce((n, [k, x]) => n + bytesOf(k) + 1 + valueBytes(x), 0);
+  }
+  return 16;
+}
+
+/**
+ * Throws TooLargeToSeal when `stored`, with each plain string of the
+ * values in `plain` sealed, would pass MAX_DOC_BYTES: estimated before
+ * anything is sealed, so a dry run counts it too.
+ */
+function checkSealedSize(stored: Data, plain: readonly unknown[]): void {
+  let size = 32 + valueBytes(stored);
+  const grow = (t: unknown) => {
+    if (typeof t === 'string' && !isSealed(t)) size += sealedBytes(t) - bytesOf(t);
+  };
+  for (const v of plain) (Array.isArray(v) ? v : [v]).forEach(grow);
+  if (size > MAX_DOC_BYTES) throw new TooLargeToSeal();
+}
 
 export interface SealAllDeps {
   db: Firestore;
@@ -90,6 +150,8 @@ export interface SealAllDeps {
   now: () => number;
   /** Whether the switch is still on: read between pages, so turning it off stops the pass. */
   stillOn: () => Promise<boolean>;
+  /** Where a document left as stored is said: its kind, id, reason and error name, never text. */
+  log?: (message: string, fields: Record<string, unknown>) => void;
 }
 
 /** The switch went off while a pass was running: it stopped where it was. */
@@ -170,6 +232,8 @@ async function atOnce<T>(items: readonly T[], fn: (item: T) => Promise<void>): P
 interface Unit extends SealedUnit {
   /** Hashes whose text is kept nowhere, made a hash of nothing. */
   unkept?: number;
+  /** For `failed`: the error's name, nothing more. */
+  failure?: string;
 }
 
 function count(report: SealReport, what: SealCounted, unit: Unit): void {
@@ -177,6 +241,7 @@ function count(report: SealReport, what: SealCounted, unit: Unit): void {
   else if (unit.result !== 'already') {
     report.left[what][unit.result] = (report.left[what][unit.result] ?? 0) + 1;
   }
+  if (unit.failure) report.failures[unit.failure] = (report.failures[unit.failure] ?? 0) + 1;
   if (unit.idKept) report.left[what]['id-kept'] = (report.left[what]['id-kept'] ?? 0) + 1;
   if (unit.moved) report.runsMoved++;
   report.hashesUnkept += unit.unkept ?? 0;
@@ -184,39 +249,87 @@ function count(report: SealReport, what: SealCounted, unit: Unit): void {
 
 function sealOne(deps: SealAllDeps, kind: Exclude<SealKind, 'notes'>, id: string) {
   const { db, codec, uid, dryRun } = deps;
+  const at = `${kind}/${id}`;
   switch (kind) {
     case 'suggestions':
-      return guarded(() => sealSuggestion(db, codec, uid, id, dryRun));
+      return guarded(deps, at, () => sealSuggestion(db, codec, uid, id, dryRun));
     case 'runs':
-      return sealRun(db, codec, uid, id, dryRun);
+      return guarded(deps, at, () => sealRun(db, codec, uid, id, dryRun));
     case 'activity':
-      return guarded(() => relabelEntry(db, codec, uid, id, dryRun));
+      return guarded(deps, at, () => relabelEntry(db, codec, uid, id, dryRun));
   }
 }
 
-/** A document whose text does not open, or does not open back, is left as stored. */
-async function guarded(work: () => Promise<Unit>): Promise<Unit> {
+/** A Firestore error's code, numeric (gRPC) or named. */
+const codeOf = (err: unknown) => (err as { code?: unknown } | null)?.code;
+
+/**
+ * Why a document's transaction failed, as a report says it: never the
+ * error's message, which could hold text, only its class.
+ */
+function failureOf(err: unknown): Unit {
+  if (err instanceof SealedNoteError || err instanceof SealedRecordError) {
+    return { result: 'cannot-open' };
+  }
+  if (err instanceof NotVerified) return { result: 'not-verified' };
+  if (err instanceof TooLargeToSeal) return { result: 'too-large' };
+  const code = codeOf(err);
+  // ABORTED: the transaction lost to other writes every time it tried.
+  if (code === 10 || code === 'aborted' || code === 'ABORTED') return { result: 'contended' };
+  // Firestore refused a document past its limit, past the estimate.
+  if (
+    (code === 3 || code === 'invalid-argument' || code === 'INVALID_ARGUMENT') &&
+    err instanceof Error &&
+    /maximum allowed size|exceeds the maximum/i.test(err.message)
+  ) {
+    return { result: 'too-large' };
+  }
+  const name = err instanceof Error ? err.name || 'Error' : typeof err;
+  return {
+    result: 'failed',
+    failure: typeof code === 'number' || typeof code === 'string' ? `${name} (${code})` : name,
+  };
+}
+
+/**
+ * One document's work, isolated (review on #277): whatever goes wrong
+ * with it leaves it as stored, is counted under its reason and logged
+ * by its id and the error's name, and the pass goes on to the next.
+ */
+async function guarded(deps: SealAllDeps, at: string, work: () => Promise<Unit>): Promise<Unit> {
   try {
     return await work();
   } catch (err) {
-    if (err instanceof SealedNoteError || err instanceof SealedRecordError) {
-      return { result: 'cannot-open' };
-    }
-    if (err instanceof NotVerified) return { result: 'not-verified' };
-    throw err;
+    const unit = failureOf(err);
+    (deps.log ?? ((m, f) => logger.warn(m, f)))('sealEverything left a document as stored', {
+      at,
+      reason: unit.result,
+      ...(unit.failure ? { error: unit.failure } : {}),
+    });
+    return unit;
   }
 }
 
 /** A note, then its History versions, then its replaced texts counted. */
 async function sealNoteWhole(deps: SealAllDeps, id: string, report: SealReport): Promise<void> {
   const { db, codec, uid, dryRun } = deps;
-  count(report, 'notes', await guarded(() => sealNote(db, codec, uid, id, dryRun)));
+  count(
+    report,
+    'notes',
+    await guarded(deps, `notes/${id}`, () => sealNote(db, codec, uid, id, dryRun, deps.now())),
+  );
   const versions = db.collection(paths.history(uid, id));
   let after: string | undefined;
   for (;;) {
     const page = await idsOf(versions, after, RECORD_PAGE);
     await atOnce(page, async (v) =>
-      count(report, 'versions', await guarded(() => sealVersion(db, codec, uid, id, v, dryRun))),
+      count(
+        report,
+        'versions',
+        await guarded(deps, `notes/${id}/history/${v}`, () =>
+          sealVersion(db, codec, uid, id, v, dryRun),
+        ),
+      ),
     );
     if (page.length < RECORD_PAGE) break;
     after = page.at(-1);
@@ -313,6 +426,28 @@ async function opensBack(
 const KEEP_SEALED: ReadonlySet<string> = new Set(['synonyms']);
 
 /**
+ * A recipe whose import was asked for within IMPORT_FRESH_MS (review on
+ * #277): recipeImport runs on every write while `importState` is
+ * `requested`, so a write now would only race its own run, and the
+ * pass leaves it to the next one. Older, it is sealed like the rest:
+ * the write starts recipeImport again, which claims the import in a
+ * transaction (`requested` to `working`), so it is read once, as if
+ * Eric had tapped Try again; an import stuck there for good (#269) is
+ * so tried once more, not left plain for ever. There is no claim time
+ * on the note, so the age is its `updatedAt`, which every ask writes
+ * (or `createdAt`). A recipe `working` is sealed whatever its age:
+ * recipeImport returns at once for it, and `fillImport` reads the note
+ * in its own transaction, opened, and writes in the note's form, so a
+ * write of form alone, in a transaction, can neither be lost to it nor
+ * change what it reads.
+ */
+function importJustAsked(stored: Data, now: number): boolean {
+  if (stored['importState'] !== 'requested') return false;
+  const at = stored['updatedAt'] ?? stored['createdAt'];
+  return at instanceof Timestamp && now - at.toMillis() < IMPORT_FRESH_MS;
+}
+
+/**
  * Note `id`: every sealed field still plain, sealed under its id, and a
  * plain `baseHash` keyed (of the same text, or of nothing when that
  * text is kept nowhere). Nothing else of the note is written.
@@ -323,6 +458,7 @@ export async function sealNote(
   uid: string,
   id: string,
   dryRun: boolean,
+  now: number = Date.now(),
 ): Promise<Unit> {
   const ref = db.doc(paths.note(uid, id));
   return db.runTransaction(async (tx) => {
@@ -333,9 +469,12 @@ export async function sealNote(
     const plain = SEALED_FIELDS.filter((f) => holdsPlain(fieldValue(stored, f)));
     const base = stored['baseHash'];
     if (!plain.length && !plainHash(base)) return { result: 'already' };
-    // recipeImport runs on every write while an import is asked for.
-    if (IMPORT_BUSY.includes(stored['importState'])) return { result: 'busy' };
+    if (importJustAsked(stored, now)) return { result: 'busy' };
     if (note.locked) return { result: 'cannot-open' };
+    checkSealedSize(
+      stored,
+      plain.map((f) => fieldValue(stored, f)),
+    );
     const opened = note.known()!;
     let unkept = 0;
     const update: Data = {};
@@ -379,6 +518,7 @@ export async function sealVersion(
       if (f in v && holdsPlain(storedText(v, f))) update[f] = storedText(v, f);
     }
     if (!Object.keys(update).length) return { result: 'already' };
+    checkSealedSize(v, Object.values(update));
     if (dryRun) return { result: 'sealed' };
     const written = await sealFields(codec, noteId, update, await codec.forms(), KEEP_SEALED);
     for (const f of ['body', 'title'] as const) {
@@ -462,8 +602,12 @@ export function relabelOutcome(kind: unknown, status: unknown, outcome: string, 
  * proposed names element by element, sealed under its own id; the
  * notes it names labelled, an outcome naming them relabelled, and a
  * refile's key made to hold a keyed hash of its names, as a new
- * suggestion's does (2026-11-15). One being carried out (accepted,
- * applying) is left for the next pass.
+ * suggestion's does (2026-11-15). Whatever its status (review on
+ * #277): proposalAccepted starts only on `open` to `accepted`, which
+ * this never writes; one carrying it out opens the title and names it
+ * read, sealed or plain; and what it writes after (status, an outcome
+ * naming notes as recorded, "Sealed note" with the switch on) touches
+ * none of the fields sealed here but the outcome, which it labels.
  */
 export async function sealSuggestion(
   db: Firestore,
@@ -486,7 +630,6 @@ export async function sealSuggestion(
     const sayNames = p['kind'] === 'refile' && hashedRefileKey(key, () => '') !== key;
     const names = plainNames || sayNames;
     if (!text.length && !relabel && !names) return { result: 'already' };
-    if (p['status'] === 'accepted' || p['status'] === 'applying') return { result: 'busy' };
     if (dryRun) return { result: 'sealed' };
     const update: Data = {};
     for (const f of text) {
@@ -523,8 +666,11 @@ export async function sealSuggestion(
 // ---- What assistants changed ----
 
 /** update_note's and archive_note's summaries, built of fixed words only: they name no note. */
+/** What update_note says it changed (tools.ts): these words only, joined as it joins them. */
+const CHANGED_WHAT = '(?:text|title|tags|Instructions for Claude)';
 const FIXED_PART =
-  "(?:Changed a note's [A-Za-z ,]+|Archived a note|Restored a note|Dismissed a recipe's failed import|Touched a note)";
+  `(?:Changed a note's ${CHANGED_WHAT}(?:(?:, | and )${CHANGED_WHAT})*` +
+  "|Archived a note|Restored a note|Dismissed a recipe's failed import|Touched a note)";
 const FIXED_SUMMARY = new RegExp(`^${FIXED_PART}(?:; ${FIXED_PART})*$`);
 
 /**
@@ -532,8 +678,10 @@ const FIXED_SUMMARY = new RegExp(`^${FIXED_PART}(?:; ${FIXED_PART})*$`);
  * 2026-11-15: relabelled, not deleted): the labels a new entry uses for
  * a sealed note. Readers tell a few things from a summary's words, and
  * the relabel keeps each: whether an update_note changed text
- * (`summarySaysText`), an archive or restore (put back's flip), and a
- * project filed under (`rerouteNotes`). A summary of fixed words alone
+ * (`summarySaysText`), an archive or restore (put back's flip, the
+ * digest), a project filed under (`rerouteNotes`, the digest), how many
+ * lines an add_lines added and an update_note's "Changed a note's" (the
+ * digest). A summary of fixed words alone
  * stays as it is.
  */
 export function relabelSummary(tool: string, summary: string, notes: number): string {
@@ -542,12 +690,20 @@ export function relabelSummary(tool: string, summary: string, notes: number): st
   }
   const many = notes > 1 ? `${notes} sealed notes` : 'a sealed note';
   if (tool === PUT_BACK_TOOL) return `Put back a change to ${many}`;
+  // The daily digest counts an add_lines record's lines from its first
+  // words ("Added 3 lines to ..."), and an update_note as an edit by
+  // "Changed a note's" (review on #277): both kept, with no name.
+  const added = /^Added (\d+) (lines?)\b/.exec(summary);
   const parts = [
-    summarySaysText(summary)
-      ? notes > 1
-        ? `Changed the text of ${many}`
-        : "Changed a sealed note's text"
-      : `Changed ${many}`,
+    added
+      ? `Added ${added[1]} ${added[2]} to ${many}`
+      : /\bChanged a note's\b/.test(summary)
+        ? `Changed a note's ${summarySaysText(summary) ? 'text' : 'other fields'}`
+        : summarySaysText(summary)
+          ? notes > 1
+            ? `Changed the text of ${many}`
+            : "Changed a sealed note's text"
+          : `Changed ${many}`,
   ];
   if (/\bArchived a note\b/.test(summary)) parts.push('Archived a note');
   if (/\bRestored a note\b/.test(summary)) parts.push('Restored a note');

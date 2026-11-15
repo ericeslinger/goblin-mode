@@ -18,14 +18,27 @@ export type SealCounted = (typeof SEAL_COUNTED)[number];
 /**
  * Why something was left as stored:
  * - `cannot-open`: its sealed text does not open with the gardener's key;
- * - `busy`: something is working on it (a recipe being read, a run
- *   going, a suggestion being carried out), so the next pass takes it;
+ * - `busy`: a recipe whose import was asked for minutes ago, which its
+ *   own function is about to read, so the next pass takes it;
  * - `not-verified`: what was sealed did not open back to the same text,
  *   so nothing was written (never expected: a fault to report);
- * - `id-kept`: an item run sealed, but left under its old id because a
- *   newer run for the same item holds the new one.
+ * - `id-kept`: an item run sealed, but left under its old id: a newer
+ *   run for the same item holds the new one, or it has not finished;
+ * - `too-large`: sealed, it would pass Firestore's limit for one
+ *   document (sealed text is about a third longer);
+ * - `contended`: it kept being changed while the pass tried to write it;
+ * - `failed`: anything else went wrong with it; `failures` says the
+ *   error's name, nothing more (review on #277, 2026-11-15).
  */
-export const SEAL_LEFT_REASONS = ['cannot-open', 'busy', 'not-verified', 'id-kept'] as const;
+export const SEAL_LEFT_REASONS = [
+  'cannot-open',
+  'busy',
+  'not-verified',
+  'id-kept',
+  'too-large',
+  'contended',
+  'failed',
+] as const;
 export type SealLeftReason = (typeof SEAL_LEFT_REASONS)[number];
 
 /** Where a pass stopped, to start the next one from. */
@@ -61,6 +74,8 @@ export interface SealReport {
   hashesUnkept: number;
   /** Replaced texts still plain, left to expire (Eric, 2026-11-15). */
   replaced: { plain: number; lastExpiresAt?: string };
+  /** How many documents `failed`, by the error's name only: never a message or any text. */
+  failures: Record<string, number>;
 }
 
 /** What the callable answers: a report, and a cursor when it ran out of time. */
@@ -80,6 +95,7 @@ export function emptySealReport(dryRun: boolean): SealReport {
     runsMoved: 0,
     hashesUnkept: 0,
     replaced: { plain: 0 },
+    failures: {},
   };
 }
 
@@ -96,6 +112,10 @@ export function addSealReports(a: SealReport, b: SealReport): SealReport {
   out.runsMoved = a.runsMoved + b.runsMoved;
   out.hashesUnkept = a.hashesUnkept + b.hashesUnkept;
   out.replaced.plain = a.replaced.plain + b.replaced.plain;
+  for (const f of [a.failures, b.failures]) {
+    for (const [name, n] of Object.entries(f ?? {}))
+      out.failures[name] = (out.failures[name] ?? 0) + n;
+  }
   const last = [a.replaced.lastExpiresAt, b.replaced.lastExpiresAt].filter((x): x is string => !!x);
   if (last.length) out.replaced.lastExpiresAt = last.sort().at(-1);
   return out;

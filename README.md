@@ -220,8 +220,9 @@ the rest once (DESIGN.md, Note encryption, The migration): it counts
 first and changes nothing, then on a second tap the `sealEverything`
 callable does the whole pass on the server, as the default compute
 account. Before the second tap, open the app on your other devices,
-let them sync, and close them. Leaving the page does not stop it, and
-running it again is harmless and says what is left. It adds no
+let them sync, and close them. Keep the page open until it says it
+has finished; if it is interrupted, nothing is harmed, and tapping the
+button again carries on. It adds no
 backup: point-in-time recovery on Firestore, or a backup you made
 before, is your safety net, and backups made before it still hold
 plain text until they age out. It is started from that Settings

@@ -16,6 +16,8 @@ import {
   summarySaysText,
   textHash,
   rerouteNotes,
+  RUN_STALE_MS,
+  digestSentence,
 } from '@mossgoblin/schema';
 import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,6 +33,8 @@ import { NoteKeysUnconfigured } from '../note-keys/client';
 import { type Data, type Store, copy, fakeDb, snapAt } from '../testing/fake-firestore';
 import { historyOnWrite, titleOnWrite } from './on-write';
 import {
+  IMPORT_FRESH_MS,
+  MAX_DOC_BYTES,
   SealingTurnedOff,
   UNKEPT_TEXT,
   hashedRefileKey,
@@ -95,18 +99,22 @@ const deps = (over: Partial<Parameters<typeof sealAllPass>[0]> = {}) => {
     uid: UID,
     dryRun: false,
     deadline: Infinity,
-    now: () => 0,
+    now: () => T,
     stillOn: sealingIn(db, UID),
+    log: () => undefined,
     ...over,
   };
 };
 
 /** A whole pass, cursor to cursor. */
-async function passAll(dryRun = false): Promise<SealReport> {
-  let out = await sealAllPass(deps({ dryRun }));
+async function passAll(
+  dryRun = false,
+  over: Partial<Parameters<typeof sealAllPass>[0]> = {},
+): Promise<SealReport> {
+  let out = await sealAllPass(deps({ dryRun, ...over }));
   let report = out.report;
   while (!out.done) {
-    out = await sealAllPass(deps({ dryRun }), out.cursor);
+    out = await sealAllPass(deps({ dryRun, ...over }), out.cursor);
     report = addSealReports(report, out.report);
   }
   return report;
@@ -385,7 +393,8 @@ describe('seal everything now', () => {
 
     // Activity: relabelled, never deleted; fields before sealed as stored.
     const a1 = store.get(`${base}/activity/a1`)!;
-    expect(a1['summary']).toBe('Changed a sealed note');
+    // The digest still counts its line.
+    expect(a1['summary']).toBe('Added 1 line to a sealed note');
     expect((a1['notes'] as Data[])[0]['title']).toBe('Sealed note');
     const a2 = store.get(`${base}/activity/a2`)!;
     expect(a2['summary']).toBe('Changed a sealed note; filed under a sealed project');
@@ -462,16 +471,46 @@ describe('seal everything now', () => {
     expect(report.sealed.notes).toBe(0);
   });
 
-  it('leaves what something is working on for the next pass', async () => {
+  it('leaves only a recipe import asked for minutes ago; seals what is stuck or safe at any age', async () => {
     sealingOn();
-    store.set(notePath('r1'), note('Jam', { kind: 'recipe', importState: 'requested' }));
+    const fresh = ts(T - 60_000);
+    const stale = ts(T - IMPORT_FRESH_MS - 1);
+    store.set(
+      notePath('r1'),
+      note('Jam', { kind: 'recipe', importState: 'requested', updatedAt: fresh }),
+    );
+    store.set(
+      notePath('r2'),
+      note('Chutney', { kind: 'recipe', importState: 'requested', updatedAt: stale }),
+    );
+    store.set(
+      notePath('r3'),
+      note('Pickle', { kind: 'recipe', importState: 'working', updatedAt: fresh }),
+    );
+    // A run going, and one left going by a lost function.
     store.set(`${base}/runs/live`, {
       kind: 'queued-note',
       noteId: 'r1',
       status: 'working',
       outcome: 'partly',
+      startedAt: ts(T - 1000),
       steps: [],
     });
+    const plainRun = itemRunId(
+      'i1',
+      itemHash('i1', ITEM_TEXT, 'plain', () => undefined)!,
+    );
+    store.set(`${base}/runs/${plainRun}`, {
+      kind: 'item',
+      noteId: 'i1',
+      itemText: ITEM_TEXT,
+      itemKey: ITEM_TEXT,
+      status: 'requested',
+      attempt: 1,
+      createdAt: ts(T - RUN_STALE_MS - 1),
+      steps: [],
+    });
+    // Suggestions accepted, and stuck applying.
     store.set(`${base}/proposals/p1`, {
       kind: 'link',
       reason: 'Jam links',
@@ -479,15 +518,34 @@ describe('seal everything now', () => {
       key: 'link:r1>x',
       status: 'accepted',
     });
+    store.set(`${base}/proposals/p2`, {
+      kind: 'merge',
+      reason: 'Jam and chutney',
+      notes: [
+        { id: 'r1', title: 'Jam' },
+        { id: 'r2', title: 'Chutney' },
+      ],
+      key: 'merge:r1,r2',
+      status: 'applying',
+      claimedAt: ts(T - 86_400_000),
+    });
+    const before = copy(store.get(`${base}/runs/${plainRun}`)) as Data;
     const report = await passAll();
     expect(store.get(notePath('r1'))!['body']).toBe('Jam');
-    expect(store.get(`${base}/runs/live`)!['outcome']).toBe('partly');
-    expect(store.get(`${base}/proposals/p1`)!['reason']).toBe('Jam links');
-    expect(report.left).toMatchObject({
-      notes: { busy: 1 },
-      runs: { busy: 1 },
-      suggestions: { busy: 1 },
-    });
+    expect(isSealed(store.get(notePath('r2'))!['body'])).toBe(true);
+    expect(store.get(notePath('r2'))!['importState']).toBe('requested');
+    expect(isSealed(store.get(notePath('r3'))!['body'])).toBe(true);
+    expect(isSealed(store.get(`${base}/runs/live`)!['outcome'])).toBe(true);
+    // Sealed in place, never moved: a new document `requested` would start agentRun.
+    const stuck = store.get(`${base}/runs/${plainRun}`)!;
+    expect(isSealed(stuck['itemText'])).toBe(true);
+    expect(runRequested(before, stuck)).toBe(false);
+    expect([...store.keys()].filter((p) => p.includes('/runs/item-'))).toHaveLength(1);
+    expect(isSealed(store.get(`${base}/proposals/p1`)!['reason'])).toBe(true);
+    expect(store.get(`${base}/proposals/p1`)!['status']).toBe('accepted');
+    expect(isSealed(store.get(`${base}/proposals/p2`)!['reason'])).toBe(true);
+    expect(report.left).toMatchObject({ notes: { busy: 1 }, runs: { 'id-kept': 1 } });
+    expect(report.left.suggestions).toEqual({});
   });
 
   it('seals an item run in place when a newer run holds its keyed id', async () => {
@@ -1045,5 +1103,169 @@ describe('put back after the pass', () => {
       status: 'done',
     });
     expect(open('n1', 'body', store.get(notePath('n1'))!['body'])).toBe('Seed list\nbeans');
+  });
+});
+
+// ---- One document that goes wrong never stops the rest (review on #277) ----
+
+/** A Firestore whose transactions fail, as `fail` says, when they read `path`. */
+function failingAt(path: string, fail: () => unknown) {
+  const db = fakeDb(store);
+  const run = db.runTransaction.bind(db);
+  (db as { runTransaction: typeof run }).runTransaction = ((fn: Parameters<typeof run>[0]) =>
+    run(async (tx) => {
+      const get = tx.get.bind(tx);
+      (tx as { get: typeof get }).get = ((target: Parameters<typeof get>[0]) => {
+        if ((target as { path?: string }).path === path) throw fail();
+        return get(target);
+      }) as typeof get;
+      return fn(tx);
+    })) as typeof run;
+  return db;
+}
+
+class BoomError extends Error {
+  override readonly name = 'BoomError';
+}
+
+describe('a document that goes wrong', () => {
+  const garden = () => {
+    seedPlainGarden();
+    store.set(notePath('n2'), note('Bad apple words'));
+  };
+  const passWith = async (db: ReturnType<typeof fakeDb>, log = vi.fn()) =>
+    passAll(false, { db, codec: new NoteCodec(UID, keyFor, sealingIn(db, UID)), log });
+
+  it.each([
+    ['failed', () => new BoomError('secret words never shown'), { BoomError: 1 }],
+    ['contended', () => Object.assign(new Error('10 ABORTED: contention'), { code: 10 }), {}],
+  ] as const)(
+    'is left as stored, counted %s, and the rest are sealed',
+    async (reason, fail, failures) => {
+      garden();
+      const log = vi.fn();
+      const report = await passWith(failingAt(notePath('n2'), fail), log);
+      expect(store.get(notePath('n2'))!['body']).toBe('Bad apple words');
+      expect(report.left.notes).toEqual({ [reason]: 1 });
+      expect(report.failures).toEqual(failures);
+      // Everything after it, in every kind, is sealed.
+      for (const w of WORDS) expect(everything(), w).not.toContain(w);
+      expect(report.sealed).toEqual({
+        notes: 5,
+        versions: 1,
+        suggestions: 2,
+        runs: 2,
+        activity: 3,
+      });
+      // Said by its place and reason, never its text or the error's message.
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(log.mock.calls)).toContain('notes/n2');
+      expect(JSON.stringify(log.mock.calls)).not.toMatch(/Bad apple|secret words/);
+      // A rerun meets it again, and skips nothing else.
+      const again = await passWith(failingAt(notePath('n2'), fail));
+      expect(again.left.notes).toEqual({ [reason]: 1 });
+      expect(again.sealed).toEqual({ notes: 0, versions: 0, suggestions: 0, runs: 0, activity: 0 });
+    },
+  );
+
+  it('goes on past a suggestion, a run and an entry that fail', async () => {
+    garden();
+    const db = failingAt(`${base}/activity/a1`, () => new BoomError('x'));
+    const report = await passWith(db);
+    expect(report.left.activity).toEqual({ failed: 1 });
+    expect(store.get(`${base}/activity/a1`)!['summary']).toBe('Added 1 line to Shed roof leaks');
+    expect(store.get(`${base}/activity/a2`)!['summary']).not.toContain('Orchard');
+  });
+
+  it('says a note too large to seal, without sealing it, and still seals its History', async () => {
+    sealingOn();
+    // About 790 kB of text: sealed, past Firestore's 1 MiB.
+    const long = 'a'.repeat(790_000);
+    store.set(notePath('big'), note(long));
+    store.set(`${notePath('big')}/history/v1`, {
+      body: 'short older words',
+      title: 'short',
+      updatedBy: 'user',
+      deviceId: 'phone',
+      savedAt: ts(T),
+      reason: 'device',
+    });
+    store.set(`${notePath('big')}/history/v2`, {
+      body: long,
+      title: 'long',
+      updatedBy: 'user',
+      deviceId: 'phone',
+      savedAt: ts(T),
+      reason: 'device',
+    });
+    store.set(notePath('small'), note('Small words'));
+    const dry = await passAll(true);
+    expect(dry.left.notes).toEqual({ 'too-large': 1 });
+    expect(dry.left.versions).toEqual({ 'too-large': 1 });
+    const report = await passAll();
+    expect(report.left.notes).toEqual({ 'too-large': 1 });
+    expect(report.left.versions).toEqual({ 'too-large': 1 });
+    expect(store.get(notePath('big'))!['body']).toBe(long);
+    expect(isSealed(store.get(`${notePath('big')}/history/v1`)!['body'])).toBe(true);
+    expect(isSealed(store.get(notePath('small'))!['body'])).toBe(true);
+  });
+
+  it('seals a note just under the limit', async () => {
+    sealingOn();
+    const n = Math.floor(((MAX_DOC_BYTES - 4_000) * 3) / 4) - 200;
+    store.set(notePath('big'), note('b'.repeat(n), { title: 'Big' }));
+    const report = await passAll();
+    expect(report.left.notes).toEqual({});
+    expect(isSealed(store.get(notePath('big'))!['body'])).toBe(true);
+  });
+});
+
+describe('the digest after a relabel', () => {
+  it('still counts the lines an old add_lines added', () => {
+    const at = T;
+    const record = (summary: string, title: string) => ({
+      at,
+      tool: 'add_lines',
+      summary,
+      notes: [{ id: 'n1', title }],
+    });
+    const window = { from: T - 1, to: T + 1 };
+    const before = digestSentence([record('Added 3 lines to Kiln log', 'Kiln log')], window)!;
+    const after = digestSentence(
+      [record(relabelSummary('add_lines', 'Added 3 lines to Kiln log', 1), 'Sealed note')],
+      window,
+    )!;
+    expect(before).toContain('3 lines');
+    expect(after).toContain('3 lines');
+    expect(after).not.toContain('Kiln');
+  });
+
+  it('still counts an update_note as an edit, and a filing as one', () => {
+    const window = { from: T - 1, to: T + 1 };
+    const out = (tool: string, summary: string) =>
+      digestSentence(
+        [{ at: T, tool, summary, notes: [{ id: 'n1', title: 'Sealed note' }] }],
+        window,
+      );
+    for (const [tool, summary] of [
+      ['update_note', "Archived a note; Changed a note's text about Barn"],
+      ['refile', 'Barn: filed under Farm'],
+    ] as const) {
+      const relabelled = relabelSummary(tool, summary, 1);
+      expect(out(tool, relabelled)?.replace(/Farm|Barn/g, '')).toBeDefined();
+      expect(relabelled).not.toMatch(/Barn|Farm/);
+      expect(/\bChanged a note's\b/.test(relabelled)).toBe(/\bChanged a note's\b/.test(summary));
+      expect(/\bfiled under\b/.test(relabelled)).toBe(/\bfiled under\b/.test(summary));
+    }
+  });
+});
+
+describe('a cursor', () => {
+  it('that is not one a pass gave is refused, plainly', () => {
+    for (const after of ['a/b', '.', '..', '', 'x'.repeat(1501), 7]) {
+      expect(() => sealRequestOf({ dryRun: true, cursor: { kind: 'notes', after } })).toThrow(
+        /not one this pass gave/,
+      );
+    }
   });
 });

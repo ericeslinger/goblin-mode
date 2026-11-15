@@ -149,7 +149,7 @@ describe('Seal everything now', () => {
     const done = el.querySelector('ul[aria-label="What sealing everything did"]')!;
     expect(done.textContent).toContain('Sealed 3 notes.');
     expect(done.textContent).toContain('1 note that could not be opened with your key');
-    expect(done.textContent).toContain('1 note in use right now');
+    expect(done.textContent).toContain('1 note whose import was asked for a few minutes ago');
   });
 
   it('resumes after the connection dropped: a new count shows what is left', async () => {
@@ -166,8 +166,9 @@ describe('Seal everything now', () => {
     ];
     button('Seal them now')!.click();
     await settle();
-    expect(progress().textContent).toContain('The connection to the server dropped.');
-    expect(progress().textContent).toContain('What was sealed stays sealed');
+    expect(progress().textContent).toContain('This was interrupted before it finished.');
+    expect(progress().textContent).toContain('Nothing is harmed');
+    expect(progress().textContent).toContain('again to carry on');
     // Running it again counts afresh, from the start: harmless.
     answers = [ok(report(true, { sealed: counts(2) }))];
     button('Seal everything now')!.click();
@@ -192,6 +193,35 @@ describe('Seal everything now', () => {
 });
 
 describe('the words', () => {
+  it('ask to keep the page open, and never say the server carries on alone', async () => {
+    answers = [ok(report(true, { sealed: counts(1) }))];
+    const { settle, button, progress } = await render();
+    button('Seal everything now')!.click();
+    await settle();
+    answers = [() => new Promise<SealPass>(() => undefined)];
+    button('Seal them now')!.click();
+    await settle();
+    expect(progress().textContent).toContain('keep this page open until it says it has finished');
+    expect(progress().textContent).not.toMatch(/leave this page|carries on on the server/);
+  });
+
+  it('say what Eric can do about each thing left', () => {
+    const left = report(true, {
+      left: {
+        ...report(true).left,
+        notes: { 'too-large': 1, contended: 2, failed: 1 },
+        runs: { 'id-kept': 1 },
+      },
+      failures: { 'BoomError (13)': 1 },
+    });
+    const text = dryRunLines(left).join(' ');
+    expect(text).toContain('1 note too large to seal');
+    expect(text).toContain('Split a very long note into two');
+    expect(text).toContain('2 notes that kept being changed');
+    expect(text).toContain('the server could not seal (BoomError (13))');
+    expect(text).toContain('1 older assistant run is sealed but keeps its old name');
+  });
+
   it('say what is left to expire, and by when', () => {
     const lines = dryRunLines(
       report(true, { replaced: { plain: 1, lastExpiresAt: '2026-11-17T10:00:00.000Z' } }),

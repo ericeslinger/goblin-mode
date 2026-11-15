@@ -5379,7 +5379,14 @@ writes is a string where a string was, and nothing records progress.
    active while it runs, the one that starts it, with his other
    devices synced beforehand. The page asks for this before the
    confirming tap. The design does not depend on it to keep text (A
-   device offline through it, below).
+   device offline through it, below). It is there for a race the
+   review on #277 found: a pass that reaches a note before noteHistory
+   has handled a device's last write there can find the text that
+   write's base names stored nowhere yet, and key the base to nothing;
+   the replaced text is stored a moment later under its plain hash, and
+   a later write merging over that base then keeps both sides' lines
+   rather than merging them. Nothing is lost, but one device at a time
+   keeps it from happening.
 6. "We could do it on the backend too, as a direct call": the server
    does the whole pass itself, not the phone step by step. His other
    fallback, disabling triggers for the run, was not needed: every
@@ -5392,10 +5399,19 @@ field, History versions, suggestions, runs, entries to relabel, what
 it would leave and why, and the replaced texts left to expire with the
 day the last goes. The second tap, "Seal them now", runs the pass, then
 a dry run again as the check: a summary of what was sealed, and of
-anything still plain, with the reason for each kind (could not be
-opened with the key, in use right now, written plain since by a device
-that had not heard the switch). Progress is a line with `aria-live`
-polite, not `role="status"`, which the journeys keep unambiguous.
+anything still plain, with the reason for each kind and what Eric can
+do about it: could not be opened with the key; a recipe import asked
+for minutes ago (run it again later); too large to seal (split a very
+long note); kept being changed (run it again when nothing is editing);
+the server could not seal it, said by the error's name (run it again,
+report it if it stays); written plain since by a device that had not
+heard the switch (run it again). Progress is a line with `aria-live`
+polite, not `role="status"`, which the journeys keep unambiguous. The
+page asks Eric to keep it open until it says it has finished; if it is
+interrupted, nothing is harmed, and tapping the button again carries
+on (review on #277: that the server finishes without the page was not
+verified, and Cloud Run can stop giving a request CPU once its caller
+has gone).
 
 *How it runs* (`notes/seal-everything.ts`, `notes/seal-all.ts`,
 `agent/seal-runs.ts`). One callable, `sealEverything`, takes
@@ -5421,7 +5437,10 @@ polite, not `role="status"`, which the journeys keep unambiguous.
 - *Only the caller's garden:* the uid is the verified token's.
 - *Batches.* Notes 25 a page in document id order, each with its
   History 100 versions a page; then suggestions, runs and activity 100
-  a page; eight transactions at once within a page. Each page reads
+  a page; four transactions at once within a page (eight until the
+  review on #277: a transaction can hold a document near 1 MiB and its
+  sealed copy, and an entry's can read 50 versions), in a gibibyte of
+  memory. Each page reads
   ids only (`select()`), each document is read in its own transaction,
   and a transaction reads at most the document and, for each hash it
   keys, the note, one replaced text and its 50 newest versions. A
@@ -5433,17 +5452,46 @@ polite, not `role="status"`, which the journeys keep unambiguous.
   that each sealed value opens back to exactly the text it replaces.
   A document changed underneath is read again by the transaction's own
   retry, so the newest text is the one sealed. One whose sealed text
-  does not open is left as stored and counted, as is one in use (a
-  recipe being read, a run going, a suggestion being carried out).
+  does not open is left as stored and counted.
+- *One document never stops the pass* (review on #277). Whatever goes
+  wrong in one document's transaction leaves that document as stored,
+  counts it under its reason, logs its place, the reason and the
+  error's name (never its message or any text), and the pass goes on:
+  before, one such error ended the pass with no cursor, and every
+  rerun stopped at the same document. The reasons: could not be opened;
+  did not open back (`not-verified`); too large to seal; kept being
+  changed (Firestore's ABORTED after its own retries); and failed,
+  anything else, by the error's name. *Too large* is decided before
+  anything is sealed, so a dry run counts it too: the document's size
+  as Firestore counts it, with each plain string grown to its sealed
+  length (a third longer, as base64), past 1 MiB less 16 KiB. A body
+  of about 790 kB or more is so left plain until Eric splits it.
+- *In use, by age* (review on #277). Judged by status alone, a run or
+  import left in progress by a lost function would have stayed plain
+  for ever. Now only a recipe whose import was asked for in the last
+  15 minutes waits: recipeImport (300 seconds and a retry) runs on
+  every write while it is `requested`, so a write would only race its
+  own run. There is no claim time on the note (#269), so its age is
+  its `updatedAt`, which every ask writes. Older, it is sealed: that
+  write starts recipeImport again, which claims the import in a
+  transaction and reads the page once, as Try again would; an import
+  stuck there for good (#269) is so tried once more (Eric to read). A
+  recipe `working` is sealed at any age: recipeImport returns at once
+  for it, and `fillImport` reads the note in its own transaction,
+  opened, and writes in the note's form, so a form-only write cannot
+  be lost to it or change what it reads. Runs and suggestions are
+  sealed whatever their status (below).
+- *A cursor* is checked before use: one whose `after` is not a
+  document id (a slash, `.`, `..`, over 1500 bytes) is refused plainly,
+  where Firestore would throw.
 - *Resume is running it again.* A value sealed already is skipped, so a
   pass is idempotent: a second writes nothing. There is no progress
-  document. If the phone closes or loses its connection mid-call, the
-  callable is not cancelled by that and should finish its pass on its
-  own; whether it does or is cut off, each document was left either
-  sealed or as it was, and opening Settings and running it again counts
-  what is left. Two passes at once (a second tap while the first runs)
-  only meet in transactions, and the second skips what the first
-  sealed.
+  document. If the page closes or loses its connection mid-call, the
+  pass may or may not finish on the server (not relied on); either
+  way each document was left either sealed or as it was, and tapping
+  the button again counts what is left and carries on. Two passes at
+  once (a second tap while the first runs) only meet in transactions,
+  and the second skips what the first sealed.
 - *Through the sanctioned helpers.* Note values are sealed by
   `sealFields`, record values by `sealRecord`, hashes by the codec's
   `hashText`, `hashMatcher` and `itemHash`. Every note write is
@@ -5491,8 +5539,12 @@ polite, not `role="status"`, which the journeys keep unambiguous.
   already the normalized, sorted names, so the hash is the one a new
   suggestion of the same change gets, and a dismissed suggestion still
   blocks it; nothing guessable is left in the key. Accepting an open
-  one adds its names as before. Ones accepted or being applied are
-  left for the next pass.
+  one adds its names as before. One accepted or being applied is
+  sealed too (review on #277): proposalAccepted starts only on `open`
+  to `accepted`, which the pass never writes; one carrying it out
+  opens what it read, sealed or plain; and what it writes afterwards
+  (status, and an outcome naming notes as recorded) touches nothing
+  sealed here but the outcome, which it labels itself.
 - *Runs:* item text, item key and outcome sealed under the run's id. A
   finished item run under the plain hash of its item moves to its
   keyed id, created and the old one deleted in one transaction, so no
@@ -5500,14 +5552,22 @@ polite, not `role="status"`, which the journeys keep unambiguous.
   so a done item is still never started again, and a failed one that
   may be mended starts under the keyed id as it would have. When a
   newer run already holds the keyed id, the old one is sealed in place
-  and keeps its plain id (counted). A run still going is left for the
-  next pass. Nothing else names an item run by its id.
+  and keeps its plain id (counted). A run going, or left going by a
+  lost function, is sealed in place and keeps its id until a later
+  pass finds it finished (review on #277): moved, a new document
+  `requested` would start agentRun, while in place `runRequested`
+  sees no new attempt, and the claim and the run store open what they
+  read, sealed or plain. Nothing else names an item run by its id.
 - *What assistants changed:* every note an entry names is labelled
   "Sealed note" and its summary relabelled; an entry about reminders
-  alone is left (reminder text is plain). Readers tell three things
+  alone is left (reminder text is plain). Readers tell five things
   from a summary's words, and the relabel keeps each: an update_note's
   "text" (`summarySaysText`, put back and Show changes), an archive or
-  restore (put back's flip), and "filed under" (`rerouteNotes`).
+  restore (put back's flip, the digest), "filed under"
+  (`rerouteNotes`, the digest, which then says "a sealed project"),
+  how many lines an add_lines added ("Added 3 lines to a sealed note",
+  the digest's count, review on #277), and an update_note's "Changed a
+  note's" (the digest's edits).
   update_note's and archive_note's summaries of fixed words alone
   name no note and are kept. A put back's says "Put back a change to a
   sealed note". Fields before that put back restores are sealed as
@@ -5515,9 +5575,8 @@ polite, not `role="status"`, which the journeys keep unambiguous.
   holds them, and go back as stored; a plain `before.body` is keyed as
   `baseHash` is, or made a hash of nothing. So put back and Show
   changes work on old entries where they worked before. What an entry
-  loses is its words: a summary that said which lines were added now
-  says "Changed a sealed note", and a put back's correction line quotes
-  that.
+  loses is its words: a summary that quoted the lines it added says
+  only how many, and a put back's correction line quotes that.
 
 *Triggers.* A migration write fires every note trigger. Each was
 worked through, and specs over the fake Firestore show a form-only
@@ -5533,10 +5592,13 @@ cannot loop:
 - `noteTitle`, `itemAssigned` and `noteArrived` all start from a change
   of `settledAt`, which the pass never writes.
 - `recipeImport` runs on every write while `importState` is
-  `requested`; the pass leaves such a recipe, and one `working`, for
-  the next pass.
+  `requested`; the pass leaves one asked for in the last 15 minutes,
+  and an older one's write starts it once more, claimed in a
+  transaction (In use, by age, above). For any other recipe it returns
+  at once.
 - `agentRun` starts on a run made or reset to `requested`; the pass
-  writes only finished runs. `proposalAccepted` starts on `open` to
+  moves only finished runs, and seals one going in place, which is no
+  new attempt. `proposalAccepted` starts on `open` to
   `accepted`; the pass never writes a status.
 - Nothing listens on History, replaced texts or activity.
 

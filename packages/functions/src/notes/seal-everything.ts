@@ -46,10 +46,25 @@ export function sealRequestOf(data: unknown): { dryRun: boolean; cursor?: SealCu
   if (d.cursor === undefined || d.cursor === null) return { dryRun: d.dryRun };
   const c = d.cursor as { kind?: unknown; after?: unknown };
   const kind = SEAL_KINDS.find((k) => k === c.kind);
-  if (!kind || (c.after !== undefined && (typeof c.after !== 'string' || !c.after))) {
-    throw new SealAllRefused('invalid-argument', 'Where from?');
+  // A document id: no slash, no more than Firestore's 1500 bytes, not
+  // `.` or `..` (review on #277: a slash made Firestore throw).
+  const id = (a: unknown): a is string =>
+    typeof a === 'string' &&
+    a !== '' &&
+    a !== '.' &&
+    a !== '..' &&
+    !a.includes('/') &&
+    new TextEncoder().encode(a).length <= 1500;
+  if (!kind || (c.after !== undefined && !id(c.after))) {
+    throw new SealAllRefused(
+      'invalid-argument',
+      'That place to go on from is not one this pass gave, so nothing was done. Start again.',
+    );
   }
-  return { dryRun: d.dryRun, cursor: { kind, ...(c.after ? { after: c.after } : {}) } };
+  return {
+    dryRun: d.dryRun,
+    cursor: { kind, ...(typeof c.after === 'string' ? { after: c.after } : {}) },
+  };
 }
 
 /**
@@ -112,7 +127,9 @@ export async function sealEverythingFor(
 
 /** Seal everything now: signed in only, the caller's own garden only. */
 export const sealEverything = onCall(
-  { timeoutSeconds: SEAL_TIMEOUT_S, memory: '512MiB' },
+  // A gibibyte: four documents near 1 MiB at once, sealed, and what an
+  // entry reads of History (review on #277).
+  { timeoutSeconds: SEAL_TIMEOUT_S, memory: '1GiB' },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
     try {

@@ -7,16 +7,23 @@
 // one moves to the id its note's keyed hash gives, created and the old
 // one deleted in one transaction, so no guessable hash of the item is
 // left and itemAssigned, which looks under the keyed id first, still
-// never starts the item twice. A run still going is left for the next
-// pass, so nothing here races agentRun.
-import { SEALED_RECORD_FIELDS, type SealedRecordField, isSealed, paths } from '@mossgoblin/schema';
+// never starts the item twice. A run still going, or left going by a
+// lost function, is sealed in place and keeps its id until a later
+// pass finds it finished (2026-11-15, review on #277).
+import {
+  SEALED_RECORD_FIELDS,
+  type SealLeftReason,
+  type SealedRecordField,
+  isSealed,
+  paths,
+} from '@mossgoblin/schema';
 import type { Firestore } from 'firebase-admin/firestore';
-import { type NoteCodec, SealedNoteError, SealedRecordError } from '../mcp/note-text';
+import type { NoteCodec } from '../mcp/note-text';
 import { itemRunId } from './items';
 
 /** What one document came to in a pass (notes/seal-all.ts reads it). */
 export interface SealedUnit {
-  result: 'sealed' | 'already' | 'cannot-open' | 'busy' | 'not-verified';
+  result: 'sealed' | 'already' | Exclude<SealLeftReason, 'id-kept'>;
   /** An item run moved to its keyed id. */
   moved?: true;
   /** An item run sealed, left under its plain id: a newer run holds the keyed one. */
@@ -47,65 +54,61 @@ export async function sealRun(
   dryRun: boolean,
 ): Promise<SealedUnit> {
   const ref = db.doc(paths.run(uid, runId));
-  try {
-    return await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) return { result: 'already' };
-      const run = snap.data()!;
-      const text: Partial<Record<RunField, string>> = {};
-      let plain = false;
-      for (const f of RUN_FIELDS) {
-        const v = run[f];
-        if (typeof v !== 'string') continue;
-        if (!isSealed(v)) plain = true;
-        text[f] = await codec.openRecord('runs', runId, f, v);
-      }
-      // The id the run should have: a finished item run under the plain
-      // hash of its key goes to the keyed one.
-      let target = runId;
-      let idKept = false;
-      const noteId = typeof run['noteId'] === 'string' ? run['noteId'] : '';
-      const key = text['itemKey'];
-      if (run['kind'] === 'item' && noteId && key !== undefined) {
-        const plainId = itemRunId(noteId, await codec.itemHash(noteId, key, 'plain'));
-        if (plainId === runId) {
-          const keyedId = itemRunId(noteId, await codec.itemHash(noteId, key, 'sealed'));
-          if ((await tx.get(db.doc(paths.run(uid, keyedId)))).exists) idKept = true;
-          else target = keyedId;
-        }
-      }
-      if (!plain && target === runId)
-        return idKept ? { result: 'already', idKept: true } : { result: 'already' };
-      const live = run['status'] === 'requested' || run['status'] === 'working';
-      if (live) return { result: 'busy' };
-      const done: SealedUnit = {
-        result: 'sealed',
-        ...(target !== runId ? { moved: true as const } : {}),
-        ...(idKept ? { idKept: true as const } : {}),
-      };
-      if (dryRun) return done;
-      const moving = target !== runId;
-      const sealed: Partial<Record<RunField, string>> = {};
-      for (const f of RUN_FIELDS) {
-        const t = text[f];
-        if (t === undefined) continue;
-        // In place, a field sealed already stays as it is.
-        if (!moving && isSealed(run[f])) continue;
-        const value = await codec.sealRecord('runs', target, f, t, 'sealed');
-        if ((await codec.openRecord('runs', target, f, value)) !== t) throw new NotVerified();
-        sealed[f] = value;
-      }
-      if (moving) {
-        tx.set(db.doc(paths.run(uid, target)), { ...run, ...sealed });
-        tx.delete(ref);
-      } else tx.update(ref, sealed);
-      return done;
-    });
-  } catch (err) {
-    if (err instanceof SealedRecordError || err instanceof SealedNoteError) {
-      return { result: 'cannot-open' };
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { result: 'already' };
+    const run = snap.data()!;
+    const text: Partial<Record<RunField, string>> = {};
+    let plain = false;
+    for (const f of RUN_FIELDS) {
+      const v = run[f];
+      if (typeof v !== 'string') continue;
+      if (!isSealed(v)) plain = true;
+      text[f] = await codec.openRecord('runs', runId, f, v);
     }
-    if (err instanceof NotVerified) return { result: 'not-verified' };
-    throw err;
-  }
+    // A run going (or left going by a function that was lost) is
+    // sealed in place, never moved: a new document under the keyed id
+    // with status `requested` would start agentRun. In place nothing
+    // starts (`runRequested` needs a new attempt), and the claim and
+    // the run store open what they read, sealed or plain.
+    const live = run['status'] === 'requested' || run['status'] === 'working';
+    // The id the run should have: a finished item run under the plain
+    // hash of its key goes to the keyed one.
+    let target = runId;
+    let idKept = false;
+    const noteId = typeof run['noteId'] === 'string' ? run['noteId'] : '';
+    const key = text['itemKey'];
+    if (run['kind'] === 'item' && noteId && key !== undefined) {
+      const plainId = itemRunId(noteId, await codec.itemHash(noteId, key, 'plain'));
+      if (plainId === runId) {
+        const keyedId = itemRunId(noteId, await codec.itemHash(noteId, key, 'sealed'));
+        if (live || (await tx.get(db.doc(paths.run(uid, keyedId)))).exists) idKept = true;
+        else target = keyedId;
+      }
+    }
+    if (!plain && target === runId)
+      return idKept ? { result: 'already', idKept: true } : { result: 'already' };
+    const done: SealedUnit = {
+      result: 'sealed',
+      ...(target !== runId ? { moved: true as const } : {}),
+      ...(idKept ? { idKept: true as const } : {}),
+    };
+    if (dryRun) return done;
+    const moving = target !== runId;
+    const sealed: Partial<Record<RunField, string>> = {};
+    for (const f of RUN_FIELDS) {
+      const t = text[f];
+      if (t === undefined) continue;
+      // In place, a field sealed already stays as it is.
+      if (!moving && isSealed(run[f])) continue;
+      const value = await codec.sealRecord('runs', target, f, t, 'sealed');
+      if ((await codec.openRecord('runs', target, f, value)) !== t) throw new NotVerified();
+      sealed[f] = value;
+    }
+    if (moving) {
+      tx.set(db.doc(paths.run(uid, target)), { ...run, ...sealed });
+      tx.delete(ref);
+    } else tx.update(ref, sealed);
+    return done;
+  });
 }
