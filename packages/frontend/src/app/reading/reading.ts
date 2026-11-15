@@ -2,7 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { type ReadingItem, ReadingService } from './reading.service';
-import { HomeLink } from '../home/home-link';
+import { PageHeader } from '../home/page-header';
 
 /**
  * The reading queue (#48): PDFs and links saved to read later, newest
@@ -11,11 +11,10 @@ import { HomeLink } from '../home/home-link';
  */
 @Component({
   selector: 'app-reading',
-  imports: [HomeLink, RouterLink],
+  imports: [PageHeader, RouterLink],
   template: `
     <main class="page">
-      <app-home-link />
-      <h1>Reading queue</h1>
+      <app-page-header title="Reading queue" />
       <form novalidate (submit)="save($event, link)">
         <label>
           <span class="visually-hidden">Link to save</span>

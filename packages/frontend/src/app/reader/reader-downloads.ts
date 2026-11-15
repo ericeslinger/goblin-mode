@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { ModulesService } from '../modules/modules.service';
 import { RouterLink } from '@angular/router';
+import { PageHeader } from '../home/page-header';
 import { DownloadPrefs } from './download-prefs';
 import { DownloadsService, size } from './downloads.service';
 import { ReaderService } from './reader.service';
@@ -9,17 +10,20 @@ import { ReaderService } from './reader.service';
  * Downloads (#180): the episodes kept on this device to play offline,
  * newest first, each with its podcast, its size and Remove, and the
  * total against the cap set in Settings, Downloads. Reached from the
- * Reader's header and Podcasts' (#245); Back goes to Podcasts while it
+ * Reader's header and Podcasts' (#245); back goes to Podcasts while it
  * is on, the Reader otherwise, and an episode opens on its own module's
  * page.
  */
 @Component({
   selector: 'app-reader-downloads',
-  imports: [RouterLink],
+  imports: [PageHeader, RouterLink],
   template: `
     <main class="page">
-      <a [routerLink]="modules.podcasts() ? '/podcasts' : '/reader'">Back</a>
-      <h1>Downloads</h1>
+      <app-page-header
+        title="Downloads"
+        [backLabel]="modules.podcasts() ? 'Podcasts' : 'Reader'"
+        [backLink]="modules.podcasts() ? '/podcasts' : '/reader'"
+      />
       <p class="total" role="status">{{ totalText() }}</p>
       @if (!downloads.available()) {
         <p class="muted">This browser cannot keep downloads.</p>

@@ -1,8 +1,8 @@
 import { Component, computed, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
 import { type ModuleTab, ModuleTabs } from '../home/module-tabs';
+import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { DownloadsService } from '../reader/downloads.service';
 import { ItemsService } from '../reader/items.service';
@@ -12,19 +12,17 @@ import { episodeState } from './episodes';
 export type PodcastsTab = 'latest' | 'shows' | 'queue';
 
 /**
- * Podcasts' header and tabs (#245, step 1 of #244): the leaf, then
- * Downloads (with a dot while anything is downloaded) and Add a podcast
- * as icons with names; under them the tabs Latest (`/podcasts`, with
+ * Podcasts' header and tabs (#245, step 1 of #244): the page header
+ * (#286), with Downloads (with a dot while anything is downloaded) and
+ * Add a podcast as icons with names; under them the tabs Latest (`/podcasts`, with
  * how many are new), Shows (`/podcasts/shows`) and Queue
  * (`/podcasts/queue`, #249, with how many are in it).
  */
 @Component({
   selector: 'app-podcasts-bar',
-  imports: [HomeLink, Icon, ModuleTabs, RouterLink],
+  imports: [Icon, ModuleTabs, PageHeader, RouterLink],
   template: `
-    <header>
-      <app-home-link />
-      <h1>Podcasts</h1>
+    <app-page-header title="Podcasts">
       <a class="icon" routerLink="/reader/downloads" aria-label="Downloads">
         <app-icon name="download" [size]="22" />
         @if (downloads.list().length) {
@@ -34,7 +32,7 @@ export type PodcastsTab = 'latest' | 'shows' | 'queue';
       <a class="icon" routerLink="/podcasts/add" aria-label="Add a podcast">
         <app-icon name="plus" [size]="22" />
       </a>
-    </header>
+    </app-page-header>
     <app-module-tabs label="Podcasts screens" [tabs]="tabs()" />
     @if (!modules.podcasts()) {
       <p class="muted">
@@ -49,20 +47,6 @@ export type PodcastsTab = 'latest' | 'shows' | 'queue';
   styles: `
     :host {
       display: block;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      margin-bottom: var(--space-2);
-    }
-    app-home-link {
-      margin-right: var(--space-2);
-    }
-    h1 {
-      flex: 1;
-      margin: 0;
-      font-size: 20px;
     }
     .icon {
       position: relative;

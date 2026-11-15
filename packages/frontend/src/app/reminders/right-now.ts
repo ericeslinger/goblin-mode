@@ -8,7 +8,7 @@ import { AddReminder } from './add-reminder';
 import { ReminderRow } from './reminder-row';
 import { RemindersService } from './reminders.service';
 import { UndoBar } from './undo-bar';
-import { HomeLink } from '../home/home-link';
+import { PageHeader } from '../home/page-header';
 
 /**
  * Right Now, full screen: what is new in the Reader (#173) and in Podcasts (#251), every open
@@ -16,14 +16,13 @@ import { HomeLink } from '../home/home-link';
  */
 @Component({
   selector: 'app-right-now',
-  imports: [HomeLink, AddReminder, PodcastsNew, ReaderNew, ReminderRow, SignIn, UndoBar],
+  imports: [PageHeader, AddReminder, PodcastsNew, ReaderNew, ReminderRow, SignIn, UndoBar],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
     } @else {
       <main class="page">
-        <div class="top">
-          <app-home-link />
+        <app-page-header title="Right Now">
           @if (!adding()) {
             <button
               type="button"
@@ -34,8 +33,7 @@ import { HomeLink } from '../home/home-link';
               +
             </button>
           }
-        </div>
-        <h1>Right Now</h1>
+        </app-page-header>
         @if (adding()) {
           <app-add-reminder (closed)="adding.set(false)" />
         }
@@ -58,11 +56,6 @@ import { HomeLink } from '../home/home-link';
     }
   `,
   styles: `
-    .top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
     .add {
       font: inherit;
       font-size: 22px;
@@ -75,6 +68,14 @@ import { HomeLink } from '../home/home-link';
       color: var(--on-accent);
       background: var(--accent);
       cursor: pointer;
+    }
+    /* 44 px on a touch screen, said here rather than grown by the
+       base min-width (2026-11-15). */
+    @media (pointer: coarse) {
+      .add {
+        width: 44px;
+        height: 44px;
+      }
     }
     h2 {
       margin: 20px 0 4px;

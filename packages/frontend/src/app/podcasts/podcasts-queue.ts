@@ -300,6 +300,14 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
     .more {
       width: 44px;
     }
+    /* A touch screen's grip is the 44 px tap, set here rather than
+       grown by the base min-width (2026-11-15). At 320 px the row
+       keeps about 125 px for the title beside grip, art and More. */
+    @media (pointer: coarse) {
+      .grip {
+        width: 44px;
+      }
+    }
     .more[aria-expanded='true'] {
       background: var(--chip-bg);
     }

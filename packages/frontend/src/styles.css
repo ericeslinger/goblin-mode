@@ -107,7 +107,9 @@ button.primary:disabled {
    look stays small (the text kinds, and any .touch-target: chips, the
    note bar's More, Right Now's Done and Snooze) keeps its box and
    reaches 44 px through an invisible ::after, grown only as far as
-   the box falls short, so a neighbour a gap away is not covered. */
+   the box falls short, so a neighbour a gap away is not covered. A
+   row of them that wraps keeps its rows 44 px apart, centre to centre
+   (the note bar, launch.css), so two rows' areas meet mid-gap. */
 @media (pointer: coarse) {
   button,
   input[type='file']::file-selector-button {

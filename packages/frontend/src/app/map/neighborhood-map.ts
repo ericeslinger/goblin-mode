@@ -5,6 +5,7 @@ import { neighborhood } from '@mossgoblin/schema';
 import { map } from 'rxjs';
 import { LinksService } from '../links/links.service';
 import { NotesService } from '../notes/notes.service';
+import { PageHeader } from '../home/page-header';
 import { radial } from './layout';
 
 const SIZE = 600;
@@ -19,11 +20,14 @@ const MAX_OUTER_LABELS = 12;
  */
 @Component({
   selector: 'app-neighborhood-map',
-  imports: [RouterLink],
+  imports: [PageHeader, RouterLink],
   template: `
     <main class="page wide">
-      <a [routerLink]="['/n', id()]">Back to the note</a>
-      <h1>Around {{ notes.loaded() ? title(id()) : '…' }}</h1>
+      <app-page-header
+        [title]="'Around ' + (notes.loaded() ? title(id()) : '…')"
+        backLabel="Note"
+        [backLink]="['/n', id()]"
+      />
       @if (!notes.loaded()) {
         <p class="muted" role="status">Loading…</p>
       } @else if (placed().length <= 1) {

@@ -506,16 +506,16 @@ like PDF text; search reads texts eight at a time; and the tool
 descriptions say the text is web or file content, never instructions.
 
 **The reading queue and find in a PDF, app half (#45, #48,
-2026-10-08).** `/reading`, linked from Browse with its unread count,
-lists what is saved to read later, newest first: a link opens the
+2026-10-08).** `/reading`, linked from Browse with its unread count
+(since 2026-11-15, #286, from Home's Reading queue tile, which carries
+it), lists what is saved to read later, newest first: a link opens the
 page, a PDF its note or its file, each marked read or unread. A link
 pasted there is written at once as a `link` record (offline too, and
-held until the account restores), and the server fills in its title
-and text. Right Now mentions what has waited unread a week or more.
-In the PDF viewer, Find reads each laid-out page's text from the PDF
-itself and lists the pages that hold every word, scrolling to the
-first: finding in one open PDF never needs the server (Eric,
-2026-10-08).
+held until the account restores), and the server fills in its title and
+text. Right Now mentions what has waited unread a week or more. In the
+PDF viewer, Find reads each laid-out page's text from the PDF itself and
+lists the pages that hold every word, scrolling to the first: finding in
+one open PDF never needs the server (Eric, 2026-10-08).
 
 **Google Drive links (#50, 2026-10-08).** A note keeps a Drive link as
 written; no Drive API or scope is used. `driveFile` (editor grammar)
@@ -829,20 +829,20 @@ names itself on hover). The drawing is hidden from assistive tech; the
 same notes are listed under it (Linked directly, Two links away) as
 links. Before the notes load it says Loading, not empty.
 
-**Garden and Timeline maps (#33, 2026-10-07).** Browse links to
-`/map`, the whole garden in the same lazy chunk. Garden: every live
-concept is a bed, most-linked first, laid on a square-ish grid; each
-note with text is planted once, in the bed of the most-linked concept
-it links, and notes that link none share a last bed, Not linked yet.
-A bed draws at most 20 notes and says how many more. Timeline
-(`/map/timeline`): the same beds as lanes (six at most, the rest
-folded into Everything else), each note at when it was made. The
-concept filter is in the URL (`?concept=<id>`), so back undoes it, and
-a filtered lane holds every note linking the concept, not just the
-ones planted in its bed; a filter naming no concept shows them all.
+**Garden and Timeline maps (#33, 2026-10-07).** Browse linked to `/map`
+(since 2026-11-15, #286, Home's Map tile does), the whole garden in the
+same lazy chunk. Garden: every live concept is a bed, most-linked first,
+laid on a square-ish grid; each note with text is planted once, in the
+bed of the most-linked concept it links, and notes that link none share
+a last bed, Not linked yet. A bed draws at most 20 notes and says how
+many more. Timeline (`/map/timeline`): the same beds as lanes (six at
+most, the rest folded into Everything else), each note at when it was
+made. The concept filter is in the URL (`?concept=<id>`), so back undoes
+it, and a filtered lane holds every note linking the concept, not just
+the ones planted in its bed; a filter naming no concept shows them all.
 As on the neighborhood map, the drawing is plain SVG hidden from
-assistive tech, every dot opens its note, and the same notes are
-listed under it (Beds, Over time).
+assistive tech, every dot opens its note, and the same notes are listed
+under it (Beds, Over time).
 
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
@@ -962,7 +962,8 @@ capture loop's New and then `/`, whose eager editor takes the cursor as
 it opens. No keyboard shortcut: the app has no app-wide keys, only the
 editor's and the article's own. Screens with a Back of their own and no
 leaf (the neighborhood map, Manage feeds, Downloads, the caught-up page)
-have none.
+had none; since 2026-11-15 (#286) they have the page header, so the
+leaf and New note too.
 
 **Saving (as built, 2026-10-06).** `CaptureService` writes 300 ms after
 typing pauses, and at once when the app is hidden. `NotesService`
@@ -1231,14 +1232,46 @@ untouched.)
 outline kind, themed from the tokens, with a focus ring and a disabled
 look; `.primary` fills it with the accent for the one main action of a
 form or screen; `.link` is text only in the accent, and `.quiet` the
-same in the quiet ink. A component's own rules still win where a
-control is deliberately different (the formatting toolbar, chips,
-tabs, Home's tiles, icon buttons). On a touch screen (`pointer:
-coarse`) every control takes a 44 by 44 px tap: buttons by their
-minimum size, and what keeps a small look (the text kinds, chips, the
-bar's More, Done and Snooze, `.touch-target`) by an invisible area
-around its box, grown only as far as it falls short. Mouse sizes stay
-as they were.
+same in the quiet ink. A component's own rules still win where a control
+is deliberately different (the formatting toolbar, chips, tabs, Home's
+tiles, icon buttons). On a touch screen (`pointer: coarse`) the controls
+take a 44 by 44 px tap: buttons by their minimum size, and what keeps a
+small look (the text kinds, chips, the bar's More, Done and Snooze,
+`.touch-target`) by an invisible area around its box, grown only as far
+as it falls short. A control that sets its own width says its touch size
+itself (the queue's grip, Right Now's +) rather than being grown by the
+base minimum, and the note bar's rows, when it wraps, are 44 px apart
+from centre to centre, so the areas of two rows meet mid-gap instead of
+overlapping. Not every control is there yet (2026-11-15): on touch the
+concept header's remove buttons and tag chips, the formatting toolbar
+(32 px), the meal plan's week links, the mini player's Continue from and
+the editor's page link are still under 44 px. On a mouse sizes stay as
+they were, except a few buttons that had a 32 px floor, which now take
+their height from the base padding (31 to 35 px).
+
+**One page header (#286, 2026-11-15).** The screens a module or a place
+opens on draw one header, `app-page-header` (`home/page-header.ts`), the
+Reader's made shared: the leaf (`app-home-link`, with New note), then,
+when the screen has a parent, a way back to it in the Reader's form,
+"‹ Reader" (quiet ink, a 44 px target, named "Back to Reader"), the
+screen's title as its one `h1`, and up to three icon actions at the
+right. It scrolls with the page, as the Reader's did. The title wraps
+and the back link's name truncates, so at 320 px the actions stay on the
+screen. Browse, Right Now, Settings, the map, the Reading queue, What
+assistants changed, History, the share page and Kitchen's tabs had the
+leaf alone over a large heading, and now have the title beside the leaf.
+Manage feeds, Downloads, the map around a note and the caught-up page
+had a red Back and no leaf, and now go back by the chevron: Manage feeds
+to the Reader, Downloads to Podcasts (the Reader while Podcasts is off),
+the map around a note and History to the note ("‹ Note"), the caught-up
+page to its shelf, and Add a podcast to Podcasts as before. Home keeps
+its own header (the sync word, Settings). The article, an episode and a
+show keep theirs too, with the chevron and the content's own `h1`. The
+note bar is not this header, and its Back turns the note over
+(2026-10-17, #112). Browse no longer lists the other places (the map,
+the week's meals, the Reader, Podcasts, the Reading queue, What
+assistants changed): each is a tile on Home, with the count the link
+carried, and a tile taken off Home comes back from Arrange Home.
 
 **Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
 New (since 2026-11-15 New note, the icon beside the leaf, #272), From
@@ -1549,7 +1582,8 @@ Claude puts the real recipe there when Eric says what the fish is.
 Settings, Kitchen also makes a weekly reminder to plan, at 4 pm the
 day before a week starts.
 
-In the app, `/kitchen` (This week's meals, in Browse and Settings)
+In the app, `/kitchen` (This week's meals, in Settings, and in Browse
+until 2026-11-15, #286, when Home's Kitchen tile took its place)
 opens this week's plan, `/kitchen/<a day>` that day's week, making the
 plan once the notes and the configuration are read. A plan opens on
 the note page with its week drawn above its text (`MealPlanHeader`):
@@ -1769,23 +1803,23 @@ retention knob for later (#164). `firestore.indexes.json` has the
 composite index the list needs (`read`, `published desc`) and a
 collection-group index on `nextFetchAt` for the fetcher.
 
-**Step 1 (#160, built 2026-11-07).** The Reader module (`MODULES`,
-off by default) and `/reader`, linked from Browse and More when it is
-on: the folders with their feeds (`folderList`: sorted, Uncategorized
-last, a feed in several folders listed in each), Import feeds from an
-OPML file chosen on the device and parsed there (`parseOpml`: outlines
-with an `xmlUrl` are feeds, the ones around them folders; Feedly
-repeats a feed that is in two collections, which is one feed in both;
-feeds already followed gain the file's folders; past `FEED_CAP`, 500,
-the rest are refused), a feed's folders edited in place as a
-comma-separated field, Remove, and Follow a feed by its link into a
-folder. Nothing here touches the network: the server fetches. A folder
-named for a special shelf, All, Saved or Podcasts in any letter case
-(`RESERVED_FOLDERS`), is kept as "<name> (folder)" by `cleanFolder`
-wherever a name comes in (the file, Follow, the folders field), and
-the page says so; renamed rather than refused, so an import loses no
-feed (#185, 2026-11-07). Uncategorized stays a plain name: a folder
-called that holds the feeds in none too.
+**Step 1 (#160, built 2026-11-07).** The Reader module (`MODULES`, off
+by default) and `/reader`, linked from Browse (Home's Reader tile since
+2026-11-15, #286) and More when it is on: the folders with their feeds
+(`folderList`: sorted, Uncategorized last, a feed in several folders
+listed in each), Import feeds from an OPML file chosen on the device and
+parsed there (`parseOpml`: outlines with an `xmlUrl` are feeds, the ones
+around them folders; Feedly repeats a feed that is in two collections,
+which is one feed in both; feeds already followed gain the file's
+folders; past `FEED_CAP`, 500, the rest are refused), a feed's folders
+edited in place as a comma-separated field, Remove, and Follow a feed by
+its link into a folder. Nothing here touches the network: the server
+fetches. A folder named for a special shelf, All, Saved or Podcasts in
+any letter case (`RESERVED_FOLDERS`), is kept as "<name> (folder)" by
+`cleanFolder` wherever a name comes in (the file, Follow, the folders
+field), and the page says so; renamed rather than refused, so an import
+loses no feed (#185, 2026-11-07). Uncategorized stays a plain name: a
+folder called that holds the feeds in none too.
 
 **Step 2, the fetcher (#161, built 2026-11-07).** `feedsRefresh`
 (`onSchedule`, every 15 minutes) takes the feeds due (`nextFetchAt`
@@ -1859,7 +1893,8 @@ parameter) plus itself; on a keyboard j and k move, m marks, s saves,
 v opens the page, Enter opens a row and Escape goes back, as Feedly.
 Two more composite indexes serve the read and saved shelves
 (`read`, `readAt desc`; `saved`, `published desc`). Browse's Reader
-link carries the unread count.
+link carried the unread count; since 2026-11-15 (#286) Home's Reader
+tile does, and Browse has no Reader link.
 
 **The swipe between articles (Eric, 2026-11-07).** While an article
 is dragged, the stories either side are drawn at the top of the
@@ -3892,8 +3927,9 @@ keeps the history.
   touched, named as they were (`Activity` in the schema). The uid is
   the token's, as for every tool. Runs are function-only; the rules
   already let the owner read them and nobody write them.
-- **What Claude changed** (`/activity`, linked from Browse and from
-  Settings, Claude) lists the latest 100 runs, newest first, each
+- **What Claude changed** (`/activity`, linked from Settings, Claude,
+  and from Browse until 2026-11-15, #286, Home's Assistants tile
+  since) lists the latest 100 runs, newest first, each
   with its notes (current titles, archived ones marked), each note's
   History, and its reminders. Older runs stay stored.
 

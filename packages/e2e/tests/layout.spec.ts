@@ -6,7 +6,8 @@ import { OWNER } from '../src/personas';
 
 // The layout pass, step 1 (#285): nothing widens the phone's page,
 // snippets read as plain words, and what is taller than its room
-// scrolls in its own box instead of painting over Right Now.
+// scrolls in its own box instead of painting over Right Now. Step 2b
+// (#286): one page header, whose parts stay on a 320 px screen.
 
 /** A 300-character address with nowhere to break. */
 const ADDRESS = `https://example.com/${'a'.repeat(280)}`;
@@ -179,7 +180,7 @@ test.describe('on a phone', () => {
   });
 
   test('the controls a thumb reaches for take a 44 px tap', async ({ page }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(150_000);
     await signInAs(page, OWNER);
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
     const call = await connectClaude(page);
@@ -187,6 +188,16 @@ test.describe('on a phone', () => {
       text: 'Call the bank',
       dueAt: new Date(Date.now() - 60_000).toISOString(),
     });
+    // Three more due after it, so Right Now shows three and "1 more".
+    for (const n of [1, 2, 3]) {
+      await call('create_reminder', {
+        text: `Water bed ${n}`,
+        dueAt: new Date(Date.now() - (40 - n * 10) * 1000).toISOString(),
+      });
+    }
+    // An earlier note and a project, so the pills show under the note.
+    await call('create_note', { body: 'Glaze test\nCeladon' });
+    await call('create_concept', { name: 'Kiln build', type: 'project' });
 
     // A note with text, saved, so View and Back are in the bar.
     await openCapture(page);
@@ -213,6 +224,16 @@ test.describe('on a phone', () => {
     }
     // The small text buttons keep their look: the box itself is smaller.
     expect((await back.boundingBox())!.height).toBeLessThan(44);
+    await expect(rightNow.getByRole('link', { name: '1 more' })).toBeVisible({ timeout: 15_000 });
+    expect(await missedTaps(rightNow.getByRole('link', { name: '1 more' }))).toEqual([]);
+
+    // The pills under the note. Step 3 moves them into More: then this
+    // block goes.
+    for (const name of ['Previous note', 'Projects']) {
+      const pill = page.getByRole('button', { name, exact: true });
+      await expect(pill).toBeVisible({ timeout: 15_000 });
+      expect(await missedTaps(pill)).toEqual([]);
+    }
 
     await page.goto('/browse');
     const lenses = page.getByRole('navigation', { name: 'Lenses' });
@@ -237,6 +258,36 @@ test.describe('on a phone', () => {
     await expect(signOut).toBeVisible({ timeout: 15_000 });
     expect(await missedTaps(signOut)).toEqual([]);
     await noSeriousViolations(page);
+
+    // A button reached by Tab shows a focus ring of 2 px or more.
+    for (let i = 0; i < 6 && !(await signOut.evaluate((b) => b === document.activeElement)); i++) {
+      await page.keyboard.press('Tab');
+    }
+    await expect(signOut).toBeFocused();
+    const ring = await signOut.evaluate((b) => {
+      const s = getComputedStyle(b);
+      return { style: s.outlineStyle, width: parseFloat(s.outlineWidth) };
+    });
+    expect(ring.style).not.toBe('none');
+    expect(ring.width).toBeGreaterThanOrEqual(2);
+
+    // A meal plan's tick box, tapped 15 px from its centre: ticked once.
+    await page.getByRole('switch', { name: 'Kitchen' }).check();
+    await letItSave(page);
+    await page.reload();
+    await expect(page.getByRole('switch', { name: 'Kitchen' })).toBeChecked();
+    await page.goto('/kitchen/2026-10-21');
+    const plan = page.getByRole('region', { name: 'Meal plan' });
+    await plan.getByRole('button', { name: 'Change Tue dinner, Oct 20: nothing planned' }).click();
+    await plan.getByRole('button', { name: 'Delivery' }).click();
+    const made = plan.getByRole('checkbox', { name: 'Made Tue dinner, Oct 20' });
+    await expect(made).not.toBeChecked({ timeout: 15_000 });
+    await made.scrollIntoViewIfNeeded();
+    const box = (await made.boundingBox())!;
+    await page.touchscreen.tap(box.x + box.width / 2 - 15, box.y + box.height / 2);
+    await expect(made).toBeChecked();
+    await letItSave(page);
+    await expect(made).toBeChecked();
   });
 
   test('no button is left in the browser’s own look', async ({ page }) => {
@@ -279,6 +330,131 @@ test.describe('on a phone', () => {
       timeout: 15_000,
     });
     expect(await browserDefaultButtons(page)).toEqual([]);
+  });
+});
+
+/**
+ * The page header (step 2b, #286) as a phone draws it: one h1, the
+ * leaf in the header, "Back to <parent>" where there is a parent and
+ * none where there is not, and the header, its actions and the page
+ * all inside the screen's width.
+ */
+async function expectPageHeader(page: Page, title: string, parent?: string): Promise<void> {
+  const h1 = page.getByRole('heading', { level: 1 });
+  await expect(h1).toHaveText(title, { timeout: 15_000 });
+  await expect(h1).toHaveCount(1);
+  const header = page.locator('app-page-header header');
+  await expect(header).toHaveCount(1);
+  await expect(header.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+  const back = header.getByRole('link', { name: /^Back to / });
+  if (parent) await expect(back).toHaveAccessibleName(`Back to ${parent}`);
+  else await expect(back).toHaveCount(0);
+
+  const width = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(width.scroll, `${title}: the page scrolls sideways`).toBeLessThanOrEqual(width.client);
+  const inside = async (box: { x: number; width: number } | null, what: string) => {
+    expect(box, what).not.toBeNull();
+    expect(box!.x, what).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width, what).toBeLessThanOrEqual(width.client + 0.5);
+  };
+  await inside(await header.boundingBox(), `${title}: the header`);
+  for (const action of await header.locator('.actions > *').all()) {
+    if (await action.isVisible()) await inside(await action.boundingBox(), `${title}: an action`);
+  }
+}
+
+test.describe('on a narrow phone', () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test('the note bar, wrapped to two rows, keeps each tap on its own control', async ({ page }) => {
+    test.setTimeout(90_000);
+    await signInAs(page, OWNER);
+    // A template, so From template joins the bar: with View, Back and
+    // More it no longer fits one row at 320 px.
+    await page.goto('/settings');
+    await page.getByRole('button', { name: 'New template', exact: true }).click();
+    await expect(page).toHaveURL(/\/n\/\w+$/);
+    const editor = page.getByRole('textbox', { name: 'New note' });
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Delete');
+    await typeLines(page, ['Packing list', 'socks']);
+    await letItSave(page);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+    const bar = page.locator('header.bar');
+    const controls = [
+      bar.getByRole('link', { name: 'Home', exact: true }),
+      bar.getByRole('button', { name: 'New note', exact: true }),
+      bar.getByRole('button', { name: 'From template', exact: true }),
+      bar.getByRole('button', { name: 'View', exact: true }),
+      bar.getByRole('button', { name: 'Back', exact: true }),
+      bar.getByRole('button', { name: 'More' }),
+    ];
+    for (const control of controls) await expect(control).toBeVisible({ timeout: 15_000 });
+    const tops = new Set<number>();
+    for (const control of controls) tops.add(Math.round((await control.boundingBox())!.y / 8));
+    expect(tops.size, 'the bar wraps').toBeGreaterThan(1);
+
+    for (const control of controls) {
+      // Its centre is its own; so is every point of its 44 px area,
+      // whichever row it is on (the areas meet mid-gap, 2026-11-15).
+      const centre = await control.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return !!hit && el.contains(hit);
+      });
+      expect(centre).toBe(true);
+      expect(await missedTaps(control)).toEqual([]);
+    }
+  });
+
+  test('every screen has the one page header, inside the screen', async ({ page }) => {
+    test.setTimeout(120_000);
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    const { id } = (await call('create_note', { body: 'Studio day\nclay' })) as { id: string };
+
+    // The modules with a header of their own, on as other journeys do.
+    await page.goto('/settings');
+    for (const name of ['Reader', 'Podcasts', 'Kitchen']) {
+      await page.getByRole('switch', { name }).check();
+    }
+    await letItSave(page);
+
+    const screens: [url: string, title: string, parent?: string][] = [
+      ['/browse', 'Notes'],
+      ['/right-now', 'Right Now'],
+      ['/settings', 'Settings'],
+      ['/reading', 'Reading queue'],
+      ['/map', 'Map'],
+      [`/map/n/${id}`, 'Around Studio day', 'Note'],
+      [`/history?note=${id}`, 'History', 'Note'],
+      ['/activity', 'What assistants changed'],
+      ['/reader', 'Reader'],
+      ['/reader/feeds', 'Manage feeds', 'Reader'],
+      ['/reader/downloads', 'Downloads', 'Podcasts'],
+      ['/podcasts', 'Podcasts'],
+      ['/podcasts/add', 'Add a podcast', 'Podcasts'],
+      ['/kitchen/shopping', 'Kitchen'],
+      ['/kitchen/recipes', 'Kitchen'],
+    ];
+    for (const [url, title, parent] of screens) {
+      await page.goto(url);
+      await expectPageHeader(page, title, parent);
+      if (url === '/right-now' || url === '/reader/feeds') await noSeriousViolations(page);
+    }
+
+    // The back link goes where it says.
+    await page.goto('/reader/feeds');
+    await page.getByRole('link', { name: 'Back to Reader', exact: true }).click();
+    await expect(page).toHaveURL(/\/reader$/);
+    await page.goto(`/map/n/${id}`);
+    await page.getByRole('link', { name: 'Back to Note', exact: true }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe(`/n/${id}`);
   });
 });
 

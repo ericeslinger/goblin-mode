@@ -23,7 +23,7 @@ import { NotesService } from '../notes/notes.service';
 import { ProposalsService } from './proposals.service';
 import { PutBack } from './put-back';
 import { RunChanges, changesText } from './run-changes';
-import { HomeLink } from '../home/home-link';
+import { PageHeader } from '../home/page-header';
 import { NOW, TIME_ZONE } from '../platform/platform';
 
 /** A run as What assistants changed lists it; times in milliseconds. */
@@ -133,11 +133,10 @@ export function digestLine(
  */
 @Component({
   selector: 'app-activity',
-  imports: [HomeLink, RouterLink, PutBack, RunChanges],
+  imports: [PageHeader, RouterLink, PutBack, RunChanges],
   template: `
     <main class="page">
-      <app-home-link />
-      <h1>What assistants changed</h1>
+      <app-page-header title="What assistants changed" />
       @if (digest(); as line) {
         <section aria-labelledby="digest" class="digest">
           <h2 id="digest" class="visually-hidden">The day in one line</h2>

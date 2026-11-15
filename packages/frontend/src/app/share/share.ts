@@ -17,7 +17,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { hostOf } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { CaptureService } from '../capture/capture.service';
-import { HomeLink } from '../home/home-link';
+import { PageHeader } from '../home/page-header';
 import { MAX_PASTED_CHARS, type PastedImport, RECIPE_IMPORT_API } from '../kitchen/recipe-paste';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
@@ -51,11 +51,10 @@ export const WRITE_WAIT_MS = 20_000;
  */
 @Component({
   selector: 'app-share',
-  imports: [HomeLink, RouterLink],
+  imports: [PageHeader, RouterLink],
   template: `
     <main class="page share">
-      <app-home-link />
-      <h1 #heading tabindex="-1">Shared with Mossgoblin</h1>
+      <app-page-header title="Shared with Mossgoblin" />
       @if (view(); as v) {
         @if (v.s; as s) {
           <section class="shared" aria-label="What was shared">
@@ -269,7 +268,7 @@ export class Share {
   /** Moved on when a claim held elsewhere runs out, so the page looks again. */
   private readonly clock = signal(0);
 
-  private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
+  private readonly header = viewChild(PageHeader);
   private readonly first = viewChild<ElementRef<HTMLElement>>('first');
 
   constructor() {
@@ -377,7 +376,7 @@ export class Share {
     effect(() => {
       shown();
       untracked(() =>
-        afterNextRender(() => (this.first() ?? this.heading())?.nativeElement.focus(), {
+        afterNextRender(() => (this.first() ?? this.header()?.heading())?.nativeElement.focus(), {
           injector: this.injector,
         }),
       );

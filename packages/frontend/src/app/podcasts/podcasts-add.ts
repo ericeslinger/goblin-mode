@@ -1,8 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FEED_CAP } from '@mossgoblin/schema';
-import { HomeLink } from '../home/home-link';
-import { Icon } from '../home/icon';
+import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { DownloadPrefs, KEEP_CHOICES, keepText } from '../reader/download-prefs';
 import { ItemsService } from '../reader/items.service';
@@ -35,16 +34,10 @@ export const OPML_MAX_BYTES = 5 * 1024 * 1024;
  */
 @Component({
   selector: 'app-podcasts-add',
-  imports: [HomeLink, Icon, RouterLink],
+  imports: [PageHeader, RouterLink],
   template: `
     <main class="page">
-      <header class="top">
-        <app-home-link />
-        <a class="back" routerLink="/podcasts"
-          ><app-icon name="chevron-left" [size]="18" />Podcasts</a
-        >
-      </header>
-      <h1>Add a podcast</h1>
+      <app-page-header title="Add a podcast" backLabel="Podcasts" backLink="/podcasts" />
       @if (!modules.podcasts()) {
         <p class="muted">
           Podcasts is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.
@@ -167,21 +160,6 @@ export const OPML_MAX_BYTES = 5 * 1024 * 1024;
     </main>
   `,
   styles: `
-    .top {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-    .back {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      min-height: 44px;
-      margin-left: var(--space-2);
-      padding: 0 8px;
-      color: var(--quiet);
-      text-decoration: none;
-    }
     form {
       display: grid;
       gap: var(--space-3);

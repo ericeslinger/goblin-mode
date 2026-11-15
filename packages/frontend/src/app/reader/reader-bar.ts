@@ -10,9 +10,9 @@ import {
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
 import { type ModuleTab, ModuleTabs } from '../home/module-tabs';
+import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { DownloadPrefs } from './download-prefs';
 import { DownloadsService } from './downloads.service';
@@ -23,23 +23,21 @@ import { ReaderService, type SearchHit } from './reader.service';
 export type ReaderTab = 'all' | 'saved' | 'folders';
 
 /**
- * The Reader's header and tabs (#220, #221): the leaf, then Search
- * articles, Downloads and Manage feeds as icons with names; under them
- * the tabs All (`/reader`), Saved and Folders (`/reader/folders`); the
- * Podcasts tab left with the shows for a module of their own (#245).
- * Downloads shows once anything is
- * downloaded or a podcast keeps its newest downloaded (#180), with a
- * dot while anything is. Search articles opens the search under the
+ * The Reader's header and tabs (#220, #221): the page header (since
+ * #286 this header, made shared), with Search articles, Downloads and
+ * Manage feeds as icons with names; under them the tabs All
+ * (`/reader`), Saved and Folders (`/reader/folders`); the Podcasts tab
+ * left with the shows for a module of their own (#245). Downloads
+ * shows once anything is downloaded or a podcast keeps its newest
+ * downloaded (#180), with a dot while anything is. Search articles opens the search under the
  * tabs: the server's word index over every article stored (#175), the
  * shows in Podcasts left out of what it lists (#245).
  */
 @Component({
   selector: 'app-reader-bar',
-  imports: [HomeLink, Icon, ModuleTabs, RouterLink],
+  imports: [Icon, ModuleTabs, PageHeader, RouterLink],
   template: `
-    <header>
-      <app-home-link />
-      <h1>Reader</h1>
+    <app-page-header title="Reader">
       <button
         type="button"
         class="icon"
@@ -61,7 +59,7 @@ export type ReaderTab = 'all' | 'saved' | 'folders';
       <a class="icon" routerLink="/reader/feeds" aria-label="Manage feeds">
         <app-icon name="feeds" [size]="22" />
       </a>
-    </header>
+    </app-page-header>
     <app-module-tabs label="Reader screens" [tabs]="tabs()" />
     @if (!modules.reader()) {
       <p class="muted">
@@ -116,20 +114,6 @@ export type ReaderTab = 'all' | 'saved' | 'folders';
   styles: `
     :host {
       display: block;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      margin-bottom: var(--space-2);
-    }
-    app-home-link {
-      margin-right: var(--space-2);
-    }
-    h1 {
-      flex: 1;
-      margin: 0;
-      font-size: 20px;
     }
     .icon {
       position: relative;
