@@ -5296,6 +5296,16 @@ the clear and no keystroke is lost.
   save is held as above, so typing is accepted at once; any other write
   that holds note text waits in memory for the switch and then goes out
   as it says (`whenKnown`); a write with no note text goes out at once.
+  A new note's held save (nothing of it on the server) is written as
+  soon as the switch is known and the notes have loaded from the
+  cache, without waiting for the server's snapshot, as `save` wrote it
+  before; waiting left a new note out of every list until the server
+  answered, and a reload started the wait again (a share journey, after
+  #276). An existing note's held save still waits for the server's
+  snapshot, which says whether the note is there. So a save is held
+  only while this device has never heard the switch (no answer from
+  the server, no cached doc, nothing remembered): its first load after
+  its first sign-in, until the first answer, or a first load offline.
   Held saves are replayed at the first snapshot from the server as well
   as when the switch becomes known, so a fresh device back online
   writes them whichever comes first. While any save is held the
