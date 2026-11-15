@@ -156,9 +156,6 @@ export const WRITE_WAIT_MS = 20_000;
     </main>
   `,
   styles: `
-    h1:focus {
-      outline: none;
-    }
     .shared {
       border: var(--border) solid var(--rule);
       border-radius: var(--radius-card);

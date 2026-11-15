@@ -52,7 +52,9 @@ import { Icon } from './icon';
     }
     .back {
       display: inline-flex;
-      flex: 0 1 auto;
+      /* Gives way long before the title does: a short screen cuts the
+         parent's name, never the title mid-word. */
+      flex: 0 100 auto;
       align-items: center;
       gap: 4px;
       min-width: 0;
@@ -73,13 +75,17 @@ import { Icon } from './icon';
     }
     h1,
     .spacer {
-      flex: 1;
+      flex: 1 1 auto;
       min-width: 0;
     }
     h1 {
       margin: 0;
       font-size: 20px;
       overflow-wrap: anywhere;
+    }
+    /* Focused by script on arrival (Share), never by Tab: no ring. */
+    h1:focus {
+      outline: none;
     }
     .actions {
       display: flex;

@@ -361,6 +361,14 @@ async function expectPageHeader(page: Page, title: string, parent?: string): Pro
     expect(box!.x + box!.width, what).toBeLessThanOrEqual(width.client + 0.5);
   };
   await inside(await header.boundingBox(), `${title}: the header`);
+  // A one-word title is never broken across lines: the parent's name
+  // in the back link gives way first.
+  if (!/\s/.test(title)) {
+    const lines = await h1.evaluate(
+      (el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight),
+    );
+    expect(lines, `${title}: the title is broken mid-word`).toBeLessThan(1.5);
+  }
   for (const action of await header.locator('.actions > *').all()) {
     if (await action.isVisible()) await inside(await action.boundingBox(), `${title}: an action`);
   }
