@@ -479,7 +479,7 @@ export class ReaderList {
     // The feed's More sheet (2026-11-15) keeps its own keys, and Enter
     // on a button presses it rather than opening a row.
     if (target?.closest?.('dialog')) return;
-    if (event.key === 'Enter' && target?.tagName === 'BUTTON') return;
+    if (event.key === 'Enter' && target?.closest('a, button')) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const list = this.list();
     const at = this.cursor();

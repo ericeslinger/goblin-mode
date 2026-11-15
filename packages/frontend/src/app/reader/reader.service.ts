@@ -893,7 +893,9 @@ export class ReaderService {
     const uid = this.auth.user()?.uid;
     const old = this.list().find((f) => f.id === oldId);
     const url = normalizeFeedUrl(found.url);
-    if (!uid || !this.read() || !old) return 'Sign in first.';
+    if (!uid || !this.read()) return 'Sign in first.';
+    // A second tap, or a switch made on another device (review on #275).
+    if (!old) return 'That feed has been switched or removed already.';
     if (!url) return 'That is not a link.';
     const id = feedId(url);
     if (id === oldId) return `That is the address ${old.title} has already.`;
@@ -1077,7 +1079,9 @@ export class ReaderService {
     if (!uid) return;
     this.list.update((l) =>
       l.map((f) =>
-        f.id === id ? { ...f, dead: false, error: undefined, errorCount: undefined } : f,
+        f.id === id
+          ? { ...f, dead: false, error: undefined, errorCount: undefined, nextFetchAt: Date.now() }
+          : f,
       ),
     );
     void this.api

@@ -106,6 +106,19 @@ describe('A feed’s page (2026-11-15)', () => {
     );
   });
 
+  it('says a feed asked to look again is waiting, not fine (review on #275)', async () => {
+    const { field } = await open({
+      id: 'f3',
+      url: 'https://asked.test/rss',
+      title: 'Asked',
+      folders: [],
+      dead: false,
+      fetchedAt: NOW_MS - 30 * 60_000,
+      nextFetchAt: NOW_MS - 1000,
+    });
+    expect(field('State')).toBe('Waiting for its next look.');
+  });
+
   it('offers Look again for a feed that is fine, and copies its address', async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

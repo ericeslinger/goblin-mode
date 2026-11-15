@@ -100,6 +100,9 @@ import {
       <p class="muted">
         Switch follows that address in {{ feed().title }}’s place, in its folders. Its articles go,
         but for any saved or filed in the garden.
+        @if (feed().kind === 'podcast') {
+          Episodes waiting in the queue that are not saved go too.
+        }
       </p>
     }
   `,

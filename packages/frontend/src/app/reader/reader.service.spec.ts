@@ -748,6 +748,10 @@ describe('ReaderService.switchFeed: a feed to its new address (2026-11-15)', () 
     expect(reader.feeds()[0]).toMatchObject({ errorCount: 12, nextFetchAt: 5 });
     const out = reader.switchFeed('old', { url: NEW, title: 'Live Laugh Blog' });
     expect(out).toEqual({ id: newId, title: 'Live, laugh (mine)', known: false });
+    // A second tap finds it done, and says so (review on #275).
+    expect(reader.switchFeed('old', { url: NEW, title: 'Live Laugh Blog' })).toBe(
+      'That feed has been switched or removed already.',
+    );
     expect(api.set).not.toHaveBeenCalled();
     expect(api.remove).not.toHaveBeenCalled();
     expect(api.batch).toHaveBeenCalledTimes(1);

@@ -305,7 +305,13 @@ export class ReaderFeedHead {
     if (!f.url) return 'Nothing to look at.';
     const t = this.trouble();
     if (t) return t.words;
-    return f.fetchedAt === undefined ? 'Not looked at yet.' : 'Fine: the last look read it.';
+    if (f.fetchedAt === undefined) return 'Not looked at yet.';
+    // Due, or asked to look again: the last answer is not known to
+    // be good until the next look comes back (review on #275).
+    if (f.nextFetchAt !== undefined && f.nextFetchAt <= this.now()) {
+      return 'Waiting for its next look.';
+    }
+    return 'Fine: the last look read it.';
   });
   protected readonly looks = computed(() => {
     const f = this.feed();
