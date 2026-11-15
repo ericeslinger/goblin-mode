@@ -21,6 +21,7 @@ import {
   canPutBack,
   correctionLine,
   formsFound,
+  isKeyedHash,
   moduleOn,
   nameIndex,
   paths,
@@ -64,6 +65,7 @@ import {
   withSeeAlso,
 } from '../mcp/tools';
 import { dataKeyFor } from '../note-keys/client';
+import { REPLACED_KEPT } from '../notes/merge';
 import {
   type NoteFacts,
   type RunFacts,
@@ -478,6 +480,32 @@ async function putBackRun(
       if (body !== undefined && matches(hash, body)) {
         textBefore.set(t.id, body);
         continue;
+      }
+      // A keyed hash and a text kept under its plain id, before the note
+      // was sealed (Seal everything now keys a plain hash, 2026-11-15):
+      // the plain-id replaced texts left, each opened and matched by the
+      // keyed hash of its text, as the merge matches them, so no hash of
+      // the other kind is ever trusted. They expire within two days.
+      if (isKeyedHash(hash)) {
+        const older = await tx.get(
+          db
+            .collection(paths.replaced(uid, t.id))
+            .orderBy('writtenAt', 'desc')
+            .limit(REPLACED_KEPT),
+        );
+        let found: string | undefined;
+        for (const d of older.docs) {
+          if (isKeyedHash(d.id)) continue;
+          const b = await openCopy(codec, t.id, d.data());
+          if (b !== undefined && matches(hash, b)) {
+            found = b;
+            break;
+          }
+        }
+        if (found !== undefined) {
+          textBefore.set(t.id, found);
+          continue;
+        }
       }
       const kept = await tx.get(
         db.collection(paths.history(uid, t.id)).orderBy('savedAt', 'desc').limit(VERSIONS_SEARCHED),

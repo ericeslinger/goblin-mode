@@ -24,14 +24,17 @@ const code = (source: string) => source.split('\n').filter((l) => !/^\s*(\/\/|\*
 
 /**
  * Where a run's item text and key may be named: written sealed
- * (assigned.ts), opened as claimed (firestore-store.ts), and used once
- * opened (items.ts, the record's type in core.ts).
+ * (assigned.ts), opened as claimed (firestore-store.ts), used once
+ * opened (items.ts, the record's type in core.ts), and sealed in place
+ * or moved to its keyed id by Seal everything now (seal-runs.ts,
+ * 2026-11-15).
  */
 const ITEM_SITES = [
   'agent/assigned.ts',
   'agent/firestore-store.ts',
   'agent/items.ts',
   'agent/core.ts',
+  'agent/seal-runs.ts',
 ];
 
 describe('the record text boundary in the functions', () => {

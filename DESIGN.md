@@ -5348,22 +5348,232 @@ took the other text fields off it the same day, and step 3e the text
 about notes stored outside them. Attachment text left it on 2026-11-13
 and `source.url` on 2026-11-14, both decided plain, and the keyed
 hashes on 2026-11-14, above. The gardener's switch and the writers
-that seal left it on 2026-11-15, above.)
+that seal left it on 2026-11-15, above, and the migration, its last
+item, the same day, below.)
 
-- The migration of existing notes: the notes nobody touched since the
-  switch, and the fields a write left plain on a note it sealed
-  (other names, instructions, the Send to ask and outcome, an import
-  error, a recipe's source text, and a title no write rewrote), plus
-  History, which keeps every version with no expiry until the note's
-  Trash sweep, so its plain versions stay until rewritten. Records
-  written before a note is sealed keep its words as they were (an
-  activity summary, a suggestion's reason, a run's outcome, a
-  correction line); whether the migration rewrites them or leaves
-  them to age out is not decided, and none of them has a TTL. The
-  same holds for the plain hashes written before it: a plain
-  `baseHash`, a replaced text's plain id (replaced texts expire two
-  days after they are written, `REPLACED_TTL_MS`), a `before.body`,
-  and an item run under its plain id.
+- Nothing, once Eric has run Seal everything now and its check finds
+  nothing left in the clear. What stays plain on purpose is listed
+  under The migration, below.
+
+**The migration (2026-11-15).** With the switch on, every write seals
+what it touches; everything written before it, and the fields a write
+did not touch, stayed plain. Seal everything now, in Settings, Sealed
+notes, seals the rest, once, when Eric asks. It is shown only with the
+switch on. No stored schema, rules or auth changed: every value it
+writes is a string where a string was, and nothing records progress.
+
+*Eric's decisions (2026-11-15).*
+
+1. What assistants changed: old entries are relabelled, with the
+   labels new entries use for a sealed note ("Sealed note", "Changed
+   a sealed note"); not deleted, and no name left in the clear.
+2. Replaced texts (`notes/{id}/replaced`, kept two days): the plain
+   ones are left to expire on their own, not rewritten. The page says
+   how many and by when.
+3. Safety net: none added. Point-in-time recovery is on for his
+   Firestore; there is no export step. Backups made before the
+   migration age out (2026-11-12).
+4. A dry run first: the action reports what it would do, and runs only
+   on a second, explicit confirmation.
+5. A precondition, not machinery: he makes sure only one device is
+   active while it runs, the one that starts it, with his other
+   devices synced beforehand. The page asks for this before the
+   confirming tap. The design does not depend on it to keep text (A
+   device offline through it, below).
+6. "We could do it on the backend too, as a direct call": the server
+   does the whole pass itself, not the phone step by step. His other
+   fallback, disabling triggers for the run, was not needed: every
+   trigger takes a migration write for nothing (Triggers, below). It is
+   started from Settings on his phone; no terminal route is wanted.
+
+*The action* (`settings/seal-everything.ts`). Its first tap is a dry
+run, which counts and writes nothing: notes with any plain sealed
+field, History versions, suggestions, runs, entries to relabel, what
+it would leave and why, and the replaced texts left to expire with the
+day the last goes. The second tap, "Seal them now", runs the pass, then
+a dry run again as the check: a summary of what was sealed, and of
+anything still plain, with the reason for each kind (could not be
+opened with the key, in use right now, written plain since by a device
+that had not heard the switch). Progress is a line with `aria-live`
+polite, not `role="status"`, which the journeys keep unambiguous.
+
+*How it runs* (`notes/seal-everything.ts`, `notes/seal-all.ts`,
+`agent/seal-runs.ts`). One callable, `sealEverything`, takes
+`{ dryRun, cursor? }` and answers `{ done, cursor?, report }`
+(`packages/schema/src/seal-all.ts`, shapes only, nothing stored).
+
+- *One call does it all.* Its time limit is an hour, the most a
+  Functions v2 callable may have (the longest of the others is 540
+  seconds); it starts no new page after 55 minutes, and answers a
+  cursor only when it ran out of time. The app waits 61 minutes for an
+  answer and calls again from a cursor.
+- *Who it runs as:* the default compute account, the one `mcp`,
+  `noteHistory`, `proposalAccepted` and put back run as. It is on
+  `NOTE_KEY_CALLERS` and `checkNoteKey` proved its key when the switch
+  went on; the pass needs nothing the other two accounts hold.
+- *It refuses* unless the switch is on and the key can be fetched now,
+  by the same fetch the switch's check makes (`keyCheck`, with a fresh
+  nonce, asking the Worker afresh past the instance's kept key,
+  `freshDataKeyFor`), in the check's own words. The pass then uses the
+  key the normal way (`dataKeyFor`, kept for the instance), asked for
+  once. The switch is read again before every page, so turning it off
+  stops the pass where it is.
+- *Only the caller's garden:* the uid is the verified token's.
+- *Batches.* Notes 25 a page in document id order, each with its
+  History 100 versions a page; then suggestions, runs and activity 100
+  a page; eight transactions at once within a page. Each page reads
+  ids only (`select()`), each document is read in its own transaction,
+  and a transaction reads at most the document and, for each hash it
+  keys, the note, one replaced text and its 50 newest versions. A
+  garden of thousands of notes and their versions is some tens of
+  thousands of short transactions: minutes, well inside the hour.
+- *Every write* is a transaction that reads the document as it is now,
+  changes the form of its text and its hashes and nothing else (no
+  `updatedAt`, `updatedBy` or `deviceId`), and checks before writing
+  that each sealed value opens back to exactly the text it replaces.
+  A document changed underneath is read again by the transaction's own
+  retry, so the newest text is the one sealed. One whose sealed text
+  does not open is left as stored and counted, as is one in use (a
+  recipe being read, a run going, a suggestion being carried out).
+- *Resume is running it again.* A value sealed already is skipped, so a
+  pass is idempotent: a second writes nothing. There is no progress
+  document. If the phone closes or loses its connection mid-call, the
+  callable is not cancelled by that and should finish its pass on its
+  own; whether it does or is cut off, each document was left either
+  sealed or as it was, and opening Settings and running it again counts
+  what is left. Two passes at once (a second tap while the first runs)
+  only meet in transactions, and the second skips what the first
+  sealed.
+- *Through the sanctioned helpers.* Note values are sealed by
+  `sealFields`, record values by `sealRecord`, hashes by the codec's
+  `hashText`, `hashMatcher` and `itemHash`. Every note write is
+  `sealFields`' result, as `sealing-boundary.spec.ts` asks of every
+  writer. The guards stand as they were but for
+  `record-boundary.spec.ts`, which lets `seal-runs.ts` name a run's
+  item text and key, and `trigger-boundary.spec.ts`, which now reads
+  the three new files too.
+
+*What it seals.*
+
+- *Notes*, archived and in Trash too, the context note among them (its
+  correction lines are sealed with it): every sealed field still plain
+  (`SEALED_FIELDS`), a list element by element, sealed elements kept as
+  they are. Every field ends sealed, so the ordering rules hold. An
+  empty field is sealed too. `source.url`, attachments and reminder
+  text stay plain (decided).
+- *`baseHash`.* A plain one becomes the keyed hash of the same text,
+  found as the merge and put back find it: the note's body now, the
+  replaced text kept under that hash, or one of its 50 newest History
+  versions, each opened and matched as plain. When none of them is it,
+  the text is kept nowhere, and nothing could have matched it before
+  either; it becomes the keyed hash of a string no note holds
+  (`UNKEPT_TEXT`, starting with NUL), which matches nothing, so the
+  merge, put back and Show changes behave exactly as they did, and no
+  guessable hash is left. Put back looks a replaced text up by the
+  hash it holds, so a keyed hash would miss one kept under its plain
+  id for the two days a plain replaced text lasts: a run written
+  straight over another run of Claude's, with no History version kept
+  between. So when that lookup misses for a keyed hash, put back now
+  reads the plain-id replaced texts left and matches each by the keyed
+  hash of its opened text, as the merge matches them, so no hash of
+  the other kind is ever trusted (`putback/firestore.ts`).
+- *History versions*, in place: body and title sealed under the note's
+  id, so they open with its aad as every version does.
+- *Replaced texts* are not touched (decision 2), only counted.
+- *Suggestions:* `title` and `reason` sealed under the suggestion's
+  id; the notes it names labelled "Sealed note"; an outcome naming
+  them ("Merged into ...") relabelled ("Merged into a sealed note");
+  fixed outcomes ("Already linked") kept. A refile keeps its proposed
+  names, each sealed under the suggestion's id as a new one's are
+  (`synonyms` among the sealed record fields, 2026-11-15), and its key
+  is rewritten as a new one's is: `refile:{id}:{type}:` and the keyed
+  hash of the names (`refileNamesHash`). An old key's names part is
+  already the normalized, sorted names, so the hash is the one a new
+  suggestion of the same change gets, and a dismissed suggestion still
+  blocks it; nothing guessable is left in the key. Accepting an open
+  one adds its names as before. Ones accepted or being applied are
+  left for the next pass.
+- *Runs:* item text, item key and outcome sealed under the run's id. A
+  finished item run under the plain hash of its item moves to its
+  keyed id, created and the old one deleted in one transaction, so no
+  guessable hash is left; itemAssigned looks under the keyed id first,
+  so a done item is still never started again, and a failed one that
+  may be mended starts under the keyed id as it would have. When a
+  newer run already holds the keyed id, the old one is sealed in place
+  and keeps its plain id (counted). A run still going is left for the
+  next pass. Nothing else names an item run by its id.
+- *What assistants changed:* every note an entry names is labelled
+  "Sealed note" and its summary relabelled; an entry about reminders
+  alone is left (reminder text is plain). Readers tell three things
+  from a summary's words, and the relabel keeps each: an update_note's
+  "text" (`summarySaysText`, put back and Show changes), an archive or
+  restore (put back's flip), and "filed under" (`rerouteNotes`).
+  update_note's and archive_note's summaries of fixed words alone
+  name no note and are kept. A put back's says "Put back a change to a
+  sealed note". Fields before that put back restores are sealed as
+  that field of that note, as an entry written with the switch on
+  holds them, and go back as stored; a plain `before.body` is keyed as
+  `baseHash` is, or made a hash of nothing. So put back and Show
+  changes work on old entries where they worked before. What an entry
+  loses is its words: a summary that said which lines were added now
+  says "Changed a sealed note", and a put back's correction line quotes
+  that.
+
+*Triggers.* A migration write fires every note trigger. Each was
+worked through, and specs over the fake Firestore show a form-only
+write (the same opened text before and after) does nothing and so
+cannot loop:
+
+- `noteHistory`: when the stored body is the same (only other fields
+  sealed) it returns before opening anything. Otherwise it opens both:
+  `keepReason` keeps nothing for the same body, `rememberReplaced`
+  nothing, and the merge returns clean for the same body whatever the
+  hashes say. Without the key, `keepUnopened` keeps nothing, since
+  device and author are unchanged.
+- `noteTitle`, `itemAssigned` and `noteArrived` all start from a change
+  of `settledAt`, which the pass never writes.
+- `recipeImport` runs on every write while `importState` is
+  `requested`; the pass leaves such a recipe, and one `working`, for
+  the next pass.
+- `agentRun` starts on a run made or reset to `requested`; the pass
+  writes only finished runs. `proposalAccepted` starts on `open` to
+  `accepted`; the pass never writes a status.
+- Nothing listens on History, replaced texts or activity.
+
+No marker field was needed. The cost is one invocation of each note
+trigger per note written, and of `agentRun` per run moved.
+
+*A device offline through it* (the precondition, 5, makes this rare;
+what follows holds without it). Its kept save was typed over the plain
+text it saw, with that text's plain `baseHash`, or a keyed one if it
+had the key.
+
+- If the note is as it was, the merge matches the base as the kind of
+  hash it is against the opened text, and the write simply stands.
+  The text it replaced, sealed, is kept in History.
+- If the note moved on meanwhile, the merge finds the base among the
+  replaced texts and History by opened text, as since 2026-11-14: a
+  plain replaced text still opens while it lasts, and History, now
+  sealed, still opens. So both sides merge.
+- If the base is kept nowhere any more (no replaced text within two
+  days, no version in History), the merge keeps every line of both, as
+  it always has. Nothing is lost or overwritten.
+- What it wrote is plain if it had not heard the switch. The check
+  after says so, and running Seal everything now again seals it.
+
+*Left plain on purpose.* Replaced texts, until they expire (two days);
+`source.url`; attachments and their text; reminder text; Reader and
+Podcasts items; tags, ids and other fields that are not text (a
+concept's id is made from its name, `c-<slug>`, and stays as it is:
+links hold it everywhere); a run's `error` and steps; backups and
+point-in-time recovery copies made before the pass, until they age
+out.
+
+*What closes the epic.* Eric runs it in production and its check finds
+nothing left in the clear; two days later the plain replaced texts are
+gone. Then readers can move to `openSealedText` (2026-11-12), which
+refuses plain text, and `noteTextHashMatches` can stop accepting plain
+hashes; both are later steps, not this one.
 
 **Backups.** Backups made before the migration hold plain text and are
 left to age out on their own schedule, not rewritten (Eric,

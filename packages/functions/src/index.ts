@@ -15,6 +15,7 @@ export { checkNoteKey, checkNoteKeyRunner, checkNoteKeyTitles } from './note-key
 export { startRun } from './agent/callables';
 export { agentRun, itemAssigned, noteArrived } from './agent/triggers';
 export { noteHistory, noteTitle, trashSweep } from './notes/triggers';
+export { sealEverything } from './notes/seal-everything';
 export { recipeImport } from './kitchen/triggers';
 export { importPastedRecipe } from './kitchen/callables';
 export {

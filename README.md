@@ -214,6 +214,19 @@ each of the three accounts (`checkNoteKey`, `checkNoteKeyTitles` and
 failed. So it is also the check that the master and
 `NOTE_KEY_CALLERS` are right, including a list you set yourself.
 
+With the switch on, every write seals what it touches; what nobody
+touches stays plain. Settings, Sealed notes, Seal everything now seals
+the rest once (DESIGN.md, Note encryption, The migration): it counts
+first and changes nothing, then on a second tap the `sealEverything`
+callable does the whole pass on the server, as the default compute
+account. Before the second tap, open the app on your other devices,
+let them sync, and close them. Leaving the page does not stop it, and
+running it again is harmless and says what is left. It adds no
+backup: point-in-time recovery on Firestore, or a backup you made
+before, is your safety net, and backups made before it still hold
+plain text until they age out. It is started from that Settings
+button only.
+
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
 `OWNER_UID` can approve it. For nightly suggestions, add the routine

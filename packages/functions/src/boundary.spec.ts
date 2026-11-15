@@ -28,6 +28,7 @@ const EXPORTS = [
   'checkNoteKey',
   'checkNoteKeyTitles',
   'checkNoteKeyRunner',
+  'sealEverything',
   'startRun',
   'agentRun',
   'itemAssigned',
