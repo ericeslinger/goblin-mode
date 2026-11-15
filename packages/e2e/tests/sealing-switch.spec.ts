@@ -86,8 +86,9 @@ test('the switch turns sealing on after its check, and notes are then written se
   ).toEqual([]);
 
   // A new note: born sealed, body and title, its words nowhere in the clear.
-  await page.goto('/');
-  await page.getByRole('button', { name: 'New' }).click();
+  // New note beside the leaf (#272), from Settings: a cold `/` would
+  // come back here, where it was left.
+  await page.getByRole('button', { name: 'New note', exact: true }).click();
   await editor.click();
   await typeLines(page, ['Kiln firing tonight', 'Cone 6, slow cool']);
   await letItSave(page);

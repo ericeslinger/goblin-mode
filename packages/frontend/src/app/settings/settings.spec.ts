@@ -369,7 +369,7 @@ describe('Settings', () => {
     await vi.waitFor(() => expect(el.textContent).toContain('Updates are not managed here'));
   });
 
-  it('chooses the screen to start on, a new note until then (#219)', async () => {
+  it('chooses the screen to start on, where it was left until then (#219, #272)', async () => {
     localStorage.removeItem(START_ON_KEY);
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
@@ -378,6 +378,8 @@ describe('Settings', () => {
       el.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)!;
     expect(el.querySelectorAll('[role="radiogroup"] input[type="radio"]')).toHaveLength(6);
     expect(radio('note').checked).toBe(true);
+    // Stored as `note`, Where I left off since 2026-11-15 (#272).
+    expect(radio('note').closest('label')!.textContent).toContain('Where I left off');
     expect(el.textContent).toContain('Kitchen is off, so this opens Home');
     // Podcasts (#245), off with the Reader until switched on.
     expect(el.textContent).toContain('Podcasts is off, so this opens Home');

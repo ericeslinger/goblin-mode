@@ -54,7 +54,19 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
   await expectNoSeriousViolations(page);
 
-  await page.goto('/');
+  // New note (#272), beside the leaf on every screen: named, and with a
+  // focus ring of its own, then the way to the capture screen (a cold
+  // `/` now goes back to the last place, here Right Now).
+  const newNote = page.getByRole('button', { name: 'New note', exact: true });
+  // Tabbed to from the leaf, so the ring shows as it does for keyboards.
+  await page.getByRole('link', { name: 'Home' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(newNote).toBeFocused();
+  expect(await newNote.evaluate((b) => getComputedStyle(b).outlineStyle)).not.toBe('none');
+  await expectNoSeriousViolations(page);
+  await newNote.click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('textbox', { name: 'New note' })).toBeFocused();
   await page.setViewportSize({ width: 1200, height: 800 });
   await expect(page.getByRole('complementary', { name: 'All notes' })).toBeVisible();
   await expectNoSeriousViolations(page);

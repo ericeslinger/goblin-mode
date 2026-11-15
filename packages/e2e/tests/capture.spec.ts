@@ -14,20 +14,21 @@ test('a note saves as it is typed and is there after a reload', async ({ page })
   await typeLines(page, ['Groceries', 'eggs and milk']);
   await letItSave(page);
 
-  // Back within five minutes: the same note reopens.
+  // Opened again at /: the same note, where it was left (#272).
   await page.reload();
   await expect(note(page)).toContainText('Groceries');
   await expect(note(page)).toContainText('eggs and milk');
 });
 
-test('after five minutes away a fresh note opens, and Previous note brings the old one back', async ({
+test('back after a long while the note is still open; New note starts another, Previous note brings it back', async ({
   page,
 }) => {
   await signInAs(page, OWNER);
   await typeLines(page, ['An old thought']);
   await letItSave(page);
 
-  // Hide the app, then pretend it was hidden six minutes ago.
+  // Hide the app, then pretend it was hidden six minutes ago: until
+  // 2026-11-15 that opened a fresh note; now it is where he left it (#272).
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     document.dispatchEvent(new Event('visibilitychange'));
@@ -37,7 +38,12 @@ test('after five minutes away a fresh note opens, and Previous note brings the o
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     document.dispatchEvent(new Event('visibilitychange'));
   });
+  await expect(note(page)).toHaveText('An old thought');
+
+  // New note, beside the leaf, gives the fresh one, ready to type.
+  await page.getByRole('button', { name: 'New note', exact: true }).click();
   await expectEmpty(page);
+  await expect(note(page)).toBeFocused();
 
   await page.getByRole('button', { name: 'Previous note' }).click();
   await page

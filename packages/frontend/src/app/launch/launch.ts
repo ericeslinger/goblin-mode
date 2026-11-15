@@ -34,6 +34,9 @@ import { NoteBack } from '../back/note-back';
 import { GroceryService } from '../kitchen/grocery.service';
 import { type KitchenTab, KitchenTabs } from '../kitchen/kitchen-tabs';
 import { HomeLink } from '../home/home-link';
+import { NewNoteService } from '../home/new-note';
+import { LastPlaceService } from './last-place.service';
+import { type Spot } from './place';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { ClippingHeader } from '../reader/clipping-header';
@@ -292,14 +295,23 @@ export class Launch {
         else if (note.instructions.trim() === instructions) this.capture.replace(`${skeleton}\n`);
       });
     });
-    // Back after five minutes away opens a fresh capture note; the URL
-    // follows, so a reload or back does not land on the old note.
-    let renewed = untracked(this.capture.renewed);
-    effect(() => {
-      const n = this.capture.renewed();
-      if (n === renewed) return;
-      renewed = n;
-      if (untracked(this.routeId)) void this.router.navigate(['/'], { replaceUrl: true });
+    // New note in the top bar (#272) is this screen's New while it shows.
+    const unhandle = inject(NewNoteService).handle(() => this.newNote());
+    // The note's scroll and caret are this screen's place (#272): kept
+    // as it rests and when the app is hidden, put back on a launch once
+    // the note's text is in the editor.
+    const unregister = inject(LastPlaceService).register({
+      read: () => {
+        const id = this.capture.open().id;
+        const at = this.editor()?.place() ?? {};
+        // On `/`, which capture note, for CaptureService to resume.
+        return this.routeId() ? at : { ...at, note: id, saved: this.notes.exists(id) };
+      },
+      apply: (spot) => this.restorePlace(spot),
+    });
+    inject(DestroyRef).onDestroy(() => {
+      unhandle();
+      unregister();
     });
     // Links from before note URLs (/?note=<id>, in pushes already sent).
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
@@ -447,12 +459,33 @@ export class Launch {
   }
 
   /**
-   * A fresh capture note at `/`. When leaving the old capture note, its
-   * history entry becomes that note's own URL, so back returns to it.
+   * The place's scroll and caret, once the note's text is in the editor;
+   * false until then. A note not here or sealed here waits: the launch
+   * goes Home from it instead.
+   */
+  private restorePlace(spot: Spot): boolean {
+    const editor = this.editor();
+    if (!editor || !this.notes.loaded() || this.waiting() || this.locked()) return false;
+    if (!editor.shows(this.capture.current())) return false;
+    editor.restorePlace(spot.top ?? 0, spot.caret);
+    return true;
+  }
+
+  /**
+   * A fresh capture note at `/` (New note in the top bar, #272). When
+   * leaving the old capture note, its history entry becomes that note's
+   * own URL, so back returns to it. On `/` with nothing written yet it
+   * stays, the cursor in it: that is a new note already.
    */
   protected async newNote(): Promise<void> {
     this.previousOpen.set(false);
     this.projectsOpen.set(false);
+    this.templatesOpen.set(false);
+    if (!this.routeId() && !this.locked() && !this.capture.current().trim()) {
+      this.back.set(false);
+      this.editor()?.focus();
+      return;
+    }
     // Saved first, so a note typed a moment ago exists and keeps its URL.
     this.capture.flush();
     const old = this.capture.open().id;

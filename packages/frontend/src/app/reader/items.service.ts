@@ -43,6 +43,7 @@ import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW, SESSION_STORAGE, STORAGE } from '../platform/platform';
+import { VISITED_KEY } from './visited-key';
 import { ReadingService } from '../reading/reading.service';
 import { ReaderService, callableMessage } from './reader.service';
 import { ALL, SAVED, type Shelf2, shelfParam } from './shelves';
@@ -392,8 +393,7 @@ function toItem(id: string, d: Record<string, unknown>): ItemRecord {
 }
 
 const NONE: ReadonlySet<string> = new Set();
-/** Where the visited articles are kept for this tab, through a reload (#188). */
-export const VISITED_KEY = 'goblin.reader.visited';
+export { VISITED_KEY };
 
 /**
  * The articles (#162): the newest thousand unread, the last two hundred

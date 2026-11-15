@@ -700,12 +700,12 @@ note is read and finished as before.
   template starts as a name to change and an empty Instructions for
   Claude section, and opens to be written. On its page a header says
   what a template is and switches the mode.
-- **From template**, beside New on the launch screen when any exist,
-  opens a menu of them. An entry template makes a new note from the
-  skeleton; a living one reopens its note (the newest live note made
-  from it) or makes it the first time. The note is written whole at
-  once (`NotesService.create`, through the cache, so offline too),
-  then opens at its URL.
+- **From template**, beside New (New note since #272) on the launch
+  screen when any exist, opens a menu of them. An entry template makes a
+  new note from the skeleton; a living one reopens its note (the newest
+  live note made from it) or makes it the first time. The note is
+  written whole at once (`NotesService.create`, through the cache, so
+  offline too), then opens at its URL.
 - **Kept apart.** Templates are not in Recent or Tags, Previous note
   or the garden beds; they are in Archived when archived, and their
   names still resolve links. An emptied template is never deleted, and
@@ -767,7 +767,8 @@ text.
 
 **Note URLs (#27, 2026-10-07).** Every note lives at `/n/<id>`, with
 no slug (Eric, 2026-10-06); `/` is the capture note, the one the
-five-minute rule picks and New replaces. Both are one route (a URL
+five-minute rule picked (since 2026-11-15 the one `/` showed when the
+app was left there, #272) and New replaces. Both are one route (a URL
 matcher), so the launch screen is reused, and the route decides which
 note is open: opening a note pushes `/n/<id>`, so back returns to the
 note or list it came from. New turns the old capture note's history
@@ -850,12 +851,118 @@ shows at once while Firebase restores the session, and if the session
 turns out to be gone the app switches to sign-in; the pending draft
 stays in localStorage and becomes the first note after sign-in.
 
-**New or resume.** On `visibilitychange` to hidden, and on `pagehide`,
-the app stores the time and the open note id in localStorage. On
-visible or cold start, more than 5 minutes since that stamp opens a
-fresh note; otherwise the stored note reopens. "Previous note" opens a
-short list of recent notes. A note is only written once something is
-typed, so a fresh note left untouched never exists.
+**New or resume (changed 2026-11-15, #272).** On `visibilitychange`
+to hidden, and on `pagehide`, the app stores the time and the open
+note id in localStorage. Until 2026-11-15, on visible or cold start,
+more than 5 minutes since that stamp opened a fresh note; otherwise
+the stored note reopened. Eric changed that on 2026-11-15 (#272): "I
+want to add a new note icon just to the right of the home icon in the
+top of the app, present everywhere, but I also want to stop launching
+a new empty note on app launch. now that there's feed readers and
+recipe modes and a bunch of other stuff, it should just reopen with
+whatever was open last instead of going to the fresh note." And:
+"prefer exact article and scroll position if possible - this is
+important for notes and stuff. Agree though that this behavior should
+be overridden by a share gesture, my 'last thing is what is opened
+when relaunched' desire is for just plain reopening of the page." So
+coming back to the app, however long after, changes nothing; a launch
+goes back to where he left off (below); and New note, beside the
+leaf, is the fresh note. Only a device with no last place kept yet
+(its first launch of this version) still picks the capture note by the
+five-minute rule. "Previous note" opens a short list of recent notes.
+A note is only written once something is typed, so a fresh note left
+untouched never exists.
+
+**Where he left off (#272, Eric, 2026-11-15).** *What is kept.* The
+screen open last, in localStorage under `goblin.lastPlace`: on this
+device only, never synced, and in localStorage rather than
+sessionStorage because an installed app on Android is closed and
+killed often, its tab with it. It holds the URL as the router shows
+it (a note by its path alone, so a reminder's `?from=reminder` does
+not make a second entry), how far the screen was scrolled (the window,
+or on a note the editor's own scroller) and on a note the caret; on
+`/`, which capture note it showed and whether that had been saved; on
+an article, the tab's run through its shelf (#188,
+`goblin.reader.visited`), which a new tab would otherwise have lost,
+so Previous and Next go where they went. It is written on every
+navigation, once a scroll rests (250 ms) and when the app is hidden or
+the page goes (`LastPlaceService`, made at boot). Never kept: the
+share page, sign-in pages, the assistant consent page, `/` while it
+still carries a share or an old link to tidy, and an address this
+version does not know.
+
+*When it is used.* A plain launch: the first navigation of a page
+load, at a bare `/` (the manifest's `start_url`, so the installed
+app's icon; the site's root typed; `sw.js` turning away a share from
+another site, which carries nothing). It goes through the Start on
+guard (#219) as Where I left off. Everything else opens as it says:
+`/share` (words shared), `/?shared=<n>` (files), `/?text=` (old
+shares), `/n/<id>` and every other link, and the notifications'
+targets (`/n/<id>?from=reminder`, `/right-now`, `/activity`); the
+manifest has no shortcuts. Moving to `/` inside the app (Home's box,
+New note, signing in, any link) is never a launch, since the guard
+acts only before the router's first navigation, so nothing bounces him
+away. A device never signed in shows sign-in at `/`. A page opened
+cold at the place's own address (a reload, or a phone reopening the
+app where it was) gets its scroll back too.
+
+*The scroll.* Put back once, when what was scrolled is there: every
+50 ms for up to 15 seconds, the window once the page is long enough,
+a note once its notes have loaded and the editor shows its text, the
+caret first and then the scroll, so neither drags the other. A wheel,
+touch, press or key of his own first stops it, and once it is back
+nothing moves it again as more loads; meanwhile the place kept is not
+written over.
+
+*Gone.* Calmly Home (`/home`, replacing the entry), never an error and
+never a blank note standing in for the old one: a module turned off
+(as this device last knew it at launch, or once the modules doc is
+read), a note deleted, in Trash or sealed and locked here. The notes
+come from the persisted cache first, which can be behind (deleted on
+the laptop), so the check runs again as the server answers, until he
+taps, scrolls or types or the 15 seconds pass; after that the screen
+says what it says, as a link to such a note always has. On `/` only
+the capture note it resumed is checked, only if it had been saved,
+and never over words typed in it or a draft shown instead; it is
+replaced by a fresh capture note. The context note is made on its
+first open, so it never counts as gone. An article, an episode or a
+show the device no longer has keeps its own line ("This article is not
+on this device"), Home one tap away.
+
+*First launch.* With no place kept (a new device, a fresh account) a
+launch lands on the capture note, the editor ready, exactly as before:
+there is nothing to go back to, and signing in lands there too.
+
+*Keystrokes.* `CaptureService` is made at boot (it was made by the
+launch screen), so a draft typed before the notes loaded, and a settle
+held for sign-in, are written once they load wherever the launch
+lands; held saves (`goblin.pendingSaves`, #200, #276, #277) replay
+from `NotesService` at boot as before. `/` still shows the capture note
+at once with nothing waiting on auth or the network: the one it showed
+when the app was last left there, however long ago, else a fresh one;
+leaving the app elsewhere settles the note left open, as leaving it
+does, unless the place is that note.
+
+*Start on.* Its `note` choice, A new note since #219, is Where I left
+off since 2026-11-15, and still the default, so a gardener who never
+chose gets it. The stored value is unchanged (no schema change); the
+other choices still win over the place.
+
+*New note.* An icon (`new-note`: a page, its corner turned, a plus) just
+right of the leaf, inside `app-home-link`, so it is wherever the leaf is
+(the launch bar, Browse, Right Now, Settings, Kitchen, the Reader and
+its article, Podcasts, a show and an episode, History, What assistants
+changed, the garden map, the Reading queue, the share page) and on
+Home's header beside its leaf. A 44 px button named "New note", with a
+focus ring of its own. On the launch screen it is New (it took the place
+of the word): the old capture note keeps its URL in history and the
+cursor is in the fresh note before any navigation; on `/` with nothing
+written yet it stays, the cursor in the editor. Anywhere else it is the
+capture loop's New and then `/`, whose eager editor takes the cursor as
+it opens. No keyboard shortcut: the app has no app-wide keys, only the
+editor's and the article's own. Screens with a Back of their own and no
+leaf (the neighborhood map, Manage feeds, Downloads, the caught-up page)
+have none.
 
 **Saving (as built, 2026-10-06).** `CaptureService` writes 300 ms after
 typing pauses, and at once when the app is hidden. `NotesService`
@@ -993,8 +1100,10 @@ credential, or an error, leaves the first-words title.
 
 **Titles on settle (Eric, 2026-10-06; replaces "when the first
 paragraph changes").** A note is settled when Eric leaves it: a fresh
-note after five minutes away, New, or opening another note (the list,
-Previous note, a link, a restore of another note). Leaving writes
+note after five minutes away (until 2026-11-15; since then a launch
+going back to another place than the note left open, #272), New, or
+opening another note (the list, Previous note, a link, a restore of
+another note). Leaving writes
 `settledAt` (a server time, merged; body and `updatedAt` untouched) if
 the note has text and changed since its last settle, so reading an old
 note never calls Claude. `noteTitle` asks `claude-haiku-4-5` for two
@@ -1002,8 +1111,8 @@ to six words when `settledAt` moves, the note has four or more words,
 and the title is not Eric's own; it writes `title` with `titleSource:
 llm` only if the note is still at that settle. Between settles the app
 keeps Claude's title rather than putting first words back. A settle
-that has to wait for sign-in (the five-minute case at launch) is held
-on the device and written once the notes load.
+that has to wait for sign-in (the launch case) is held on the device
+and written once the notes load.
 
 **Claude credentials: workload identity federation, no API key (Eric,
 2026-10-06; replaces the `ANTHROPIC_API_KEY` secret planned on
@@ -1112,10 +1221,11 @@ wide screens Right Now sits above the notes list, as the UX spec has
 it, sized by its content (2026-10-06).
 
 **Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
-New, From template (when there are templates) and List or Text (on a
-list). Everything else is under More: Browse (not on wide screens,
-where the notes list is beside the note), Source or Preview, Map, Copy
-link and History (for a note with a URL), and Settings. The sync dot
+New (since 2026-11-15 New note, the icon beside the leaf, #272), From
+template (when there are templates) and List or Text (on a list).
+Everything else is under More: Browse (not on wide screens, where the
+notes list is beside the note), Source or Preview, Map, Copy link and
+History (for a note with a URL), and Settings. The sync dot
 sits on the More button's corner, green or red, so offline is always
 in sight, and offline the button also says so in words (not by colour
 alone); the menu says it too, and a hidden status tells screen
@@ -1152,20 +1262,22 @@ stroke, 1.6 at 24, in ink, the leaf alone in `--second`.
 
 The leaf (`app-home-link`, a 44 px link to `/home`) takes the place of
 Back at the top of Browse, Right Now, Settings, the Kitchen week, the
-Reader, History, What assistants changed, the garden map and the
-Reading queue, and sits at the left of the launch bar; a Back that
-means something else (an article to its shelf) stays. Start on, in
-Settings, picks where a cold open of `/` lands: Home, A new note, Right
-Now, Kitchen or Reader. It is stored as `startOn` in `settings/app`,
-which `ThemeSync` writes whole, so each write carries both the theme
-and it, and kept on the device under `goblin.startOn` with whether
-Kitchen and the Reader were on when last read. A guard on the launch
-route reads only that, so nothing waits on auth or the network; it acts
-only on the first navigation and only on a bare `/`, so a share, a Send
-to, a note's link or any other URL opens as it says. A module chosen
-while off falls back to Home. The default is A new note, so nothing
-changed for Eric until he picks Home. A choice made on another device
-applies from the next cold open here.
+Reader, History, What assistants changed, the garden map and the Reading
+queue, and sits at the left of the launch bar; a Back that means
+something else (an article to its shelf) stays. Start on, in Settings,
+picks where a cold open of `/` lands: Home, A new note (Where I left off
+since 2026-11-15, #272), Right Now, Kitchen or Reader. It is stored as
+`startOn` in `settings/app`, which `ThemeSync` writes whole, so each
+write carries both the theme and it, and kept on the device under
+`goblin.startOn` with whether Kitchen and the Reader were on when last
+read. A guard on the launch route reads only that, so nothing waits on
+auth or the network; it acts only on the first navigation and only on a
+bare `/`, so a share, a Send to, a note's link or any other URL opens as
+it says. A module chosen while off falls back to Home. The default is A
+new note, so nothing changed for Eric until he picks Home (since
+2026-11-15 the default is Where I left off, the same stored value,
+#272). A choice made on another device applies from the next cold open
+here.
 
 **Arranging Home (#222, step 2 of #216, 2026-11-09).** A tile held for
 400 ms, or the Arrange Home button at the foot of Home (for keyboards

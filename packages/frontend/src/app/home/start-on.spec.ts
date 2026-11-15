@@ -45,7 +45,7 @@ describe('Start on (#219)', () => {
     expect(startPath('podcasts', { ...on, podcasts: false })).toBe('/home');
   });
 
-  it('opens on a new note until a choice is made, as before', async () => {
+  it('opens where it was left until a choice is made; a first launch on the capture note (#272)', async () => {
     const router = await coldOpen('/');
     expect(router.url).toBe('/');
     expect(TestBed.inject(StartOnService).choice()).toBe('note');

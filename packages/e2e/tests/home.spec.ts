@@ -6,7 +6,8 @@ import { OWNER } from '../src/personas';
 // Home (#219, step 1 of #216): the box to write in, Right Now, and a
 // tile per place, a module that is off having none. The box opens the
 // editor at /, so a line typed there is a note like any other. Start on
-// picks where a cold open of / lands; a new note until chosen.
+// picks where a cold open of / lands; where it was left until chosen
+// (#272).
 
 const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 const tiles = (page: Page) => page.getByRole('navigation', { name: 'Modules' });
@@ -67,8 +68,10 @@ test('Home shows the places, its box writes a note, and Start on lands there', a
   );
 
   // Start on Home: a cold open of / lands there; a note's link does not.
+  // Until chosen it is Where I left off (#272, 2026-11-15; A new note
+  // before, which New note beside the leaf now gives).
   await page.goto('/settings');
-  await expect(page.getByRole('radio', { name: /^A new note/ })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /^Where I left off/ })).toBeChecked();
   await page.getByRole('radio', { name: /^Home/ }).check();
   await letItSave(page);
   await page.goto('/');
@@ -77,11 +80,15 @@ test('Home shows the places, its box writes a note, and Start on lands there', a
   await page.goto('/n/context');
   await expect(note(page)).toBeVisible();
 
-  // Back to a new note: / is the editor again.
+  // Back to Where I left off: / reopens the screen open last, Settings.
   await page.goto('/settings');
-  await page.getByRole('radio', { name: /^A new note/ }).check();
+  await page.getByRole('radio', { name: /^Where I left off/ }).check();
   await letItSave(page);
   await page.goto('/');
-  await expect(note(page)).toBeVisible();
-  await expect(page).not.toHaveURL(/\/home$/);
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
+  // New note, beside the leaf, is the fresh note a launch used to give.
+  await page.getByRole('button', { name: 'New note', exact: true }).click();
+  await expect(note(page)).toBeFocused();
+  await expect(page).toHaveURL(/\/$/);
 });
