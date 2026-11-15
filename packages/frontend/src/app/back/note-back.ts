@@ -413,14 +413,6 @@ function stamp(ms: number | undefined): string {
       gap: var(--space-3);
       align-items: center;
     }
-    .link {
-      border: 0;
-      padding: 0;
-      font: inherit;
-      color: var(--accent);
-      background: none;
-      cursor: pointer;
-    }
     .original {
       white-space: pre-wrap;
       color: var(--quiet);

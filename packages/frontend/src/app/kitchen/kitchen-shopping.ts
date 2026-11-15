@@ -35,7 +35,9 @@ import { KitchenTabs } from './kitchen-tabs';
       } @else if (notes.loaded()) {
         <p class="none">
           No grocery list yet.
-          <button type="button" (click)="grocery.makeList()">Make the grocery list</button>
+          <button type="button" class="primary" (click)="grocery.makeList()">
+            Make the grocery list
+          </button>
         </p>
       }
     </main>

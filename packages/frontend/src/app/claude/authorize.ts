@@ -78,14 +78,6 @@ const LOOPBACK = /^http:\/\/(127\.0\.0\.1|\[::1\]|localhost)(:\d+)?$/;
       background: var(--accent);
       cursor: pointer;
     }
-    .link {
-      border: 0;
-      padding: 0;
-      font: inherit;
-      color: var(--accent);
-      background: none;
-      cursor: pointer;
-    }
   `,
 })
 export class Authorize {

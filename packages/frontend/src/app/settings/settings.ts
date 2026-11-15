@@ -351,7 +351,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
                       [attr.aria-label]="providerName[p] + ' key'"
                       [placeholder]="'Starts with ' + providerPrefix[p]"
                     />
-                    <button type="submit" [disabled]="keyBusy()">Save</button>
+                    <button type="submit" class="primary" [disabled]="keyBusy()">Save</button>
                   </form>
                 }
               </li>

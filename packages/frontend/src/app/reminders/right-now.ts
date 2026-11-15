@@ -69,6 +69,7 @@ import { HomeLink } from '../home/home-link';
       line-height: 1;
       width: 40px;
       height: 40px;
+      padding: 0;
       border: 0;
       border-radius: 50%;
       color: var(--on-accent);

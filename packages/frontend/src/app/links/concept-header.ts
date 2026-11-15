@@ -453,6 +453,8 @@ const TYPES = [
       background: var(--chip-bg);
     }
     li button {
+      /* The browser's own padding, kept under the global set. */
+      padding: 1px 6px;
       border: 0;
       background: none;
       color: var(--quiet);
@@ -512,6 +514,7 @@ const TYPES = [
     }
     .done {
       font: inherit;
+      padding: 1px 6px;
       background: none;
       cursor: pointer;
       min-height: 32px;

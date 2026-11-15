@@ -64,7 +64,7 @@ import { NO_FOLDER, folderLine, folderName, showFolders, showSummaries } from '.
                 </label>
               }
             </fieldset>
-            <button type="submit" [disabled]="!newName().trim() || !picked().size">
+            <button type="submit" class="primary" [disabled]="!newName().trim() || !picked().size">
               Make the folder
             </button>
           </form>

@@ -1226,6 +1226,20 @@ of painting over it. Rows in Browse and meal slots show the plain words
 of the text, `plainText`, never the marks as typed; stored text is
 untouched.)
 
+**Buttons and tap targets (#286, 2026-11-15).** One button set, in
+`styles.css`: every `<button>` (and a file input's button) is the
+outline kind, themed from the tokens, with a focus ring and a disabled
+look; `.primary` fills it with the accent for the one main action of a
+form or screen; `.link` is text only in the accent, and `.quiet` the
+same in the quiet ink. A component's own rules still win where a
+control is deliberately different (the formatting toolbar, chips,
+tabs, Home's tiles, icon buttons). On a touch screen (`pointer:
+coarse`) every control takes a 44 by 44 px tap: buttons by their
+minimum size, and what keeps a small look (the text kinds, chips, the
+bar's More, Done and Snooze, `.touch-target`) by an invisible area
+around its box, grown only as far as it falls short. Mouse sizes stay
+as they were.
+
 **Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
 New (since 2026-11-15 New note, the icon beside the leaf, #272), From
 template (when there are templates) and List or Text (on a list).

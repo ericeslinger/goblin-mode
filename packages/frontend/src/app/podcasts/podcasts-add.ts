@@ -132,7 +132,11 @@ export const OPML_MAX_BYTES = 5 * 1024 * 1024;
             }
           </select>
         </label>
-        <button type="submit" class="follow" [disabled]="!reader.loaded() || !address().trim()">
+        <button
+          type="submit"
+          class="follow primary"
+          [disabled]="!reader.loaded() || !address().trim()"
+        >
           {{ chosen() ? 'Follow ' + chosen()!.title : 'Follow' }}
         </button>
       </form>

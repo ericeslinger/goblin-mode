@@ -30,6 +30,13 @@ describe('snippet', () => {
     expect(snippet(noteRecord('heavy', 't\nnew words'), 12)).toBe('new words');
   });
 
+  it('never shows an image address too long to read whole', () => {
+    const image = `![](data:image/png;base64,${'A'.repeat(5000)})`;
+    expect(snippet(noteRecord('data', `Clipped\nBefore ${image} after\nThe glaze held.`))).toBe(
+      'Before The glaze held.',
+    );
+  });
+
   it('is cut with an ellipsis', () => {
     const text = snippet(noteRecord('a', `t\n${'x'.repeat(200)}`), 10);
     expect(text).toBe(`${'x'.repeat(9)}…`);

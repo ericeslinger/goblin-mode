@@ -285,6 +285,8 @@ const FORMAT_ACTIONS: FormatAction[] = FORMAT_GROUPS.flatMap((item) =>
     .tools button {
       min-width: 32px;
       min-height: 32px;
+      /* The browser's own padding, kept under the global set. */
+      padding: 1px 6px;
       font: inherit;
       color: var(--ink);
       background: var(--surface);

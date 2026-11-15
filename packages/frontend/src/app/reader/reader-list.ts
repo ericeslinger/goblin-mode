@@ -326,9 +326,6 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
       background: var(--surface);
       border-top: 1px solid var(--rule);
     }
-    .status button {
-      min-height: 32px;
-    }
     .summary {
       font-size: 14px;
       display: -webkit-box;

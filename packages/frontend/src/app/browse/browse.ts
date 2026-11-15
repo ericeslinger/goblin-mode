@@ -59,6 +59,7 @@ import { HomeLink } from '../home/home-link';
       <nav aria-label="Lenses">
         @for (l of lenses(); track l.id) {
           <a
+            class="touch-target"
             [routerLink]="l.id === 'recent' ? '/browse' : ['/browse', l.id]"
             [attr.aria-current]="l.id === lens() ? 'page' : null"
             >{{ l.label }} <span class="count">{{ l.count }}</span></a
@@ -137,6 +138,13 @@ import { HomeLink } from '../home/home-link';
     nav a[aria-current='page'] {
       border-color: var(--accent);
       background: var(--chip-bg);
+    }
+    /* A chip keeps its size and reaches 44 px through its tap area
+       (styles.css, 2026-11-15); the rows part by what that adds. */
+    @media (pointer: coarse) {
+      nav {
+        row-gap: 16px;
+      }
     }
     .count {
       color: var(--quiet);

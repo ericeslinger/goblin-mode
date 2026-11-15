@@ -33,10 +33,10 @@ export const PANEL_ITEMS = 3;
       </ul>
     }
     @if (more() > 0) {
-      <a routerLink="/right-now" class="more">{{ more() }} more</a>
+      <a routerLink="/right-now" class="more touch-target">{{ more() }} more</a>
     }
     @if (reading.waited().length; as waited) {
-      <a routerLink="/reading" class="waited"
+      <a routerLink="/reading" class="waited touch-target"
         >{{ waited === 1 ? '1 thing' : waited + ' things' }} saved to read a week ago or more</a
       >
     }
@@ -85,6 +85,12 @@ export const PANEL_ITEMS = 3;
       display: inline-block;
       margin-top: 8px;
       color: var(--accent);
+    }
+    /* Room for both links' 44 px tap areas (2026-11-15). */
+    @media (pointer: coarse) {
+      .more + .waited {
+        margin-top: 22px;
+      }
     }
   `,
 })

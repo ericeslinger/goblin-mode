@@ -67,12 +67,15 @@ const LATER_MS = 60 * 60 * 1000;
         @for (s of slots(); track s.line) {
           <li [class.today]="s.date === today()">
             <div class="row">
-              <input
-                type="checkbox"
-                [checked]="s.made"
-                [attr.aria-label]="'Made ' + label(s)"
-                (change)="tick(s, $any($event.target).checked)"
-              />
+              <!-- Its tap area on a touch screen (2026-11-15). -->
+              <label class="tick">
+                <input
+                  type="checkbox"
+                  [checked]="s.made"
+                  [attr.aria-label]="'Made ' + label(s)"
+                  (change)="tick(s, $any($event.target).checked)"
+                />
+              </label>
               <span class="when">{{ label(s) }}</span>
               @if (editing() === s.line) {
                 <span class="edit">
@@ -186,14 +189,32 @@ const LATER_MS = 60 * 60 * 1000;
       min-width: 6.5em;
       color: var(--quiet);
     }
+    /* The text kind is global (styles.css); here it is underlined. */
     .link {
-      font: inherit;
-      color: var(--accent);
-      background: none;
-      border: 0;
-      padding: 0;
       text-decoration: underline;
-      cursor: pointer;
+    }
+    .tick {
+      display: contents;
+    }
+    /* A 22 px box in a 44 px tap area that takes no more room than the
+       box does (2026-11-15). */
+    @media (pointer: coarse) {
+      .tick {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        /* Short of the gap on the right, so the day's name does not
+           cover the area's edge. */
+        margin: -11px -8px -11px -11px;
+        cursor: pointer;
+      }
+      .tick input {
+        width: 22px;
+        height: 22px;
+        margin: 0;
+      }
     }
     .what {
       font: inherit;
@@ -236,6 +257,12 @@ const LATER_MS = 60 * 60 * 1000;
     .muted {
       color: var(--quiet);
     }
+    /* Suggestions part by what their tap areas add (2026-11-15). */
+    @media (pointer: coarse) {
+      .ideas {
+        row-gap: 24px;
+      }
+    }
   `,
 })
 export class MealPlanHeader {
@@ -251,10 +278,10 @@ export class MealPlanHeader {
   private readonly reminders = inject(RemindersService);
   private readonly now = inject(NOW);
 
-  /** Shown, never stored: the text stays as typed (#285). */
   /**
-   * A slot's plain words, kept per text: the header redraws with every
-   * keystroke in a plan note, and a week's slots rarely change.
+   * A slot's plain words, shown, never stored: the text stays as typed
+   * (#285). Kept per text: the header redraws with every keystroke in a
+   * plan note, and a week's slots rarely change.
    */
   protected readonly plain = (text: string): string => {
     let known = this.plainOf.get(text);

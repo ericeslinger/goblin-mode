@@ -204,7 +204,7 @@ export function renamedFolder(names: readonly string[]): string {
             <option [value]="name"></option>
           }
         </datalist>
-        <button type="submit" [disabled]="!reader.loaded()">Follow</button>
+        <button type="submit" class="primary" [disabled]="!reader.loaded()">Follow</button>
         <button type="button" [disabled]="!reader.loaded() || finding()" (click)="find()">
           Find feeds
         </button>
@@ -297,7 +297,6 @@ export function renamedFolder(names: readonly string[]): string {
     .retry {
       grid-column: 2;
       align-self: center;
-      min-height: 32px;
     }
     .remove {
       grid-row: 1 / span 4;
@@ -311,7 +310,6 @@ export function renamedFolder(names: readonly string[]): string {
     .find {
       grid-column: 1;
       justify-self: start;
-      min-height: 32px;
     }
     .candidates li {
       display: grid;
@@ -327,7 +325,6 @@ export function renamedFolder(names: readonly string[]): string {
       grid-column: 2;
       grid-row: 1 / span 2;
       align-self: center;
-      min-height: 32px;
     }
   `,
 })

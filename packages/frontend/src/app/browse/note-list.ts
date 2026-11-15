@@ -45,7 +45,7 @@ function readSnippet(body: string, length: number): string {
     let size = 0;
     let at = from;
     while (at < lines.length && size <= most) {
-      const line = lines[at++]!.slice(0, LINE_READ);
+      const line = cutLine(lines[at++]!);
       taken.push(line);
       size += line.length;
     }
@@ -55,6 +55,21 @@ function readSnippet(body: string, length: number): string {
   // Lines that were all markup (an image with no alt) gave no words: read on.
   const rest = first.text || take(first.next, FURTHER).text;
   return rest.length > length ? `${rest.slice(0, length - 1)}…` : rest;
+}
+
+/**
+ * A line to at most LINE_READ characters. A cut that lands inside an
+ * image or link (a pasted `data:` address) drops it from its opening
+ * mark, so the address never shows as words.
+ */
+function cutLine(line: string): string {
+  if (line.length <= LINE_READ) return line;
+  const cut = line.slice(0, LINE_READ);
+  const open = cut.lastIndexOf('](');
+  if (open < 0 || cut.indexOf(')', open) >= 0) return cut;
+  const start = cut.lastIndexOf('[', open);
+  if (start < 0) return cut.slice(0, open);
+  return cut.slice(0, start > 0 && cut[start - 1] === '!' ? start - 1 : start);
 }
 
 function words(text: string): string {
