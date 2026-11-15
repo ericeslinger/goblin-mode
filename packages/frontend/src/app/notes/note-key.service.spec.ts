@@ -219,6 +219,22 @@ describe('NoteKeyService (note encryption step 2)', () => {
     expect(keys.unconfigured()).toBe(false);
   });
 
+  it('gives up on a 503 body that never arrives, and asks again (2026-11-15)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const stalled = (): Response =>
+      ({ status: 503, ok: false, text: () => new Promise<string>(() => undefined) }) as Response;
+    let reply = stalled;
+    const { api, signIn, keys, bytes } = setup(async () => reply());
+    signIn(gardener('u1'));
+    // The ask settles as a failure once the wait for the body is over.
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(keys.unconfigured()).toBe(false);
+    reply = () => answer(5);
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(bytes()).toBe(raw(5)));
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('clears what the old sealing switch left on the device, at sign-in and sign-out', async () => {
     const { signIn } = setup(undefined, {
       stored: { 'goblin.sealNotes.u1': 'on', 'goblin.sealNotes.u2': 'off' },

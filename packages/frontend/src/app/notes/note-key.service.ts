@@ -201,11 +201,24 @@ export class NoteKeyService {
   }
 }
 
-/** A refusal's plain-text body, trimmed; empty when it cannot be read. */
+/** How long a refusal's body may take before it is given up on. */
+const BODY_WAIT_MS = 2000;
+
+/**
+ * A refusal's plain-text body, trimmed; empty when it cannot be read
+ * or does not arrive within BODY_WAIT_MS, so a stalled body never
+ * keeps the ask from settling (and from being tried again).
+ */
 async function bodyOf(res: Response): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return (await res.text()).trim();
+    const late = new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve(''), BODY_WAIT_MS);
+    });
+    return (await Promise.race([res.text(), late])).trim();
   } catch {
     return '';
+  } finally {
+    clearTimeout(timer);
   }
 }

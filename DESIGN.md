@@ -4532,7 +4532,8 @@ a request the browser marks as cross-site or same-site. Without the
 master both answer 503; the app carries on without a key. (Changed
 2026-11-15, Always sealed, below: without a key the app keeps what is
 typed on the device and saves nothing, so the master is required, and a
-503 is said as the service not being set up.)
+503 is said as the service not being set up; since corrected to the
+Worker's own 503 alone, Running your own, below.)
 
 *The app* (`NoteKeyService`, started at launch with the other root
 services) asks once a load when a gardener is signed in and online,
