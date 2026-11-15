@@ -939,6 +939,29 @@ A record the SDK refuses outright on replay is dropped, and the doc
 is listened to all the same (review on #259). Storage missing or
 refused, writes go unkept, as before.
 
+*Snapshots older than a choice (#278, 2026-11-15).* The SDK hands a
+snapshot to the listener a task after making it, so one made before a
+tap can be heard just after it. Once a write is made, every snapshot
+carries it as this device's own until the server answers, and the
+answer settles the write before its snapshot is heard; so a snapshot
+not this device's own, heard while one of its writes is
+unacknowledged, is older than that write. `ModulesService`,
+`KeysService` and `SealingService` already passed those over and
+`ReaderService` shows its unheard changes over them; `ThemeSync` did
+not. On a page just loaded, the cached doc heard just after a mode tap
+showed the old mode until the write was answered (a flicker, and the
+journey's flake), and heard between a theme tap and a mode tap it put
+the old theme back, which the mode's write, composed from what was
+showing, then saved for good on every device; Start on and Home's
+tiles, in the same doc, could go the same way. `ThemeSync` now passes
+them over too, counting only the current gardener's writes; offline,
+another device's choice then waits until this device's writes reach
+the server, as it does for the modules. The kept
+write replayed on a quick reload is made before the listen, so it
+needs no count. The every-ordering spec walks each ordering of the
+listen, the server's first answer, the taps, the echoes and the
+answers on a page just loaded (`theme-sync.orderings.spec.ts`).
+
 **Lists and search.** One live listener on the user's whole `notes`
 collection, newest first, feeds Recent, Previous note and search; one
 person's notes are small enough, and the cache answers it offline.
@@ -2963,7 +2986,9 @@ Bog Goblin and Pixel Mossling, each light and dark.
   are the schema's `ThemeId`, so the rules and the app agree).
   `ThemeSync` listens to it once signed in and adopts what another
   device chose (never the echo of its own pending write, which could
-  briefly undo a newer choice); a choice made here is written through
+  briefly undo a newer choice, nor, since 2026-11-15 (#278), any
+  snapshot heard while a write of its own is unacknowledged, which was
+  made before that write); a choice made here is written through
   the persistent cache, never awaited. The device keeps its last choice under
   `goblin.theme` so the first paint is right before auth and offline.
   When there is no doc yet, a device that holds a choice uploads it;
