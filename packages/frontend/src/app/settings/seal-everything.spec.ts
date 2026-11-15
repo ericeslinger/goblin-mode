@@ -192,6 +192,52 @@ describe('Seal everything now', () => {
   });
 });
 
+describe('a pass the server stopped', () => {
+  it('says the key could not be fetched, and carries on from where it stopped', async () => {
+    answers = [ok(report(true, { sealed: counts(3) }))];
+    const { el, settle, button, progress } = await render();
+    button('Seal everything now')!.click();
+    await settle();
+    answers = [
+      async () => ({
+        done: false,
+        cursor: { kind: 'notes', after: 'n2' },
+        stopped: { reason: 'no-key' },
+        report: report(false, { sealed: counts(2) }),
+      }),
+    ];
+    button('Seal them now')!.click();
+    await settle();
+    expect(progress().textContent).toContain(
+      'The note key could not be fetched, so the pass stopped. Nothing was harmed. Try again in a few minutes',
+    );
+    expect(el.textContent).not.toContain('could not be opened with your key');
+    answers = [ok(report(false, { sealed: counts(1) })), ok(report(true))];
+    button('Carry on')!.click();
+    await new Promise((r) => setTimeout(r));
+    await settle();
+    expect(asked.at(-2)).toEqual({ dryRun: false, cursor: { kind: 'notes', after: 'n2' } });
+    const done = el.querySelector('ul[aria-label="What sealing everything did"]')!;
+    expect(done.textContent).toContain('Sealed 3 notes.');
+  });
+
+  it('names an error that came again and again', async () => {
+    answers = [
+      async () => ({
+        done: false,
+        cursor: { kind: 'notes' },
+        stopped: { reason: 'repeated-failure', error: 'Error (7)' },
+        report: report(true),
+      }),
+    ];
+    const { settle, button, progress } = await render();
+    button('Seal everything now')!.click();
+    await settle();
+    expect(progress().textContent).toContain('failed the same way again and again (Error (7))');
+    expect(button('Carry on')).toBeDefined();
+  });
+});
+
 describe('the words', () => {
   it('ask to keep the page open, and never say the server carries on alone', async () => {
     answers = [ok(report(true, { sealed: counts(1) }))];

@@ -3,6 +3,7 @@ import {
   SEAL_COUNTED,
   type SealCounted,
   type SealLeftReason,
+  type SealCursor,
   type SealPass,
   type SealReport,
   type SealRequest,
@@ -41,7 +42,38 @@ export const SEAL_ALL_API = new InjectionToken<SealAllApi>('seal-all-api', {
   },
 });
 
-type Phase = 'idle' | 'counting' | 'counted' | 'sealing' | 'checking' | 'done' | 'stopped';
+type Phase =
+  'idle' | 'counting' | 'counted' | 'sealing' | 'checking' | 'done' | 'stopped' | 'paused';
+
+/** Where a pass the server stopped can go on from (review on #277). */
+interface Paused {
+  during: 'count' | 'seal' | 'check';
+  cursor?: SealCursor;
+  /** What was done before it stopped, to add the rest to. */
+  report: SealReport;
+  /** The pass's report, for a check that stopped. */
+  done?: SealReport;
+}
+
+/** The server stopped a pass for a reason of the whole pass, not of one note. */
+class ServerStopped extends Error {
+  constructor(
+    readonly stopped: NonNullable<SealPass['stopped']>,
+    readonly cursor: SealCursor | undefined,
+    readonly report: SealReport,
+  ) {
+    super(stopped.reason);
+  }
+}
+
+/** What the page says when the server stopped a pass, in plain words. */
+export function stoppedLine(stopped: NonNullable<SealPass['stopped']>): string {
+  const rest =
+    'Nothing was harmed. Try again in a few minutes: Carry on picks up where it stopped.';
+  return stopped.reason === 'no-key'
+    ? `The note key could not be fetched, so the pass stopped. ${rest}`
+    : `The server failed the same way again and again${stopped.error ? ` (${stopped.error})` : ''}, so the pass stopped rather than go through every note. ${rest}`;
+}
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -210,6 +242,12 @@ function replacedLines(r: SealReport): string[] {
         </ul>
         <button type="button" (click)="count()">Check again</button>
       }
+      @case ('paused') {
+        <div class="actions">
+          <button type="button" (click)="carryOn()">Carry on</button>
+          <button type="button" (click)="reset()">Not now</button>
+        </div>
+      }
       @default {
         <button
           type="button"
@@ -246,11 +284,22 @@ export class SealEverything {
     return !!r && Object.values(r.sealed).some((n) => n > 0);
   });
 
-  /** Every pass a request needs, cursor to cursor, as one report. */
-  private async whole(dryRun: boolean, said: (report: SealReport) => string): Promise<SealReport> {
-    let pass = await this.api.pass({ dryRun });
-    let report = pass.report;
+  private paused?: Paused;
+
+  /**
+   * Every pass a request needs, cursor to cursor, as one report, from
+   * `from` when going on after a stop. A pass the server stopped throws
+   * ServerStopped with where to go on from.
+   */
+  private async whole(
+    dryRun: boolean,
+    said: (report: SealReport) => string,
+    from?: Paused,
+  ): Promise<SealReport> {
+    let pass = await this.api.pass(from?.cursor ? { dryRun, cursor: from.cursor } : { dryRun });
+    let report = from ? addSealReports(from.report, pass.report) : pass.report;
     while (!pass.done) {
+      if (pass.stopped) throw new ServerStopped(pass.stopped, pass.cursor, report);
       this.progress.set(said(report));
       pass = await this.api.pass({ dryRun, cursor: pass.cursor });
       report = addSealReports(report, pass.report);
@@ -258,13 +307,23 @@ export class SealEverything {
     return report;
   }
 
+  /** Goes on from where the server stopped. */
+  protected carryOn(): void {
+    const p = this.paused;
+    this.paused = undefined;
+    if (!p) return;
+    if (p.during === 'count') void this.count(p);
+    else if (p.during === 'seal') void this.seal(p);
+    else void this.check(p.done!, p);
+  }
+
   /** The dry run: counts, writes nothing. */
-  protected async count(): Promise<void> {
+  protected async count(from?: Paused): Promise<void> {
     this.phase.set('counting');
     this.found.set([]);
     this.progress.set('Counting what is not sealed yet…');
     try {
-      const report = await this.whole(true, () => 'Still counting…');
+      const report = await this.whole(true, () => 'Still counting…', from);
       this.counted.set(report);
       this.found.set(dryRunLines(report));
       this.phase.set('counted');
@@ -275,7 +334,7 @@ export class SealEverything {
   }
 
   /** The pass itself, then a dry run to check what is left. */
-  protected async seal(): Promise<void> {
+  protected async seal(from?: Paused): Promise<void> {
     this.phase.set('sealing');
     this.found.set([]);
     this.progress.set(
@@ -291,31 +350,46 @@ export class SealEverything {
               .map((k) => WHAT[k](r.sealed[k]))
               .join(', ') || 'nothing yet'
           }.`,
+        from,
       );
     } catch (err) {
       this.stopped(err, 'seal');
       return;
     }
+    await this.check(done);
+  }
+
+  /** The dry run after a pass, to say what is left. */
+  private async check(done: SealReport, from?: Paused): Promise<void> {
     this.phase.set('checking');
     this.progress.set('Sealed. Checking what is left…');
     try {
-      const check = await this.whole(true, () => 'Still checking…');
+      const check = await this.whole(true, () => 'Still checking…', from);
       this.found.set(summaryLines(done, check));
       this.phase.set('done');
       this.progress.set('Finished.');
     } catch (err) {
-      this.stopped(err, 'check');
+      this.stopped(err, 'check', done);
     }
   }
 
   protected reset(): void {
+    this.paused = undefined;
     this.phase.set('idle');
     this.found.set([]);
     this.counted.set(undefined);
     this.progress.set('');
   }
 
-  private stopped(err: unknown, during: 'count' | 'seal' | 'check'): void {
+  private stopped(err: unknown, during: Paused['during'], done?: SealReport): void {
+    if (err instanceof ServerStopped) {
+      // The whole pass's trouble (the key, the same error again and
+      // again): said plainly, with Carry on from where it stopped.
+      this.paused = { during, cursor: err.cursor, report: err.report, done };
+      this.phase.set('paused');
+      this.progress.set(stoppedLine(err.stopped));
+      return;
+    }
     this.phase.set('stopped');
     const code = (err as { code?: unknown } | null)?.code;
     const said = err instanceof Error ? err.message : '';

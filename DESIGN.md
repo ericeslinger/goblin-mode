@@ -5466,6 +5466,21 @@ has gone).
   as Firestore counts it, with each plain string grown to its sealed
   length (a third longer, as base64), past 1 MiB less 16 KiB. A body
   of about 790 kB or more is so left plain until Eric splits it.
+- *The pass's own failures stop it* (re-review on #277). Counted per
+  document, a key service that failed mid-pass would have read as
+  every later note "could not be opened", since a codec keeps a failed
+  ask. So an error that means the key could not be had (the codec's
+  no-key reason, the key client's errors) is no document's: the key is
+  asked for once more with a new codec, and if that fails too the pass
+  stops at once, the document left as stored and not counted, with a
+  cursor and `stopped: no-key`. Twenty documents in a row failing with
+  the same error name (permissions, quota, the database away) stop it
+  the same way (`repeated-failure`). The page says so plainly ("The
+  note key could not be fetched, so the pass stopped. Nothing was
+  harmed.") and offers Carry on from the cursor. A note whose text
+  does not open while the key is fine is still counted and skipped. A
+  cursor naming a reserved id (`__x__`) is refused like one with a
+  slash.
 - *In use, by age* (review on #277). Judged by status alone, a run or
   import left in progress by a lost function would have stayed plain
   for ever. Now only a recipe whose import was asked for in the last

@@ -25,7 +25,7 @@ import { runRequested } from '../agent/core';
 import { assignedOnWrite } from '../agent/assigned';
 import { itemRunId } from '../agent/items';
 import { gardenOnArrival } from '../agent/request';
-import { NoteCodec, sealingIn } from '../mcp/note-text';
+import { NoteCodec, SealedNoteError, sealingIn } from '../mcp/note-text';
 import { NotesTools } from '../mcp/tools';
 import { putBack } from '../putback/firestore';
 import { keyOf, refileNames } from '../organize/proposals';
@@ -1267,5 +1267,136 @@ describe('a cursor', () => {
         /not one this pass gave/,
       );
     }
+  });
+});
+
+// ---- What is the pass's fault, not a document's (re-review on #277) ----
+
+/** As failingAt, for every document whose path passes `test`. */
+function failingWhere(test: (path: string) => boolean, fail: (path: string) => unknown) {
+  const db = fakeDb(store);
+  const run = db.runTransaction.bind(db);
+  (db as { runTransaction: typeof run }).runTransaction = ((fn: Parameters<typeof run>[0]) =>
+    run(async (tx) => {
+      const get = tx.get.bind(tx);
+      (tx as { get: typeof get }).get = ((target: Parameters<typeof get>[0]) => {
+        const path = (target as { path?: string }).path;
+        if (path && test(path)) throw fail(path);
+        return get(target);
+      }) as typeof get;
+      return fn(tx);
+    })) as typeof run;
+  return db;
+}
+
+const notesNamed = (n: number) => {
+  sealingOn();
+  const ids = Array.from({ length: n }, (_, i) => `n${String(i).padStart(2, '0')}`);
+  for (const id of ids) store.set(notePath(id), note(`Words of ${id}`));
+  return ids;
+};
+
+describe('a failure of the whole pass', () => {
+  it('stops at once when the key cannot be had, with a cursor, counting nothing as unopenable', async () => {
+    notesNamed(5);
+    // The key gone after the first two notes: every later one says no key.
+    const db = failingWhere(
+      (p) => p > notePath('n01') && p.startsWith(`${base}/notes/`),
+      (p) => new SealedNoteError(p.split('/').pop()!, 'no-key'),
+    );
+    const renew = vi.fn(() => new NoteCodec(UID, keyFor, sealingIn(db, UID)));
+    const first = await sealAllPass(
+      deps({ db, codec: new NoteCodec(UID, keyFor, sealingIn(db, UID)), renew }),
+    );
+    expect(first.done).toBe(false);
+    expect(first.stopped).toEqual({ reason: 'no-key' });
+    expect(first.cursor).toEqual({ kind: 'notes', after: 'n01' });
+    // Asked again once, with a new codec, before stopping.
+    expect(renew).toHaveBeenCalledTimes(1);
+    expect(first.report.left.notes).toEqual({});
+    expect(first.report.sealed.notes).toBe(2);
+    expect(store.get(notePath('n02'))!['body']).toBe('Words of n02');
+    // Later, with the key back, it carries on from there and finishes.
+    const next = await sealAllPass(deps(), first.cursor);
+    expect(next.done).toBe(true);
+    expect(next.report.sealed.notes).toBe(3);
+    for (const id of ['n00', 'n01', 'n02', 'n03', 'n04']) {
+      expect(isSealed(store.get(notePath(id))!['body'])).toBe(true);
+    }
+  });
+
+  it('carries on when asking for the key again works', async () => {
+    notesNamed(3);
+    let asks = 0;
+    const flaky = vi.fn(async (uid: string) => {
+      if (asks++ === 0) throw new NoteKeysUnconfigured('a moment');
+      return keyFor(uid);
+    });
+    const db = fakeDb(store);
+    const pass = await sealAllPass(
+      deps({
+        db,
+        codec: new NoteCodec(UID, flaky, sealingIn(db, UID)),
+        renew: () => new NoteCodec(UID, flaky, sealingIn(db, UID)),
+      }),
+    );
+    expect(pass.done).toBe(true);
+    expect(pass.stopped).toBeUndefined();
+    expect(pass.report.sealed.notes).toBe(3);
+    expect(pass.report.left.notes).toEqual({});
+  });
+
+  it('stops after twenty documents in a row fail the same way', async () => {
+    notesNamed(30);
+    const db = failingWhere(
+      (p) => p.startsWith(`${base}/notes/`) && !p.includes('/history'),
+      () => new BoomError('x'),
+    );
+    const pass = await sealAllPass(
+      deps({ db, codec: new NoteCodec(UID, keyFor, sealingIn(db, UID)) }),
+    );
+    expect(pass.done).toBe(false);
+    expect(pass.stopped).toEqual({ reason: 'repeated-failure', error: 'BoomError' });
+    expect(pass.cursor).toEqual({ kind: 'notes', after: 'n18' });
+    expect(pass.report.left.notes).toEqual({ failed: 19 });
+    expect(store.get(notePath('n29'))!['body']).toBe('Words of n29');
+  });
+
+  it('goes on through failures that are scattered', async () => {
+    notesNamed(30);
+    const db = failingWhere(
+      (p) => /\/notes\/n\d[13579]$/.test(p),
+      () => new BoomError('x'),
+    );
+    const pass = await sealAllPass(
+      deps({ db, codec: new NoteCodec(UID, keyFor, sealingIn(db, UID)) }),
+    );
+    expect(pass.done).toBe(true);
+    expect(pass.stopped).toBeUndefined();
+    expect(pass.report.left.notes).toEqual({ failed: 15 });
+    expect(pass.report.sealed.notes).toBe(15);
+  });
+
+  it('still skips and counts one note that does not open while the key is fine', async () => {
+    notesNamed(3);
+    store.set(
+      notePath('n01'),
+      note(seal('n01', 'body', 'Elsewhere', newDataKey()), { title: 'Plain title' }),
+    );
+    const db = fakeDb(store);
+    const renew = vi.fn(() => new NoteCodec(UID, keyFor, sealingIn(db, UID)));
+    const pass = await sealAllPass(
+      deps({ db, codec: new NoteCodec(UID, keyFor, sealingIn(db, UID)), renew }),
+    );
+    expect(pass.done).toBe(true);
+    expect(pass.report.left.notes).toEqual({ 'cannot-open': 1 });
+    expect(pass.report.sealed.notes).toBe(2);
+    expect(renew).not.toHaveBeenCalled();
+  });
+
+  it('refuses a cursor naming a reserved id', () => {
+    expect(() =>
+      sealRequestOf({ dryRun: true, cursor: { kind: 'notes', after: '__name__' } }),
+    ).toThrow(/not one this pass gave/);
   });
 });

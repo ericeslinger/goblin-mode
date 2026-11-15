@@ -47,12 +47,14 @@ export function sealRequestOf(data: unknown): { dryRun: boolean; cursor?: SealCu
   const c = d.cursor as { kind?: unknown; after?: unknown };
   const kind = SEAL_KINDS.find((k) => k === c.kind);
   // A document id: no slash, no more than Firestore's 1500 bytes, not
-  // `.` or `..` (review on #277: a slash made Firestore throw).
+  // `.`, `..` or reserved (`__x__`) (review on #277: a slash made
+  // Firestore throw).
   const id = (a: unknown): a is string =>
     typeof a === 'string' &&
     a !== '' &&
     a !== '.' &&
     a !== '..' &&
+    !/^__.*__$/.test(a) &&
     !a.includes('/') &&
     new TextEncoder().encode(a).length <= 1500;
   if (!kind || (c.after !== undefined && !id(c.after))) {
@@ -106,6 +108,8 @@ export async function sealEverythingFor(
       {
         db,
         codec: new NoteCodec(uid, keyFor, sealingIn(db, uid)),
+        // Asked again with a new codec when the key fails mid-pass.
+        renew: () => new NoteCodec(uid, keyFor, sealingIn(db, uid)),
         uid,
         dryRun: request.dryRun,
         deadline: start + budgetMs,

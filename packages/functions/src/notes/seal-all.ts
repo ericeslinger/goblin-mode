@@ -54,6 +54,7 @@ import {
   storedText,
 } from '../mcp/note-text';
 import { NotVerified, type SealedUnit, sealRun } from '../agent/seal-runs';
+import { NoteKeyServiceError, NoteKeysUnconfigured } from '../note-keys/client';
 import { logger } from 'firebase-functions/v2';
 
 type Data = Record<string, unknown>;
@@ -152,6 +153,39 @@ export interface SealAllDeps {
   stillOn: () => Promise<boolean>;
   /** Where a document left as stored is said: its kind, id, reason and error name, never text. */
   log?: (message: string, fields: Record<string, unknown>) => void;
+  /**
+   * A new codec for the same gardener, so the key is asked for again:
+   * a codec keeps a failed ask for good. Used once a pass, when the key
+   * could not be had (review on #277).
+   */
+  renew?: () => NoteCodec;
+}
+
+/** How many documents in a row failing with the same error stop the pass. */
+export const SAME_FAILURES_STOP = 20;
+
+/**
+ * Something wrong with the whole pass, not with one document (review on
+ * #277): the key could not be had, or the same error again and again.
+ * The pass stops where it is, with a cursor, rather than count every
+ * later document as if it were the document's fault.
+ */
+export class PassStopped extends Error {
+  override readonly name = 'PassStopped';
+  /** The last document id done in the kind it stopped in. */
+  at?: string;
+  constructor(
+    readonly reason: 'no-key' | 'repeated-failure',
+    readonly error?: string,
+  ) {
+    super(reason);
+  }
+}
+
+/** A pass under way: its deps, the codec now in use, and what has failed in a row. */
+interface Run extends SealAllDeps {
+  renewed: boolean;
+  same: { name: string; n: number };
 }
 
 /** The switch went off while a pass was running: it stopped where it was. */
@@ -163,22 +197,53 @@ export class SealingTurnedOff extends Error {
  * One pass, from `cursor` (the start when absent) until everything is
  * done or the deadline is reached; then the cursor to go on from.
  */
-export async function sealAllPass(deps: SealAllDeps, cursor?: SealCursor): Promise<SealPass> {
+export async function sealAllPass(given: SealAllDeps, cursor?: SealCursor): Promise<SealPass> {
+  const deps: Run = { ...given, renewed: false, same: { name: '', n: 0 } };
   const report = emptySealReport(deps.dryRun);
   const start = cursor ? SEAL_KINDS.indexOf(cursor.kind) : 0;
   for (let k = Math.max(0, start); k < SEAL_KINDS.length; k++) {
     const kind = SEAL_KINDS[k];
-    let after = k === start ? cursor?.after : undefined;
+    const after = k === start ? cursor?.after : undefined;
+    let outOfTime: SealCursor | undefined;
+    try {
+      outOfTime = await sealKind(deps, kind, after, report);
+    } catch (err) {
+      if (!(err instanceof PassStopped)) throw err;
+      // Where it stopped: the document in hand, and the page it was on,
+      // are done again from here, which a sealed value makes harmless.
+      return {
+        done: false,
+        cursor: { kind, ...(err.at !== undefined ? { after: err.at } : {}) },
+        report,
+        stopped: { reason: err.reason, ...(err.error ? { error: err.error } : {}) },
+      };
+    }
+    if (outOfTime) return { done: false, cursor: outOfTime, report };
+  }
+  return { done: true, report };
+}
+
+/**
+ * One kind's pages from `start`. Returns the cursor to go on from when
+ * the deadline came first; a PassStopped carries in `at` the last id
+ * done, to go on from.
+ */
+async function sealKind(
+  deps: Run,
+  kind: SealKind,
+  start: string | undefined,
+  report: SealReport,
+): Promise<SealCursor | undefined> {
+  let after = start;
+  try {
     for (;;) {
-      if (deps.now() > deps.deadline) return { done: false, cursor: { kind, after }, report };
+      if (deps.now() > deps.deadline) return { kind, after };
       if (!(await deps.stillOn())) throw new SealingTurnedOff();
       const page = await pageOf(deps, kind, after);
       if (!page.length) break;
       if (kind === 'notes') {
         for (const id of page) {
-          if (deps.now() > deps.deadline) {
-            return { done: false, cursor: { kind, after }, report };
-          }
+          if (deps.now() > deps.deadline) return { kind, after };
           await sealNoteWhole(deps, id, report);
           after = id;
         }
@@ -190,8 +255,11 @@ export async function sealAllPass(deps: SealAllDeps, cursor?: SealCursor): Promi
       }
       if (page.length < (kind === 'notes' ? NOTE_PAGE : RECORD_PAGE)) break;
     }
+  } catch (err) {
+    if (err instanceof PassStopped) err.at = after;
+    throw err;
   }
-  return { done: true, report };
+  return undefined;
 }
 
 const COLLECTION: Record<SealKind, (uid: string) => string> = {
@@ -204,7 +272,7 @@ const COLLECTION: Record<SealKind, (uid: string) => string> = {
 const counted = (kind: SealKind): SealCounted => kind;
 
 /** The next page of document ids in `kind`, in id order, ids only. */
-async function pageOf(deps: SealAllDeps, kind: SealKind, after?: string): Promise<string[]> {
+async function pageOf(deps: Run, kind: SealKind, after?: string): Promise<string[]> {
   return idsOf(
     deps.db.collection(COLLECTION[kind](deps.uid)),
     after,
@@ -220,13 +288,26 @@ async function idsOf(collection: Query, after: string | undefined, limit: number
 }
 
 /** Runs `fn` over `items`, AT_ONCE at a time. */
+/**
+ * Runs `fn` over `items`, AT_ONCE at a time. When one throws, no more
+ * are started, those under way finish, and then the first error is
+ * thrown, so nothing is still counting once the pass has answered.
+ */
 async function atOnce<T>(items: readonly T[], fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
+  let failed: { err: unknown } | undefined;
   await Promise.all(
     Array.from({ length: Math.min(AT_ONCE, items.length) }, async () => {
-      while (next < items.length) await fn(items[next++]);
+      while (!failed && next < items.length) {
+        try {
+          await fn(items[next++]);
+        } catch (err) {
+          failed ??= { err };
+        }
+      }
     }),
   );
+  if (failed) throw failed.err;
 }
 
 interface Unit extends SealedUnit {
@@ -247,17 +328,51 @@ function count(report: SealReport, what: SealCounted, unit: Unit): void {
   report.hashesUnkept += unit.unkept ?? 0;
 }
 
-function sealOne(deps: SealAllDeps, kind: Exclude<SealKind, 'notes'>, id: string) {
-  const { db, codec, uid, dryRun } = deps;
+function sealOne(deps: Run, kind: Exclude<SealKind, 'notes'>, id: string) {
+  const { db, uid, dryRun } = deps;
   const at = `${kind}/${id}`;
   switch (kind) {
     case 'suggestions':
-      return guarded(deps, at, () => sealSuggestion(db, codec, uid, id, dryRun));
+      return guarded(deps, at, (codec) => sealSuggestion(db, codec, uid, id, dryRun));
     case 'runs':
-      return guarded(deps, at, () => sealRun(db, codec, uid, id, dryRun));
+      return guarded(deps, at, (codec) => sealRun(db, codec, uid, id, dryRun));
     case 'activity':
-      return guarded(deps, at, () => relabelEntry(db, codec, uid, id, dryRun));
+      return guarded(deps, at, (codec) => relabelEntry(db, codec, uid, id, dryRun));
   }
+}
+
+/**
+ * Whether `err` means the gardener's key could not be had, which is no
+ * fault of the document it met: the codec's no-key reason, or the key
+ * client's own errors.
+ */
+function keyMissing(err: unknown): boolean {
+  if (err instanceof SealedNoteError || err instanceof SealedRecordError) {
+    return err.reason === 'no-key';
+  }
+  return err instanceof NoteKeysUnconfigured || err instanceof NoteKeyServiceError;
+}
+
+/**
+ * Counts a document's failure toward SAME_FAILURES_STOP, by its error
+ * (a `failed` one's name, or `contended`); anything else breaks the
+ * run. Throws PassStopped at the limit: the same error over and over is
+ * the pass's (permissions, quota, the database away), not each
+ * document's.
+ */
+function inARow(deps: Run, unit: Unit): void {
+  const name =
+    unit.result === 'failed'
+      ? (unit.failure ?? 'Error')
+      : unit.result === 'contended'
+        ? 'contended'
+        : '';
+  if (!name) {
+    deps.same = { name: '', n: 0 };
+    return;
+  }
+  deps.same = deps.same.name === name ? { name, n: deps.same.n + 1 } : { name, n: 1 };
+  if (deps.same.n >= SAME_FAILURES_STOP) throw new PassStopped('repeated-failure', name);
 }
 
 /** A Firestore error's code, numeric (gRPC) or named. */
@@ -296,27 +411,48 @@ function failureOf(err: unknown): Unit {
  * with it leaves it as stored, is counted under its reason and logged
  * by its id and the error's name, and the pass goes on to the next.
  */
-async function guarded(deps: SealAllDeps, at: string, work: () => Promise<Unit>): Promise<Unit> {
-  try {
-    return await work();
-  } catch (err) {
-    const unit = failureOf(err);
-    (deps.log ?? ((m, f) => logger.warn(m, f)))('sealEverything left a document as stored', {
-      at,
-      reason: unit.result,
-      ...(unit.failure ? { error: unit.failure } : {}),
-    });
+async function guarded(
+  deps: Run,
+  at: string,
+  work: (codec: NoteCodec) => Promise<Unit>,
+): Promise<Unit> {
+  for (;;) {
+    const codec = deps.codec;
+    let unit: Unit;
+    try {
+      unit = await work(codec);
+    } catch (err) {
+      if (keyMissing(err)) {
+        // Another document already asked again: try with that codec.
+        if (codec !== deps.codec) continue;
+        // Asked again once a pass, with a new codec, as the codec keeps
+        // a failed ask; then the pass stops, the document left as stored.
+        if (!deps.renewed && deps.renew) {
+          deps.renewed = true;
+          deps.codec = deps.renew();
+          continue;
+        }
+        throw new PassStopped('no-key');
+      }
+      unit = failureOf(err);
+      (deps.log ?? ((m, f) => logger.warn(m, f)))('sealEverything left a document as stored', {
+        at,
+        reason: unit.result,
+        ...(unit.failure ? { error: unit.failure } : {}),
+      });
+    }
+    inARow(deps, unit);
     return unit;
   }
 }
 
 /** A note, then its History versions, then its replaced texts counted. */
-async function sealNoteWhole(deps: SealAllDeps, id: string, report: SealReport): Promise<void> {
-  const { db, codec, uid, dryRun } = deps;
+async function sealNoteWhole(deps: Run, id: string, report: SealReport): Promise<void> {
+  const { db, uid, dryRun } = deps;
   count(
     report,
     'notes',
-    await guarded(deps, `notes/${id}`, () => sealNote(db, codec, uid, id, dryRun, deps.now())),
+    await guarded(deps, `notes/${id}`, (codec) => sealNote(db, codec, uid, id, dryRun, deps.now())),
   );
   const versions = db.collection(paths.history(uid, id));
   let after: string | undefined;
@@ -326,7 +462,7 @@ async function sealNoteWhole(deps: SealAllDeps, id: string, report: SealReport):
       count(
         report,
         'versions',
-        await guarded(deps, `notes/${id}/history/${v}`, () =>
+        await guarded(deps, `notes/${id}/history/${v}`, (codec) =>
           sealVersion(db, codec, uid, id, v, dryRun),
         ),
       ),
@@ -470,7 +606,9 @@ export async function sealNote(
     const base = stored['baseHash'];
     if (!plain.length && !plainHash(base)) return { result: 'already' };
     if (importJustAsked(stored, now)) return { result: 'busy' };
-    if (note.locked) return { result: 'cannot-open' };
+    // Locked: its own error, which says whether the key was missing (the
+    // pass's) or its text did not open (this note's).
+    if (note.locked) note.data();
     checkSealedSize(
       stored,
       plain.map((f) => fieldValue(stored, f)),

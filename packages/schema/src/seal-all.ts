@@ -83,6 +83,14 @@ export interface SealPass {
   done: boolean;
   cursor?: SealCursor;
   report: SealReport;
+  /**
+   * Why the pass stopped short of its time (review on #277): the
+   * gardener's key could not be had (`no-key`), or the same error came
+   * again and again (`repeated-failure`, its name in `error`). The
+   * document it was on is left as stored, and the cursor goes on from
+   * there.
+   */
+  stopped?: { reason: 'no-key' | 'repeated-failure'; error?: string };
 }
 
 /** An empty report. */
