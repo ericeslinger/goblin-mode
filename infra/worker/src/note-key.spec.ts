@@ -1,5 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { base64ToBytes, bytesToBase64, deriveNoteKey } from '../../../packages/schema/src/note-key';
+import {
+  NOTE_KEYS_NOT_CONFIGURED,
+  base64ToBytes,
+  bytesToBase64,
+  deriveNoteKey,
+} from '../../../packages/schema/src/note-key';
 import type { KeyLookup } from './id-token';
 import worker, { type Env } from './index';
 import { appNoteKey, noteKeyCallers, serviceAudience, serviceNoteKey } from './note-key';
@@ -167,6 +172,7 @@ describe('POST /api/note-key (note encryption step 2)', () => {
         deps(),
       );
       expect(res.status).toBe(503);
+      expect(await res.text()).toBe(NOTE_KEYS_NOT_CONFIGURED);
     }
     const res = await appNoteKey(
       ask({ authorization }),
@@ -174,6 +180,9 @@ describe('POST /api/note-key (note encryption step 2)', () => {
       deps(),
     );
     expect(res.status).toBe(503);
+    // The app says "not set up" for this body alone (2026-11-15).
+    expect(await res.text()).toBe(NOTE_KEYS_NOT_CONFIGURED);
+    expect(NOTE_KEYS_NOT_CONFIGURED).toBe('note keys are not configured');
   });
 
   it('answers POST only, and not to another site', async () => {

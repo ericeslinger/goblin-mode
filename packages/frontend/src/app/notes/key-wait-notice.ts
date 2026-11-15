@@ -3,9 +3,9 @@ import { NoteKeyService } from './note-key.service';
 
 /**
  * What the app says when the garden's note key service is not set up
- * (`/api/note-key` answered 503, 2026-11-15): a deployment whose owner
- * has not set its master. Not a connection to wait for, so it says
- * where its owner finds out how.
+ * (`/api/note-key` answered the Worker's own 503, 2026-11-15): a
+ * deployment whose owner has not set its master. Not a connection to
+ * wait for, so it says where its owner finds out how.
  */
 export const KEY_SERVICE_MISSING =
   "This garden's note key service is not set up yet, so nothing can be saved to it. " +

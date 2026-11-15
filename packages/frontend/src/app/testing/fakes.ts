@@ -96,7 +96,7 @@ export class FakeNotes {
           ...(id in this.heldBases() ? { base: this.heldBases()[id] } : {}),
         }
       : undefined;
-  /** The note key service answered 503: not set up (2026-11-15). */
+  /** The note key service answered its own 503: not set up (2026-11-15). */
   readonly keyServiceMissing = signal(false);
   private n = 0;
   readonly written = new Set<string>();

@@ -21,6 +21,7 @@
 // browser marks as cross-site or same-site is refused, as /share does.
 
 import {
+  NOTE_KEYS_NOT_CONFIGURED,
   NOTE_KEY_VERSION,
   bytesToBase64,
   deriveNoteKey,
@@ -109,7 +110,7 @@ export async function appNoteKey(
   if (fromAnotherSite(request)) return plain(403, 'not from another site');
   const master = masterFromBase64(env.NOTE_KEYS_MASTER);
   const projectId = env.FIREBASE_PROJECT_ID;
-  if (!master || !projectId) return plain(503, 'note keys are not configured');
+  if (!master || !projectId) return plain(503, NOTE_KEYS_NOT_CONFIGURED);
   const bearer = bearerOf(request);
   const uid = bearer ? await verifyIdToken(bearer, projectId, deps.keys, deps.now) : undefined;
   if (!uid) return plain(401, 'sign in first', { 'www-authenticate': 'Bearer' });
@@ -160,7 +161,7 @@ export async function serviceNoteKey(
   const audience = serviceAudience(env);
   const callers = noteKeyCallers(env);
   if (!master || !audience || callers.size === 0) {
-    return plain(503, 'note keys are not configured');
+    return plain(503, NOTE_KEYS_NOT_CONFIGURED);
   }
   const bearer = bearerOf(request);
   const email = bearer

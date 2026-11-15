@@ -214,8 +214,17 @@ only to replace that list (exact emails, comma-separated). The list is
 required too: the deploy stops before building when it can neither
 read the project number nor find the variable. With a wrong list the
 Worker refuses the functions, and they leave notes as they are (and
-write none) until it is right. Attachments, the links pages came from
-and reminder text are not sealed.
+write none) until it is right. Since Settings no longer checks the key
+(2026-11-15), a wrong list is easy to miss: the app reads and writes
+as usual, because its own route does not use the list, but the
+assistant and the MCP tools report notes as sealed, auto titles stop,
+and a note an out-of-date app wrote plain is not sealed on the server.
+To check, look in the functions' logs for `note key not available,
+sealed notes left closed (NoteKeyServiceError: the note key service
+answered 403)`: a 403 means the Worker refused the account, though
+neither side logs which one, so compare the list with the accounts
+above. Attachments, the links pages came from and reminder text are
+not sealed.
 
 To connect Claude, add a custom connector in claude.ai with the URL
 your app's Settings shows (`https://<APP_DOMAIN>/mcp`); only
