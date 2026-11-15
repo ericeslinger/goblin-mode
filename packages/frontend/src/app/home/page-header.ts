@@ -59,7 +59,9 @@ import { Icon } from './icon';
       flex: 0 1000000 auto;
       align-items: center;
       gap: 4px;
-      min-width: 0;
+      /* Never less than its chevron and a thumb's width: under a long
+         title the name is cut, the link is not. */
+      min-width: 44px;
       max-width: 40%;
       min-height: 44px;
       padding: 0 8px 0 0;

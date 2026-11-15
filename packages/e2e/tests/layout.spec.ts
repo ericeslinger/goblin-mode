@@ -347,8 +347,14 @@ async function expectPageHeader(page: Page, title: string, parent?: string): Pro
   await expect(header).toHaveCount(1);
   await expect(header.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
   const back = header.getByRole('link', { name: /^Back to / });
-  if (parent) await expect(back).toHaveAccessibleName(`Back to ${parent}`);
-  else await expect(back).toHaveCount(0);
+  if (parent) {
+    await expect(back).toHaveAccessibleName(`Back to ${parent}`);
+    // However long the title, the link keeps a thumb's width and
+    // stays clear of it.
+    const [link, heading] = [(await back.boundingBox())!, (await h1.boundingBox())!];
+    expect(link.width, `${title}: the back link`).toBeGreaterThanOrEqual(44);
+    expect(link.x + link.width, `${title}: the back link`).toBeLessThanOrEqual(heading.x + 0.5);
+  } else await expect(back).toHaveCount(0);
 
   const width = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
@@ -426,6 +432,8 @@ test.describe('on a narrow phone', () => {
     await signInAs(page, OWNER);
     const call = await connectClaude(page);
     const { id } = (await call('create_note', { body: 'Studio day\nclay' })) as { id: string };
+    const long = 'Glaze test notes for the celadon and the tenmoku';
+    const longNote = (await call('create_note', { body: `${long}\nclay` })) as { id: string };
 
     // The modules with a header of their own, on as other journeys do.
     await page.goto('/settings');
@@ -441,6 +449,7 @@ test.describe('on a narrow phone', () => {
       ['/reading', 'Reading queue'],
       ['/map', 'Map'],
       [`/map/n/${id}`, 'Around Studio day', 'Note'],
+      [`/map/n/${longNote.id}`, `Around ${long}`, 'Note'],
       [`/history?note=${id}`, 'History', 'Note'],
       ['/activity', 'What assistants changed'],
       ['/reader', 'Reader'],
