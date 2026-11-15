@@ -109,6 +109,12 @@ export interface AccessoryBar {
 export interface AccessoryBarOptions {
   /** How long a hold is; tests shorten it. */
   holdMs?: number;
+  /**
+   * Told when the bar shows or hides, which is when the on-screen
+   * keyboard opens or closes over the focused editor: the host can give
+   * the note the room (2026-11-15, #287).
+   */
+  onShow?: (shown: boolean) => void;
 }
 
 const STYLE_ID = 'mg-accessory-style';
@@ -206,9 +212,11 @@ export function createAccessoryBar(
   // Shown and hidden through style.display: an inline `display: flex`
   // would override the `hidden` attribute and keep the bar on screen.
   const show = (visible: boolean) => {
+    const changed = bar.hidden === visible;
     bar.hidden = !visible;
     bar.style.display = visible ? 'flex' : 'none';
     if (!visible) closeMenu();
+    if (changed) options.onShow?.(visible);
   };
   // A long press is a hold here, not a request for the context menu.
   bar.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -451,6 +459,7 @@ export function createAccessoryBar(
       editor.view.contentDOM.removeEventListener('blur', update);
       bar.remove();
       editor.setCoveredFrom(undefined);
+      if (!bar.hidden) options.onShow?.(false);
     },
   };
 }

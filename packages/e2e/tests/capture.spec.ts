@@ -1,5 +1,14 @@
 import { devices } from '@playwright/test';
-import { expect, letItSave, prepPage, signInAs, test, typeLines, openMore } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  openFromMore,
+  prepPage,
+  signInAs,
+  test,
+  typeLines,
+  openMore,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const note = (page: import('@playwright/test').Page) =>
@@ -45,11 +54,9 @@ test('back after a long while the note is still open; New note starts another, P
   await expectEmpty(page);
   await expect(note(page)).toBeFocused();
 
-  await page.getByRole('button', { name: 'Previous note' }).click();
-  await page
-    .getByRole('list', { name: 'Previous notes' })
-    .getByRole('button', { name: 'An old thought' })
-    .click();
+  // In More since 2026-11-15 (#287).
+  const previous = await openFromMore(page, 'Previous note');
+  await previous.getByRole('button', { name: 'An old thought' }).click();
   await expect(note(page)).toHaveText('An old thought');
 });
 

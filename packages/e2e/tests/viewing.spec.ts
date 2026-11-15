@@ -1,6 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  openFromMore,
+  openProjectHeader,
+  signInAs,
+  test,
+  typeLines,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Viewing (2026-10-17): View draws every line and takes no typing, so a
@@ -71,16 +79,19 @@ test('Projects opens a project from the note', async ({ page }) => {
   await expect(page).toHaveURL(/\/n\/c-pottery$/);
   const concept = page.getByRole('region', { name: 'Concept' });
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('project');
+  // A project's items fold to one line until opened (#287).
+  await openProjectHeader(page);
   await concept.getByRole('textbox', { name: 'Add a task' }).fill('Trim the bowls');
   await concept.getByRole('textbox', { name: 'Add a task' }).press('Enter');
   await letItSave(page);
 
   await page.getByRole('button', { name: 'New' }).click();
-  await page.getByRole('button', { name: 'Projects' }).click();
-  const projects = page.getByRole('list', { name: 'Projects' });
+  // In More since 2026-11-15 (#287).
+  const projects = await openFromMore(page, 'Projects');
   await expect(projects).toContainText(/Pottery\s*1 open/);
   await noSeriousViolations(page);
   await projects.getByRole('button', { name: /Pottery/ }).click();
   await expect(page).toHaveURL(/\/n\/c-pottery$/);
+  // Opened before, so still open here (#287).
   await expect(concept.getByRole('list', { name: 'Tasks' })).toContainText('Trim the bowls');
 });

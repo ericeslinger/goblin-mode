@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, openProjectHeader, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Stages and items (Eric, 2026-10-17): a project lists the stages its
@@ -34,6 +34,8 @@ test('pots move through pottery’s stages', async ({ page }) => {
   await concept.getByRole('textbox', { name: 'Add an item tag' }).press('Enter');
   await expect(concept.getByRole('list', { name: 'Item tags' })).toContainText('gift');
   await page.getByRole('button', { name: 'Front', exact: true }).click();
+  // The items fold to one line until opened (#287).
+  await openProjectHeader(page);
 
   for (const pot of ['Lovers vase', 'Wounded pot']) {
     await concept.getByRole('textbox', { name: 'Add a project in Pottery' }).fill(pot);
@@ -57,7 +59,8 @@ test('pots move through pottery’s stages', async ({ page }) => {
   const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 
-  // Kept: after a reload, and on the pot's own page.
+  // Kept: after a reload (the items still open, remembered on this
+  // device), and on the pot's own page.
   await letItSave(page);
   await page.reload();
   await expect(concept.getByRole('combobox', { name: 'Stage of Lovers vase' })).toHaveValue(

@@ -55,6 +55,9 @@ export interface NoteEditor {
    * Changes the text to `text` in place, touching only the span that
    * differs, so the cursor and selection stay where they were (a change
    * merged in from elsewhere, #37). Not reported as typing, not undoable.
+   * Into an empty editor (a saved note whose text arrives after the
+   * editor was drawn) the caret goes to the end, as `setText` puts it,
+   * not on line one (2026-11-15, #287); the view is not scrolled.
    */
   updateText(text: string): void;
   getMode(): Mode;
@@ -222,8 +225,16 @@ export function createNoteEditor(options: NoteEditorOptions): NoteEditor {
         doc[doc.length - 1 - end] === text[text.length - 1 - end]
       )
         end++;
+      const changes = view.state.changes({
+        from,
+        to: doc.length - end,
+        insert: text.slice(from, text.length - end),
+      });
       view.dispatch({
-        changes: { from, to: doc.length - end, insert: text.slice(from, text.length - end) },
+        changes,
+        // Nothing was shown, so there is no place to keep: the caret
+        // carries on at the end, and nothing asks for a scroll.
+        ...(doc.length === 0 ? { selection: EditorSelection.cursor(changes.newLength) } : {}),
         annotations: [loaded.of(true), Transaction.addToHistory.of(false)],
       });
     },

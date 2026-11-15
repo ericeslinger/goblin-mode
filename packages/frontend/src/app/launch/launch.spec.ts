@@ -117,9 +117,15 @@ describe('Launch', () => {
     const notes = new FakeNotes();
     notes.signIn([noteRecord('n1', 'Groceries\neggs'), noteRecord('n2', 'Call Vikas')]);
     const { el, fixture, url } = await render({ notes });
+    // In More since 2026-11-15 (#287), no longer a pill under the note.
+    expect(el.querySelector('.pills')).toBeNull();
+    await openMore(el, fixture);
     buttonNamed(el, 'Previous note')!.click();
     await fixture.whenStable();
+    expect(el.querySelector('#more-menu')).toBeNull();
     const list = el.querySelector('[aria-label="Previous notes"]')!;
+    // Its first item has the focus, for a keyboard.
+    expect(document.activeElement).toBe(list.querySelector('button'));
     expect(list.textContent).toContain('Groceries');
     buttonNamed(el, 'Call Vikas')!.click();
     await fixture.whenStable();
@@ -632,9 +638,11 @@ describe('Launch', () => {
       noteRecord('n1', 'Loose note'),
     ]);
     const { el, fixture } = await render({ notes });
+    await openMore(el, fixture);
     expect(buttonNamed(el, 'Projects')).toBeDefined();
     (TestBed.inject(ModulesService) as unknown as FakeModules).set('projects', false);
     await fixture.whenStable();
+    expect(el.querySelector('#more-menu')).not.toBeNull();
     expect(buttonNamed(el, 'Projects')).toBeUndefined();
   });
 
@@ -660,6 +668,7 @@ describe('Launch', () => {
       { id: 'r1', text: 'Mix glaze', status: 'open', noteId: 'c-glazes', createdBy: 'user' },
       { id: 'r2', text: 'Fired', status: 'done', noteId: 'c-glazes', createdBy: 'user' },
     ] as ReminderRecord[]);
+    await openMore(el, fixture);
     buttonNamed(el, 'Projects')!.click();
     await fixture.whenStable();
     const items = [...el.querySelectorAll('#project-list button')].map((b) =>
@@ -798,5 +807,147 @@ describe('Launch', () => {
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     await fixture.whenStable();
     expect(el.querySelector('#more-menu')).toBeNull();
+  });
+  it('holds Previous note and Projects in More, each opening its list (#287)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([
+      { ...noteRecord('c-pottery', 'Pottery'), kind: 'concept', conceptType: 'project' },
+      noteRecord('n1', 'Loose note'),
+    ]);
+    const { el, fixture } = await render({ notes, url: '/n/n1' });
+    await openMore(el, fixture);
+    const items = [...el.querySelectorAll('#more-menu li')].map((li) => li.textContent?.trim());
+    expect(items.slice(0, 2)).toEqual(['Previous note', 'Projects']);
+    buttonNamed(el, 'Projects')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('#project-list')?.textContent).toContain('Pottery');
+    // One list at a time; Escape or Close puts it away.
+    await openMore(el, fixture);
+    buttonNamed(el, 'Previous note')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('#project-list')).toBeNull();
+    const previous = el.querySelector('#previous-notes')!;
+    expect(previous.textContent).toContain('Pottery');
+    previous.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await fixture.whenStable();
+    expect(el.querySelector('#previous-notes')).toBeNull();
+    expect(document.activeElement).toBe(buttonNamed(el, 'More'));
+    await openMore(el, fixture);
+    buttonNamed(el, 'Projects')!.click();
+    await fixture.whenStable();
+    buttonNamed(el, 'Close')!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('#project-list')).toBeNull();
+  });
+
+  it('puts View, Back and More in the bar as named icons (#287)', async () => {
+    const notes = new FakeNotes();
+    notes.signIn([noteRecord('n1', 'Kiln day')]);
+    const { el, fixture } = await render({ notes, url: '/n/n1' });
+    for (const name of ['View', 'Back', 'More']) {
+      const button = buttonNamed(el, name)!;
+      expect(button.classList).toContain('icon-button');
+      expect(button.getAttribute('title')).toBe(name);
+      expect(button.querySelector('app-icon svg')).not.toBeNull();
+      // The name is words for a screen reader, not shown.
+      expect(button.querySelector('.visually-hidden')?.textContent?.trim()).toBe(name);
+    }
+    buttonNamed(el, 'Back')!.click();
+    await fixture.whenStable();
+    expect(buttonNamed(el, 'Front')?.getAttribute('title')).toBe('Front');
+    buttonNamed(el, 'Front')!.click();
+    await fixture.whenStable();
+    buttonNamed(el, 'View')!.click();
+    await fixture.whenStable();
+    expect(buttonNamed(el, 'Edit')?.getAttribute('title')).toBe('Edit');
+  });
+
+  describe('Right Now under a saved note (#287)', () => {
+    const due = (id: string, text: string, minutes = 1) =>
+      ({
+        id,
+        text,
+        status: 'open',
+        dueAt: Date.now() - minutes * 60_000,
+        createdBy: 'user',
+      }) as ReminderRecord;
+    const line = (el: HTMLElement) => el.querySelector<HTMLButtonElement>('.right-now button.line');
+
+    it('is one line saying how many are due and the first, opening to the panel', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([noteRecord('n1', 'Kiln day'), noteRecord('n2', 'Wheel day')]);
+      const { el, fixture, go } = await render({ notes, url: '/n/n1' });
+      const region = () => el.querySelector('section.right-now')!;
+      expect(region().getAttribute('aria-label')).toBe('Right Now');
+      // No handle, and no panel until the line is tapped.
+      expect(el.querySelector('[role="separator"]')).toBeNull();
+      expect(el.querySelector('app-right-now-panel')).toBeNull();
+      expect(line(el)!.textContent!.trim()).toBe('Right Now · Nothing to tend');
+      const reminders = TestBed.inject(RemindersService);
+      reminders.reminders.set([due('r1', 'Pick up glazed mugs', 5)]);
+      await fixture.whenStable();
+      expect(line(el)!.textContent!.trim()).toBe('1 due · Pick up glazed mugs');
+      reminders.reminders.set([due('r1', 'Pick up glazed mugs', 5), due('r2', 'Call Vikas', 1)]);
+      await fixture.whenStable();
+      expect(line(el)!.textContent!.trim()).toBe('2 due · Pick up glazed mugs');
+
+      expect(line(el)!.getAttribute('aria-expanded')).toBe('false');
+      expect(line(el)!.getAttribute('aria-controls')).toBe('right-now-sheet');
+      line(el)!.click();
+      await fixture.whenStable();
+      expect(line(el)!.getAttribute('aria-expanded')).toBe('true');
+      const sheet = el.querySelector('#right-now-sheet')!;
+      expect(sheet.querySelector('[aria-label="Done: Pick up glazed mugs"]')).not.toBeNull();
+      expect(sheet.querySelector('[aria-label="Snooze: Call Vikas"]')).not.toBeNull();
+      // The line again closes it.
+      line(el)!.click();
+      await fixture.whenStable();
+      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      // Escape closes it, back to the line.
+      line(el)!.click();
+      await fixture.whenStable();
+      el.querySelector('#right-now-sheet')!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      await fixture.whenStable();
+      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      expect(document.activeElement).toBe(line(el));
+      // A tap outside it closes it.
+      line(el)!.click();
+      await fixture.whenStable();
+      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      await fixture.whenStable();
+      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      // So does going to another note.
+      line(el)!.click();
+      await fixture.whenStable();
+      await go('/n/n2');
+      expect(el.querySelector('#right-now-sheet')).toBeNull();
+      expect(line(el)!.getAttribute('aria-expanded')).toBe('false');
+      // The capture screen keeps the panel and its handle.
+      await go('/');
+      expect(line(el)).toBeNull();
+      expect(el.querySelector('[role="separator"]')).not.toBeNull();
+      expect(el.querySelector('section.right-now')!.getAttribute('aria-labelledby')).toBe(
+        'right-now-title',
+      );
+    });
+  });
+
+  it('opens a saved note with the caret at its end, a new one at its start (#287)', async () => {
+    const notes = new FakeNotes();
+    const body = '# Pottery\n\nWheel day\nTrim the bowls';
+    // The text arrives after the editor is drawn, as on a cold start.
+    const { fixture, go } = await render({ notes, url: '/n/n1' });
+    const source = (TestBed.inject(LastPlaceService) as unknown as { source: PlaceSource }).source;
+    notes.signIn([noteRecord('n1', body), noteRecord('n2', 'Other\nnote')]);
+    await fixture.whenStable();
+    expect(source.read().caret).toBe(body.length);
+    // Not scrolled to it: the note opens at its top.
+    expect(source.read().top).toBeUndefined();
+    await go('/n/n2');
+    expect(source.read().caret).toBe('Other\nnote'.length);
+    await go('/');
+    expect(source.read().caret).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import {
   Component,
   DestroyRef,
+  type ElementRef,
   Injector,
   afterNextRender,
   computed,
@@ -9,6 +10,7 @@ import {
   signal,
   untracked,
   viewChild,
+  viewChildren,
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
@@ -34,12 +36,16 @@ import { NoteBack } from '../back/note-back';
 import { GroceryService } from '../kitchen/grocery.service';
 import { type KitchenTab, KitchenTabs } from '../kitchen/kitchen-tabs';
 import { HomeLink } from '../home/home-link';
+import { Icon } from '../home/icon';
 import { NewNoteService } from '../home/new-note';
 import { LastPlaceService } from './last-place.service';
 import { type Spot } from './place';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { ClippingHeader } from '../reader/clipping-header';
+import { ItemsService } from '../reader/items.service';
+import { PodcastsSeen } from '../podcasts/podcasts-seen';
+import { rightNowLine } from './right-now-line';
 import { CaptureService } from '../capture/capture.service';
 import { KEY_SERVICE_MISSING } from '../notes/key-wait-notice';
 import { NotesService } from '../notes/notes.service';
@@ -80,6 +86,7 @@ export function sharedText(title: string | null, text: string | null, url: strin
   imports: [
     RouterLink,
     HomeLink,
+    Icon,
     ConceptHeader,
     NoteEditorComponent,
     NoteBack,
@@ -279,8 +286,14 @@ export class Launch {
     const openId = computed(() => this.capture.open().id);
     effect(() => {
       openId();
-      untracked(() => this.back.set(false));
+      untracked(() => {
+        this.back.set(false);
+        // Right Now's sheet closes on going to another note (#287).
+        this.rightNowOpen.set(false);
+      });
     });
+    // On a route of its own, Right Now's sheet closes too (#287).
+    this.router.events.pipe(takeUntilDestroyed()).subscribe(() => this.rightNowOpen.set(false));
     // A template from before #111 holds its Instructions for Claude in its
     // text: the first time it is open here, they move to their own field,
     // word for word, and the text keeps the rest. The field is written
@@ -373,12 +386,34 @@ export class Launch {
       });
     });
 
-    // A tap outside More closes it.
+    // A tap outside More closes it; outside Right Now's sheet, that too.
     const outside = (event: PointerEvent) => {
-      if (!(event.target as Element | null)?.closest?.('.more')) this.moreOpen.set(false);
+      const target = event.target as Element | null;
+      if (!target?.closest?.('.more')) this.moreOpen.set(false);
+      if (!target?.closest?.('.right-now')) this.rightNowOpen.set(false);
     };
     document.addEventListener('pointerdown', outside);
-    inject(DestroyRef).onDestroy(() => document.removeEventListener('pointerdown', outside));
+    // Escape closes More wherever the cursor is: the note takes the
+    // cursor when it loads, and a menu left open then could not be
+    // closed from the keyboard. Inside More its own handler runs too,
+    // and returns to the button.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && this.moreOpen()) this.moreOpen.set(false);
+    };
+    document.addEventListener('keydown', escape);
+    inject(DestroyRef).onDestroy(() => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    });
+
+    // Wide screens (900 px and up) keep Right Now beside the notes.
+    const wide = typeof matchMedia === 'function' ? matchMedia('(min-width: 900px)') : undefined;
+    if (wide) {
+      const onWide = () => this.wide.set(wide.matches);
+      onWide();
+      wide.addEventListener?.('change', onWide);
+      inject(DestroyRef).onDestroy(() => wide.removeEventListener?.('change', onWide));
+    }
 
     const update = () => this.online.set(navigator.onLine);
     addEventListener('online', update);
@@ -387,6 +422,60 @@ export class Launch {
       removeEventListener('online', update);
       removeEventListener('offline', update);
     });
+  }
+
+  /** The window is 900 px or wider: two panes, Right Now beside the notes. */
+  private readonly wide = signal(false);
+  /**
+   * Right Now as one line (Eric, 2026-11-15, #287): on a phone, while
+   * the screen shows a saved note, that is a note the URL names
+   * (`/n/<id>`). The capture screen at `/` keeps the panel and its
+   * handle, even once what is typed there is saved, so the layout never
+   * moves under typing.
+   */
+  protected readonly lineMode = computed(() => !!this.routeId() && !this.wide());
+  /** Right Now's sheet is open over the note (line mode only). */
+  protected readonly rightNowOpen = signal(false);
+  private readonly items = inject(ItemsService);
+  private readonly podcastsSeen = inject(PodcastsSeen);
+  /** The one line: how many are due and the first, or what is new. */
+  protected readonly line = computed(() =>
+    rightNowLine(
+      this.reminders.due().map((r) => r.text),
+      this.modules.reader() ? this.items.newSince().reduce((sum, f) => sum + f.count, 0) : 0,
+      this.modules.podcasts() ? this.podcastsSeen.fresh() : 0,
+    ),
+  );
+  /**
+   * The on-screen keyboard is up over the note (the ribbon's reading of
+   * it): the Right Now line and a folded header give the note the room.
+   */
+  protected readonly keyboardUp = computed(() => this.editor()?.keyboardUp() ?? false);
+
+  /** Escape closes Right Now's sheet, back to its line. */
+  protected closeRightNow(button: HTMLButtonElement): void {
+    if (!this.rightNowOpen()) return;
+    this.rightNowOpen.set(false);
+    button.focus();
+  }
+
+  private readonly pickList = viewChildren<ElementRef<HTMLElement>>('pickList');
+
+  /**
+   * Previous note or Projects, chosen in More (2026-11-15, #287): its
+   * list opens above the note, the focus on its first item.
+   */
+  protected showList(which: 'previous' | 'projects'): void {
+    this.previousOpen.set(which === 'previous');
+    this.projectsOpen.set(which === 'projects');
+    afterNextRender(() => this.pickList()[0]?.nativeElement.querySelector('button')?.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  protected closeLists(): void {
+    this.previousOpen.set(false);
+    this.projectsOpen.set(false);
   }
 
   /** Moved by hand while it had nothing to tend: shown as moved, this visit. */

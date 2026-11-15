@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, openMore, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The feelings journal (#40): a template from Settings with three daily
@@ -42,7 +42,11 @@ test('a feelings journal: reminders open entries, moods grow and come back', asy
 
   // Next time, it is offered, once the notes have loaded.
   await page.goto('/');
-  await expect(page.getByRole('button', { name: 'Previous note' })).toBeVisible();
+  // Previous note, in More since 2026-11-15 (#287), shows once they have.
+  const more = await openMore(page);
+  await expect(more.getByRole('button', { name: 'Previous note' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(more).toHaveCount(0);
   await page.getByRole('button', { name: 'New' }).click();
   await typeLines(page, ['Feelings', 'Moods: wi']);
   await expect(page.getByRole('option', { name: 'wist', exact: true })).toBeVisible();

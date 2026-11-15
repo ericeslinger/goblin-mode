@@ -1,7 +1,7 @@
 @if (showSignIn()) {
   <app-sign-in />
 } @else {
-  <div class="launch">
+  <div class="launch" [class.keyboard-up]="keyboardUp()">
     <header class="bar">
       <!-- Home (#219): the leaf, at the left of every screen's top, and
            New note beside it (#272), which here is this screen's New. -->
@@ -29,16 +29,31 @@
         (viewing() || (capture.current().trim() && !(listable() && listMode())))
       ) {
         <!-- Viewing (2026-10-17): select and tick without the keyboard. The
-             label names what a tap switches to, like Source or Preview. -->
-        <button type="button" class="link quiet" (click)="toggleViewing()">
-          {{ viewing() ? 'Edit' : 'View' }}
+             name says what a tap switches to, like Source or Preview; an
+             icon since 2026-11-15 (#287): an eye, a pencil while viewing. -->
+        <button
+          type="button"
+          class="icon-button"
+          [title]="viewing() ? 'Edit' : 'View'"
+          (click)="toggleViewing()"
+        >
+          <app-icon [name]="viewing() ? 'write' : 'view'" [size]="22" />
+          <span class="visually-hidden">{{ viewing() ? 'Edit' : 'View' }}</span>
         </button>
       }
       @if (record() && !locked()) {
         <!-- The back of the note (#112): what is about it, not in it. The
-             label names the side a tap turns to. -->
-        <button type="button" class="link quiet" (click)="back.set(!back())">
-          {{ back() ? 'Front' : 'Back' }}
+             name says the side a tap turns to; an icon since 2026-11-15
+             (#287): a page with its corner turned, the other corner on the
+             back. -->
+        <button
+          type="button"
+          class="icon-button"
+          [title]="back() ? 'Front' : 'Back'"
+          (click)="back.set(!back())"
+        >
+          <app-icon [name]="back() ? 'note-front' : 'note-back'" [size]="22" />
+          <span class="visually-hidden">{{ back() ? 'Front' : 'Back' }}</span>
         </button>
       }
       <!-- The rest is one tap away (#78); the sync dot rides on the button
@@ -47,12 +62,14 @@
         <button
           #moreButton
           type="button"
-          class="more-button touch-target"
+          class="more-button icon-button"
+          title="More"
           aria-controls="more-menu"
           [attr.aria-expanded]="moreOpen()"
           (click)="moreOpen.set(!moreOpen())"
         >
-          More
+          <app-icon name="more" [size]="22" />
+          <span class="visually-hidden">More</span>
           @if (!online()) {
             <span class="offline-word">offline</span>
           }
@@ -74,6 +91,18 @@
               }}
             </p>
             <ul>
+              <!-- From the row under the note (2026-11-15, #287): each opens
+                   its list above the note. -->
+              @if (previous().length > 0) {
+                <li>
+                  <button type="button" (click)="showList('previous')">Previous note</button>
+                </li>
+              }
+              @if (projects().length > 0) {
+                <li>
+                  <button type="button" (click)="showList('projects')">Projects</button>
+                </li>
+              }
               <li class="browse-link"><a routerLink="/browse">Browse</a></li>
               @if (modules.reader()) {
                 <li><a routerLink="/reader">Reader</a></li>
@@ -116,6 +145,52 @@
             </li>
           }
         </ul>
+      }
+      @if (previousOpen() || projectsOpen()) {
+        <!-- Previous note and Projects, opened from More (2026-11-15, #287):
+             above the note, scrolling in their own box when long. -->
+        <div class="previous" (keydown.escape)="closeLists(); moreButton.focus()">
+          <div class="previous-head">
+            <span>{{ projectsOpen() ? 'Projects' : 'Previous notes' }}</span>
+            <button
+              type="button"
+              class="link quiet"
+              [attr.aria-label]="projectsOpen() ? 'Close Projects' : 'Close Previous notes'"
+              (click)="closeLists(); moreButton.focus()"
+            >
+              Close
+            </button>
+          </div>
+          @if (projectsOpen()) {
+            <ul #pickList id="project-list" aria-label="Projects">
+              @for (p of projects(); track p.note.id) {
+                <li>
+                  <button
+                    type="button"
+                    [style.padding-left.px]="4 + p.depth * 16"
+                    (click)="openPrevious(p.note.id)"
+                  >
+                    {{ p.note.title || 'Untitled' }}
+                    @if (p.open) {
+                      <span class="count">{{ p.open }} open</span>
+                    }
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+          @if (previousOpen()) {
+            <ul #pickList id="previous-notes" aria-label="Previous notes">
+              @for (note of previous(); track note.id) {
+                <li>
+                  <button type="button" (click)="openPrevious(note.id)">
+                    {{ note.title || 'Untitled' }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
       }
       @if (kitchenTab(); as tab) {
         <!-- The grocery list's text is a screen the Shopping tab leads to, not the tab's own. -->
@@ -216,94 +291,66 @@
         (textChange)="capture.onText($event)"
         (linkOpen)="followLink($event)"
       />
-      @if (previous().length > 0 || projects().length > 0) {
-        <div class="previous">
-          <div class="pills">
-            @if (previous().length > 0) {
-              <button
-                type="button"
-                class="pill touch-target"
-                aria-controls="previous-notes"
-                [attr.aria-expanded]="previousOpen()"
-                (click)="previousOpen.set(!previousOpen()); projectsOpen.set(false)"
-              >
-                Previous note
-              </button>
-            }
-            @if (projects().length > 0) {
-              <button
-                type="button"
-                class="pill touch-target"
-                aria-controls="project-list"
-                [attr.aria-expanded]="projectsOpen()"
-                (click)="projectsOpen.set(!projectsOpen()); previousOpen.set(false)"
-              >
-                Projects
-              </button>
-            }
-          </div>
-          @if (projectsOpen()) {
-            <ul id="project-list" aria-label="Projects">
-              @for (p of projects(); track p.note.id) {
-                <li>
-                  <button
-                    type="button"
-                    [style.padding-left.px]="4 + p.depth * 16"
-                    (click)="openPrevious(p.note.id)"
-                  >
-                    {{ p.note.title || 'Untitled' }}
-                    @if (p.open) {
-                      <span class="count">{{ p.open }} open</span>
-                    }
-                  </button>
-                </li>
-              }
-            </ul>
-          }
-          @if (previousOpen()) {
-            <ul id="previous-notes" aria-label="Previous notes">
-              @for (note of previous(); track note.id) {
-                <li>
-                  <button type="button" (click)="openPrevious(note.id)">
-                    {{ note.title || 'Untitled' }}
-                  </button>
-                </li>
-              }
-            </ul>
-          }
-        </div>
-      }
     </section>
 
-    <section
-      class="right-now"
-      aria-labelledby="right-now-title"
-      [class.collapsed]="share() === 0"
-      [style.height.dvh]="share()"
-    >
-      <div
-        class="handle"
-        role="separator"
-        tabindex="0"
-        aria-orientation="horizontal"
-        aria-label="Resize Right Now"
-        [attr.aria-valuemin]="minShare"
-        [attr.aria-valuemax]="maxShare"
-        [attr.aria-valuenow]="share()"
-        [attr.aria-valuetext]="share() === 0 ? 'Hidden' : share() + '% of the screen'"
-        (pointerdown)="startDrag($event)"
-        (pointermove)="drag($event)"
-        (pointerup)="endDrag($event)"
-        (pointercancel)="endDrag($event)"
-        (keydown)="nudge($event)"
+    @if (lineMode()) {
+      <!-- A saved note on a phone (Eric, 2026-11-15, #287): Right Now is
+           one line at the foot, a button that opens the panel as a sheet
+           over the lower part of the note, and closes it again. -->
+      <section
+        class="right-now line-mode"
+        aria-label="Right Now"
+        [class.open]="rightNowOpen()"
+        (keydown.escape)="closeRightNow(lineButton)"
       >
-        <span class="grip" aria-hidden="true"></span>
-      </div>
-      @if (share() === 0) {
-        <!-- Closed, the full list and its Add stay one tap away. -->
-        <a class="peek" routerLink="/right-now">Right Now</a>
-      }
-      <app-right-now-panel />
-    </section>
+        @if (rightNowOpen()) {
+          <div id="right-now-sheet" class="sheet">
+            <app-right-now-panel />
+          </div>
+        }
+        <button
+          #lineButton
+          type="button"
+          class="line"
+          aria-controls="right-now-sheet"
+          [attr.aria-expanded]="rightNowOpen()"
+          (click)="rightNowOpen.set(!rightNowOpen())"
+        >
+          <span class="line-text">{{ line() }}</span>
+          <app-icon class="line-chevron" name="chevron" [size]="18" />
+        </button>
+      </section>
+    } @else {
+      <section
+        class="right-now"
+        aria-labelledby="right-now-title"
+        [class.collapsed]="share() === 0"
+        [style.height.dvh]="share()"
+      >
+        <div
+          class="handle"
+          role="separator"
+          tabindex="0"
+          aria-orientation="horizontal"
+          aria-label="Resize Right Now"
+          [attr.aria-valuemin]="minShare"
+          [attr.aria-valuemax]="maxShare"
+          [attr.aria-valuenow]="share()"
+          [attr.aria-valuetext]="share() === 0 ? 'Hidden' : share() + '% of the screen'"
+          (pointerdown)="startDrag($event)"
+          (pointermove)="drag($event)"
+          (pointerup)="endDrag($event)"
+          (pointercancel)="endDrag($event)"
+          (keydown)="nudge($event)"
+        >
+          <span class="grip" aria-hidden="true"></span>
+        </div>
+        @if (share() === 0) {
+          <!-- Closed, the full list and its Add stay one tap away. -->
+          <a class="peek" routerLink="/right-now">Right Now</a>
+        }
+        <app-right-now-panel />
+      </section>
+    }
   </div>
 }

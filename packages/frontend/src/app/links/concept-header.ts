@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
   viewChild,
@@ -14,6 +15,7 @@ import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { checklist, childrenOf, selfAndDescendants, stageOrder } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
+import { LocalStore } from '../platform/local-store';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { KINDS, STATUSES, kindLabel, statusLabel } from './project-labels';
 import { RemindersService, type ReminderRecord } from '../reminders/reminders.service';
@@ -21,6 +23,38 @@ import { RemindersService, type ReminderRecord } from '../reminders/reminders.se
 /** `list` with `item` added, or taken out when it is there. */
 function toggled(list: string[], item: string): string[] {
   return list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
+}
+
+/** Whether a project's header is open, per project, on this device (#287). */
+export const HEADER_OPEN_PREFIX = 'goblin.headerOpen.';
+
+/**
+ * The folded header's one line (#287): how many sub-projects and open
+ * tasks a project holds, then how many of them are at each stage, in
+ * the project's stage order; only the parts there are. A project
+ * holding nothing yet says so, quietly, and still opens to add.
+ */
+export function headerSummary(
+  projects: number,
+  tasks: number,
+  stages: readonly { stage: string; count: number }[],
+): string {
+  const parts: string[] = [];
+  if (projects) parts.push(`${projects} ${projects === 1 ? 'project' : 'projects'}`);
+  if (tasks) parts.push(`${tasks} open ${tasks === 1 ? 'task' : 'tasks'}`);
+  const staged = stages.filter((s) => s.count > 0).map((s) => `${s.stage} ${s.count}`);
+  if (staged.length) parts.push(staged.join(', '));
+  return parts.length ? parts.join(' · ') : 'No projects or tasks yet';
+}
+
+/** How many of `items` are at each stage: the project's order, then any it dropped. */
+export function stageCounts(
+  order: readonly string[],
+  items: readonly (string | undefined)[],
+): { stage: string; count: number }[] {
+  const counts = new Map<string, number>(order.map((s) => [s, 0]));
+  for (const stage of items) if (stage) counts.set(stage, (counts.get(stage) ?? 0) + 1);
+  return [...counts].map(([stage, count]) => ({ stage, count }));
 }
 
 const TYPES = [
@@ -217,106 +251,123 @@ const TYPES = [
         </div>
       }
       @if (side() === 'front' && isProject()) {
-        <div class="children">
-          <h2 id="sub-projects">Projects in {{ note().title }}</h2>
-          @if (children().length) {
-            <ul aria-labelledby="sub-projects" class="items">
-              @for (c of children(); track c.note.id) {
-                <li>
-                  <div class="item">
-                    <a [routerLink]="['/n', c.note.id]">{{ c.note.title }}</a>
-                    @if (c.meta) {
-                      <span class="meta">{{ c.meta }}</span>
-                    }
-                    <span class="spacer"></span>
-                    @if (stages().length) {
-                      <ng-container
-                        *ngTemplateOutlet="
-                          stagePicker;
-                          context: {
-                            name: c.note.title,
-                            current: c.note.stage,
-                            pick: stageOf(c.note),
-                          }
-                        "
-                      />
-                    }
-                  </div>
-                  <ng-container
-                    *ngTemplateOutlet="
-                      tagLine;
-                      context: {
-                        key: c.note.id,
-                        name: c.note.title,
-                        tags: c.note.tags ?? [],
-                        toggle: tagsOf(c.note),
+        <!-- Folded to one line by default (Eric, 2026-11-15, #287): the
+             page's text has the room, and the line opens to all of it. -->
+        <button
+          type="button"
+          class="fold"
+          aria-controls="project-items"
+          [attr.aria-expanded]="open()"
+          [class.empty]="!children().length && !tasks().length"
+          (click)="toggleOpen()"
+        >
+          <span class="fold-text">{{ itemsLine() }}</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </button>
+      }
+      @if (side() === 'front' && isProject() && open()) {
+        <div id="project-items" class="project-items">
+          <div class="children">
+            <h2 id="sub-projects">Projects in {{ note().title }}</h2>
+            @if (children().length) {
+              <ul aria-labelledby="sub-projects" class="items">
+                @for (c of children(); track c.note.id) {
+                  <li>
+                    <div class="item">
+                      <a [routerLink]="['/n', c.note.id]">{{ c.note.title }}</a>
+                      @if (c.meta) {
+                        <span class="meta">{{ c.meta }}</span>
                       }
-                    "
-                  />
-                </li>
-              }
-            </ul>
-          }
-          <label>
-            <span class="visually-hidden">Add a project in {{ note().title }}</span>
-            <input
-              #child
-              placeholder="+ project"
-              enterkeyhint="done"
-              (change)="addChild(child.value); child.value = ''"
-            />
-          </label>
-        </div>
-        <div class="tasks">
-          <h2 id="project-tasks">Tasks</h2>
-          @if (tasks().length) {
-            <ul aria-labelledby="project-tasks" class="items">
-              @for (t of tasks(); track t.id) {
-                <li>
-                  <div class="item">
-                    <span>{{ t.text }}</span>
-                    <span class="spacer"></span>
-                    @if (stages().length) {
-                      <ng-container
-                        *ngTemplateOutlet="
-                          stagePicker;
-                          context: { name: t.text, current: t.stage, pick: stageOfTask(t) }
-                        "
-                      />
-                    }
-                    <button
-                      type="button"
-                      class="done"
-                      [attr.aria-label]="'Done: ' + t.text"
-                      (click)="done(t)"
-                    >
-                      Done
-                    </button>
-                  </div>
-                  <ng-container
-                    *ngTemplateOutlet="
-                      tagLine;
-                      context: {
-                        key: t.id,
-                        name: t.text,
-                        tags: t.tags ?? [],
-                        toggle: tagsOfTask(t),
+                      <span class="spacer"></span>
+                      @if (stages().length) {
+                        <ng-container
+                          *ngTemplateOutlet="
+                            stagePicker;
+                            context: {
+                              name: c.note.title,
+                              current: c.note.stage,
+                              pick: stageOf(c.note),
+                            }
+                          "
+                        />
                       }
-                    "
-                  />
-                </li>
-              }
-            </ul>
-          }
-          <label>
-            <span class="visually-hidden">Add a task</span>
-            <input
-              #task
-              placeholder="+ task"
-              enterkeyhint="done"
-              (change)="addTask(task.value); task.value = ''"
-            />
-          </label>
+                    </div>
+                    <ng-container
+                      *ngTemplateOutlet="
+                        tagLine;
+                        context: {
+                          key: c.note.id,
+                          name: c.note.title,
+                          tags: c.note.tags ?? [],
+                          toggle: tagsOf(c.note),
+                        }
+                      "
+                    />
+                  </li>
+                }
+              </ul>
+            }
+            <label>
+              <span class="visually-hidden">Add a project in {{ note().title }}</span>
+              <input
+                #child
+                placeholder="+ project"
+                enterkeyhint="done"
+                (change)="addChild(child.value); child.value = ''"
+              />
+            </label>
+          </div>
+          <div class="tasks">
+            <h2 id="project-tasks">Tasks</h2>
+            @if (tasks().length) {
+              <ul aria-labelledby="project-tasks" class="items">
+                @for (t of tasks(); track t.id) {
+                  <li>
+                    <div class="item">
+                      <span>{{ t.text }}</span>
+                      <span class="spacer"></span>
+                      @if (stages().length) {
+                        <ng-container
+                          *ngTemplateOutlet="
+                            stagePicker;
+                            context: { name: t.text, current: t.stage, pick: stageOfTask(t) }
+                          "
+                        />
+                      }
+                      <button
+                        type="button"
+                        class="done"
+                        [attr.aria-label]="'Done: ' + t.text"
+                        (click)="done(t)"
+                      >
+                        Done
+                      </button>
+                    </div>
+                    <ng-container
+                      *ngTemplateOutlet="
+                        tagLine;
+                        context: {
+                          key: t.id,
+                          name: t.text,
+                          tags: t.tags ?? [],
+                          toggle: tagsOfTask(t),
+                        }
+                      "
+                    />
+                  </li>
+                }
+              </ul>
+            }
+            <label>
+              <span class="visually-hidden">Add a task</span>
+              <input
+                #task
+                placeholder="+ task"
+                enterkeyhint="done"
+                (change)="addTask(task.value); task.value = ''"
+              />
+            </label>
+          </div>
         </div>
       }
       @if (refusal()) {
@@ -533,12 +584,57 @@ const TYPES = [
       padding: var(--space-1) var(--space-2);
       margin-bottom: var(--space-2);
     }
+    /* The folded items' one line (#287): a full-width row, 44 px tall
+       on a touch screen, its chevron turning as it opens. */
+    .fold {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      width: 100%;
+      min-height: 36px;
+      margin: 0 0 var(--space-2);
+      padding: var(--space-1) var(--space-2);
+      font-size: 14px;
+      text-align: left;
+      color: var(--ink);
+      background: none;
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+    }
+    .fold.empty {
+      color: var(--quiet);
+    }
+    .fold-text {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chevron {
+      flex: none;
+      width: 8px;
+      height: 8px;
+      border-right: 1.6px solid currentColor;
+      border-bottom: 1.6px solid currentColor;
+      transform: translateY(-2px) rotate(45deg);
+    }
+    .fold[aria-expanded='true'] .chevron {
+      transform: translateY(2px) rotate(-135deg);
+    }
+    @media (pointer: coarse) {
+      .fold {
+        min-height: 44px;
+      }
+    }
     .refusal {
       margin: 0 0 var(--space-2);
       font-size: 14px;
       color: var(--quiet);
     }
   `,
+  // Folded, the note screen may hide it while the keyboard is up (#287).
+  host: { '[class.folded]': "side() === 'front' && isProject() && !open()" },
 })
 export class ConceptHeader {
   protected readonly notes = inject(NotesService);
@@ -601,6 +697,35 @@ export class ConceptHeader {
     () => this.kind() === 'project' && this.modules.projects(),
   );
   protected readonly synonyms = computed(() => this.note().synonyms ?? []);
+
+  private readonly store = inject(LocalStore);
+  private readonly noteId = computed(() => this.note().id);
+  /**
+   * The project's items are open: closed by default, and remembered
+   * per project on this device (#287); another note reads its own.
+   */
+  protected readonly open = linkedSignal(
+    () => this.store.get<boolean>(HEADER_OPEN_PREFIX + this.noteId()) === true,
+  );
+  /** The folded line: what the items hold (#287). */
+  protected readonly itemsLine = computed(() =>
+    headerSummary(
+      this.children().length,
+      this.tasks().length,
+      stageCounts(this.stages(), [
+        ...this.children().map((c) => c.note.stage),
+        ...this.tasks().map((t) => t.stage),
+      ]),
+    ),
+  );
+
+  protected toggleOpen(): void {
+    const open = !this.open();
+    this.open.set(open);
+    const key = HEADER_OPEN_PREFIX + this.noteId();
+    if (open) this.store.set(key, true);
+    else this.store.remove(key);
+  }
 
   protected readonly refusal = signal('');
   /** Name, type, other names and the project's settings: folded by default. */

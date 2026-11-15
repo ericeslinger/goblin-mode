@@ -273,7 +273,10 @@ describe('createAccessoryBar', () => {
       document.body.append(parent);
       const editor = createNoteEditor({ parent });
       const covered = vi.spyOn(editor, 'setCoveredFrom');
-      const bar = createAccessoryBar(editor, [{ label: 'B', run: () => undefined }]);
+      const onShow = vi.fn();
+      const bar = createAccessoryBar(editor, [{ label: 'B', run: () => undefined }], window, {
+        onShow,
+      });
       expect(vk.overlaysContent).toBe(true);
       editor.view.focus();
       vk.dispatchEvent(new Event('geometrychange'));
@@ -281,12 +284,16 @@ describe('createAccessoryBar', () => {
       vk.boundingRect = new DOMRect(0, innerHeight - 300, innerWidth, 300);
       vk.dispatchEvent(new Event('geometrychange'));
       expect(bar.element.hidden).toBe(false);
+      // The host hears the keyboard open, once (#287).
+      expect(onShow).toHaveBeenLastCalledWith(true);
+      expect(onShow.mock.calls.filter(([shown]) => shown)).toHaveLength(1);
       // The editor keeps its line above the bar's top.
       expect(covered).toHaveBeenLastCalledWith(innerHeight - 300 - bar.element.offsetHeight);
       vk.boundingRect = new DOMRect(0, 0, 0, 0);
       vk.dispatchEvent(new Event('geometrychange'));
       expect(bar.element.hidden).toBe(true);
       expect(covered).toHaveBeenLastCalledWith(undefined);
+      expect(onShow).toHaveBeenLastCalledWith(false);
       bar.destroy();
       expect(vk.overlaysContent).toBe(false);
       editor.destroy();

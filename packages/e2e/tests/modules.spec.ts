@@ -1,6 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  openMore,
+  openProjectHeader,
+  signInAs,
+  test,
+  typeLines,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Modules (#126): switched on per user in Settings. Projects is the
@@ -16,6 +24,8 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   await note(page).getByRole('link', { name: 'Pottery', exact: true }).click();
   const concept = page.getByRole('region', { name: 'Concept' });
   await concept.getByRole('combobox', { name: 'Type' }).selectOption('project');
+  // Its items fold to one line until opened (#287).
+  await openProjectHeader(page);
   await expect(concept.getByRole('textbox', { name: 'Add a task' })).toBeVisible();
 
   await page.goto('/settings');
@@ -36,8 +46,13 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   // Still a project in its data, shown without its project parts.
   await expect(concept.getByRole('combobox', { name: 'Type' })).toHaveValue('project');
   await expect(concept.getByRole('textbox', { name: 'Add a task' })).toHaveCount(0);
+  await expect(concept.locator('button[aria-controls="project-items"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'New' }).click();
-  await expect(page.getByRole('button', { name: 'Projects' })).toHaveCount(0);
+  // Projects is in More since 2026-11-15 (#287); off, not even there.
+  const more = await openMore(page);
+  await expect(more.getByRole('link', { name: 'Settings' })).toBeVisible();
+  await expect(more.getByRole('button', { name: 'Projects' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
 
   // Remembered across a reload, then back on.
   await page.goto('/settings');
@@ -45,5 +60,6 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   await projects.check();
   await letItSave(page);
   await page.goto('/n/c-pottery');
+  // Its items, opened before Projects went off, are open still (#287).
   await expect(concept.getByRole('textbox', { name: 'Add a task' })).toBeVisible();
 });

@@ -433,6 +433,11 @@ export class NoteEditorComponent {
   /** A wiki link was tapped; carries its target name. */
   readonly linkOpen = output<string>();
 
+  /**
+   * The on-screen keyboard is up over this editor, as the ribbon reads
+   * it (visualViewport and the VirtualKeyboard API); touch screens only.
+   */
+  readonly keyboardUp = signal(false);
   /** On a touch screen the actions ride on the keyboard instead. */
   protected readonly touch = isTouch();
   protected readonly actions = FORMAT_ACTIONS;
@@ -557,19 +562,26 @@ export class NoteEditorComponent {
           ...action,
           run: () => action.run(editor, (kind) => this.pick(kind)),
         });
-        this.bar = createAccessoryBar(editor, [
-          ...FORMAT_GROUPS.map((item) =>
-            'actions' in item ? { name: item.name, actions: item.actions.map(bind) } : bind(item),
-          ),
-          // Hides the keyboard, as the iPad and Android keyboards draw it;
-          // pinned so a phone that still scrolls the row always shows it.
-          {
-            label: '⌨︎',
-            name: 'Hide keyboard',
-            pinned: true,
-            run: () => editor.view.contentDOM.blur(),
-          },
-        ]);
+        this.bar = createAccessoryBar(
+          editor,
+          [
+            ...FORMAT_GROUPS.map((item) =>
+              'actions' in item ? { name: item.name, actions: item.actions.map(bind) } : bind(item),
+            ),
+            // Hides the keyboard, as the iPad and Android keyboards draw it;
+            // pinned so a phone that still scrolls the row always shows it.
+            {
+              label: '⌨︎',
+              name: 'Hide keyboard',
+              pinned: true,
+              run: () => editor.view.contentDOM.blur(),
+            },
+          ],
+          window,
+          // The ribbon shows exactly while the keyboard is up over the
+          // note (#287): the note screen gives the note that room.
+          { onShow: (shown) => this.keyboardUp.set(shown) },
+        );
       }
       if (untracked(this.autofocus)) this.editor.focus();
     });

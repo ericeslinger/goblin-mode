@@ -142,3 +142,44 @@ export async function openMore(page: Page) {
   await expect(menu).toBeVisible();
   return menu;
 }
+
+/**
+ * Opens Previous note or Projects from More (since 2026-11-15, #287;
+ * until then a pill under the note) and returns its list.
+ */
+export async function openFromMore(page: Page, name: 'Previous note' | 'Projects') {
+  const menu = await openMore(page);
+  await menu.getByRole('button', { name, exact: true }).click();
+  const list = page.getByRole('list', {
+    name: name === 'Projects' ? 'Projects' : 'Previous notes',
+    exact: true,
+  });
+  await expect(list).toBeVisible();
+  return list;
+}
+
+/**
+ * Opens a project's folded items (#287): sub-projects, tasks and their
+ * stage pickers, under one summary line that is closed by default.
+ */
+export async function openProjectHeader(page: Page): Promise<void> {
+  const fold = page
+    .getByRole('region', { name: 'Concept' })
+    .locator('button[aria-controls="project-items"]');
+  await expect(fold).toBeVisible({ timeout: 15_000 });
+  if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+}
+
+/**
+ * Opens Right Now under a saved note on a phone (#287): one line there,
+ * which opens the panel as a sheet. Returns the region.
+ */
+export async function openRightNow(page: Page) {
+  const region = page.getByRole('region', { name: 'Right Now' });
+  const line = region.locator('button[aria-controls="right-now-sheet"]');
+  await expect(line).toBeVisible({ timeout: 15_000 });
+  if ((await line.getAttribute('aria-expanded')) !== 'true') await line.click();
+  await expect(line).toHaveAttribute('aria-expanded', 'true');
+  return region;
+}
