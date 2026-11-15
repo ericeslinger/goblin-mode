@@ -52,9 +52,11 @@ import { Icon } from './icon';
     }
     .back {
       display: inline-flex;
-      /* Gives way long before the title does: a short screen cuts the
-         parent's name, never the title mid-word. */
-      flex: 0 100 auto;
+      /* Gives way before the title does: a short screen cuts the
+         parent's name, never the title mid-word. The factor is this
+         large because the title's share of the squeeze, however
+         small, is enough to break a word; this rounds it to nothing. */
+      flex: 0 1000000 auto;
       align-items: center;
       gap: 4px;
       min-width: 0;
