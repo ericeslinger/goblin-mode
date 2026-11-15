@@ -5000,10 +5000,14 @@ notes (the merge, put back and Show changes all match one note's own
 versions, replaced texts and History). The uid is not bound: the key
 is the gardener's already. It is synchronous, as sealing is: the app's
 save and Show changes and the server's merge compare hashes inside
-synchronous code, WebCrypto's HMAC and HKDF are async only, and
-`@noble/ciphers` has no hashes, so `sha256.ts` writes out SHA-256,
-HMAC and HKDF (checked against the RFC vectors and WebCrypto). No new
-dependency.
+synchronous code, and WebCrypto's HMAC and HKDF are async only.
+SHA-256, HMAC and HKDF come from `@noble/hashes` (2026-11-15, Eric,
+#274), the audited, dependency-free sibling of the `@noble/ciphers`
+that seals, behind `sha256.ts` (checked against the RFC vectors and
+WebCrypto). They were first written out in `sha256.ts` (#270) only
+because the dependency could not be installed then; a reviewed library
+is less to trust than hand-written crypto, and the outputs are the
+standard ones, so every stored hash and key-check proof is unchanged.
 
 *The shape.* A keyed body hash is `k1.` and 32 hex characters (128
 bits), an item's `k1.` and 16 (64, as before). A plain `textHash` is
