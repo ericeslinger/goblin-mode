@@ -228,7 +228,7 @@ describe('the other sealed fields, with the key', () => {
     expect(open('r2', 'importError', stored('r2')['importError'])).toBe('the page would not load');
   });
 
-  it('suggest_changes stores no name proposed for a concept whose names are sealed', async () => {
+  it('suggest_changes stores the names proposed for a concept whose names are sealed, sealed (2026-11-15)', async () => {
     putConcept('c-moss', 'Moss', ['Mossy']);
     const out = await tools().suggestChanges({
       proposals: [
@@ -236,11 +236,12 @@ describe('the other sealed fields, with the key', () => {
         { kind: 'refile', id: 'c-moss', type: 'mood', synonyms: ['Green'], reason: 'A mood' },
       ],
     });
-    expect(out.stored).toHaveLength(1);
+    expect(out.stored).toHaveLength(2);
     const proposals = [...store.entries()]
       .filter(([p]) => p.startsWith(`users/${UID}/proposals/`))
       .map(([, d]) => d);
-    expect(proposals).toEqual([expect.objectContaining({ kind: 'refile', conceptType: 'mood' })]);
+    expect(proposals).toHaveLength(2);
+    for (const p of proposals) expect((p['synonyms'] as string[]).every(isSealed)).toBe(true);
     expect(JSON.stringify(proposals)).not.toMatch(/Lichen|Green|green|lichen/);
   });
 });

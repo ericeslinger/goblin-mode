@@ -2171,7 +2171,7 @@ describe('NotesService', () => {
       expect(t.api.set).not.toHaveBeenCalled();
       expect(t.notes.waitingForKey()).toBe(true);
       expect(t.notes.heldForKey('fresh')).toBe(true);
-      expect(t.notes.heldText('fresh')).toBe('Plumber on Tuesday');
+      expect(t.notes.heldSave('fresh')?.value).toBe('Plumber on Tuesday');
       expect(t.notes.exists('fresh')).toBe(true);
       const kept = JSON.parse(localStorage.getItem(PENDING_SAVES_KEY)!);
       expect(kept).toMatchObject({
@@ -2210,7 +2210,7 @@ describe('NotesService', () => {
       next.push([]);
       TestBed.tick();
       expect(next.api.set).not.toHaveBeenCalled();
-      expect(next.notes.heldText('fresh')).toBe('Typed on a new device');
+      expect(next.notes.heldSave('fresh')?.value).toBe('Typed on a new device');
       next.key.set(KEY);
       TestBed.tick();
       const [[, , data]] = writesTo(next.api, 'fresh');
@@ -2228,13 +2228,98 @@ describe('NotesService', () => {
       next.signIn(UID);
       next.push([]);
       TestBed.tick();
-      expect(next.notes.ready).toBe(false);
+      // Typing is accepted (ready), but nothing goes out before the switch is known.
+      expect(next.notes.ready).toBe(true);
+      next.notes.save('other', 'Typed before it was known');
       expect(next.api.set).not.toHaveBeenCalled();
+      expect(next.notes.heldForKey('other')).toBe(true);
       next.sealing.on.set(true);
       next.sealing.known.set(true);
       next.key.set(KEY);
       TestBed.tick();
       expect(open('fresh', 'body', writesTo(next.api, 'fresh')[0][2]['body'])).toBe('Held words');
+    });
+
+    it('an existing note’s held save survives a reload as the text shown, then is written over its base (review on #276)', () => {
+      const first = setup();
+      first.sealing.on.set(true);
+      first.signIn(UID);
+      first.push([note('a', 'Buy milk')]);
+      first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
+      // The next save is typed over words only this device has: its base stays the server's.
+      first.notes.save('a', 'Buy milk\n- eggs\n- bread', { base: 'Buy milk\n- eggs' });
+      const next = setup({ reload: true });
+      next.sealing.on.set(true);
+      next.signIn(UID);
+      next.push([note('a', 'Buy milk')]);
+      TestBed.tick();
+      // Held, not lost, and what the editor is to show, over its base.
+      expect(next.notes.heldSave('a')).toEqual({
+        value: 'Buy milk\n- eggs\n- bread',
+        base: 'Buy milk',
+      });
+      expect(next.api.set).not.toHaveBeenCalled();
+      // Another device wrote meanwhile; the editor merged it in and saves over that.
+      next.push([note('a', 'Shopping: Buy milk')]);
+      next.notes.save('a', 'Shopping: Buy milk\n- eggs\n- bread', { base: 'Shopping: Buy milk' });
+      expect(next.notes.heldSave('a')?.base).toBe('Shopping: Buy milk');
+      next.key.set(KEY);
+      TestBed.tick();
+      const [[, , data]] = writesTo(next.api, 'a');
+      expect(open('a', 'body', data['body'])).toBe('Shopping: Buy milk\n- eggs\n- bread');
+      expect(data['baseHash']).toBe(noteTextHash('a', 'Shopping: Buy milk', 'sealed', () => KEY));
+    });
+
+    it('a held save whose note went to Trash goes into the trashed note; one gone for good stays gone', () => {
+      const first = setup();
+      first.sealing.on.set(true);
+      first.signIn(UID);
+      first.push([note('a', 'Buy milk'), note('b', 'Old')]);
+      first.notes.save('a', 'Buy milk\n- eggs', { base: 'Buy milk' });
+      first.notes.save('b', 'Old, more', { base: 'Old' });
+      const next = setup({ reload: true });
+      next.sealing.on.set(true);
+      next.key.set(KEY);
+      next.signIn(UID);
+      next.push([note('a', 'Buy milk', { deletedAt: { toMillis: () => CLOCK - 1000 } })]);
+      TestBed.tick();
+      expect(open('a', 'body', writesTo(next.api, 'a')[0][2]['body'])).toBe('Buy milk\n- eggs');
+      expect(writesTo(next.api, 'b')).toEqual([]);
+      expect(next.notes.heldSave('b')).toBeUndefined();
+    });
+
+    it('before the switch is known, a write holding note text waits, then goes out as it says; one with none goes at once', async () => {
+      const t = setup();
+      t.sealing.known.set(false);
+      t.signIn(UID);
+      t.push([note('a', 'Buy milk', { kind: 'template' })]);
+      t.notes.setArchived('a', true);
+      expect(writesTo(t.api, 'a')).toHaveLength(1);
+      t.notes.create('t2', 'Journal', { kind: 'template' });
+      await Promise.resolve();
+      expect(writesTo(t.api, 't2')).toEqual([]);
+      // Heard: on, with the key. The waiting write goes out sealed, never plain.
+      t.key.set(KEY);
+      t.sealing.on.set(true);
+      t.sealing.known.set(true);
+      TestBed.tick();
+      await vi.waitFor(() => expect(writesTo(t.api, 't2')).toHaveLength(1));
+      expect(open('t2', 'body', writesTo(t.api, 't2')[0][2]['body'])).toBe('Journal');
+      expect(sent(t.api)).not.toContain('Journal');
+    });
+
+    it('a plain garden, setting unknown at a cold start: typing is held at once, then written plain once heard', () => {
+      const t = setup();
+      t.sealing.known.set(false);
+      t.signIn(UID);
+      t.push([]);
+      expect(t.notes.ready).toBe(true);
+      t.notes.save('fresh', 'Offline first words');
+      expect(t.api.set).not.toHaveBeenCalled();
+      expect(t.notes.heldSave('fresh')?.value).toBe('Offline first words');
+      t.sealing.known.set(true);
+      TestBed.tick();
+      expect(writesTo(t.api, 'fresh')[0][2]).toMatchObject({ body: 'Offline first words' });
     });
 
     it('on with no key: a rename and instructions wait on the device, then go sealed', () => {

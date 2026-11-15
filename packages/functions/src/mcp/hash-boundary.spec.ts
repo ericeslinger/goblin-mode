@@ -30,7 +30,7 @@ const where = (root: string, test: (line: string) => boolean) =>
   sources(root).filter((f) => code(join(root, f)).some(test));
 
 /** The schema's helpers, called only where the key comes from. */
-const HELPERS = /\b(?:noteTextHash|noteTextHashMatches|itemHash)\(/;
+const HELPERS = /\b(?:noteTextHash|noteTextHashMatches|itemHash|refileNamesHash)\(/;
 
 describe('the hash boundary', () => {
   it('names the plain textHash nowhere in the functions or the app', () => {

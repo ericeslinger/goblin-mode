@@ -112,8 +112,21 @@ describe('ProposalsService', () => {
 
 describe('ProposalsService, sealed suggestions (step 3e, 2026-11-13)', () => {
   const dataKey = newDataKey();
-  const seal = (id: string, field: 'title' | 'reason', text: string) =>
+  const seal = (id: string, field: 'title' | 'reason' | 'synonyms', text: string) =>
     sealText(dataKey, recordAadFor('u1', 'proposals', id, field), text);
+
+  it('opens a refile’s sealed other names one by one (2026-11-15)', () => {
+    const { service, push } = setup(signal<DataKey | undefined>(dataKey));
+    push([
+      doc('p1', 'open', {
+        kind: 'refile',
+        synonyms: [seal('p1', 'synonyms', 'Firebox'), seal('p1', 'synonyms', 'Oven')],
+        reason: seal('p1', 'reason', 'You fire it'),
+      }),
+    ]);
+    expect(service.shown()[0]).toMatchObject({ synonyms: ['Firebox', 'Oven'] });
+    expect(service.shown()[0].sealed).toBeUndefined();
+  });
 
   it('opens a sealed title and reason with the key', () => {
     const { service, push } = setup(signal<DataKey | undefined>(dataKey));

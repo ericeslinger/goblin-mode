@@ -54,7 +54,11 @@ export interface ProposalRecord {
 }
 
 /** Opens field `field` of a proposal when it is sealed; undefined when it does not open. */
-type Opener = (id: string, field: 'title' | 'reason', value: string) => string | undefined;
+type Opener = (
+  id: string,
+  field: 'title' | 'reason' | 'synonyms',
+  value: string,
+) => string | undefined;
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
 export interface ProposalsApi {
@@ -103,7 +107,7 @@ export function toRecord(
   open: Opener = () => undefined,
 ): ProposalRecord {
   let sealed = false;
-  const text = (field: 'title' | 'reason', value: string) => {
+  const text = (field: 'title' | 'reason' | 'synonyms', value: string) => {
     if (!isSealed(value)) return value;
     const opened = open(id, field, value);
     if (opened === undefined) sealed = true;
@@ -123,7 +127,10 @@ export function toRecord(
       : [],
     title,
     conceptType: typeof data['conceptType'] === 'string' ? data['conceptType'] : undefined,
-    synonyms: strings(data['synonyms']),
+    // Sealed one by one since 2026-11-15; one that does not open is left out.
+    synonyms: strings(data['synonyms'])
+      ?.map((n) => text('synonyms', n))
+      .filter((n): n is string => n !== undefined),
     status: (data['status'] as ProposalStatus) ?? 'open',
     outcome: typeof data['outcome'] === 'string' ? data['outcome'] : undefined,
     createdAt: millis(data['createdAt']),

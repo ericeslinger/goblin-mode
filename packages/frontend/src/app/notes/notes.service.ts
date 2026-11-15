@@ -386,7 +386,11 @@ export class KeyWaitError extends LockedNoteError {
  */
 function sealingNotes(
   api: NotesApi,
-  seal: (path: string, data: Record<string, unknown>, merge: boolean) => Record<string, unknown>,
+  seal: (
+    path: string,
+    data: Record<string, unknown>,
+    merge: boolean,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
 ): NotesApi {
   const sealed = (path: string, data: Record<string, unknown>, merge: boolean) => {
     try {
@@ -395,16 +399,23 @@ function sealingNotes(
       return { err };
     }
   };
+  // A write that waits for the switch to be known (review on #276) goes
+  // out once it is, sealed as it then says.
+  const then = <T>(
+    out: ReturnType<typeof sealed>,
+    write: (d: Record<string, unknown>) => Promise<T>,
+  ): Promise<T> =>
+    'err' in out
+      ? Promise.reject(out.err)
+      : out.data instanceof Promise
+        ? out.data.then(write)
+        : write(out.data);
   return {
     ...api,
-    set: (db, path, data, merge) => {
-      const out = sealed(path, data, merge);
-      return 'err' in out ? Promise.reject(out.err) : api.set(db, path, out.data, merge);
-    },
-    createIfAbsent: (db, path, data) => {
-      const out = sealed(path, data, false);
-      return 'err' in out ? Promise.reject(out.err) : api.createIfAbsent(db, path, out.data);
-    },
+    set: (db, path, data, merge) =>
+      then(sealed(path, data, merge), (d) => api.set(db, path, d, merge)),
+    createIfAbsent: (db, path, data) =>
+      then(sealed(path, data, false), (d) => api.createIfAbsent(db, path, d)),
   };
 }
 
@@ -624,6 +635,12 @@ export class NotesService {
   readonly waitingForKey = computed(() => this.heldIds().size > 0);
   /** A kept write was refused for want of the key; tried again when it comes. */
   private keyWaited = false;
+  /**
+   * Writes that hold note text, made before the switch is known (review
+   * on #276): they wait for it, in memory, and go out sealed or not as
+   * it then says. Signing out refuses them.
+   */
+  private knownWaiters: { resolve: () => void; reject: (err: Error) => void }[] = [];
   /** Says on the page that a write was refused for want of the key (2026-11-15). */
   private readonly notice = inject(KeyWaitNotice);
   /**
@@ -714,6 +731,9 @@ export class NotesService {
       this.written.clear();
       this.replayed = false;
       this.keyWaited = false;
+      for (const w of this.knownWaiters.splice(0)) {
+        w.reject(new LockedNoteError('not written: signed out before it could be'));
+      }
       this.heldIds.set(uid ? this.heldInStore(uid) : new Set());
       this.atLoad = Object.fromEntries(
         [PENDING_SAVES_KEY, PENDING_INSTRUCTIONS_KEY, PENDING_NAMES_KEY].map((k) => [
@@ -759,6 +779,8 @@ export class NotesService {
       const on = this.sealing.on();
       const known = this.sealing.known();
       untracked(() => {
+        // Writes that waited for the switch go out first (review on #276).
+        if (known) for (const go of this.knownWaiters.splice(0)) go.resolve();
         if (!known || !this.replayed) return;
         if ((key || !on) && (this.heldIds().size || this.keyWaited)) {
           this.replayForKey();
@@ -781,9 +803,14 @@ export class NotesService {
    * not seen yet.
    */
   get ready(): boolean {
-    // And the gardener's switch heard (2026-11-15), from the cache at
-    // least, so the first words are not written in the clear before it.
-    return this.uid !== undefined && this.loaded() && this.sealing.known();
+    // Not the switch (review on #276): typing is accepted at once, and
+    // `save` holds it on the device until the switch is known.
+    return this.uid !== undefined && this.loaded();
+  }
+
+  /** Whether the gardener's switch is known yet on this device (`NoteSealing.known`). */
+  sealingKnown(): boolean {
+    return this.sealing.known();
   }
 
   newId(): string {
@@ -807,14 +834,27 @@ export class NotesService {
   }
 
   /**
-   * The words held on this device for note `id` while it waits for the
-   * key, if it is not on the server yet: what the editor shows after a
-   * reload, so typing never starts over them.
+   * The words held on this device for note `id` (for the key, or until
+   * the switch is known), and the text they were typed over as the
+   * server had it (`base`, none for a note not on the server yet): what
+   * the editor shows after a reload, merged over the note's text now,
+   * so typing goes on from them and never starts over the server's
+   * (review on #276: an existing note's held save was the only copy).
    */
-  heldText(id: string): string | undefined {
-    if (!this.uid || this.find(id)) return undefined;
+  heldSave(id: string): { value: string; base?: string } | undefined {
+    if (!this.uid) return undefined;
     const entry = (this.store.get<PendingSaves>(PENDING_SAVES_KEY) ?? {})[id];
-    return isPendingWrite(entry) && entry.uid === this.uid && entry.held ? entry.value : undefined;
+    if (!isPendingWrite(entry) || entry.uid !== this.uid || !entry.held) return undefined;
+    return {
+      value: entry.value,
+      ...(entry.held.base === undefined ? {} : { base: entry.held.base }),
+    };
+  }
+
+  /** Resolves once the switch is known; refused if the gardener signs out first. */
+  private whenKnown(): Promise<void> {
+    if (this.sealing.known()) return Promise.resolve();
+    return new Promise((resolve, reject) => this.knownWaiters.push({ resolve, reject }));
   }
 
   /** The ids whose saves this device holds for the key, from its store. */
@@ -857,12 +897,26 @@ export class NotesService {
     path: string,
     data: Record<string, unknown>,
     merge: boolean,
-  ): Record<string, unknown> {
+  ): Record<string, unknown> | Promise<Record<string, unknown>> {
     if (!this.uid) return data;
     const prefix = `${paths.notes(this.uid)}/`;
     if (!path.startsWith(prefix)) return data;
     const id = path.slice(prefix.length);
     if (id.includes('/')) return data;
+    // Before the switch is known (review on #276), a write holding note
+    // text waits for it, then goes out as it says: never plain because
+    // unheard, never dropped. One with no note text goes out at once.
+    if (!this.sealing.known() && SEALED_FIELDS.some((f) => fieldValue(data, f) !== undefined)) {
+      const kept = this.keptWrite;
+      return this.whenKnown().then(() => {
+        this.keptWrite = kept;
+        try {
+          return this.sealWrite(path, data, merge);
+        } finally {
+          this.keptWrite = false;
+        }
+      });
+    }
     const on = this.sealing.on();
     if (on && this.heldNew(id)) {
       this.refusedForKey();
@@ -1049,11 +1103,16 @@ export class NotesService {
     // device, never written in the clear, and written sealed once the
     // key arrives (`replayForKey`), over the base they were typed over.
     const sealing = this.sealing.on();
-    // Words held before stay held until the switch is heard: they were
-    // held because it was on, and must not go out before it is known.
-    const unheard = !this.sealing.known() && !!(prev?.held ?? wasHeld);
-    if (unheard || (sealing && !this.keys.key())) {
-      const held = { ...next, held: prev?.held ?? wasHeld ?? { base } };
+    // Before the switch is known (review on #276) every save is held the
+    // same way, whatever it will be: typing is accepted at once, and
+    // nothing goes out before it is known, plain or sealed.
+    if (!this.sealing.known() || (sealing && !this.keys.key())) {
+      // The base: the one given, when it is what the server has now (the
+      // editor merged the server's text in); else the one first held,
+      // since a base typed on this device never reached the server.
+      const first = prev?.held ?? wasHeld;
+      const current = base !== undefined && base === existing?.body;
+      const held = { ...next, held: current || !first ? { base } : first };
       this.store.set(PENDING_SAVES_KEY, { ...pending, [id]: held });
       this.hold(id, true);
       return;

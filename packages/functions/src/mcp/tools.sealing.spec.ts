@@ -215,6 +215,20 @@ describe('the switch on', () => {
     expect(filed).toEqual(['Filed a sealed note from the Reader']);
   });
 
+  it('suggest_changes keeps a refile’s proposed names for a plain concept, sealed (review on #276)', async () => {
+    put('c-moss', '', { kind: 'concept', title: 'Moss', titleSource: 'user' });
+    const out = await tools().suggestChanges({
+      proposals: [{ kind: 'refile', id: 'c-moss', synonyms: ['Lichen'], reason: 'Another name' }],
+    });
+    expect(out.stored).toHaveLength(1);
+    const [[path, proposal]] = entries('proposals');
+    const id = path.split('/').pop()!;
+    const names = proposal['synonyms'] as string[];
+    expect(openText(key, recordAadFor(UID, 'proposals', id, 'synonyms'), names[0])).toBe('Lichen');
+    expect(String(proposal['key'])).not.toMatch(/lichen/i);
+    expect(everything()).not.toMatch(/Lichen/);
+  });
+
   it('suggest_changes stores a suggestion’s reason sealed, even about a plain note', async () => {
     put('a', 'Kiln notes');
     put('b', 'More kiln notes');

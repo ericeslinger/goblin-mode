@@ -11,7 +11,7 @@ import { bytesToBase64, keyCheckProof, paths } from '@mossgoblin/schema';
 import { httpsCallable } from 'firebase/functions';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
-import { ONLINE, RANDOM_BYTES } from '../platform/platform';
+import { ONLINE, RANDOM_BYTES, STORAGE } from '../platform/platform';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { NoteKeyService } from './note-key.service';
 
@@ -70,12 +70,18 @@ export type SealCheck =
       mismatched: ServerPart[];
     };
 
+/** What this device remembers the server last said of the switch, then the uid. */
+export const SEALING_KEPT_PREFIX = 'goblin.sealNotes.';
+
 /** What the writers need of the switch: whether it is on now, and whether it is known yet. */
 export interface NoteSealing {
   readonly on: Signal<boolean>;
   /**
-   * The setting has been heard at least once since sign-in, from the
-   * cache or the server: until then `on` is only a default.
+   * The setting is known (review on #276): heard from the server, or
+   * from a cached copy of the doc, or remembered on this device from the
+   * server before. A cache with no doc is not knowing: it may only mean
+   * this device never read it. Until then `on` is only a default, and
+   * writers hold note text rather than send it.
    */
   readonly known: Signal<boolean>;
 }
@@ -111,6 +117,7 @@ export class SealingService implements NoteSealing {
   private readonly api = inject(KEY_CHECK_API);
   private readonly online = inject(ONLINE);
   private readonly random = inject(RANDOM_BYTES);
+  private readonly storage = inject(STORAGE);
 
   private readonly stored = signal(false);
   /** Whether sealing is on, as `settings/assistant` says; off until read. */
@@ -131,20 +138,27 @@ export class SealingService implements NoteSealing {
       this.stop = undefined;
       this.uid = uid;
       this.read = false;
-      this.stored.set(false);
-      this.heard.set(false);
+      // What the server last said, remembered here: known at once, offline too.
+      const remembered = uid ? this.remembered(uid) : undefined;
+      this.stored.set(remembered === true);
+      this.heard.set(remembered !== undefined);
       if (!uid) return;
       this.stop = this.settings.listen(
         this.fb.db,
         paths.assistant(uid),
-        (data, _fromCache, local) => {
+        (data, fromCache, local) => {
           // As KeysService does (#224): a snapshot heard while this
           // device's own write is unacknowledged, or a late echo of it,
           // is no newer than what is showing.
           if (this.unacked > 0 || (local && this.read)) return;
+          // The cache with no doc says nothing: wait for the server, or
+          // what this device remembers of it.
+          if (fromCache && data === undefined && !local) return;
           this.read = true;
-          this.stored.set(data?.['sealNotes'] === true);
+          const on = data?.['sealNotes'] === true;
+          this.stored.set(on);
           this.heard.set(true);
+          if (!fromCache) this.remember(uid, on);
         },
         (err) => console.error('sealing setting listener', err),
       );
@@ -202,8 +216,27 @@ export class SealingService implements NoteSealing {
     this.write(false);
   }
 
+  /** Where this device keeps what the server last said of the switch, by uid. */
+  private remembered(uid: string): boolean | undefined {
+    try {
+      const v = this.storage?.getItem(SEALING_KEPT_PREFIX + uid);
+      return v === 'on' ? true : v === 'off' ? false : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private remember(uid: string, on: boolean): void {
+    try {
+      this.storage?.setItem(SEALING_KEPT_PREFIX + uid, on ? 'on' : 'off');
+    } catch {
+      // Not kept; heard again next time.
+    }
+  }
+
   private write(on: boolean): void {
     if (!this.uid) return;
+    this.remember(this.uid, on);
     this.stored.set(on);
     this.unacked++;
     this.settings

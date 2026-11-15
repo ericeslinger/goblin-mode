@@ -72,13 +72,53 @@ describe('CaptureService', () => {
     // Typing goes on from them, and the save carries all of it.
     capture.onText('Typed while the key was away, and more');
     vi.advanceTimersByTime(SAVE_DELAY_MS);
+    // Over the base the server has (none: a new note), never words only this device has.
     expect(notes.save).toHaveBeenLastCalledWith('held1', 'Typed while the key was away, and more', {
-      base: 'Typed while the key was away',
+      base: '',
     });
     // Opened again from elsewhere, likewise.
     capture.newNote();
     capture.openNote('held1');
     expect(capture.open().text).toBe('Typed while the key was away');
+  });
+
+  it('an existing note’s held words are what the editor shows after a reload, and typing extends them (review on #276)', () => {
+    const { capture, notes } = setup({
+      [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+    });
+    notes.held.set({ a: 'Buy milk\n- eggs' });
+    notes.heldBases.set({ a: 'Buy milk' });
+    notes.save.mockImplementation((id: string) => void notes.written.add(id));
+    notes.signIn([note('a', 'Buy milk')]);
+    TestBed.tick();
+    expect(capture.open()).toMatchObject({ id: 'a', text: 'Buy milk\n- eggs' });
+    // Still held: typing extends the held words, saved over the server's text.
+    const heldNow = (id: string) => id === 'a';
+    (notes as unknown as { heldForKey: (id: string) => boolean }).heldForKey = heldNow;
+    capture.onText('Buy milk\n- eggs\n- bread');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith('a', 'Buy milk\n- eggs\n- bread', {
+      base: 'Buy milk',
+    });
+    // Another device changes the note: merged against the server's text, held words kept.
+    notes.notes.set([note('a', 'Shopping: Buy milk')]);
+    TestBed.tick();
+    expect(capture.open().text).toBe('Shopping: Buy milk\n- eggs\n- bread');
+  });
+
+  it('merges held words over the note’s text when it moved on since they were typed', () => {
+    const { capture, notes } = setup({
+      [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+    });
+    notes.held.set({ a: 'Buy milk\n- eggs' });
+    notes.heldBases.set({ a: 'Buy milk' });
+    notes.signIn([note('a', 'Shopping: Buy milk')]);
+    TestBed.tick();
+    expect(capture.open().text).toBe('Shopping: Buy milk\n- eggs');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith('a', 'Shopping: Buy milk\n- eggs', {
+      base: 'Shopping: Buy milk',
+    });
   });
 
   it('merges a change made elsewhere into what is being typed, and saves both (#37)', () => {

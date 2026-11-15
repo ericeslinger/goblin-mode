@@ -295,3 +295,26 @@ describe('reroute', () => {
     expect([...store.entries()]).toEqual(snapshot);
   });
 });
+
+describe('the gardener’s switch on (2026-11-15, review on #276)', () => {
+  it('a put back that makes the context note makes it sealed, its words nowhere in the clear', async () => {
+    store.set(`users/${UID}/settings/assistant`, { sealNotes: true });
+    put('a', 'Plain note');
+    put('b', 'Kiln shelf plans');
+    await tools().linkNotes({ from: 'a', to: ['b'] });
+    // The text the link replaced, as noteHistory keeps it with the switch on.
+    remember('a', 'Plain note', seal('a', 'body', 'Plain note'), keyed('a', 'Plain note'));
+    expect(store.has(notePath(CONTEXT_ID))).toBe(false);
+    await putBack(db(), UID, runOf('link_notes'), T + 60_000, undefined, keyFor);
+    const context = stored(CONTEXT_ID);
+    expect(isSealed(context['body'])).toBe(true);
+    expect(isSealed(context['title'])).toBe(true);
+    expect(opened(CONTEXT_ID, 'title')).toBe('Context for Claude');
+    // Sealed, the line may name the notes: it is in no clear text.
+    expect(opened(CONTEXT_ID, 'body')).toContain('Put back: Linked');
+    const raw = JSON.stringify(context);
+    for (const words of ['Kiln shelf', 'Plain note', 'Put back', 'Context for Claude'])
+      expect(raw).not.toContain(words);
+    expect(opened('a', 'body')).toBe('Plain note');
+  });
+});

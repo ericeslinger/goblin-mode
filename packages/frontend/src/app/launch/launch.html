@@ -161,8 +161,13 @@
       @if (notes.heldForKey(capture.open().id)) {
         <!-- Sealing is on and the key is not here yet (2026-11-15). -->
         <p class="note-status" role="status">
-          Sealing is on, and this device does not have its key yet. What you write is kept here, and
-          saved sealed once this device is online and has the key.
+          @if (notes.sealingKnown()) {
+            Sealing is on, and this device does not have its key yet. What you write is kept here,
+            and saved sealed once this device is online and has the key.
+          } @else {
+            This device has not yet heard whether your notes are sealed. What you write is kept
+            here, and saved once it is online.
+          }
         </p>
       }
       @if (waiting() && notes.loaded()) {

@@ -4614,8 +4614,10 @@ note go into a plain one (link_notes writing a sealed note's name, a
 sealed recipe's ingredients going onto a plain grocery list): while
 plain and sealed notes coexist a plain note can hold a sealed one's
 words, as it can when Eric types a link, and once all are sealed none
-can. Clippings are a page's words and stay plain. Text that would
-itself read as a sealed value is refused, never stored plain.
+can. Clippings are a page's words and stay plain. (Changed
+2026-11-15: with the gardener's switch on a clipping is born sealed;
+The gardener's switch, below.) Text that would itself read as a
+sealed value is refused, never stored plain.
 
 *What assistants changed* never holds a sealed field's text in the
 clear: an entry names a note whose title is sealed "Sealed note" (the
@@ -4686,7 +4688,9 @@ below behaves as before and asks for no key.
   as stored (`storedState`), then opened (`openState`) to decide; a
   write that leaves the stored body as it was opens nothing. A kept
   version is the stored body and title as they are, never opened and
-  stored again, so it opens with the note's own aad. The settle merge
+  stored again, so it opens with the note's own aad. (Changed
+  2026-11-15: with the gardener's switch on, a plain version is sealed
+  as it is kept; The gardener's switch, below.) The settle merge
   opens the note, its replaced texts and its History in one
   transaction and writes the merged body, its words title and
   `baseHash` in the note's form.
@@ -4838,7 +4842,8 @@ activity entry says no sealed field's text: `refile` says "added
 another name" without the names, and `finish_queued` "Did a sealed
 note sent to it" without the outcome. A suggestion holds no name
 proposed for a concept whose names are sealed: the refile keeps its
-type, and the names go in with `refile`.
+type, and the names go in with `refile`. (Changed 2026-11-15: the
+names are kept, sealed; The gardener's switch, below.)
 
 *Put back restores a field as stored.* A field's value before, kept in
 an entry, is the stored one, sealed if it was. Put back writes a
@@ -4905,7 +4910,19 @@ hash site (below).
   wrote, opened. A refile of a sealed concept still leaves out the
   names proposed for it (step 3d), now for any sealed field, since
   its key (`refile:{id}:{type}:{names}`) would say them; the names go
-  in with refile. `proposalAccepted` opens the title before the merge;
+  in with refile. (Changed 2026-11-15, review on #276: with the switch
+  on every concept counts as sealed here, so every refile lost its
+  names, silently. The names are now kept, sealed element by element
+  under the suggestion's own aad, `synonyms` joining
+  `SEALED_RECORD_FIELDS.proposals`, and the key holds `k1.` and a keyed
+  hash of the normalized sorted names under purpose `refile-names` and
+  the concept's id (`refileNamesHash`) in their place, so the same
+  names proposed again are still found. A key written before, with the
+  names in it, is not matched by the hashed one, so such a refile may
+  be proposed once more. `proposalAccepted` opens the names before
+  the refile; the app opens them to show; one that does not open shows
+  the calm line a sealed suggestion does. No tool's input or answer
+  changed.) `proposalAccepted` opens the title before the merge;
   one that does not open (no key, or sealed for another record) fails
   the suggestion with a message saying it is sealed, and merges
   nothing. Its outcome names notes as an activity entry does and is
@@ -5112,7 +5129,18 @@ status) or was given a different key. A part is named by what it
 does, never by its account: "the part that answers Claude and keeps
 History", "the part that titles notes and reads recipes", "the part
 that runs the assistant". This is also the live key fetch from the
-functions Eric wanted before anything is sealed in production.
+functions Eric wanted before anything is sealed in production: each
+callable asks the Worker afresh (`freshDataKeyFor`, past the
+instance's kept key, which it neither reads nor changes, review on
+#276), so a pass means the Worker answers now, not that a warm
+instance once got the key.
+
+*An oracle, and why that is enough.* Each callable answers a signed-in
+gardener a proof for any nonce they send. That is an authenticated
+oracle for a value the caller could compute anyway: the same gardener
+can fetch their own key from `/api/note-key` and make the proof
+themselves. It gives no one else's key or proof, and no key at all.
+No App Check or rate limit is added in this change.
 
 *Three callables, one handler (Eric, 2026-11-15).* The accounts do
 different jobs for a sealed note, so a pass that proved one would let
@@ -5220,12 +5248,22 @@ the clear and no keystroke is lost.
 
 - Typing (capture and the editor, `NotesService.save`) is kept on the
   device in the kept saves (`goblin.pendingSaves`, #200), marked
-  `held` with the text it was first typed over, and not written. The
-  note reads as existing here (`exists`, `heldText`), so the editor
-  keeps it, and after a reload shows the held words rather than an
-  empty note. Under the editor a calm line says sealing is on, this
-  device does not have its key yet, and what is written is kept and
-  saved sealed once it is online and has the key.
+  `held` with the text it was typed over as the server has it, and not
+  written. The base is the one a save gives when that is the server's
+  text now (the editor merged it in), else the one first held: a base
+  only this device has never reached the server. The note reads as
+  existing here (`exists`, `heldSave`). After a reload the editor
+  shows the held words, a new note's or an existing note's (review on
+  #276: an existing note's held save was the only copy, and the editor
+  opened on the server's text, so the next keystroke replaced it).
+  When the note's text moved on from the base meanwhile (another
+  device, Claude), the editor shows the held words merged over it and
+  saves that, held, over the newer text. Further typing extends the
+  held words; the editor's merge base stays the server's text, so a
+  change from elsewhere merges in rather than undoing them. Under the
+  editor a calm line says sealing is on, this device does not have its
+  key yet, and what is written is kept and saved sealed once it is
+  online and has the key.
 - Renames and Instructions for Claude are refused at the seam
   (`KeyWaitError`) and wait in their kept writes, as for a locked
   note.
@@ -5245,13 +5283,31 @@ the clear and no keystroke is lost.
 - When the key arrives, or the switch is turned off, every kept write
   is checked again as at a load and written: held saves over the base
   they were typed over, so a note that moved on meanwhile is merged
-  on the server, not overwritten.
-- Before the switch has been heard from the cache or the server since
-  sign-in, nothing is written: capture keeps its draft (`ready` waits
-  for it), and held words stay held.
+  on the server, not overwritten. A held save whose note went to
+  Trash goes into the trashed note, as words typed before a delete do
+  (#217); one whose note is gone for good stays gone.
+- Two tabs on one device share the kept saves: the last save of a
+  held note, from either tab, is the one kept. A tab's words not yet
+  in it are in that tab alone.
+- Until the switch is known (review on #276), enforced in the seam,
+  not by callers: known means heard from the server, a cached copy of
+  the doc, or what this device remembers the server last said
+  (`goblin.sealNotes.<uid>`). A cache with no doc is not knowing. Every
+  save is held as above, so typing is accepted at once; any other write
+  that holds note text waits in memory for the switch and then goes out
+  as it says (`whenKnown`); a write with no note text goes out at once.
+  Nothing is sent plain for want of knowing, and nothing is dropped,
+  but for a waiting write the page is closed on, which is lost as a
+  write in flight is. `ready` no longer waits for the switch.
 
 *Its limits.* A device that never gets online, or never gets its key,
-keeps its words in local storage for good, and only there. A new note
+keeps its words in local storage for good, and only there. A device
+signed in but never told the switch by the server (it cached nothing
+of `settings/assistant` and remembers nothing, then went offline)
+accepts every keystroke and holds every save on the device, plain
+garden or not, and writes nothing that holds note text until it is
+online once; a cold offline start of a plain garden so keeps its new
+notes on the device, shown in their editor, until then. A new note
 held so shows nowhere but its own editor until it is written: not in
 lists, links or search. The refused writes above have to be done again
 once the key is here. And a device that has not heard the switch from the
@@ -5270,7 +5326,15 @@ app's source and fails where a writer names the plain forms on the
 server, seals outside the codec, decides a write's form outside
 `sealFields`, builds a codec without the switch, writes a NotesTools
 note with forms that did not go by it, or, in the app, seals or
-writes a note document outside NotesService's seam.
+writes a note document outside NotesService's seam. Since the review
+on #276 it also fails on any direct `create`, `set` or `update` (on a
+transaction, a batch or a ref) of a note document, or of a ref handed
+in as a DocumentReference, that carries a sealed field, a parsed note
+or a value built with one, without `sealFields`. It found put back's
+`writeCorrection` making the context note with `tx.create` and no form
+decided, so with the switch on a correction made a plain context
+note; that write now goes through `sealFields` with the note's forms,
+and `lineInClear` decides with the switch, as `sealFields` will.
 
 *What is left before sealing can be switched on.* (Binding a service
 secret left this list on 2026-11-13: there is none to bind. Step 3d

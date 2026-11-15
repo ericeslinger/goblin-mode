@@ -58,6 +58,7 @@ import {
   noteTextHashMatches,
   openText,
   paths,
+  refileNamesHash,
   recordAadFor,
   sealText,
   withFieldValue,
@@ -265,6 +266,21 @@ export class NoteCodec {
       if (match !== undefined) return match;
       throw new SealedNoteError(noteId, key ? 'did-not-open' : 'no-key');
     };
+  }
+
+  /**
+   * A way to make the names part of a sealed refile suggestion's key
+   * (`refileNamesHash`, 2026-11-15), with the key asked for once, here,
+   * so the checks that use it stay synchronous. No key throws
+   * SealedRecordError, so no suggestion is stored with its names in the
+   * clear.
+   */
+  async namesHasher(): Promise<(noteId: string, names: string) => string> {
+    const key = await this.dataKey(
+      '',
+      () => new SealedRecordError('proposals', 'refile', 'no-key'),
+    );
+    return (noteId, names) => refileNamesHash(noteId, names, () => key)!;
   }
 
   /**

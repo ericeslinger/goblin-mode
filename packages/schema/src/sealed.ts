@@ -176,7 +176,8 @@ export function aadFor(uid: string, noteId: string, field: SealedField): Uint8Ar
  *   run's `outcome`, which for a sent note repeats its `sendOutcome`.
  */
 export const SEALED_RECORD_FIELDS = {
-  proposals: ['title', 'reason'],
+  // A refile's proposed other names since 2026-11-15, element by element.
+  proposals: ['title', 'reason', 'synonyms'],
   runs: ['itemText', 'itemKey', 'outcome'],
 } as const;
 export type SealedRecordCollection = keyof typeof SEALED_RECORD_FIELDS;

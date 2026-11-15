@@ -127,22 +127,46 @@ describe('suggest_changes, a sealed note', () => {
     expect(() => openText(key, aadFor(UID, 'b', 'title'), String(d['title']))).toThrow();
   });
 
-  it("leaves out a sealed concept's proposed names, from the suggestion and its key", async () => {
+  it("keeps a sealed concept's proposed names, sealed, its key a keyed hash of them (2026-11-15)", async () => {
     put('k', seal('k', 'body', ''), {
       kind: 'concept',
       title: 'Kiln',
       titleSource: 'user',
       synonyms: ['Oven'],
     });
+    const refile = {
+      kind: 'refile' as const,
+      id: 'k',
+      type: 'project' as const,
+      synonyms: ['Firebox'],
+      reason: 'You fire it',
+    };
+    const out = await tools().suggestChanges({ proposals: [refile] });
+    expect(out.stored).toHaveLength(1);
+    const [{ id, d }] = proposals();
+    const names = d['synonyms'] as string[];
+    expect(names.every(isSealed)).toBe(true);
+    expect(openText(key, recordAadFor(UID, 'proposals', id, 'synonyms'), names[0])).toBe('Firebox');
+    expect(String(d['key'])).toMatch(/^refile:k:project:k1\.[0-9a-f]{32}$/);
+    expect(JSON.stringify(d)).not.toMatch(/Firebox|firebox|Kiln/);
+    // The same names proposed again make the same key: not stored twice.
+    const again = await tools().suggestChanges({ proposals: [refile] });
+    expect(again.stored).toHaveLength(0);
+    expect(proposals()).toHaveLength(1);
+  });
+
+  it('accepting it opens the sealed names and adds them, sealed on the concept', async () => {
+    put('k', seal('k', 'body', ''), { kind: 'concept', title: 'Kiln', titleSource: 'user' });
     await tools().suggestChanges({
-      proposals: [
-        { kind: 'refile', id: 'k', type: 'project', synonyms: ['Firebox'], reason: 'You fire it' },
-      ],
+      proposals: [{ kind: 'refile', id: 'k', synonyms: ['Firebox'], reason: 'You fire it' }],
     });
-    const [{ d }] = proposals();
-    expect(d['synonyms']).toBeUndefined();
-    expect(d['key']).toBe('refile:k:project:');
-    expect(JSON.stringify(d)).not.toMatch(/Firebox|Kiln/);
+    const [{ id, d }] = proposals();
+    store.set(`${paths.proposals(UID)}/${id}`, { ...d, status: 'accepted' });
+    const codec = new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID));
+    expect(await applyAccepted(fakeDb(store), UID, id, tools(), T, codec)).toBe('applied');
+    const concept = docsIn(paths.notes(UID)).find((x) => x.id === 'k')!.d;
+    const added = concept['synonyms'] as string[];
+    expect(openText(key, aadFor(UID, 'k', 'synonyms'), added[0])).toBe('Firebox');
   });
 });
 

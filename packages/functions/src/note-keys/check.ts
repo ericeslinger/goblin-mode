@@ -1,8 +1,9 @@
 // The check before sealing is switched on (note encryption, the
 // gardener's switch, 2026-11-15; DESIGN.md, "Note encryption"). The app
 // sends a fresh nonce; the functions fetch the gardener's key through
-// their normal path (`dataKeyFor`: an identity token for this
-// function's account, the Worker's `/api/note-key/for`) and answer a
+// their normal path, afresh (`freshDataKeyFor`: an identity token for
+// this function's account, the Worker's `/api/note-key/for`, past the
+// instance's kept key, so a pass means the Worker answers now) and answer a
 // proof of it (`keyCheckProof`), never the key. The app computes the
 // same proof with the key it got from `/api/note-key` and compares, so
 // both sides are shown to hold one key before anything is sealed.
@@ -19,7 +20,7 @@
 import { isKeyCheckNonce, keyCheckProof, NOTE_KEY_VERSION, type DataKey } from '@mossgoblin/schema';
 import { logger } from 'firebase-functions/v2';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-import { NoteKeyServiceError, NoteKeysUnconfigured, dataKeyFor } from './client';
+import { NoteKeyServiceError, NoteKeysUnconfigured, freshDataKeyFor } from './client';
 
 /** What the app is answered: the key's version and the proof, never the key. */
 export interface KeyCheckAnswer {
@@ -46,7 +47,7 @@ export class KeyCheckRefused extends Error {
 export async function keyCheck(
   uid: string,
   nonce: unknown,
-  keyFor: (uid: string) => Promise<DataKey> = dataKeyFor,
+  keyFor: (uid: string) => Promise<DataKey> = freshDataKeyFor,
 ): Promise<KeyCheckAnswer> {
   if (!isKeyCheckNonce(nonce)) throw new KeyCheckRefused('invalid-argument', 'Which check?');
   let key: DataKey;

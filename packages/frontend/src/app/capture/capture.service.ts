@@ -1,7 +1,7 @@
 import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, effect, inject, signal, untracked } from '@angular/core';
 import { merge3, shouldStartFreshNote, templateParts } from '@mossgoblin/schema';
-import { NotesService } from '../notes/notes.service';
+import { type NoteRecord, NotesService } from '../notes/notes.service';
 import { LocalStore } from '../platform/local-store';
 import { NOW } from '../platform/platform';
 
@@ -124,20 +124,19 @@ export class CaptureService {
     // the last sync, so neither side's text is lost (#37). A locked
     // note's placeholder is not its text (step 3a): nothing is merged
     // from it, and once it opens its text merges in then.
-    // Words held on this device for the key (2026-11-15), for a note
-    // not on the server yet, are its text here: after a reload they are
-    // shown, never an empty note that typing would replace them with.
+    // Words held on this device (for the key, or until the switch is
+    // known, 2026-11-15) are the open note's text here, a new note's or
+    // an existing one's (review on #276): after a reload they are shown,
+    // merged over the note's text now, never the server's alone, which
+    // typing would then replace them with (`showHeld`).
     effect(() => {
       const list = this.notes.notes();
       this.notes.waitingForKey();
       untracked(() => {
         const { id } = this.open();
         const note = list.find((n) => n.id === id);
+        this.showHeld(id, note);
         if (note && !note.locked) this.merge(id, note.body, note.deviceId);
-        else if (!note) {
-          const held = this.notes.heldText(id);
-          if (held !== undefined && this.body === this.synced) this.merge(id, held);
-        }
       });
     });
 
@@ -146,9 +145,9 @@ export class CaptureService {
     // until it opens (step 3a), and then merges into its text, as
     // typing before it arrived does.
     effect(() => {
-      // Ready: loaded, and the gardener's switch heard (2026-11-15), so a
-      // draft is never written plain before sealing is known.
-      if (!this.notes.loaded() || !this.notes.ready) return;
+      // Loaded. Before the switch is known `save` holds the draft on the
+      // device (review on #276), so nothing waits on it here.
+      if (!this.notes.loaded()) return;
       const list = this.notes.notes();
       untracked(() => {
         // The draft first, so the settle's title sees the final text.
@@ -265,11 +264,49 @@ export class CaptureService {
     const base = this.synced;
     this.synced = this.body;
     this.sent = [...this.sent, this.body].slice(-SENT_KEPT);
+    // A save held on the device (2026-11-15) never reached the server:
+    // what it has is still the base, so a change from elsewhere merges
+    // against that, not against words only this device has (below).
+    const heldBefore = this.notes.heldForKey(id);
     // A concept is never deleted for having no text: its name, type and
     // other names are what it is (review on #66). Nor is a template.
-    if (this.body.trim() || this.isKept(id))
+    if (this.body.trim() || this.isKept(id)) {
       this.notes.save(id, this.body, keep ? { base, keep } : { base });
-    else if (this.notes.exists(id)) this.notes.remove(id);
+      if (heldBefore || this.notes.heldForKey(id)) this.synced = base;
+    } else if (this.notes.exists(id)) this.notes.remove(id);
+  }
+
+  /** The note whose held words were shown, once each time it is opened. */
+  private heldShown?: string;
+
+  /**
+   * Shows the words held on this device for note `id` (`heldSave`),
+   * once per opening, while nothing has been typed over them: merged
+   * over the note's text now when that moved on from the base they were
+   * typed over (another device, Claude), else as they are. The base the
+   * editor merges later changes against stays the server's text, so
+   * typing extends the held words and is saved over that.
+   */
+  private showHeld(id: string, note?: NoteRecord): void {
+    if (this.heldShown === id || this.body !== this.synced || note?.locked) return;
+    const held = this.notes.heldSave(id);
+    if (!held) return;
+    this.heldShown = id;
+    const server = note?.body;
+    const base = held.base ?? '';
+    const text =
+      server === undefined || server === base ? held.value : merge3(base, held.value, server);
+    const before = this.body;
+    this.synced = server ?? base;
+    this.body = text;
+    this.open.set({ id, text, base: before });
+    this.untouched = false;
+    // Merged over newer text: saved again over that, still held.
+    if (server !== undefined && server !== base) {
+      this.dirty = true;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.flush(), SAVE_DELAY_MS);
+    }
   }
 
   /**
@@ -298,8 +335,10 @@ export class CaptureService {
     }
     // `known`: the text of a note just made here, which may not be in
     // the list yet; typing must never start on an empty stand-in. Nor on
-    // a note whose words wait here for the key (2026-11-15).
-    this.show({ id, text: this.notes.find(id)?.body ?? known ?? this.notes.heldText(id) ?? '' });
+    // the server's text of a note whose words are held here (2026-11-15).
+    const note = this.notes.find(id);
+    this.show({ id, text: note?.body ?? known ?? '' });
+    this.showHeld(id, note);
   }
 
   /**
@@ -396,6 +435,7 @@ export class CaptureService {
   }
 
   private show(note: OpenNote): void {
+    this.heldShown = undefined;
     this.open.set(note);
     this.body = note.text;
     this.synced = note.text;

@@ -35,10 +35,16 @@ async function carryOut(id: string, p: Proposal, tools: Tools, records: Records)
       return `Merged into ${String(merged.title)}`;
     }
     case 'refile': {
+      // Sealed names (2026-11-15) opened under this suggestion's own aad.
+      const addSynonyms =
+        p.synonyms &&
+        (await Promise.all(
+          p.synonyms.map((n) => records.openRecord('proposals', id, 'synonyms', n)),
+        ));
       const { changed, refused } = await tools.refile({
         id: ids[0],
         type: p.conceptType,
-        addSynonyms: p.synonyms,
+        addSynonyms,
       });
       const done = changed.length ? changed.join('; ') : 'Nothing left to change';
       return refused.length ? `${done}; ${refused.join(', ')} already names another note` : done;

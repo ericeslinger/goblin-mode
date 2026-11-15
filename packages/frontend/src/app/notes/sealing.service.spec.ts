@@ -13,11 +13,13 @@ import { KEY_CHECK_API, SealingService, type ServerPart } from './sealing.servic
 // turned on only after the check that this device and the functions get
 // the same key, and off with a write alone.
 
-function setup() {
-  let next: (data: Record<string, unknown> | undefined) => void = () => undefined;
+function setup({ keep = false }: { keep?: boolean } = {}) {
+  if (!keep) localStorage.clear();
+  let next: (data: Record<string, unknown> | undefined, fromCache?: boolean) => void = () =>
+    undefined;
   const api = {
     listen: vi.fn((_db, _path: string, n) => {
-      next = (d) => n(d, false, false);
+      next = (d, fromCache = false) => n(d, fromCache, false);
       return () => undefined;
     }),
     set: vi.fn(async () => undefined),
@@ -62,7 +64,7 @@ function setup() {
     deviceKey,
     server,
     online,
-    settings: (d?: object) => next(d as Record<string, unknown>),
+    settings: (d?: object, fromCache = false) => next(d as Record<string, unknown>, fromCache),
   };
 }
 
@@ -82,6 +84,23 @@ describe('SealingService', () => {
     expect(sealing.on()).toBe(true);
     settings({ sealNotes: 'yes' });
     expect(sealing.on()).toBe(false);
+  });
+
+  it('is not known from a cache with no doc, but is from the server, and remembers it (review on #276)', () => {
+    const first = setup();
+    first.settings(undefined, true);
+    expect(first.sealing.known()).toBe(false);
+    first.settings({ sealNotes: true, updatedAt: 1 }, true);
+    expect(first.sealing.known()).toBe(true);
+    first.settings({ sealNotes: true });
+    expect(localStorage.getItem('goblin.sealNotes.u1')).toBe('on');
+    // A later start, offline with nothing cached: known at once from the device.
+    TestBed.resetTestingModule();
+    const next = setup({ keep: true });
+    expect(next.sealing.known()).toBe(true);
+    expect(next.sealing.on()).toBe(true);
+    next.settings(undefined, true);
+    expect(next.sealing.on()).toBe(true);
   });
 
   it('turns on when every part of the server proves the same key, with a merge write of the switch alone', async () => {
