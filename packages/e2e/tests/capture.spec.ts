@@ -54,7 +54,12 @@ test('typing offline reaches another device once back online', async ({ page, br
   await typeLines(page, ['Written on the train']);
   await letItSave(page);
   await page.context().setOffline(false);
-  await expect(page.getByRole('status')).toHaveText('synced');
+  // A fresh device may not have heard the sealing switch before going
+  // offline (2026-11-15): its words were then held on the device, the
+  // status said "waiting" and a polite line said why. Back online it
+  // hears, writes them, and both settle either way.
+  await expect(page.getByRole('status')).toHaveText('synced', { timeout: 15_000 });
+  await expect(page.getByText('has not yet heard whether your notes are sealed')).toHaveCount(0);
 
   const other = await browser.newContext({ ...devices['Pixel 7'] });
   const second = await other.newPage();

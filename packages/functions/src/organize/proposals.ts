@@ -41,6 +41,11 @@ export type Checked = Omit<Proposal, 'status' | 'createdAt'>;
 const linkable = (name: string) => !/\[\[|\]\]|\||\n/.test(name) && name.trim() !== '';
 const sorted = (ids: readonly string[]) => [...new Set(ids)].sort().join(',');
 
+/** A refile's names as its key holds them: normalized, sorted. */
+export function refileNames(p: { synonyms?: readonly string[] }): string {
+  return `${[...(p.synonyms ?? [])].map(normalizeName).sort()}`;
+}
+
 /** The same change, proposed again, has the same key. */
 export function keyOf(p: RawProposal): string {
   switch (p.kind) {
@@ -49,7 +54,7 @@ export function keyOf(p: RawProposal): string {
     case 'merge':
       return `merge:${sorted(p.ids)}`;
     case 'refile':
-      return `refile:${p.id}:${p.type ?? ''}:${[...(p.synonyms ?? [])].map(normalizeName).sort()}`;
+      return `refile:${p.id}:${p.type ?? ''}:${refileNames(p)}`;
   }
 }
 
@@ -63,6 +68,11 @@ export function checkProposals(
   garden: readonly GardenNote[],
   known: ReadonlySet<string>,
   room: number,
+  /**
+   * A refile's key when it must not say its names (a sealed concept,
+   * or the switch on, 2026-11-15): the caller's, with the names hashed.
+   */
+  refileKey?: (p: Extract<RawProposal, { kind: 'refile' }>) => string | undefined,
 ): Checked[] {
   const byId = new Map(garden.map((n) => [n.id, n]));
   const live = (id: string) => {
@@ -128,7 +138,7 @@ export function checkProposals(
         notes: [touched(concept)],
         ...(type ? { conceptType: type } : {}),
         ...(synonyms.length ? { synonyms } : {}),
-        key: keyOf(fixed),
+        key: refileKey?.(fixed) ?? keyOf(fixed),
       };
     }
     if (!checked || keys.has(checked.key)) continue;

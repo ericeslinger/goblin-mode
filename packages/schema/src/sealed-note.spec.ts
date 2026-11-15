@@ -79,6 +79,14 @@ describe('writtenForms', () => {
     expect(out.body).toBe('plain');
     expect(out.instructions).toBe('plain');
   });
+
+  it('seals every field with the gardener’s switch on, and only then (2026-11-15)', () => {
+    expect(writtenForms(PLAIN_FORMS, true)).toEqual(SEALED_FORMS);
+    expect(writtenForms({ ...PLAIN_FORMS, title: 'sealed' }, true)).toEqual(SEALED_FORMS);
+    // Off is the rule of the form found: nothing is unsealed.
+    expect(writtenForms(SEALED_FORMS, false)).toEqual(SEALED_FORMS);
+    expect(writtenForms(PLAIN_FORMS, false)).toEqual(PLAIN_FORMS);
+  });
 });
 
 describe('a sealed note against the stored schema (2026-11-13)', () => {

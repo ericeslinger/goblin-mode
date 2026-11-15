@@ -247,6 +247,25 @@ describe('noteKeys', () => {
     expect(exportDataKey(await keys.dataKeyFor('u1'))).toEqual(raw(3));
     expect(source).toHaveBeenCalledTimes(2);
   });
+
+  it('asks afresh for the check, past the kept key, and leaves that key as it was (2026-11-15)', async () => {
+    let n = 4;
+    const source = vi.fn(async () => raw(n));
+    const keys = noteKeys(source);
+    const kept = await keys.dataKeyFor('u1');
+    n = 5;
+    // A fresh ask reaches the source each time, and says what it says now.
+    expect(exportDataKey(await keys.freshKeyFor('u1'))).toEqual(raw(5));
+    expect(exportDataKey(await keys.freshKeyFor('u1'))).toEqual(raw(5));
+    expect(source).toHaveBeenCalledTimes(3);
+    // Other code's kept key is untouched, and still asks nothing.
+    expect(await keys.dataKeyFor('u1')).toBe(kept);
+    expect(source).toHaveBeenCalledTimes(3);
+    // A fresh ask that fails says so.
+    source.mockRejectedValueOnce(new NoteKeyServiceError('down'));
+    await expect(keys.freshKeyFor('u1')).rejects.toBeInstanceOf(NoteKeyServiceError);
+    expect(await keys.dataKeyFor('u1')).toBe(kept);
+  });
 });
 
 describe('noteKeysFromEnv', () => {

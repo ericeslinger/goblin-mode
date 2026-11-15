@@ -56,8 +56,9 @@ export async function assignedOnWrite(
   }
   const items = assignedItems(body).filter((i) => !i.done);
   // The form of the run's text and of the hash in its id: `recordForm`
-  // of the note, which is what `hashForm` is.
-  const as = hashForm(formsFound(after));
+  // of the note, which is what `hashForm` is; sealed with the
+  // gardener's switch on (2026-11-15), read only when there are items.
+  const as = items.length ? hashForm(await codec.forms(formsFound(after))) : 'plain';
   // Sealed before any run starts, so a missing key starts none of
   // them, and before the transactions, which may run more than once.
   const sealed: { runId: string; plainId?: string; itemText: string; itemKey: string }[] = [];

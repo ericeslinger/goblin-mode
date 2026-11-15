@@ -83,6 +83,21 @@ export class FakeNotes {
   get ready(): boolean {
     return this.loaded();
   }
+  /** Words held on the device for the key (2026-11-15), by note id. */
+  readonly held = signal<Record<string, string>>({});
+  readonly waitingForKey = computed(() => Object.keys(this.held()).length > 0);
+  heldForKey = (id: string) => id in this.held();
+  /** Bases of held saves, by note id; none for a note not on the server. */
+  readonly heldBases = signal<Record<string, string>>({});
+  heldSave = (id: string): { value: string; base?: string } | undefined =>
+    id in this.held()
+      ? {
+          value: this.held()[id],
+          ...(id in this.heldBases() ? { base: this.heldBases()[id] } : {}),
+        }
+      : undefined;
+  sealingKnown = () => true;
+  sealingOn = () => false;
   private n = 0;
   readonly written = new Set<string>();
   save = vi.fn(

@@ -13,7 +13,7 @@ import {
 } from '@mossgoblin/schema';
 import { Timestamp } from 'firebase-admin/firestore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NoteCodec } from '../mcp/note-text';
+import { NoteCodec, sealingIn } from '../mcp/note-text';
 import { NotesTools } from '../mcp/tools';
 import { NoteKeysUnconfigured } from '../note-keys/client';
 import { type Data, type Store, copy, fakeDb } from '../testing/fake-firestore';
@@ -75,7 +75,16 @@ const noKey = () =>
 
 const runDoc = (id = RUN) => store.get(paths.run(UID, id))!;
 const assign = (after: Data) =>
-  assignedOnWrite(fakeDb(store), new NoteCodec(UID, keyFor), UID, ID, undefined, after, T, log);
+  assignedOnWrite(
+    fakeDb(store),
+    new NoteCodec(UID, keyFor, sealingIn(fakeDb(store), UID)),
+    UID,
+    ID,
+    undefined,
+    after,
+    T,
+    log,
+  );
 
 const model: AgentModel = async () => ({
   content: [{ type: 'text', text: 'Ask the neighbours', citations: null }],

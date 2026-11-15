@@ -107,6 +107,19 @@ export function noteTextHashMatches(
 }
 
 /**
+ * The names part of a refile suggestion's key (`refile:{id}:{type}:
+ * {names}`) for a sealed concept, or with the gardener's switch on
+ * (2026-11-15): `k1.` and 32 hex characters of the keyed hash of the
+ * normalized, sorted names, under purpose `refile-names` and the
+ * concept's id, so the same names proposed again make the same key
+ * without the key saying them. Undefined with no key.
+ */
+export function refileNamesHash(noteId: string, names: string, key: KeyGetter): string | undefined {
+  const k = key();
+  return k ? keyedHex(k, 'refile-names', noteId, names, BODY_HEX) : undefined;
+}
+
+/**
  * The hash part of an item run's id for the item keyed `itemKey` on
  * note `noteId`: 16 hex characters of SHA-256 of the key when `form` is
  * plain, as before; `k1.` and 16 hex characters of the keyed hash for a

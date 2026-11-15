@@ -23,6 +23,11 @@ export const NOTE_KEY_PATH = '/api/note-key';
 /** This device's copy of a gardener's key is kept under this, then the uid. */
 export const NOTE_KEY_PREFIX = 'goblin.noteKey.';
 
+/** This device could not get its key: offline, signed out, or the service refused. */
+export class NoteKeyUnavailable extends Error {
+  override readonly name = 'NoteKeyUnavailable';
+}
+
 /** The network call the service makes, as a seam for unit specs. */
 export interface NoteKeyApi {
   fetch(url: string, init: RequestInit): Promise<Response>;
@@ -35,8 +40,8 @@ export const NOTE_KEY_API = new InjectionToken<NoteKeyApi>('note-key-api', {
 
 /**
  * The signed-in gardener's note data key (note encryption step 2;
- * DESIGN.md, "Note encryption", Key custody), held for the notes that
- * will be sealed with it. Nothing reads it yet.
+ * DESIGN.md, "Note encryption", Key custody), held for the notes it
+ * opens and, with the gardener's switch on (2026-11-15), seals.
  *
  * Once a gardener is signed in and online it asks the Worker once a
  * load, with their ID token, and keeps the key in memory and on this
@@ -44,7 +49,9 @@ export const NOTE_KEY_API = new InjectionToken<NoteKeyApi>('note-key-api', {
  * failed ask is tried again when the device comes back online, or on
  * the next load. Signing out forgets every device copy. It never
  * blocks anything and never throws: without a key, `key()` is simply
- * undefined, and failures go to the console alone.
+ * undefined, and failures go to the console alone. `fetchNow`, for the
+ * check before sealing is switched on (2026-11-15), asks at once and
+ * says when it cannot.
  */
 @Injectable({ providedIn: 'root' })
 export class NoteKeyService {
@@ -94,26 +101,53 @@ export class NoteKeyService {
     const uid = user.uid;
     this.asked = uid;
     try {
-      const token = await user.getIdToken();
-      const res = await this.api.fetch(NOTE_KEY_PATH, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error(`the note key service answered ${res.status}`);
-      const wire = noteKeyFromWire(await res.json());
-      if (!wire) throw new Error('the note key service answered with no key');
-      // Signed out, or someone else, while it was asked: keep nothing.
-      if (this.auth.user()?.uid !== uid || this.uid !== uid) return;
-      this.toDevice(uid, wire.v, wire.bytes);
-      const held = this.held();
-      if (!held || bytesToBase64(exportDataKey(held)) !== bytesToBase64(wire.bytes)) {
-        this.held.set(importDataKey(wire.bytes));
-      }
+      await this.fetchKey(user);
     } catch (err) {
       if (this.asked === uid) this.asked = undefined;
       console.warn('note key not fetched; trying again when back online', String(err));
     }
+  }
+
+  /**
+   * Asks the Worker for the signed-in gardener's key now, whatever this
+   * load asked before, and holds it as `ask` does: the check before
+   * sealing is switched on (2026-11-15), which must show this device can
+   * get it. Throws `NoteKeyUnavailable` when it cannot; never the key's
+   * bytes in a message.
+   */
+  async fetchNow(): Promise<DataKey> {
+    const user = this.auth.user();
+    if (!user || user.uid !== this.uid) throw new NoteKeyUnavailable('not signed in');
+    if (!this.online()) throw new NoteKeyUnavailable('offline');
+    try {
+      return await this.fetchKey(user);
+    } catch (err) {
+      if (err instanceof NoteKeyUnavailable) throw err;
+      throw new NoteKeyUnavailable(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async fetchKey(user: User): Promise<DataKey> {
+    const uid = user.uid;
+    const token = await user.getIdToken();
+    const res = await this.api.fetch(NOTE_KEY_PATH, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new NoteKeyUnavailable(`the note key service answered ${res.status}`);
+    const wire = noteKeyFromWire(await res.json());
+    if (!wire) throw new NoteKeyUnavailable('the note key service answered with no key');
+    // Signed out, or someone else, while it was asked: keep nothing.
+    if (this.auth.user()?.uid !== uid || this.uid !== uid) {
+      throw new NoteKeyUnavailable('signed out while it was asked');
+    }
+    this.toDevice(uid, wire.v, wire.bytes);
+    const held = this.held();
+    if (!held || bytesToBase64(exportDataKey(held)) !== bytesToBase64(wire.bytes)) {
+      this.held.set(importDataKey(wire.bytes));
+    }
+    return this.held()!;
   }
 
   private fromDevice(uid: string): DataKey | undefined {

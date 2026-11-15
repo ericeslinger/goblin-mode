@@ -825,6 +825,13 @@ export const AssistantSettings = z.object({
       timeZone: z.string().min(1).optional(),
     })
     .optional(),
+  /**
+   * Seal note text (note encryption, the gardener's switch, 2026-11-15):
+   * with it on, every write of a note's sealed fields, in the app and
+   * on the server, writes them sealed. Off when absent. Turned off,
+   * writers keep the form they find again; nothing is unsealed.
+   */
+  sealNotes: z.boolean().optional(),
   updatedAt: Timestamp,
 });
 export type AssistantSettings = z.infer<typeof AssistantSettings>;

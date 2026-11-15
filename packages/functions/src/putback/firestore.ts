@@ -50,6 +50,7 @@ import {
   SealedNoteError,
   logLeftSealed,
   sealFields,
+  sealingIn,
   shownTitle,
   storedText,
 } from '../mcp/note-text';
@@ -184,11 +185,16 @@ function correctionNote(
 
 /**
  * Whether a correction line written into the context note `raw` (as
- * stored, or absent: made plain) would be stored plain. The line goes
- * into its body, so the body's written form says.
+ * stored, or absent: made in the form a new note takes) would be stored
+ * plain. The line goes into its body, so the body's written form says,
+ * by the one rule and the gardener's switch (2026-11-15), as
+ * `sealFields` will write it.
  */
-function lineInClear(raw: Record<string, unknown> | undefined): boolean {
-  return writtenForms(formsFound(raw)).body === 'plain';
+async function lineInClear(
+  raw: Record<string, unknown> | undefined,
+  codec: NoteCodec,
+): Promise<boolean> {
+  return writtenForms(formsFound(raw), await codec.sealingOn()).body === 'plain';
 }
 
 /** A project as a correction names it: its title, or what it is when sealed and the line is plain. */
@@ -223,21 +229,21 @@ async function writeCorrection(
 ): Promise<void> {
   if (!snap.exists) {
     const body = withCorrection('', line);
-    tx.create(
-      ref,
-      Note.parse({
-        kind: 'context',
-        body,
-        title: 'Context for Claude',
-        // Its name is fixed: a settle never retitles it.
-        titleSource: 'user',
-        links: resolveLinks(wikiLinkTargets(parseNote(body)), index),
-        tags: [],
-        archived: false,
-        createdAt: stamp.updatedAt,
-        ...stamp,
-      }),
-    );
+    const made = Note.parse({
+      kind: 'context',
+      body,
+      title: 'Context for Claude',
+      // Its name is fixed: a settle never retitles it.
+      titleSource: 'user',
+      links: resolveLinks(wikiLinkTargets(parseNote(body)), index),
+      tags: [],
+      archived: false,
+      createdAt: stamp.updatedAt,
+      ...stamp,
+    });
+    // Made in the form a new note takes (its snap's `forms`): sealed
+    // with the gardener's switch on (2026-11-15), as every writer.
+    tx.create(ref, await sealFields(codec, ref.id, made, snap.forms));
     return;
   }
   // A sealed context note that did not open takes no line: it is left
@@ -405,7 +411,7 @@ async function putBackRun(
   keyFor: KeyFor,
 ): Promise<PutBackResult> {
   const recordId = putBackId(runId);
-  const codec = new NoteCodec(uid, keyFor);
+  const codec = new NoteCodec(uid, keyFor, sealingIn(db, uid));
   // Names only, for the links of a text put back; read before the transaction.
   const { index, locked } = await namesOf(db, uid, codec);
   const activity = db.collection(paths.activity(uid));
@@ -507,7 +513,7 @@ async function putBackRun(
           ? await NoteSnap.open(codec, await tx.get(db.doc(paths.note(uid, filedUnder))))
           : undefined;
       // A sealed project that did not open goes unnamed in the line.
-      const inClear = lineInClear(contextRaw.data());
+      const inClear = await lineInClear(contextRaw.data(), codec);
       const project =
         projectDoc?.exists && !projectDoc.locked
           ? correctionProject(String(projectDoc.data()?.['title'] ?? ''), projectDoc.forms, inClear)
@@ -649,7 +655,7 @@ async function rerouteRun(
   const modules = await db.doc(paths.modules(uid)).get();
   if (!moduleOn(modules.data() as Parameters<typeof moduleOn>[0], 'projects'))
     throw new PutBackRefused('failed-precondition', 'Projects is switched off in Settings.');
-  const codec = new NoteCodec(uid, keyFor);
+  const codec = new NoteCodec(uid, keyFor, sealingIn(db, uid));
   const { index, locked } = await namesOf(db, uid, codec);
   const activity = db.collection(paths.activity(uid));
   const notesCol = db.collection(paths.notes(uid));
@@ -718,7 +724,7 @@ async function rerouteRun(
       if (current['conceptType'] === 'project') {
         if (current['parent'] === projectId) continue;
         try {
-          await parentTitle(tx, notesCol, id, projectId);
+          await parentTitle(tx, notesCol, id, projectId, await codec.sealingOn());
         } catch (err) {
           if (err instanceof ToolError)
             throw new PutBackRefused('failed-precondition', err.message);
@@ -770,7 +776,7 @@ async function rerouteRun(
       /** The project the assistant had filed them under: its title opened, and its forms. */
       let from: { title: string; forms?: NoteForms } | undefined;
       let mergedInto: CorrectionNote | undefined;
-      const inClear = lineInClear(contextRaw.data());
+      const inClear = await lineInClear(contextRaw.data(), codec);
       const formsOf = (id: string) => baseSnaps.find((n) => n.id === id)?.forms;
       /** A note's text opened; a sealed one that did not open, none. */
       const dataOf = (id: string) => {

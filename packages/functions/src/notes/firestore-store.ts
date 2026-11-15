@@ -1,4 +1,4 @@
-import { firstWordsTitle, hashForm, paths } from '@mossgoblin/schema';
+import { firstWordsTitle, hashForm, isSealed, paths } from '@mossgoblin/schema';
 import {
   type DocumentSnapshot,
   FieldValue,
@@ -84,10 +84,16 @@ export function firestoreNotesStore(
     async keep(uid, noteId, versionId, v) {
       const savedAt = FieldValue.serverTimestamp();
       // Every field the NoteVersion schema names, nothing more. The body
-      // and title are the note's as stored (recordHistory, keepUnopened).
+      // and title are the note's as stored (recordHistory, keepUnopened),
+      // sealed as they are kept when the gardener's switch is on
+      // (`keptForm`, 2026-11-15).
+      const [body, title] = await Promise.all([
+        keptForm(codec, noteId, 'body', v.body),
+        keptForm(codec, noteId, 'title', v.title),
+      ]);
       await db.doc(`${paths.history(uid, noteId)}/${versionId}`).set({
-        body: v.body,
-        title: v.title,
+        body,
+        title,
         updatedBy: v.updatedBy,
         ...(v.agent ? { agent: v.agent } : {}),
         deviceId: v.deviceId,
@@ -129,7 +135,8 @@ export function firestoreNotesStore(
       // holds it, keyed for a sealed note (2026-11-14), and with no key
       // it throws, keeping nothing rather than a plain id.
       await col.doc(await codec.hashText(noteId, body, form)).set({
-        body: stored,
+        // Sealed as it is kept with the switch on (2026-11-15).
+        body: await keptForm(codec, noteId, 'body', stored),
         writtenAt:
           writtenAt === undefined ? FieldValue.serverTimestamp() : Timestamp.fromMillis(writtenAt),
         // A TTL policy (firestore.indexes.json) removes it after this,
@@ -186,4 +193,27 @@ export function firestoreNotesStore(
       });
     },
   };
+}
+
+/**
+ * A copy of note `noteId`'s `field` as History or a replaced text keeps
+ * it (2026-11-15): as stored, or, with the gardener's switch on, a plain
+ * value sealed under the note's own id, so it opens as the note's does.
+ * A sealed value is kept as it is. With the switch on and no key it is
+ * kept as stored: History keeps a text a write replaced so it is never
+ * lost, and that text was stored plain already.
+ */
+async function keptForm(
+  codec: NoteCodec,
+  noteId: string,
+  field: 'body' | 'title',
+  value: string,
+): Promise<string> {
+  if (isSealed(value) || !(await codec.sealingOn())) return value;
+  try {
+    return await codec.seal(noteId, field, value, 'sealed');
+  } catch (err) {
+    if (err instanceof SealedNoteError && err.reason === 'no-key') return value;
+    throw err;
+  }
 }

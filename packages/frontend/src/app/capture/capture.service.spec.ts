@@ -11,6 +11,7 @@ import {
   PENDING_SAVES_KEY,
   SEALED_TITLE,
 } from '../notes/notes.service';
+import { NOTE_SEALING } from '../notes/sealing.service';
 import { FakeNotes, fakeFirebase, noteRecord } from '../testing/fakes';
 import { NOW, ONLINE } from '../platform/platform';
 import {
@@ -58,6 +59,122 @@ describe('CaptureService', () => {
     notes.signIn([note('n1', 'groceries')]);
     TestBed.tick();
     expect(capture.open()).toMatchObject({ id: 'n1', text: 'groceries' });
+  });
+
+  it('shows words held on the device for the key after a reload, never an empty note (2026-11-15)', () => {
+    const { capture, notes } = setup({
+      [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'held1' },
+    });
+    notes.held.set({ held1: 'Typed while the key was away' });
+    notes.signIn([]);
+    TestBed.tick();
+    expect(capture.open()).toMatchObject({ id: 'held1', text: 'Typed while the key was away' });
+    // Typing goes on from them, and the save carries all of it.
+    capture.onText('Typed while the key was away, and more');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    // Over the base the server has (none: a new note), never words only this device has.
+    expect(notes.save).toHaveBeenLastCalledWith('held1', 'Typed while the key was away, and more', {
+      base: '',
+    });
+    // Opened again from elsewhere, likewise.
+    capture.newNote();
+    capture.openNote('held1');
+    expect(capture.open().text).toBe('Typed while the key was away');
+  });
+
+  it('an existing note’s held words are what the editor shows after a reload, and typing extends them (review on #276)', () => {
+    const { capture, notes } = setup({
+      [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+    });
+    notes.held.set({ a: 'Buy milk\n- eggs' });
+    notes.heldBases.set({ a: 'Buy milk' });
+    notes.save.mockImplementation((id: string) => void notes.written.add(id));
+    notes.signIn([note('a', 'Buy milk')]);
+    TestBed.tick();
+    expect(capture.open()).toMatchObject({ id: 'a', text: 'Buy milk\n- eggs' });
+    // Still held: typing extends the held words, saved over the server's text.
+    const heldNow = (id: string) => id === 'a';
+    (notes as unknown as { heldForKey: (id: string) => boolean }).heldForKey = heldNow;
+    capture.onText('Buy milk\n- eggs\n- bread');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith('a', 'Buy milk\n- eggs\n- bread', {
+      base: 'Buy milk',
+    });
+    // Another device changes the note: merged against the server's text, held words kept.
+    notes.notes.set([note('a', 'Shopping: Buy milk')]);
+    TestBed.tick();
+    expect(capture.open().text).toBe('Shopping: Buy milk\n- eggs\n- bread');
+  });
+
+  describe('typing before held words are shown (review on #276)', () => {
+    const saved = (notes: FakeNotes) => notes.save.mock.lastCall?.[1];
+
+    it('an existing note: keystrokes before the notes list arrive are merged with the held words', () => {
+      const { capture, notes } = setup({
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+      });
+      notes.held.set({ a: 'Buy milk\n- eggs' });
+      notes.heldBases.set({ a: 'Buy milk' });
+      // Before the list: the editor is empty, and typing is kept as a draft.
+      capture.onText('- bread');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      expect(notes.save).not.toHaveBeenCalled();
+      notes.signIn([note('a', 'Buy milk')]);
+      TestBed.tick();
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      const text = capture.open().text;
+      expect(text).toContain('Buy milk\n- eggs');
+      expect(text).toContain('- bread');
+      expect(saved(notes)).toBe(text);
+      expect(notes.save).toHaveBeenLastCalledWith('a', text, { base: 'Buy milk' });
+      expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+    });
+
+    it('an existing note: a save made before the held words reached the editor is built on them', () => {
+      const { capture, notes } = setup({
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+      });
+      notes.signIn([note('a', 'Buy milk')]);
+      // The held state turns up before the editor has shown it, and Eric types at once.
+      notes.held.set({ a: 'Buy milk\n- eggs' });
+      notes.heldBases.set({ a: 'Buy milk' });
+      capture.onText('Buy milk!');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      const text = String(saved(notes));
+      expect(text).toContain('- eggs');
+      expect(text).toContain('Buy milk!');
+    });
+
+    it('a new note: keystrokes before the list arrive and the held words are both kept', () => {
+      const { capture, notes } = setup({
+        [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'held1' },
+      });
+      notes.held.set({ held1: 'Typed while the key was away' });
+      capture.onText('And more at once');
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      notes.signIn([]);
+      TestBed.tick();
+      vi.advanceTimersByTime(SAVE_DELAY_MS);
+      const text = capture.open().text;
+      expect(text).toContain('Typed while the key was away');
+      expect(text).toContain('And more at once');
+      expect(saved(notes)).toBe(text);
+    });
+  });
+
+  it('merges held words over the note’s text when it moved on since they were typed', () => {
+    const { capture, notes } = setup({
+      [LAST_SEEN_KEY]: { hiddenAt: clock - 1 * MIN, noteId: 'a' },
+    });
+    notes.held.set({ a: 'Buy milk\n- eggs' });
+    notes.heldBases.set({ a: 'Buy milk' });
+    notes.signIn([note('a', 'Shopping: Buy milk')]);
+    TestBed.tick();
+    expect(capture.open().text).toBe('Shopping: Buy milk\n- eggs');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith('a', 'Shopping: Buy milk\n- eggs', {
+      base: 'Shopping: Buy milk',
+    });
   });
 
   it('merges a change made elsewhere into what is being typed, and saves both (#37)', () => {
@@ -528,6 +645,7 @@ describe('CaptureService, when the page goes before the cache has the text (#200
         { provide: FIREBASE, useValue: fakeFirebase(true) },
         { provide: AuthService, useValue: { user } },
         { provide: NOTES_API, useValue: api },
+        { provide: NOTE_SEALING, useValue: { on: signal(false), known: signal(true) } },
         { provide: ONLINE, useValue: () => true },
         { provide: NOW, useValue: () => clock },
       ],

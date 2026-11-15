@@ -11,6 +11,7 @@ import { type PushState, PushService } from '../push/push.service';
 import { type ReminderRecord, RemindersService } from '../reminders/reminders.service';
 import { KeysService } from '../keys/keys.service';
 import { START_ON_KEY, StartOnService } from '../home/start-on';
+import { type SealCheck, SealingService } from '../notes/sealing.service';
 import { Settings } from './settings';
 
 function fakePush(state: PushState = 'off') {
@@ -45,6 +46,21 @@ function fakeKeys() {
 }
 const keys = fakeKeys();
 
+/** The gardener's switch that seals note text (2026-11-15), as Settings sees it. */
+function fakeSealing(check: SealCheck = { result: 'ok' }) {
+  const on = signal(false);
+  return {
+    on,
+    known: signal(true),
+    turnOn: vi.fn(async () => {
+      if (check.result === 'ok') on.set(true);
+      return check;
+    }),
+    turnOff: vi.fn(() => on.set(false)),
+  };
+}
+let sealing = fakeSealing();
+
 async function render(
   auth: FakeAuthService,
   push = fakePush(),
@@ -64,6 +80,7 @@ async function render(
       { provide: ReaderService, useValue: reader },
       { provide: RemindersService, useValue: reminders },
       { provide: KeysService, useValue: keys },
+      { provide: SealingService, useValue: sealing },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(Settings);
@@ -368,5 +385,97 @@ describe('Settings', () => {
     expect(TestBed.inject(StartOnService).choice()).toBe('home');
     expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toMatchObject({ choice: 'home' });
     localStorage.removeItem(START_ON_KEY);
+  });
+
+  describe('Sealed notes (2026-11-15)', () => {
+    async function signedIn(check?: SealCheck) {
+      sealing = fakeSealing(check);
+      const auth = new FakeAuthService();
+      auth.signInAs('eric@example.com');
+      const el = await render(auth);
+      const box = el.querySelector<HTMLInputElement>('.sealing input[role="switch"]')!;
+      const status = () => el.querySelector('#sealing-status')!.textContent!.trim();
+      const flip = async () => {
+        box.click();
+        await TestBed.inject(ApplicationRef).whenStable();
+      };
+      return { el, box, status, flip };
+    }
+
+    it('says what sealing means and that it is off', async () => {
+      const { el, box, status } = await signedIn();
+      expect(el.textContent).toContain(
+        'Sealing encrypts the text of your notes before it is stored',
+      );
+      expect(el.textContent).toContain('Attachments, the links pages came from, and reminder text');
+      expect(box.checked).toBe(false);
+      expect(status()).toBe('Sealing is off: notes are stored as they are now.');
+    });
+
+    it('turns on only after the check passes', async () => {
+      const { box, status, flip } = await signedIn();
+      await flip();
+      expect(sealing.turnOn).toHaveBeenCalledTimes(1);
+      expect(box.checked).toBe(true);
+      expect(status()).toContain('This device and every part of the server got the same key');
+    });
+
+    for (const [check, words] of [
+      [
+        { result: 'device', why: 'the note key service answered 503' },
+        'This device could not get your key',
+      ],
+      [
+        {
+          result: 'server',
+          failed: [
+            { part: 'titles', why: 'The key service did not give the server its key (403).' },
+          ],
+          mismatched: [],
+        },
+        'The server could not get your key in the part that titles notes and reads recipes. The key service did not give the server its key (403). Sealing stays off',
+      ],
+      [
+        {
+          result: 'server',
+          failed: [
+            { part: 'main', why: 'internal' },
+            { part: 'runner', why: 'internal' },
+          ],
+          mismatched: [],
+        },
+        'The server could not get your key in the part that answers Claude and keeps History and the part that runs the assistant. Sealing stays off',
+      ],
+      [
+        { result: 'server', failed: [], mismatched: ['runner'] },
+        'The server was given a different key from this device in the part that runs the assistant.',
+      ],
+      [{ result: 'offline' }, 'the check needs a connection'],
+    ] as [SealCheck, string][]) {
+      it(`stays off and says why: ${words.slice(0, 48)}`, async () => {
+        const { box, status, flip } = await signedIn(check);
+        await flip();
+        expect(box.checked).toBe(false);
+        expect(sealing.on()).toBe(false);
+        expect(status()).toContain(words);
+        // Never an account's address.
+        expect(status()).not.toMatch(/@|goblin-|compute/);
+      });
+    }
+
+    it('turns off with no check, and says nothing is unsealed', async () => {
+      const { box, status, flip } = await signedIn();
+      await flip();
+      await flip();
+      expect(sealing.turnOff).toHaveBeenCalledTimes(1);
+      expect(sealing.turnOn).toHaveBeenCalledTimes(1);
+      expect(box.checked).toBe(false);
+      expect(status()).toContain('Notes sealed already stay sealed');
+    });
+
+    it('is not shown signed out', async () => {
+      const el = await render(new FakeAuthService());
+      expect(el.querySelector('#sealing')).toBeNull();
+    });
   });
 });

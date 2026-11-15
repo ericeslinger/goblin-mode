@@ -8,6 +8,7 @@ import {
   PER_ROUND,
   type RawProposal,
   checkProposals,
+  refileNames,
 } from './proposals';
 import { type NoteCodec, SEALED_TITLE } from '../mcp/note-text';
 
@@ -55,10 +56,10 @@ export interface StoredGarden {
   /**
    * The notes a record about them is sealed for (`recordForm`, step 3e,
    * 2026-11-13): any field stored sealed. A suggestion about one names
-   * it "Sealed note", and its proposed title and reason are sealed. A
-   * name proposed for such a concept is not stored at all, since the
-   * suggestion's key is built from the names it proposes and would say
-   * them in the clear; the names go in with refile.
+   * it "Sealed note", and its proposed title and reason are sealed. The
+   * names a refile proposes for such a concept are sealed too, and its
+   * key holds a keyed hash of them in their place (2026-11-15; before,
+   * they were left out).
    */
   sealed: ReadonlySet<string>;
 }
@@ -84,8 +85,8 @@ export interface Stored {
  * about a note in `sealed` (step 3e, 2026-11-13) names it "Sealed
  * note", never its title in the clear, and stores its proposed title
  * and reason sealed under the suggestion's own id (`recordAadFor`),
- * with `codec`; a refile of such a concept keeps its type and leaves
- * out the names proposed for it, which go in with refile. With only
+ * with `codec`; a refile of such a concept stores the names it proposes
+ * sealed, and its key a keyed hash of them (2026-11-15). With only
  * plain notes nothing is sealed and the key is never asked for.
  */
 export async function storeSuggestions(
@@ -94,7 +95,7 @@ export async function storeSuggestions(
   raw: readonly RawProposal[],
   now: number,
   read: StoredGarden,
-  codec: Pick<NoteCodec, 'sealRecord'>,
+  codec: Pick<NoteCodec, 'sealRecord' | 'namesHasher'>,
 ): Promise<Stored> {
   await sweepProposals(db, uid, now);
   const garden = read.notes;
@@ -102,16 +103,23 @@ export async function storeSuggestions(
   const known = await proposals.select('key', 'status').get();
   const waiting = known.docs.filter((d) => d.get('status') === 'open').length;
   const room = Math.max(0, Math.min(PER_ROUND, MAX_OPEN - waiting));
-  const proposed = raw.map((p) =>
-    p.kind === 'refile' && p.synonyms?.length && read.sealed.has(p.id)
-      ? { ...p, synonyms: undefined }
-      : p,
+  // A refile of a sealed concept (any concept, with the gardener's
+  // switch on) keeps the names it proposes (2026-11-15): stored sealed,
+  // and its key holds a keyed hash of them, never the names. The key is
+  // asked for only when there is such a refile.
+  const sealedRefile = raw.some(
+    (p) => p.kind === 'refile' && p.synonyms?.length && read.sealed.has(p.id),
   );
+  const hashNames = sealedRefile ? await codec.namesHasher() : undefined;
   const checked = checkProposals(
-    proposed,
+    raw,
     garden,
     new Set(known.docs.map((d) => String(d.get('key')))),
     room,
+    (p) =>
+      hashNames && p.synonyms?.length && read.sealed.has(p.id)
+        ? `refile:${p.id}:${p.type ?? ''}:${hashNames(p.id, refileNames(p))}`
+        : undefined,
   );
   const batch = db.batch();
   const stored: Stored['stored'] = [];
@@ -123,6 +131,13 @@ export async function storeSuggestions(
       ...c,
       notes: c.notes.map((n) => (read.sealed.has(n.id) ? { ...n, title: SEALED_TITLE } : n)),
       reason: await codec.sealRecord('proposals', id, 'reason', c.reason, as),
+      ...(c.synonyms === undefined
+        ? {}
+        : {
+            synonyms: await Promise.all(
+              c.synonyms.map((n) => codec.sealRecord('proposals', id, 'synonyms', n, as)),
+            ),
+          }),
       ...(c.title === undefined
         ? {}
         : { title: await codec.sealRecord('proposals', id, 'title', c.title, as) }),

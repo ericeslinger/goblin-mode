@@ -101,16 +101,21 @@ export function anySealed(forms: NoteForms): boolean {
  * note (or `formFrom` its sources, for a new one). The one rule, for
  * the app and the functions alike:
  *
- * - A field is written in the form it was found in. Nothing starts
- *   sealing a field that was plain (readers before writers).
+ * - A field is written in the form it was found in. With the switch
+ *   off nothing starts sealing a field that was plain.
  * - No field is plainer than the body (review on #263, widened
  *   2026-11-13): a title made from the body's first words would say
  *   them in the clear, and the other fields beside a sealed body are
  *   sealed with it, so a sealed note is sealed throughout.
  * - The other names are never plainer than the title: a concept's
  *   rename keeps its old title among them.
+ * - With the gardener's switch on (`sealing`, 2026-11-15), every field
+ *   is sealed, whatever was found: a new note is born sealed, and a
+ *   field a write touches on a plain note is written sealed. Off, the
+ *   rules above, so turning it off unseals nothing.
  */
-export function writtenForms(found: NoteForms): NoteForms {
+export function writtenForms(found: NoteForms, sealing = false): NoteForms {
+  if (sealing) return SEALED_FORMS;
   const out = { ...found };
   if (found.body === 'sealed') for (const f of SEALED_FIELDS) out[f] = 'sealed';
   if (found.title === 'sealed') out.synonyms = 'sealed';
