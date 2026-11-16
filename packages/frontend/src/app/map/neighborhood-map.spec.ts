@@ -4,6 +4,7 @@ import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { NotesService } from '../notes/notes.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
+import { boxWidthIs, screenIsWide } from '../testing/screen';
 import { NeighborhoodMap } from './neighborhood-map';
 
 @Component({ template: '' })
@@ -33,7 +34,15 @@ async function render(url: string, { loaded = true } = {}) {
   return { harness, el: harness.routeNativeElement as HTMLElement };
 }
 
+let teardown: (() => void)[] = [];
+const onTeardown = (undo: () => void) => teardown.push(undo);
+
 describe('NeighborhoodMap', () => {
+  afterEach(() => {
+    teardown.forEach((undo) => undo());
+    teardown = [];
+  });
+
   it('draws the rings and lists the same notes', async () => {
     const { el } = await render('/map/n/c-kiln');
     expect(el.querySelector('h1')?.textContent).toBe('Around Kiln');
@@ -69,6 +78,8 @@ describe('NeighborhoodMap', () => {
   });
 
   it('labels a crowded outer ring only in the list, with a large tap target on each dot', async () => {
+    const wide = screenIsWide();
+    onTeardown(wide);
     const notes = new FakeNotes();
     const many = Array.from({ length: 14 }, (_, i) =>
       noteRecord(`m${i}`, `Note ${i}\n[[Studio day]]`),
@@ -96,5 +107,53 @@ describe('NeighborhoodMap', () => {
     expect(el.querySelector('[aria-labelledby="two-away"]')!.querySelectorAll('li')).toHaveLength(
       15,
     );
+  });
+
+  describe('on a phone (#290)', () => {
+    beforeEach(() => onTeardown(boxWidthIs(380)));
+
+    const labels = (el: Element) => [...el.querySelectorAll('svg text')].map((t) => t.textContent);
+    const zoomIn = async (el: HTMLElement, harness: RouterTestingHarness) => {
+      [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Zoom in')!.click();
+      await harness.fixture.whenStable();
+    };
+
+    it('leads with the Nearby list, the drawing after it in the zoom box', async () => {
+      const { el } = await render('/map/n/c-kiln');
+      const list = el.querySelector('section[aria-labelledby="nearby"]')!;
+      const frame = el.querySelector('app-map-frame')!;
+      expect(frame.querySelector('svg.map')).not.toBeNull();
+      expect(list.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(el.querySelectorAll('svg.map')).toHaveLength(1);
+    });
+
+    it('draws no label at Fit, where they would be 9 px, and all three a step in', async () => {
+      const { el, harness } = await render('/map/n/c-kiln');
+      // 14-unit labels, a 600-unit drawing, a 380 px box: 8.9 px.
+      expect(el.querySelectorAll('svg .node')).toHaveLength(3);
+      expect(labels(el)).toEqual([]);
+      await zoomIn(el, harness);
+      // 13.3 px.
+      expect(labels(el)).toEqual(['Kiln', 'Studio day', 'Glaze']);
+    });
+
+    it('still opens a note from its node in the box', async () => {
+      const { el, harness } = await render('/map/n/c-kiln');
+      [...el.querySelectorAll<SVGGElement>('app-map-frame svg .node')]
+        .find((n) => n.querySelector('title')?.textContent === 'Glaze')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await harness.fixture.whenStable();
+      expect(TestBed.inject(Router).url).toBe('/n/c-glaze');
+    });
+  });
+
+  it('keeps the drawing first, with no zoom box, on a wide screen', async () => {
+    onTeardown(screenIsWide());
+    const { el } = await render('/map/n/c-kiln');
+    expect(el.querySelector('app-map-frame')).toBeNull();
+    const svg = el.querySelector('svg.map')!;
+    const list = el.querySelector('section[aria-labelledby="nearby"]')!;
+    expect(svg.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(el.querySelectorAll('svg text')).toHaveLength(3);
   });
 });

@@ -4,6 +4,7 @@ import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
+import { boxWidthIs, screenIsWide } from '../testing/screen';
 import { GardenMap } from './garden-map';
 
 @Component({ template: '' })
@@ -109,5 +110,67 @@ describe('GardenMap', () => {
     const { el } = await render('/map', { loaded: false });
     expect(el.textContent).toContain('Loading…');
     expect(el.textContent).not.toContain('The garden is empty');
+  });
+
+  describe('on a phone (#290)', () => {
+    let undo: () => void;
+    afterEach(() => undo());
+
+    const zoomIn = async (el: HTMLElement, harness: RouterTestingHarness) => {
+      [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Zoom in')!.click();
+      await harness.fixture.whenStable();
+    };
+
+    it('leads with the Beds, the drawing after them in the zoom box', async () => {
+      undo = boxWidthIs(380);
+      const { el } = await render('/map');
+      const beds = el.querySelector('section[aria-labelledby="beds"]')!;
+      const frame = el.querySelector('app-map-frame')!;
+      expect(frame.querySelector('svg.map')).not.toBeNull();
+      expect(beds.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('names the beds in the drawing only once they read at 11 px', async () => {
+      // Three beds, two across: 480 units. In a 300 px box a 17-unit
+      // name is 10.6 px at Fit, 15.9 px a step in.
+      undo = boxWidthIs(300);
+      const { el, harness } = await render('/map');
+      expect(el.querySelectorAll('svg .node').length).toBeGreaterThan(0);
+      expect(el.querySelectorAll('svg text.bed-label')).toHaveLength(0);
+      await zoomIn(el, harness);
+      expect(
+        [...el.querySelectorAll('svg text.bed-label')].map((t) => t.textContent?.trim()),
+      ).toEqual(['Kiln', 'Glaze', 'Not linked yet']);
+    });
+
+    it('names the lanes and the dates a step in, not at Fit', async () => {
+      // 760 units in 380 px: lane names 10 px and dates 9 px at Fit,
+      // 15 px and 13.5 px a step in.
+      undo = boxWidthIs(380);
+      const { el, harness } = await render('/map/timeline');
+      const over = el.querySelector('section[aria-labelledby="lanes"]')!;
+      expect(
+        over.compareDocumentPosition(el.querySelector('app-map-frame')!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(el.querySelectorAll('svg text')).toHaveLength(0);
+      await zoomIn(el, harness);
+      expect(el.querySelectorAll('svg text.lane-label').length).toBeGreaterThan(0);
+      expect(el.querySelectorAll('svg text.axis')).toHaveLength(2);
+    });
+  });
+
+  it('keeps the drawing first, every label, no zoom box, on a wide screen', async () => {
+    const undo = screenIsWide();
+    try {
+      const { el } = await render('/map');
+      expect(el.querySelector('app-map-frame')).toBeNull();
+      const svg = el.querySelector('svg.map')!;
+      const beds = el.querySelector('section[aria-labelledby="beds"]')!;
+      expect(svg.compareDocumentPosition(beds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(el.querySelectorAll('svg text.bed-label')).toHaveLength(3);
+    } finally {
+      undo();
+    }
   });
 });
