@@ -9,22 +9,17 @@ import {
   viewChild,
 } from '@angular/core';
 import { PLACES } from '../home/places';
-import { type Command, GO_KEYS, PLACE_ORDER, filterCommands } from './shortcuts';
+import { APPLE, type Command, GO_KEYS, PLACE_ORDER, filterCommands, isBoxChord } from './shortcuts';
 import { ShortcutsService } from './shortcuts.service';
 
-/** Cmd on a Mac, Ctrl elsewhere, as the hints name the chord. */
-function chordName(doc: Document): string {
-  const platform = doc.defaultView?.navigator.platform ?? '';
-  return /Mac|iPhone|iPad/.test(platform) ? '⌘ K' : 'Ctrl K';
-}
-
 /**
- * The command box (#289, Eric 2026-11-15): Ctrl K or Cmd K, from any
- * screen. A modal dialog, as the app's sheets are, with one field, "Go
- * to or do", a combobox over the list of what matches: the places, New
- * note, Search notes and each page of Settings. Up and Down move, Enter
- * runs, Escape closes, and the focus goes back where it was. With
- * nothing typed it also says the keys.
+ * The command box (#289, Eric 2026-11-15): Cmd K on Apple platforms,
+ * Ctrl K elsewhere (#313), from any screen. A modal dialog, as the
+ * app's sheets are, with one field, "Go to or do", a combobox over the
+ * list of what matches: the places, New note, Search notes and each
+ * page of Settings. Up and Down move, Enter runs, Escape closes, and
+ * the focus goes back where it was. With nothing typed it also says
+ * the keys.
  */
 @Component({
   selector: 'app-command-box',
@@ -48,7 +43,7 @@ function chordName(doc: Document): string {
         spellcheck="false"
         enterkeyhint="go"
         aria-autocomplete="list"
-        [attr.aria-keyshortcuts]="chord === '⌘ K' ? 'Meta+K' : 'Control+K'"
+        [attr.aria-keyshortcuts]="apple ? 'Meta+K' : 'Control+K'"
         [attr.aria-expanded]="shown().length > 0"
         [attr.aria-controls]="shown().length ? 'command-box-list' : null"
         [attr.aria-activedescendant]="activeId()"
@@ -176,7 +171,9 @@ export class CommandBox {
   /** What had the focus when the box opened, given it back on close. */
   private returnTo?: HTMLElement;
 
-  protected readonly chord = chordName(this.doc);
+  protected readonly apple = inject(APPLE);
+  /** The chord as this platform's keyboard names it, in the hints. */
+  protected readonly chord = this.apple ? '⌘ K' : 'Ctrl K';
   private readonly commands = signal<Command[]>([]);
   protected readonly query = signal('');
   protected readonly active = signal(0);
@@ -265,9 +262,11 @@ export class CommandBox {
         this.close();
         return;
       default:
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        // The chord closes it; a held one's repeats only are taken, or
+        // the box would flicker shut and open.
+        if (isBoxChord(event, this.apple)) {
           event.preventDefault();
-          this.close();
+          if (!event.repeat) this.close();
         }
     }
   }

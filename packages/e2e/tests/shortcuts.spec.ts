@@ -5,6 +5,7 @@ import {
   expect,
   letItSave,
   openCapture,
+  openSettings,
   signInAs,
   switchModulesOn,
   test,
@@ -13,9 +14,11 @@ import { OWNER } from '../src/personas';
 
 // The desktop shell's keys (#289, step 5; Eric, 2026-11-15): `/` to
 // Notes' search, `g` then a letter to a place, and the command box on
-// Ctrl K or Cmd K. Never while typing: what is typed in a note or a
-// field reaches it as ever, and the editor keeps its own Mod-K (a
-// link). (keys.spec.ts is the provider keys' journey, #144.)
+// Ctrl K, or Cmd K on Apple platforms only (#313; `ControlOrMeta` is
+// the same split, Ctrl on the Linux test browser). Never while typing:
+// what is typed in a note or a field reaches it as ever, and the editor
+// keeps its own Mod-K (a link). A checkbox, radio or range is no
+// field. (keys.spec.ts is the provider keys' journey, #144.)
 
 async function noSeriousViolations(page: Page): Promise<void> {
   const { violations } = await new AxeBuilder({ page })
@@ -98,6 +101,21 @@ test.describe('at 1440 by 900', () => {
     await page.keyboard.press('k');
     await expect(page).toHaveURL(/\/(kitchen|n\/meals-\d{4}-\d{2}-\d{2})$/);
     await expect(rail(page).locator('a[aria-current="page"] .name')).toHaveText('Kitchen');
+  });
+
+  test('g then a letter from a radio button, which is no field (#313)', async ({ page }) => {
+    await signInAs(page, OWNER);
+    await openSettings(page, 'Start on');
+    const radio = page.getByRole('radio', { name: /^Where I left off/ });
+    await expect(radio).toBeChecked();
+    await radio.focus();
+    await expect(radio).toBeFocused();
+    await page.keyboard.press('g');
+    await page.keyboard.press('h');
+    await expect(page).toHaveURL(/\/home$/);
+    // Focused, not chosen: the choice is as it was.
+    await openSettings(page, 'Start on');
+    await expect(page.getByRole('radio', { name: /^Where I left off/ })).toBeChecked();
   });
 
   test('in the Reader, g s is Settings, not Save', async ({ page }) => {

@@ -8,7 +8,15 @@ import { NewNoteService } from '../home/new-note';
 import { PLACES, type PlaceId } from '../home/places';
 import { ModulesService } from '../modules/modules.service';
 import { FakeAuthService, FakeModules } from '../testing/fakes';
-import { GO_KEYS, GO_WAIT_MS, PLACE_ORDER, filterCommands, placeForKey } from './shortcuts';
+import {
+  APPLE,
+  GO_KEYS,
+  GO_WAIT_MS,
+  PLACE_ORDER,
+  applePlatform,
+  filterCommands,
+  placeForKey,
+} from './shortcuts';
 import { ShortcutsService } from './shortcuts.service';
 
 @Component({ template: '' })
@@ -49,9 +57,11 @@ interface Setup {
   url?: string;
   kitchen?: boolean;
   signedIn?: boolean;
+  /** An Apple platform's keys; the test browser's own otherwise (not Apple). */
+  apple?: boolean;
 }
 
-async function setup({ url = '/home', kitchen = false, signedIn = true }: Setup = {}) {
+async function setup({ url = '/home', kitchen = false, signedIn = true, apple }: Setup = {}) {
   const auth = new FakeAuthService();
   if (signedIn) auth.user.set({ uid: 'u1', email: 'eric@example.com' } as User);
   const modules = new FakeModules();
@@ -67,6 +77,7 @@ async function setup({ url = '/home', kitchen = false, signedIn = true }: Setup 
       { provide: AuthService, useValue: auth },
       { provide: ModulesService, useValue: modules },
       { provide: NewNoteService, useValue: newNote },
+      ...(apple === undefined ? [] : [{ provide: APPLE, useValue: apple }]),
     ],
   });
   // Made first, as the app shell makes it, before any screen's listener.
@@ -122,6 +133,27 @@ describe('the app-wide keys (#289)', () => {
       press('s');
       await settle();
       expect(router.url).toBe('/settings');
+    });
+
+    it('goes under Caps Lock too, g and its letter both capitals (#313)', async () => {
+      const { router, settle } = await setup();
+      expect(press('G').defaultPrevented).toBe(true);
+      expect(press('N').defaultPrevented).toBe(true);
+      await settle();
+      expect(router.url).toBe('/browse');
+    });
+
+    it('is never started by Shift g, Caps Lock on or off, nor led by a Shift letter', async () => {
+      const { keys, navigate } = await setup();
+      expect(press('G', { shiftKey: true }).defaultPrevented).toBe(false);
+      expect(press('g', { shiftKey: true, modifierCapsLock: true }).defaultPrevented).toBe(false);
+      expect(keys.waiting).toBe(false);
+      press('g');
+      // Taken, as any character after g is, but no place.
+      expect(press('N', { shiftKey: true }).defaultPrevented).toBe(true);
+      press('g');
+      press('n', { shiftKey: true, modifierCapsLock: true });
+      expect(navigate).not.toHaveBeenCalled();
     });
 
     it('waits 1.5 s for its letter, and no longer', async () => {
@@ -202,6 +234,11 @@ describe('the app-wide keys (#289)', () => {
   describe('never while typing, and never over what owns the keys', () => {
     const fields: [string, string, string][] = [
       ['a text field', '<input />', 'input'],
+      ['a typed text field', '<input type="text" />', 'input'],
+      ['a search field', '<input type="search" />', 'input'],
+      ['a number field', '<input type="number" />', 'input'],
+      ['a date field', '<input type="date" />', 'input'],
+      ['a field of an unknown type', '<input type="sparkle" />', 'input'],
       ['a text area', '<textarea></textarea>', 'textarea'],
       ['a select', '<select><option>a</option></select>', 'select'],
       ['anything editable', '<div contenteditable="true"><b>x</b></div>', 'b'],
@@ -225,6 +262,21 @@ describe('the app-wide keys (#289)', () => {
         expect(press('n', {}, target).defaultPrevented).toBe(false);
         expect(press('/', {}, target).defaultPrevented).toBe(false);
         expect(navigate).not.toHaveBeenCalled();
+      });
+    }
+
+    for (const type of ['checkbox', 'radio', 'range', 'button']) {
+      it(`hears g, its letter and / on a ${type} (#313)`, async () => {
+        const { router, settle } = await setup();
+        const target = inPage(`<input type="${type}" />`, 'input');
+        expect(press('g', {}, target).defaultPrevented).toBe(true);
+        expect(press('s', {}, target).defaultPrevented).toBe(true);
+        await settle();
+        expect(router.url).toBe('/settings');
+        expect(press('/', {}, target).defaultPrevented).toBe(true);
+        await settle();
+        await settle();
+        expect(router.url).toBe('/browse');
       });
     }
 
@@ -340,10 +392,56 @@ describe('the app-wide keys (#289)', () => {
     it('opens the box from the page, and from a field', async () => {
       const { opened } = await setup();
       expect(press('k', { ctrlKey: true }).defaultPrevented).toBe(true);
-      expect(press('k', { metaKey: true }).defaultPrevented).toBe(true);
+      expect(press('K', { ctrlKey: true }).defaultPrevented).toBe(true);
       const field = inPage('<textarea>words</textarea>', 'textarea');
       expect(press('k', { ctrlKey: true }, field).defaultPrevented).toBe(true);
       expect(opened).toHaveBeenCalledTimes(3);
+    });
+
+    it("leaves Cmd K alone off Apple's platforms (#313)", async () => {
+      const { opened } = await setup({ apple: false });
+      expect(press('k', { metaKey: true }).defaultPrevented).toBe(false);
+      const field = inPage('<input />', 'input');
+      expect(press('k', { metaKey: true }, field).defaultPrevented).toBe(false);
+      expect(opened).not.toHaveBeenCalled();
+    });
+
+    it("is Cmd K on Apple's, a field's Ctrl K left to it (#313)", async () => {
+      const { opened } = await setup({ apple: true });
+      expect(press('k', { metaKey: true }).defaultPrevented).toBe(true);
+      const field = inPage('<input value="kill this line" />', 'input');
+      expect(press('k', { metaKey: true }, field).defaultPrevented).toBe(true);
+      expect(opened).toHaveBeenCalledTimes(2);
+      // Kill-line in a field, and nothing on the page.
+      expect(press('k', { ctrlKey: true }, field).defaultPrevented).toBe(false);
+      expect(press('k', { ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(opened).toHaveBeenCalledTimes(2);
+    });
+
+    it("takes a held chord's repeats without opening again (#313)", async () => {
+      const { opened } = await setup();
+      press('k', { ctrlKey: true });
+      expect(press('k', { ctrlKey: true, repeat: true }).defaultPrevented).toBe(true);
+      expect(press('k', { ctrlKey: true, repeat: true }).defaultPrevented).toBe(true);
+      expect(opened).toHaveBeenCalledTimes(1);
+    });
+
+    it('knows an Apple platform from the browser', () => {
+      const nav = (platform: string, uaPlatform?: string) =>
+        ({
+          platform,
+          ...(uaPlatform === undefined ? {} : { userAgentData: { platform: uaPlatform } }),
+        }) as unknown as Navigator;
+      for (const p of ['MacIntel', 'iPhone', 'iPad', 'iPod touch']) {
+        expect(applePlatform(nav(p))).toBe(true);
+      }
+      expect(applePlatform(nav('', 'macOS'))).toBe(true);
+      for (const p of ['Win32', 'Linux x86_64', 'Linux armv81', '']) {
+        expect(applePlatform(nav(p))).toBe(false);
+      }
+      expect(applePlatform(nav('', 'Windows'))).toBe(false);
+      expect(applePlatform(nav('', 'Chrome OS'))).toBe(false);
+      expect(applePlatform(undefined)).toBe(false);
     });
 
     it("leaves the editor's own Mod-K, a link, and other chords", async () => {
