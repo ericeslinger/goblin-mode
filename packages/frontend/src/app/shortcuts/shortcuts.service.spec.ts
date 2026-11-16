@@ -77,7 +77,8 @@ async function setup({ url = '/home', kitchen = false, signedIn = true, apple }:
       { provide: AuthService, useValue: auth },
       { provide: ModulesService, useValue: modules },
       { provide: NewNoteService, useValue: newNote },
-      ...(apple === undefined ? [] : [{ provide: APPLE, useValue: apple }]),
+      // A fixed platform in every case, never the machine's own.
+      { provide: APPLE, useValue: apple ?? false },
     ],
   });
   // Made first, as the app shell makes it, before any screen's listener.

@@ -77,6 +77,23 @@ cleanup() {
     kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
   done
   rm -f "$functions_env" firebase.e2e-[1-9].json
+  # The emulators take a few seconds to let go of their ports. Wait for
+  # them, at most 30 s, so a run started straight after this one is not
+  # refused by the guard above (seen 2026-11-16, two runs in a row).
+  local stack port ports tries=0 busy=1
+  while [ "$busy" = 1 ] && [ "$tries" -lt 60 ]; do
+    busy=0
+    for stack in $(seq 0 $((WORKERS - 1))); do
+      ports=$(stack_ports "$stack" | cut -d' ' -f1-5)
+      for port in $ports; do
+        if port_in_use "$port"; then busy=1; fi
+      done
+    done
+    if [ "$busy" = 1 ]; then
+      sleep 0.5
+      tries=$((tries + 1))
+    fi
+  done
 }
 trap cleanup EXIT
 

@@ -175,7 +175,8 @@ stack's functions emulator keeps one Node process (about 115 MB) per
 function it has run, so a serial run peaks near 8 GB in use and the
 default two stacks near 12 GB of the container's 15 GB. Three stacks
 ran out of memory; do not raise `E2E_WORKERS` there, and do not run the
-gate or a build alongside e2e.
+gate or a build alongside e2e. Journeys record no trace (2026-11-16,
+#312): to read a failure, run that journey again with `E2E_TRACE=on`.
 
 Journeys never drive the Google sign-in popup: `apis.google.com` is
 blocked. They sign in by email and password at `/dev-sign-in`, which

@@ -21,7 +21,11 @@ export default defineConfig({
   use: {
     // localhost, so the app talks to this worker's e2e emulator stack.
     baseURL: APP_URL,
-    trace: 'retain-on-failure',
+    // No traces unless asked (2026-11-16, #312): recording one for
+    // every journey cost a tenth of the run and 1.5 GB on a container
+    // already short of both, and journeys missed their waits. To read
+    // a failure, run that journey again with E2E_TRACE=on.
+    trace: process.env['E2E_TRACE'] === 'on' ? 'retain-on-failure' : 'off',
   },
   projects: [
     {

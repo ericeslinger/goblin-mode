@@ -55,7 +55,8 @@ async function setup({ kitchen = false, apple }: { kitchen?: boolean; apple?: bo
       { provide: AuthService, useValue: auth },
       { provide: ModulesService, useValue: modules },
       { provide: NewNoteService, useValue: newNote },
-      ...(apple === undefined ? [] : [{ provide: APPLE, useValue: apple }]),
+      // A fixed platform in every case, never the machine's own.
+      { provide: APPLE, useValue: apple ?? false },
     ],
   });
   TestBed.inject(ShortcutsService);
