@@ -1,6 +1,7 @@
 import { type Routes, type UrlMatchResult, type UrlSegment } from '@angular/router';
 import { startOnGuard } from './home/start-on';
 import { Launch } from './launch/launch';
+import { panesWide, readerPanesMatcher } from './reader/panes-route';
 import { UnknownRoute } from './unknown-route';
 
 /**
@@ -82,6 +83,15 @@ export const routes: Routes = [
   {
     path: 'kitchen/:day',
     loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),
+  },
+  // From READER_PANES_MIN the Reader is three panes (#289, 2026-11-16):
+  // its lists, an article and the caught-up page are one route there,
+  // so opening an article keeps the list beside it. Under it, the
+  // routes below, as before.
+  {
+    matcher: readerPanesMatcher,
+    canMatch: [panesWide],
+    loadComponent: () => import('./reader/reader-panes').then((m) => m.ReaderPanes),
   },
   // The Reader opens on All (#220); its folders are a tab of their own.
   {

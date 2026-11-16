@@ -10,7 +10,12 @@ import { Component, input } from '@angular/core';
 @Component({
   selector: 'app-reader-caught-up',
   template: `
-    <h1>You are all caught up</h1>
+    <!-- An h2 in the Reader's article pane (#289), under the Reader's h1. -->
+    @if (level() === 2) {
+      <h2>You are all caught up</h2>
+    } @else {
+      <h1>You are all caught up</h1>
+    }
     <p class="line">Nothing more in {{ shelf() }}.</p>
     <svg
       class="goblin"
@@ -60,7 +65,8 @@ import { Component, input } from '@angular/core';
     :host {
       display: block;
     }
-    h1 {
+    h1,
+    h2 {
       overflow-wrap: anywhere;
     }
     .line {
@@ -153,4 +159,6 @@ import { Component, input } from '@angular/core';
 export class CaughtUp {
   /** The shelf's name, as its list's heading shows it. */
   readonly shelf = input.required<string>();
+  /** Its heading's level: 2 in the three panes, under the Reader's own h1 (#289). */
+  readonly level = input<1 | 2>(1);
 }

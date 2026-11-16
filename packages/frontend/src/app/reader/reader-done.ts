@@ -1,5 +1,5 @@
 import { Location } from '@angular/common';
-import { Component, HostListener, computed, inject } from '@angular/core';
+import { Component, HostListener, booleanAttribute, computed, inject, input } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
@@ -14,15 +14,22 @@ import { Swipe } from './swipe';
  * last article lands (`/reader/done?in=<shelf>`). Its header goes
  * back to the shelf's list, "‹ Design" (#286); a swipe right, or k,
  * goes back to the last article, and there is nothing further left.
+ * In the Reader's three panes (#289, 2026-11-16) it is the article
+ * pane's, under the Reader's header: no header or swipe of its own,
+ * its heading an h2, and k and Escape as here.
  */
 @Component({
   selector: 'app-reader-done',
   imports: [PageHeader, Swipe, CaughtUp],
   template: `
-    <main class="page" appSwipe [canLeft]="false" (right)="back()">
-      <app-page-header [backLabel]="title()" [backLink]="backLink()" />
-      <app-reader-caught-up [shelf]="title()" />
-    </main>
+    @if (pane()) {
+      <app-reader-caught-up [shelf]="title()" [level]="2" />
+    } @else {
+      <main class="page" appSwipe [canLeft]="false" (right)="back()">
+        <app-page-header [backLabel]="title()" [backLink]="backLink()" />
+        <app-reader-caught-up [shelf]="title()" />
+      </main>
+    }
   `,
   styles: `
     :host {
@@ -43,6 +50,8 @@ import { Swipe } from './swipe';
   `,
 })
 export class ReaderDone {
+  /** Drawn in the article pane of the three panes (#289). */
+  readonly pane = input(false, { transform: booleanAttribute });
   private readonly reader = inject(ReaderService);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
