@@ -472,7 +472,8 @@ export function completeFeedHead(source: string): string | undefined {
   const close = root.kind === 'atom' ? '</entry>' : '</item>';
   const ending =
     root.kind === 'rss' ? '</channel></rss>' : root.kind === 'atom' ? '</feed>' : `</${root.name}>`;
-  for (let at = source.lastIndexOf(close); at >= 0; at = source.lastIndexOf(close, at - 1)) {
+  let at = source.lastIndexOf(close);
+  while (at >= 0) {
     // CDATA does not nest: the tag is inside one when the last section
     // opened before it is not closed before it.
     const open = source.lastIndexOf('<![CDATA[', at);
@@ -480,7 +481,12 @@ export function completeFeedHead(source: string): string | undefined {
     if (open < 0 || (shut >= 0 && shut + 3 <= at)) {
       return source.slice(0, at + close.length) + ending;
     }
-    if (at === 0) break;
+    // Inside a section: on to the last tag before the section opens,
+    // in one step, so a section holding a great many of them (a feed
+    // written to be slow to read) costs one look, not one each
+    // (review on #309).
+    if (open === 0) break;
+    at = source.lastIndexOf(close, open - 1);
   }
   return undefined;
 }
@@ -522,7 +528,13 @@ export function readFeed(
   const mb = `${Math.round(cutAt / (1024 * 1024))} MB`;
   const root = rootOf(source);
   if (!root) return { error: NOT_A_FEED };
-  if (root.kind === 'json') return { error: `a JSON feed over ${mb} cannot be read in part` };
+  if (root.kind === 'json') {
+    // Only what calls itself a JSON Feed is named one; any other JSON
+    // that large is simply not a feed (review on #309).
+    return /"version"\s*:\s*"https?:\/\/jsonfeed\.org\//.test(source.slice(0, 4096))
+      ? { error: `a JSON feed over ${mb} cannot be read in part` }
+      : { error: NOT_A_FEED };
+  }
   const head = completeFeedHead(source);
   if (head === undefined) {
     return { error: `the feed is over ${mb} and its first ${mb} hold no complete item` };

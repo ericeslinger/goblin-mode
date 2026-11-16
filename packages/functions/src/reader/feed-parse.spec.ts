@@ -546,12 +546,27 @@ describe('a feed read in part (2026-11-16)', () => {
     expect('feed' in readFeed(big, 'https://pod.test/feed')).toBe(true);
   });
 
+  it('passes a section full of closing tags in one step', () => {
+    // A head written to be slow: one open section quoting 300,000 tags.
+    const head =
+      HEAD +
+      '<item><title>Episode 1</title></item>' +
+      '<item><description><![CDATA[' +
+      '</item>'.repeat(300_000);
+    const began = performance.now();
+    const whole = completeFeedHead(head)!;
+    expect(performance.now() - began).toBeLessThan(500);
+    expect(whole.endsWith('<item><title>Episode 1</title></item></channel></rss>')).toBe(true);
+  });
+
   it('says why a feed read in part cannot be read', () => {
     const cap = 5 * 1024 * 1024;
     const url = 'https://pod.test/feed';
-    expect(readFeed('{"items":[{"id":"1"', url, cap)).toEqual({
-      error: 'a JSON feed over 5 MB cannot be read in part',
-    });
+    expect(
+      readFeed('{"version":"https://jsonfeed.org/version/1.1","items":[{"id":"1"', url, cap),
+    ).toEqual({ error: 'a JSON feed over 5 MB cannot be read in part' });
+    // Other JSON that large is not called a feed.
+    expect(readFeed('{"results":[{"id":"1"', url, cap)).toEqual({ error: NOT_A_FEED });
     expect(readFeed(HEAD + '<item><title>Episode 1</title>', url, cap)).toEqual({
       error: 'the feed is over 5 MB and its first 5 MB hold no complete item',
     });

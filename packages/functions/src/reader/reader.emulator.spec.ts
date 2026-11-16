@@ -16,6 +16,7 @@ import {
 } from './firestore-store';
 import { monthsAfter, refreshFeed } from './refresh';
 import { STAMP_SETTLE_MS, stampItems } from './stamp';
+import { standInFeedFetcher } from './stand-in.emulator';
 import { termsOf } from './terms';
 
 // Runs inside `npm run e2e`, against the e2e Firestore emulator, under
@@ -350,6 +351,37 @@ describe('Feedly saves (#176)', () => {
       feedItemId(followedId, 'g-a'),
       feedItemId(SAVES_FEED_ID, 'https://y.test/b'),
     ]);
+  });
+});
+
+describe('a feed over the size (2026-11-16)', () => {
+  it('reads the stand-in’s cut-short feed in part: its whole episodes, its artwork', async () => {
+    const store = firestoreRefreshStore(db);
+    await db.doc('users/u1/feeds/f-1').set({
+      url: 'https://feeds.invalid/archive.xml',
+      title: 'https://feeds.invalid/archive.xml',
+      folders: [],
+      kind: 'podcast',
+      error: 'the page is over 5 MB',
+      errorCount: 3,
+      nextFetchAt: Timestamp.fromMillis(NOW - DAY),
+    });
+    const [due] = await store.due(NOW, 10, 'u1');
+    const fetch = standInFeedFetcher({
+      FUNCTIONS_EMULATOR: 'true',
+      FIRESTORE_EMULATOR_HOST: HOST,
+    })!;
+    await refreshFeed({ store, fetch, now: () => NOW }, due);
+    const items = await db.collection('users/u1/feedItems').where('feedId', '==', 'f-1').get();
+    expect(items.docs.map((d) => d.data()['title']).sort()).toEqual([
+      'Episode 699: Soda firing',
+      'Episode 700: Salt glaze',
+    ]);
+    const feed = (await db.doc('users/u1/feeds/f-1').get()).data()!;
+    expect(feed['title']).toBe('Long archive (fixture)');
+    expect(feed['image']).toBe('https://pod.invalid/archive.jpg');
+    expect(feed['error'] ?? null).toBeNull();
+    expect(feed['errorCount']).toBe(0);
   });
 });
 
