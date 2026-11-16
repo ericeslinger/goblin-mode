@@ -96,7 +96,10 @@ for anything else.
   for schema, editor, functions and worker; `ng test` for the frontend), the
   functions deploy dry run (staged `npm install --omit=dev` and import),
   and the Worker deploy dry run. No ESLint (house style).
-- `npm run e2e` must pass before pushing or opening a PR: it builds the
+- `npm run e2e` must pass before opening or merging a PR (until
+  2026-11-16 also before any push; Eric agreed that day to pushing a
+  commit to the session's own branch once the gate is green, after a
+  container restart lost a finished, unpushed change): it builds the
   e2e configuration, starts one e2e stack per Playwright worker
   (2026-11-15; `E2E_WORKERS`, default 2, `E2E_WORKERS=1` for a serial
   run), runs the rules tests (`packages/rules-tests`) against stack 0,
