@@ -13,6 +13,7 @@ import {
   normalizeFeedUrl,
   parseOpml,
   toOpml,
+  xmlChars,
 } from './reader';
 
 const FEEDLY = `<?xml version="1.0" encoding="UTF-8"?>
@@ -222,5 +223,168 @@ describe('toOpml (#251)', () => {
     );
     expect(text).not.toContain('javascript');
     expect(parseOpml(text)).toEqual([{ url: 'https://ok.test/rss', title: 'Ok', folders: [] }]);
+  });
+});
+
+describe('OPML hardening (#254)', () => {
+  // The parser as it was before #254, kept as the oracle: on OPML as
+  // exporters write it the linear scan must read the same feeds.
+  function oldParseOpml(text: string) {
+    const ENT: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+    const decode = (t: string) =>
+      t.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
+        if (name[0] === '#') {
+          const code =
+            name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : +name.slice(1);
+          return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+        }
+        return ENT[name.toLowerCase()] ?? whole;
+      });
+    const attributes = (tag: string) => {
+      const out: Record<string, string> = {};
+      for (const m of tag.matchAll(/([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+        out[m[1].toLowerCase()] = decode(m[2] ?? m[3] ?? '');
+      }
+      return out;
+    };
+    const byUrl = new Map<
+      string,
+      { url: string; title: string; site?: string; folders: string[] }
+    >();
+    const stack: string[] = [];
+    for (const m of text.matchAll(/<outline\b([^>]*?)(\/?)>|<\/outline\s*>/gi)) {
+      if (m[0].startsWith('</')) {
+        stack.pop();
+        continue;
+      }
+      const attrs = attributes(m[1]);
+      const closed = m[2] === '/';
+      const name = (attrs['text'] ?? attrs['title'] ?? '').trim();
+      const url = attrs['xmlurl'] === undefined ? undefined : normalizeFeedUrl(attrs['xmlurl']);
+      if (url) {
+        const folders = stack.filter(Boolean);
+        const known = byUrl.get(url);
+        if (known) {
+          for (const f of folders) if (!known.folders.includes(f)) known.folders.push(f);
+        } else {
+          const site = attrs['htmlurl']?.trim();
+          byUrl.set(url, { url, title: name || url, ...(site ? { site } : {}), folders });
+        }
+        if (!closed) stack.push('');
+      } else if (!closed) {
+        stack.push(name);
+      }
+    }
+    return [...byUrl.values()];
+  }
+
+  const SAMPLES = [
+    FEEDLY,
+    toOpml(
+      [
+        {
+          url: 'https://kiln.test/rss',
+          title: 'Kiln & "talk"',
+          site: 'https://kiln.test/',
+          folders: ['Making'],
+        },
+        { url: 'https://glaze.test/rss', title: "Glaze's <lab>", folders: [] },
+        { url: 'https://both.test/rss', title: 'Both', folders: ['Making', 'Art'] },
+      ],
+      'Podcasts from Mossgoblin',
+    ),
+    // Inoreader-style: no declaration, upper-case tags, single quotes, spaces around =.
+    `<opml version='2.0'><body>
+<OUTLINE TEXT = 'Tech' >
+  <OUTLINE TYPE='rss' TEXT='Ars' XMLURL = 'http://feeds.arstechnica.com/arstechnica/index' HTMLURL='https://arstechnica.com'/>
+</OUTLINE >
+<outline text="Loose" xmlUrl="https://loose.example/rss" htmlUrl=""/>
+</body></opml>`,
+    // NetNewsWire-style: tabs, newlines inside tags, entities, a folder in a folder.
+    `<?xml version="1.0"?>\n<opml version="1.1">\n<body>\n\t<outline text="News &amp; views">\n\t\t<outline text="Deep">\n\t\t\t<outline\n\t\t\t\ttext="&#x201C;Quoted&#8221;"\n\t\t\t\txmlUrl="https://q.example/feed?a=1&amp;b=2"\n\t\t\t\thtmlUrl="https://q.example/"\n\t\t\t\ttype="rss"/>\n\t\t</outline>\n\t</outline>\n\t<outline text="Empty folder"></outline>\n\t<outline title="Titled only" xmlUrl="https://t.example/rss"></outline>\n</body>\n</opml>`,
+    // Podcast app export: an outlines-named element and comments around.
+    `<opml><body><!-- exported --><outlines/><outline text="Pods"><outline type="rss" text="A" xmlUrl="https://a.example/pod"/><outline type="rss" text="A again" xmlUrl="https://a.example/pod#x"/></outline><outline text="B" xmlUrl="ftp://b.example"/></body></opml>`,
+    '',
+    'not xml <outline',
+  ];
+
+  it('reads valid OPML exactly as the old pattern did', () => {
+    for (const sample of SAMPLES) expect(parseOpml(sample)).toEqual(oldParseOpml(sample));
+    expect(parseOpml(SAMPLES[2]).map((f) => f.folders)).toEqual([['Tech'], []]);
+  });
+
+  it('parses 5 MB of unterminated outline tags in well under a second', () => {
+    const tags = '<outline '.repeat(Math.ceil(5_000_000 / 9));
+    const quotes = '<outline a="'.repeat(Math.ceil(5_000_000 / 12));
+    const names = '<outline ' + 'a'.repeat(5_000_000) + '>';
+    const open = '<outline text="x" xmlUrl="https://x.example/f" b="' + ' '.repeat(5_000_000);
+    const started = performance.now();
+    expect(parseOpml(tags)).toEqual([]);
+    expect(parseOpml(quotes)).toEqual([]);
+    expect(parseOpml(names)).toEqual([]);
+    expect(parseOpml(open)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it('keeps a site only when it is a web link, and the feed either way', () => {
+    expect(
+      parseOpml(
+        '<outline text="Bad" xmlUrl="https://bad.example/rss" htmlUrl=" javascript:alert(1) "/>' +
+          '<outline text="Data" xmlUrl="https://data.example/rss" htmlUrl="data:text/html,hi"/>' +
+          '<outline text="Good" xmlUrl="https://good.example/rss" htmlUrl=" http://good.example/ "/>',
+      ),
+    ).toEqual([
+      { url: 'https://bad.example/rss', title: 'Bad', folders: [] },
+      { url: 'https://data.example/rss', title: 'Data', folders: [] },
+      { url: 'https://good.example/rss', title: 'Good', site: 'http://good.example/', folders: [] },
+    ]);
+  });
+
+  it('reads a > inside a quoted value as part of it', () => {
+    expect(
+      parseOpml(
+        '<outline text="A > B"><outline text=\'x>y\' xmlUrl="https://x.example/f?a>b"/></outline>' +
+          '<outline text="It\'s" xmlUrl="https://y.example/f"/>',
+      ),
+    ).toEqual([
+      { url: 'https://x.example/f?a%3Eb', title: 'x>y', folders: ['A > B'] },
+      { url: 'https://y.example/f', title: "It's", folders: [] },
+    ]);
+  });
+
+  it('takes out every character XML 1.0 does not allow, by code point', () => {
+    expect(xmlChars('a\u0000b\u0008c\u000bd\u000ce\u001ff')).toBe('abcdef');
+    expect(xmlChars('tab\tlf\ncr\r')).toBe('tab\tlf\ncr\r');
+    expect(xmlChars('x\ufffey\uffffz\ufffd')).toBe('xyz\ufffd');
+    expect(xmlChars('lone \ud800 high, lone \udfff low, \udc00\ud800 backwards')).toBe(
+      'lone  high, lone  low,  backwards',
+    );
+    expect(xmlChars('\ud7ff\ue000 kiln \u{1F3FA} \u{10FFFF}')).toBe(
+      '\ud7ff\ue000 kiln \u{1F3FA} \u{10FFFF}',
+    );
+    const text = toOpml(
+      [
+        {
+          url: 'https://k.test/rss',
+          title: 'Kiln \u{1F3FA}\ud800\uffff\u0001',
+          site: 'https://k.test/',
+          folders: ['Fold\ufffe'],
+        },
+      ],
+      'Pods\udfff',
+    );
+    expect(text).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/);
+    expect(text).not.toMatch(
+      /(?:[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff])/,
+    );
+    expect(text).toContain('<title>Pods</title>');
+    expect(parseOpml(text)).toEqual([
+      {
+        url: 'https://k.test/rss',
+        title: 'Kiln \u{1F3FA}',
+        site: 'https://k.test/',
+        folders: ['Fold'],
+      },
+    ]);
   });
 });

@@ -3636,6 +3636,24 @@ shape on the device: a Blob's object URL on a link with `download`,
 clicked and let go (`SAVE_FILE` in `platform.ts`, a seam for specs),
 named `mossgoblin-podcasts.opml`. No network.
 
+*OPML hardening (review of #253, #254, 2026-11-16).* `toOpml` wrote
+attributes with the C0 controls taken out but kept U+FFFE, U+FFFF and
+a lone surrogate, so a show named with one made a file a strict XML
+reader refuses. `xmlChars` in `reader.ts` now keeps only what XML 1.0
+allows (tab, LF, CR, U+0020 to U+D7FF, U+E000 to U+FFFD, U+10000 to
+U+10FFFF), read by code point so an emoji's pair stays, on every value
+and the title the file writes. `parseOpml` took `htmlUrl` as written,
+so a `javascript:` site was stored (Angular's sanitizer made the link
+inert, but it should not be kept); it now keeps a site only when
+`isWebLink` says http(s), the check `toOpml` uses, and imports the
+feed either way. Its outline pattern backtracked on a file of
+`<outline ` that never closed, quadratic, so a 5 MB file could freeze
+the tab; outlines and their attributes are now read by a scan in one
+pass (no DOMParser, as the schema package runs in functions too). It
+reads what the pattern did on OPML as exporters write it (the spec
+keeps the old pattern as an oracle over varied files), except that a
+`>` inside a quoted value no longer ends the tag.
+
 *Keep downloaded on Add a podcast.* The design's switch "Download new
 episodes" is the show's page's Keep downloaded (#180), so Add offers
 the same select, the same choices (by hand only, the newest, the
@@ -3832,6 +3850,23 @@ the queue, an episode stays without an expiry, as an unsaved article
 does today (unsave writes nothing to `expireAt`), until the keep-for
 months are next applied, which give it one again.
 
+*Off the queue, no expiry: accepted (#254, 2026-11-16).* So with Keep
+articles for set, keep-for does not bound what an auto-queued show
+stores: every episode that has been through the queue and left it
+(heard and taken off, removed by hand, or its show moved to the
+Reader) is kept until the months are applied again. Nothing gives
+the expiry back sooner without a new piece: the app may not write
+`expireAt` (the rule lets the owner only clear it), no trigger runs
+on a feedItem's write, the fetcher writes only items it has not
+stored, and Firestore cannot ask for the items with no `expireAt`,
+so finding them on each look would need a stored marker or a new
+trigger, a schema change this follow-up does not make. It is
+tolerable: what it keeps grows only as fast as the gardener queues
+and hears episodes, each one text with no audio, the same as an
+article unsaved today; and changing Keep articles for in Settings
+(`applyRetentionNow`) gives each unqueued, unsaved, unfiled one its
+expiry again, the queued ones still spared.
+
 *One cap for the queue (review on #252, 2026-11-10).* The app's
 listener and the assistant's `queueRanks` read 500, but nothing kept
 writes under that, so a 501st episode would be queued and never
@@ -3850,6 +3885,15 @@ aggregate, billed as one read per thousand entries), and appends only
 while there is room, oldest first; the rest are stored unqueued, with
 their expiry. The assistant sees nothing new, so the tool docs are
 unchanged.
+
+*The cap's race: accepted (#254, 2026-11-16).* The app and the
+fetcher each read the count once before appending, so when both
+append at the same moment the queue can hold one more than
+`QUEUE_MAX`, at most one, and that one is not shown. It is accepted:
+it is one unseen episode, never lost (it keeps its place), and the
+next append by either sees the queue full and adds nothing until one
+is taken off, which brings the extra one into view. Closing it would
+need a transaction over the whole queue on every append.
 
 *No schema, rules or MCP change.* No stored field was added (the
 Right Now mark is the device's), so the validators and rules are as
