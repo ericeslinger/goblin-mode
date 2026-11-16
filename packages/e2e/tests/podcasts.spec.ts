@@ -232,7 +232,9 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   const readerTabs = page.getByRole('navigation', { name: 'Reader screens' });
   // No Podcasts shelf in the Reader (#245).
   await expect(readerTabs.getByRole('link')).toHaveText([/^All/, 'Saved', 'Folders']);
-  await expect(page.getByRole('list', { name: 'Articles' })).toContainText('Wedging clay');
+  await expect(page.getByRole('group', { name: 'Articles', exact: true })).toContainText(
+    'Wedging clay',
+  );
 
   // And back from Manage feeds.
   await page.getByRole('link', { name: 'Manage feeds' }).click();
@@ -247,7 +249,9 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   await letItSave(page);
   await expect.poll(stamps, { timeout: 20_000 }).toEqual([true, true]);
   await page.goto('/reader');
-  await expect(page.getByRole('list', { name: 'Articles' })).not.toContainText('Wedging clay');
+  await expect(page.getByRole('group', { name: 'Articles', exact: true })).not.toContainText(
+    'Wedging clay',
+  );
   await page.goto('/podcasts/shows');
   await expect(shows.getByRole('listitem')).toHaveCount(1);
   await page.goto('/podcasts');

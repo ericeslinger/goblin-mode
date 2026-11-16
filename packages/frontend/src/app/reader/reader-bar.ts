@@ -2,6 +2,7 @@ import {
   Component,
   type ElementRef,
   afterNextRender,
+  afterRenderEffect,
   computed,
   inject,
   input,
@@ -22,6 +23,39 @@ import { ReaderService, type SearchHit } from './reader.service';
 
 export type ReaderTab = 'all' | 'saved' | 'folders';
 
+/** One of the folder chips under the tabs (#288). */
+export interface FolderChip {
+  name: string;
+  link: string | string[];
+  /** Unread in it, as the tabs and the folders count them. */
+  count: number;
+  current: boolean;
+}
+
+/**
+ * The folder chips (#288, 2026-11-15): All, then each of the Reader's
+ * folders in its order (only folders with feeds in them, Uncategorized
+ * last when a feed is in none), each with what is unread in it. A
+ * chip is the same list the Folders tab leads to, `/reader/f/<name>`;
+ * All is `/reader`. `current` is the shelf shown: ALL, a folder's
+ * name, or none (Saved, one feed).
+ */
+export function folderChips(
+  folders: readonly { name: string }[],
+  counts: Readonly<Record<string, number>>,
+  current: string | undefined,
+): FolderChip[] {
+  return [
+    { name: 'All', link: '/reader', count: counts[ALL] ?? 0, current: current === ALL },
+    ...folders.map((f) => ({
+      name: f.name,
+      link: ['/reader/f', f.name],
+      count: counts[f.name] ?? 0,
+      current: current === f.name,
+    })),
+  ];
+}
+
 /**
  * The Reader's header and tabs (#220, #221): the page header (since
  * #286 this header, made shared), with Search articles, Downloads and
@@ -31,7 +65,8 @@ export type ReaderTab = 'all' | 'saved' | 'folders';
  * shows once anything is downloaded or a podcast keeps its newest
  * downloaded (#180), with a dot while anything is. Search articles opens the search under the
  * tabs: the server's word index over every article stored (#175), the
- * shows in Podcasts left out of what it lists (#245).
+ * shows in Podcasts left out of what it lists (#245). On All and a
+ * folder's list, the folders as chips under the tabs (#288).
  */
 @Component({
   selector: 'app-reader-bar',
@@ -61,6 +96,20 @@ export type ReaderTab = 'all' | 'saved' | 'folders';
       </a>
     </app-page-header>
     <app-module-tabs label="Reader screens" [tabs]="tabs()" />
+    @if (chipList().length > 1) {
+      <!-- The folders as chips (#288): one row that scrolls sideways in itself. -->
+      <nav class="chips" aria-label="By folder" #chips>
+        @for (chip of chipList(); track chip.name) {
+          <a
+            class="chip touch-target"
+            [routerLink]="chip.link"
+            [attr.aria-current]="chip.current ? 'page' : null"
+            >{{ chip.name }} <span class="count">{{ chip.count }}</span
+            ><span class="visually-hidden"> unread</span></a
+          >
+        }
+      </nav>
+    }
     @if (!modules.reader()) {
       <p class="muted">
         Reader is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.
@@ -140,6 +189,50 @@ export type ReaderTab = 'all' | 'saved' | 'folders';
       border-radius: 50%;
       background: var(--second);
     }
+    /* The folder chips (#288): the row scrolls, never the page. The
+       padding leaves room for each chip's 44 px tap on touch, which the
+       row's own scroll box would otherwise clip. */
+    .chips {
+      display: flex;
+      gap: 6px;
+      margin-top: var(--space-1);
+      padding: 6px 2px;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+    }
+    .chips::-webkit-scrollbar {
+      display: none;
+    }
+    .chip {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      box-sizing: border-box;
+      padding: 0 12px;
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-pill);
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 14px;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .chip[aria-current] {
+      font-weight: 600;
+      background: var(--chip-bg);
+      border-color: var(--accent);
+    }
+    .chip .count {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--quiet);
+    }
+    .chip[aria-current] .count {
+      color: var(--ink);
+    }
     .search {
       display: flex;
       gap: var(--space-2);
@@ -181,6 +274,11 @@ export class ReaderBar {
   readonly active = input.required<ReaderTab>();
   /** `page` on the tab's own screen; `true` on one it leads to, such as a folder's shelf. */
   readonly current = input<'page' | 'true'>('page');
+  /**
+   * The folder chips' current one (#288): ALL or a folder's name; the
+   * chips show only where it is given (All and a folder's list).
+   */
+  readonly folder = input<string | undefined>(undefined);
 
   protected readonly reader = inject(ReaderService);
   protected readonly items = inject(ItemsService);
@@ -189,6 +287,29 @@ export class ReaderBar {
   private readonly prefs = inject(DownloadPrefs);
   private readonly injector = inject(Injector);
   private readonly box = viewChild<ElementRef<HTMLInputElement>>('q');
+  private readonly chipRow = viewChild<ElementRef<HTMLElement>>('chips');
+
+  /** The folder chips (#288), on All and a folder's list only. */
+  protected readonly chipList = computed(() => {
+    const folder = this.folder();
+    if (folder === undefined) return [];
+    return folderChips(this.reader.folders(), this.items.unreadCounts(), folder);
+  });
+
+  constructor() {
+    // The current chip in view, sideways only: the row scrolls itself,
+    // never the page.
+    afterRenderEffect(() => {
+      this.folder();
+      const row = this.chipRow()?.nativeElement;
+      const chip = row?.querySelector<HTMLElement>('[aria-current]');
+      if (!row || !chip) return;
+      const left = chip.offsetLeft - row.offsetLeft;
+      if (left < row.scrollLeft || left + chip.offsetWidth > row.scrollLeft + row.clientWidth) {
+        row.scrollLeft = Math.max(0, left - 16);
+      }
+    });
+  }
 
   /** Whether to link Downloads (#180). */
   protected readonly showDownloads = computed(

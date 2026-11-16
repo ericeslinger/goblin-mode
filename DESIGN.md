@@ -1450,7 +1450,8 @@ its word beside a check, Undo stays a word. The article's header is
 the shelf's name as the way back, then Download or Remove download for
 an episode (one icon, its name saying which), Save for later (a toggle,
 `aria-pressed` when saved, in place of Unsave), File in the garden (or
-In the garden once filed) and Open the page; Previous article and Next
+In the garden once filed) and Open the page, and since 2026-11-15
+(#288) Keep unread and Reader mode before them; Previous article and Next
 article are icons either side of "N of M", and the swipe stays. Manage
 feeds, Downloads and the mini player keep their words.
 
@@ -1932,7 +1933,8 @@ here shows at once and the listener's echo takes over. Swipe a row
 left to mark it read, right to save (`Swipe`, the reminder rows'
 pointer-event swipe as a directive; the row's buttons do the same
 where there is a fine pointer); tap to open. Mark all read marks what
-is at hand on that shelf in one batch, which for a backlog past the
+is at hand on that shelf in one batch (with Undo since 2026-11-15,
+#288, the one #172's scroll offers), which for a backlog past the
 thousand means another tap once the next thousand have loaded (a
 server-side mark is #164's if that grates). The article
 (`/reader/a/<id>`) renders the stored markdown as a note is
@@ -2007,8 +2009,13 @@ drops at once, but the rows marked this way stay in the list, greyed
 as read, until the list is left or the shelf changes, so nothing moves
 under the finger. The status line, a bar fixed at the foot of the
 screen so it shows wherever the list is scrolled and moves no row,
-says how many and offers Undo for that last batch for six seconds, or
-until a newer batch; Undo marks them unread in one batch. Leaving the
+says how many and offers Undo for six seconds; Undo marks them unread
+in one batch. Since 2026-11-16 (#288) the offer is shared with Mark
+all read and a day's Mark these read, and a batch marked while it
+shows joins it: Undo restores everything marked since it appeared, the
+status counts all of it, and the six seconds start again. When the
+offer lapses or is used while Undo has the focus, the focus goes to
+the articles rather than the page. Leaving the
 list before the page is still marks nothing: no mark is made without
 its Undo on screen. Only a page the gardener has moved counts: nothing
 is passed until a scroll follows a wheel, a touch, a key or a press,
@@ -2017,6 +2024,73 @@ restores, are not marked (review on #182). A row counts only once the
 observer has seen it go above, never from its first look at a row, so
 rows the list re-renders above the top (a listener echo, Undo) are not
 marked, and Undo disarms until the next input (2026-11-07).
+
+**The list's layout (#288, step 4 of the layout pass, 2026-11-15).**
+On a phone with 179 unread the list was 28 screens in one run, five
+rows a screen, and the article's title took five lines at 34 px. Now:
+
+- **Density.** Comfortable (title, source and age, two lines of
+  summary, as before) or Compact (the title on up to two lines, one
+  line of source and age, no summary; about 64 px a row against about
+  130). A Compact list checkbox beside Show read; kept on the device
+  (`goblin.readerDensity` through `LocalStore`, `ReaderDensity`), not
+  in `settings/reader`, as the downloads' cap is the device's.
+- **Days.** The rows are cut by day (`groupByDay`, `reader/days.ts`)
+  by `published`, which is what the list sorts by, in the device's
+  time zone (`TIME_ZONE`, `NOW`): Today, Yesterday, then "Thursday,
+  Nov 12" (with the year when it is not this one), and No date last
+  for an article the feed gave no date. A post dated ahead of the
+  clock counts as Today. Each day once: a row out of order joins its
+  day. A day's heading is an `h3` (under the shelf's `h2`), named
+  "Today, 23 unread" and shown "Today · 23", the count being that
+  day's unread in what the list shows. A day with nothing unread (Show
+  read on) keeps its heading with no count and no button. Its Mark
+  these read marks only that day's unread rows, through the shared
+  Undo (#172 above), and the focus goes to Undo, since the button
+  leaves with its day; Mark all read stays at the top, has the same
+  Undo and moves the focus the same way. Days come on every shelf,
+  Saved included (by published there too). Search results are the
+  server's list, under the search box, and keep their one plain list.
+- **The days' shape (corrected 2026-11-16).** The articles are a
+  `div` with `role="group"` named Articles (journeys find it as
+  that group), holding a `section` a day: a heading row (the `h3` and
+  Mark these read), `position: sticky` at the top with the page's
+  background, so it stays while its day scrolls and the next day's
+  pushes it off; then the day's own `ul`, named by its heading, whose
+  `li` are the rows, which swipe, which the observer of #172 follows
+  and which the keyboard's cursor names (an index into the rows as
+  drawn, day by day; a row it moves to clears the heading by
+  `scroll-margin-top`). Days are kept by their key and rows by id, so
+  a change above a day (a row marked by hand, a new article at the
+  top) leaves the rows below as they were, their swipe and their place
+  for the observer included. On 2026-11-15 the heading was a list item
+  with `role="none"` in one Articles list, which axe's list rule
+  refuses, then sat in its day's first item with a bar standing for it
+  at the top; both are gone.
+- **Source mark.** At each row's left a circle with the feed's first
+  letter or digit ("🎮 Games weekly" is G; a name with neither is a
+  dot), tinted with one of eight hues (`SOURCE_HUES` in `themes.ts`,
+  30% over the surface) picked by the feed id, so a rename keeps it.
+  Ink on every tint passes AA in every theme and mode (a spec checks).
+  Drawn on the device: no favicon is fetched. Hidden from screen
+  readers, since the row names the feed. Not drawn on one feed's own
+  list, where every mark would be the same.
+- **Folder chips.** Under the tabs, on All and a folder's list, one
+  row of chips that scrolls sideways in itself: All, then each folder
+  with feeds in it, in the Reader's order, with its unread count, the
+  shelf shown `aria-current`. A chip is the same `/reader/f/<folder>`
+  the Folders tab leads to (All is `/reader`); Folders stays where
+  folders are browsed and managed. No chips on Saved or a feed's list.
+  On touch each takes a 44 px tap (`.touch-target`).
+- **The article.** The title is 25 px. Keep unread (Mark read once
+  unread again) and Reader mode are icons in the header's row with the
+  others, no longer buttons under the title; Reader mode is pressed
+  once the page's text is in, and "Reader mode" joins the meta line.
+  While the page is fetched it keeps its name, disabled and busy, and
+  the status line says "Fetching the page…" (2026-11-16). On
+  a screen too narrow for the way back beside them (under about 400 px
+  for an article, or an episode with its Download), the icons take a
+  line of their own at the right.
 
 **What is new, in Right Now (#173, 2026-11-07).** Opening a folder's
 list notes when it was seen, in `settings/reader.seenAt` by folder

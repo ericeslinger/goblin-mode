@@ -3,12 +3,15 @@ import {
   DestroyRef,
   ElementRef,
   HostListener,
+  Injector,
+  afterNextRender,
   afterRenderEffect,
   computed,
   effect,
   inject,
   signal,
   untracked,
+  viewChild,
   viewChildren,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -20,8 +23,12 @@ import { ALL, SAVED, type Shelf2, shelfParam } from './shelves';
 import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 import { Icon } from '../home/icon';
+import { NOW, TIME_ZONE } from '../platform/platform';
+import { groupByDay } from './days';
+import { ReaderDensity } from './density';
 import { ReaderBar, type ReaderTab } from './reader-bar';
 import { ReaderFeedHead } from './reader-feed-head';
+import { SourceMarkView } from './source-mark';
 
 /**
  * The shelf a list shows, from its route: `/reader` (All),
@@ -92,13 +99,28 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
  * its own tab, any other folder or a feed under
  * Folders, with a link back to them and its name. A feed's list is
  * that feed's page (2026-11-15): About this feed above its posts.
+ *
+ * Since #288 (2026-11-15): Comfortable or Compact, kept per device; the
+ * rows under a heading per day, in the gardener's time, each day with
+ * its own Mark these read (and the same Undo as the scroll's batch); a
+ * mark for the feed at each row's left, except on one feed's own list;
+ * and the folders as chips under the tabs, on All and a folder's list.
+ * The articles are a group named Articles holding a section a day
+ * (2026-11-16): the day's heading row, sticky within its section, and
+ * the day's list, named by its heading, of rows. Days are kept by
+ * their key and rows by id, so a change above a day leaves its rows'
+ * nodes, their swipe and their place for the observer as they were.
  */
 @Component({
   selector: 'app-reader-list',
-  imports: [Icon, ReaderBar, ReaderFeedHead, RouterLink, Swipe],
+  imports: [Icon, ReaderBar, ReaderFeedHead, RouterLink, SourceMarkView, Swipe],
   template: `
     <main class="page">
-      <app-reader-bar [active]="tab()" [current]="tab() === 'folders' ? 'true' : 'page'" />
+      <app-reader-bar
+        [active]="tab()"
+        [current]="tab() === 'folders' ? 'true' : 'page'"
+        [folder]="chipFolder()"
+      />
       @if (tab() === 'folders') {
         <!-- A folder's or a feed's shelf, under Folders (#220): back to them, and its name. -->
         <a class="up" routerLink="/reader/folders"
@@ -117,6 +139,15 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
           <input type="checkbox" [checked]="showRead()" (change)="showRead.set(!showRead())" />
           Show read
         </label>
+        <!-- The list's density (#288), this device's. -->
+        <label>
+          <input
+            type="checkbox"
+            [checked]="compact()"
+            (change)="density.set(compact() ? 'comfortable' : 'compact')"
+          />
+          Compact list
+        </label>
         <button type="button" class="all" [disabled]="!unreadCount()" (click)="markAll()">
           <app-icon name="check" [size]="16" />Mark all read
         </button>
@@ -125,7 +156,7 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
         <p class="status" role="status">
           {{ status() }}
           @if (undoIds()) {
-            <button type="button" (click)="undo()">Undo</button>
+            <button #undoButton type="button" (click)="undo()">Undo</button>
           }
         </p>
       }
@@ -134,73 +165,118 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
           {{ isSaved() ? 'Nothing saved for later.' : 'All caught up.' }}
         </p>
       }
-      <ul aria-label="Articles">
-        @for (item of list(); track item.id; let i = $index) {
-          <li
-            #row
-            appSwipe
-            [attr.data-id]="item.id"
-            [class.read]="item.read"
-            [class.cursor]="i === cursor()"
-            (left)="items.setRead(item.id, true)"
-            (right)="items.setSaved(item.id, !item.saved)"
-          >
-            <a
-              class="open"
-              draggable="false"
-              [routerLink]="['/reader/a', item.id]"
-              [queryParams]="{ in: param() }"
-              [attr.aria-current]="i === cursor() ? 'true' : null"
-            >
-              <span class="title">{{ item.title }}</span>
-              <span class="meta">
-                {{ source(item) }} · {{ items.age(item.published) }}
-                @if (item.enclosure) {
-                  <span class="episode"
-                    ><span role="img" aria-label="episode">▶</span>
-                    @if (item.enclosure.seconds !== undefined) {
-                      {{ items.duration(item.enclosure.seconds) }}
-                    }
-                    @if (downloads.has(item.id)) {
-                      · downloaded
-                    }
-                  </span>
-                }
-                @if (item.saved) {
-                  <span class="saved" role="img" aria-label="saved">★</span>
-                }
-                @if (item.noteId) {
-                  <span class="filed" role="img" aria-label="in the garden">🌱</span>
-                }
-                @if (isSaved()) {
-                  @for (tag of item.tags ?? []; track tag) {
-                    <span class="tag">{{ tag }}</span>
-                  }
-                }
-              </span>
-              @if (item.summary) {
-                <span class="summary">{{ item.summary }}</span>
+      <!-- The articles by day (#288): a section a day, its heading row sticking while its
+           day scrolls, and the day's own list of rows. Focus comes here when Undo goes. -->
+      <div
+        #articles
+        class="days"
+        role="group"
+        aria-label="Articles"
+        tabindex="-1"
+        [class.compact]="compact()"
+      >
+        @for (day of days(); track day.key) {
+          <section class="day">
+            <div class="day-head">
+              <!-- Named "Today, 2 unread", shown "Today · 2". -->
+              <h3 [id]="'day-' + day.key">
+                <span aria-hidden="true">{{
+                  day.label + (day.unread.length ? ' · ' + day.unread.length : '')
+                }}</span
+                ><span class="visually-hidden">{{
+                  day.label + (day.unread.length ? ', ' + day.unread.length + ' unread' : '')
+                }}</span>
+              </h3>
+              @if (day.unread.length) {
+                <button
+                  type="button"
+                  class="quiet"
+                  [attr.aria-describedby]="'day-' + day.key"
+                  (click)="markDay(day.unread)"
+                >
+                  Mark these read
+                </button>
               }
-            </a>
-            <span class="acts">
-              <button
-                type="button"
-                [attr.aria-label]="(item.read ? 'Mark unread: ' : 'Mark read: ') + item.title"
-                (click)="items.setRead(item.id, !item.read)"
-              >
-                {{ item.read ? 'Unread' : 'Read' }}
-              </button>
-              <button
-                type="button"
-                [attr.aria-label]="(item.saved ? 'Unsave: ' : 'Save: ') + item.title"
-                (click)="items.setSaved(item.id, !item.saved)"
-              >
-                {{ item.saved ? 'Unsave' : 'Save' }}
-              </button>
-            </span>
-          </li>
+            </div>
+            <ul [attr.aria-labelledby]="'day-' + day.key">
+              @for (item of day.items; track item.id; let n = $index) {
+                <li
+                  #row
+                  appSwipe
+                  [attr.data-id]="item.id"
+                  [class.read]="item.read"
+                  [class.cursor]="day.start + n === cursor()"
+                  (left)="items.setRead(item.id, true)"
+                  (right)="items.setSaved(item.id, !item.saved)"
+                >
+                  <a
+                    class="open"
+                    draggable="false"
+                    [routerLink]="['/reader/a', item.id]"
+                    [queryParams]="{ in: param() }"
+                    [attr.aria-current]="day.start + n === cursor() ? 'true' : null"
+                  >
+                    @if (!feedId()) {
+                      <app-source-mark
+                        [class.small]="compact()"
+                        [feedId]="item.feedId"
+                        [title]="source(item)"
+                      />
+                    }
+                    <span class="text">
+                      <span class="title">{{ item.title }}</span>
+                      <span class="meta">
+                        {{ source(item) }} · {{ items.age(item.published) }}
+                        @if (item.enclosure) {
+                          <span class="episode"
+                            ><span role="img" aria-label="episode">▶</span>
+                            @if (item.enclosure.seconds !== undefined) {
+                              {{ items.duration(item.enclosure.seconds) }}
+                            }
+                            @if (downloads.has(item.id)) {
+                              · downloaded
+                            }
+                          </span>
+                        }
+                        @if (item.saved) {
+                          <span class="saved" role="img" aria-label="saved">★</span>
+                        }
+                        @if (item.noteId) {
+                          <span class="filed" role="img" aria-label="in the garden">🌱</span>
+                        }
+                        @if (isSaved()) {
+                          @for (tag of item.tags ?? []; track tag) {
+                            <span class="tag">{{ tag }}</span>
+                          }
+                        }
+                      </span>
+                      @if (item.summary && !compact()) {
+                        <span class="summary">{{ item.summary }}</span>
+                      }
+                    </span>
+                  </a>
+                  <span class="acts">
+                    <button
+                      type="button"
+                      [attr.aria-label]="(item.read ? 'Mark unread: ' : 'Mark read: ') + item.title"
+                      (click)="items.setRead(item.id, !item.read)"
+                    >
+                      {{ item.read ? 'Unread' : 'Read' }}
+                    </button>
+                    <button
+                      type="button"
+                      [attr.aria-label]="(item.saved ? 'Unsave: ' : 'Save: ') + item.title"
+                      (click)="items.setSaved(item.id, !item.saved)"
+                    >
+                      {{ item.saved ? 'Unsave' : 'Save' }}
+                    </button>
+                  </span>
+                </li>
+              }
+            </ul>
+          </section>
         }
-      </ul>
+      </div>
     </main>
   `,
   styles: `
@@ -246,11 +322,19 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
       color: var(--quiet);
       cursor: default;
     }
+    /* Room at the end for the status bar. */
+    .days {
+      padding-bottom: 56px;
+    }
+    .days:focus {
+      outline: none;
+    }
     ul {
       list-style: none;
       margin: 0;
-      padding: 0 0 56px;
+      padding: 0;
     }
+    /* The row (#162): what swipes, what the observer follows (#172) and what the cursor names. */
     li {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -259,6 +343,8 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
       border-bottom: 1px solid var(--rule);
       background: var(--surface);
       touch-action: pan-y;
+      /* A row the keyboard moves to, or a place restored, clears its day's heading. */
+      scroll-margin-top: 48px;
     }
     li.swiping {
       transition: none;
@@ -274,16 +360,80 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
     li.cursor {
       box-shadow: inset 3px 0 0 var(--accent);
     }
+    /*
+     * A day's heading row (#288), Mark these read at its right. It sticks
+     * to the top while its day's rows scroll, within its section, so the
+     * next day's pushes it off.
+     */
+    .day-head {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      box-sizing: border-box;
+      min-height: 40px;
+      padding: 0 4px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--rule);
+    }
+    .day-head h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .day-head button {
+      font-size: 14px;
+    }
     .open {
-      display: grid;
-      gap: 2px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
       padding: 10px 4px;
       color: var(--ink);
       text-decoration: none;
       min-width: 0;
     }
+    .open app-source-mark {
+      margin-top: 2px;
+    }
+    .text {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
     .title {
       font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    /*
+     * Compact (#288): the title on up to two lines and one line of source
+     * and time, no summary; about 64 px a row.
+     */
+    .days.compact .open {
+      align-items: center;
+      padding: 7px 4px;
+    }
+    .days.compact .open app-source-mark {
+      margin-top: 0;
+    }
+    .days.compact .title {
+      font-size: 15px;
+      line-height: 20px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .days.compact .meta {
+      font-size: 13px;
+      line-height: 18px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     li.read .title {
       font-weight: 400;
@@ -314,7 +464,8 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
     .status {
       position: fixed;
       inset: auto 0 var(--mini-player-height, 0px);
-      z-index: 1;
+      /* Over a day's heading (#288) passing behind it. */
+      z-index: 2;
       box-sizing: border-box;
       max-width: 640px;
       margin: 0 auto;
@@ -354,6 +505,12 @@ export class ReaderList {
   protected readonly downloads = inject(DownloadsService);
   protected readonly reader = inject(ReaderService);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
+  private readonly now = inject(NOW);
+  private readonly tz = inject(TIME_ZONE);
+  protected readonly density = inject(ReaderDensity);
+  protected readonly compact = computed(() => this.density.value() === 'compact');
+  private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
   private readonly shelf = toSignal(inject(ActivatedRoute).paramMap.pipe(map(shelfOf)), {
     initialValue: { kind: 'folder', name: ALL } as Shelf2,
   });
@@ -377,6 +534,20 @@ export class ReaderList {
     return this.items.inShelf(this.shelf(), true).filter((i) => ids.has(i.id) || held.has(i.id));
   });
   protected readonly unreadCount = computed(() => this.list().filter((i) => !i.read).length);
+  /**
+   * The list by day (#288), in the gardener's time: the rows in the
+   * list's own order, so the cursor's index still names its row. "Now"
+   * is read when the list changes, so a list left open past midnight
+   * keeps yesterday's Today until it does.
+   */
+  protected readonly days = computed(() => groupByDay(this.list(), this.now(), this.tz));
+  /** The rows in the order they are drawn, day by day: what the cursor's index counts. */
+  private readonly drawn = computed(() => this.days().flatMap((d) => d.items));
+  /** The folder chips' current one (#288): on All and a folder's list, not Saved or a feed's. */
+  protected readonly chipFolder = computed(() => {
+    const shelf = this.shelf();
+    return shelf.kind === 'folder' && shelf.name !== SAVED ? shelf.name : undefined;
+  });
   protected readonly title = computed(() => shelfTitle(this.shelf(), this.reader.feeds()));
   /** The Reader's tab this shelf is (#220): All or Saved, else under Folders. */
   protected readonly tab = computed<ReaderTab>(() => tabOf(this.shelf()));
@@ -387,6 +558,7 @@ export class ReaderList {
   });
 
   private readonly rows = viewChildren('row', { read: ElementRef<HTMLElement> });
+  private readonly articlesBox = viewChild<ElementRef<HTMLElement>>('articles');
   private observer?: IntersectionObserver;
   private readonly observed = new Set<HTMLElement>();
   /**
@@ -463,10 +635,42 @@ export class ReaderList {
     return this.reader.feeds().find((f) => f.id === item.feedId)?.title ?? 'Unknown feed';
   }
 
+  /**
+   * Mark all read: every unread article at hand on the shelf, in one
+   * batch, with Undo for it as for the scroll's batch (#288; until then
+   * it had none).
+   */
   protected markAll(): void {
-    this.offerUndo(undefined);
-    const n = this.items.markAllRead(this.shelf());
-    this.status.set(n ? `${n} marked read.` : 'Nothing to mark.');
+    this.markMany(
+      this.items
+        .inShelf(this.shelf(), false)
+        .filter((i) => !i.read)
+        .map((i) => i.id),
+    );
+  }
+
+  /**
+   * A day's Mark these read (#288): only that day's unread rows as
+   * listed, through the same batch and the same Undo as Mark all read.
+   */
+  protected markDay(ids: readonly string[]): void {
+    this.markMany(ids.filter((id) => this.items.find(id)?.read === false));
+  }
+
+  /**
+   * Marks a batch read and offers Undo. The button pressed may go with
+   * what it marked (a day's, or Mark all read disabled), so the focus
+   * goes to Undo.
+   */
+  private markMany(ids: string[]): void {
+    const n = this.items.setReadMany(ids, true);
+    if (!n) {
+      this.offerUndo(undefined);
+      this.status.set('Nothing to mark.');
+      return;
+    }
+    this.offerUndo(ids, (all) => `${all} marked read.`);
+    afterNextRender(() => this.undoButton()?.nativeElement.focus(), { injector: this.injector });
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -478,7 +682,7 @@ export class ReaderList {
     if (target?.closest?.('dialog')) return;
     if (event.key === 'Enter' && target?.closest('a, button')) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const list = this.list();
+    const list = this.drawn();
     const at = this.cursor();
     const current = list[at];
     switch (event.key) {
@@ -508,11 +712,16 @@ export class ReaderList {
     event.preventDefault();
   }
 
-  /** Undoes the last batch marked on scroll: unread again, and no longer held. */
+  /**
+   * Undoes everything marked since the offer appeared (#172, #288): the
+   * scroll's batches, a day's and Mark all read alike, unread again and
+   * no longer held. Undo goes with it, so the focus goes to the list.
+   */
   protected undo(): void {
     const ids = this.undoIds();
     if (!ids) return;
     this.offerUndo(undefined);
+    this.focusList();
     // Nothing more counts until the gardener moves the page again, and
     // the rows undone are passed only once they come back and go again.
     this.armed = this.touched = false;
@@ -607,15 +816,39 @@ export class ReaderList {
     const n = this.items.setReadMany(ids, true);
     if (!n) return;
     this.held.update((h) => new Set([...h, ...ids]));
-    this.status.set(`Marked ${n} read.`);
-    this.offerUndo(ids);
+    this.offerUndo(ids, (all) => `Marked ${all} read.`);
   }
 
-  /** Offers Undo for a batch for a few seconds, or takes the offer back. */
-  private offerUndo(ids: string[] | undefined): void {
+  /**
+   * Offers Undo for a few seconds, or takes the offer back. A batch
+   * marked while the offer shows joins it (#288): Undo then restores
+   * everything since the offer appeared, the status says how many, and
+   * the few seconds start again.
+   */
+  private offerUndo(ids: string[] | undefined, say?: (all: number) => string): void {
     clearTimeout(this.undoTimer);
-    this.undoIds.set(ids);
-    if (ids) this.undoTimer = setTimeout(() => this.undoIds.set(undefined), UNDO_MS);
+    if (!ids) {
+      this.undoIds.set(undefined);
+      return;
+    }
+    const all = [...new Set([...(this.undoIds() ?? []), ...ids])];
+    this.undoIds.set(all);
+    if (say) this.status.set(say(all.length));
+    this.undoTimer = setTimeout(() => this.lapse(), UNDO_MS);
+  }
+
+  /** The offer lapses; if Undo had the focus, the list takes it rather than the page. */
+  private lapse(): void {
+    const focused = this.undoButton()?.nativeElement === document.activeElement;
+    this.undoIds.set(undefined);
+    if (focused) this.focusList();
+  }
+
+  /** Focus to the articles, once the page has drawn what took it away. */
+  private focusList(): void {
+    afterNextRender(() => this.articlesBox()?.nativeElement.focus({ preventScroll: true }), {
+      injector: this.injector,
+    });
   }
 
   /** Drops the hold, whatever is waiting and the Undo offer. */
@@ -634,6 +867,9 @@ export class ReaderList {
 
   private moveCursor(to: number): void {
     this.cursor.set(to);
-    document.querySelectorAll('app-reader-list li')[to]?.scrollIntoView({ block: 'nearest' });
+    // The rows alone: not a search's hits.
+    document
+      .querySelectorAll('app-reader-list [data-id]')
+      [to]?.scrollIntoView({ block: 'nearest' });
   }
 }

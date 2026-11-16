@@ -49,6 +49,13 @@ const PATHS = {
   download: ['M12 3v12', 'M7 10l5 5 5-5', 'M4 20h16'],
   feeds: ['M4 6h16M4 12h16M4 18h10', 'M18 15.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z'],
   check: ['M4 12l5 5L20 6'],
+  // The article's Keep unread and Reader mode (#288): an open dot, as
+  // a feed reader marks what is new; a page of plain lines.
+  unread: ['M12 7a5 5 0 1 0 0 10a5 5 0 1 0 0-10z'],
+  'reader-mode': [
+    'M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z',
+    'M8.5 8h7M8.5 12h7M8.5 16h4',
+  ],
   bookmark: ['M6 3h12v18l-6-4-6 4z'],
   'leaf-plus': [
     'M12 21c-5 0-8-3.5-8-8 0-4 3-7 7-8 4-1 6 0 9-2-1 4-1 7-2 10-1.5 4.5-3 8-6 8z',

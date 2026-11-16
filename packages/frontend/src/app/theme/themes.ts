@@ -281,3 +281,37 @@ export function contrast(a: string, b: string): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
+
+/**
+ * The Reader's source marks (#288, 2026-11-15): a feed's first letter
+ * in ink on a tint of one of these hues over the surface, the hue
+ * picked by the feed. One set for every theme, since the tint is mostly
+ * the theme's own surface: reader/source-mark.spec.ts holds ink to AA
+ * on each tint in every theme and mode.
+ */
+export const SOURCE_HUES = [
+  '#c0392b',
+  '#d4802a',
+  '#b59a1b',
+  '#4f9a4f',
+  '#2f9a8f',
+  '#3f7fc4',
+  '#7b61c4',
+  '#c2549b',
+] as const;
+
+/** How much of its hue a source mark's tint takes, in percent, over the surface. */
+export const SOURCE_TINT = 30;
+
+/**
+ * `share` percent of #rrggbb `a` over `b`, mixed channel by channel in
+ * sRGB as CSS `color-mix(in srgb, a share%, b)` does.
+ */
+export function mixSrgb(a: string, b: string, share: number): string {
+  const s = share / 100;
+  const channel = (i: number) =>
+    Math.round(parseInt(a.slice(i, i + 2), 16) * s + parseInt(b.slice(i, i + 2), 16) * (1 - s))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}

@@ -43,7 +43,8 @@ export function articleHtml(markdown: string, images: boolean): string {
  * One article (#162): rendered as notes are, with Open the page, Keep
  * unread, Save, and next and previous by swipe (left for next) or j and
  * k; since #221 the header's controls are icons, named, and Previous
- * and Next sit either side of where the article is on its shelf.
+ * and Next sit either side of where the article is on its shelf; since
+ * #288 Keep unread and Reader mode are icons in that row too.
  * Opening marks it read; links inside open in a new tab. Next from
  * the shelf's last article is the caught-up page (Eric, 2026-11-07).
  * An episode (#179) has the player's full controls above its notes,
@@ -91,67 +92,104 @@ export function articleHtml(markdown: string, images: boolean): string {
       <header class="top">
         <app-home-link />
         <a [routerLink]="backLink()" class="back"
-          ><app-icon name="chevron-left" [size]="18" />{{ shelfTitle() }}</a
+          ><app-icon name="chevron-left" [size]="18" /><span class="name">{{
+            shelfTitle()
+          }}</span></a
         >
-        <span class="spacer"></span>
         @if (!pendingDone() && item(); as it) {
-          @if (it.enclosure && downloads.available()) {
-            @if (downloaded()) {
+          <span class="actions">
+            <!-- Keep unread and Reader mode (#288), here rather than under the title. -->
+            <button
+              type="button"
+              class="icon"
+              [attr.aria-label]="it.read ? 'Keep unread' : 'Mark read'"
+              (click)="items.setRead(it.id, !it.read)"
+            >
+              <app-icon [name]="it.read ? 'unread' : 'check'" [size]="22" />
+            </button>
+            @if (it.readerState === 'done') {
+              <!-- Shown in reader mode: pressed, and nothing to undo. -->
               <button
                 type="button"
                 class="icon"
-                aria-label="Remove download"
-                (click)="downloads.remove(it.id)"
+                aria-label="Reader mode"
+                aria-pressed="true"
+                aria-disabled="true"
               >
-                <app-icon name="download" [size]="22" />
-                <span class="dot" aria-hidden="true"></span>
+                <app-icon name="reader-mode" [size]="22" />
               </button>
+            } @else {
+              <!-- While the page is fetched the name stays; the status line says so (#288). -->
+              <button
+                type="button"
+                class="icon"
+                aria-label="Reader mode"
+                aria-pressed="false"
+                [attr.aria-busy]="it.readerState === 'working' || fetching() ? 'true' : null"
+                [disabled]="it.readerState === 'working' || fetching()"
+                (click)="readerMode(it.id)"
+              >
+                <app-icon name="reader-mode" [size]="22" />
+              </button>
+            }
+            @if (it.enclosure && downloads.available()) {
+              @if (downloaded()) {
+                <button
+                  type="button"
+                  class="icon"
+                  aria-label="Remove download"
+                  (click)="downloads.remove(it.id)"
+                >
+                  <app-icon name="download" [size]="22" />
+                  <span class="dot" aria-hidden="true"></span>
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="icon"
+                  aria-label="Download"
+                  [disabled]="!!progress()"
+                  (click)="download(it)"
+                >
+                  <app-icon name="download" [size]="22" />
+                </button>
+              }
+            }
+            <button
+              type="button"
+              class="icon"
+              aria-label="Save for later"
+              [attr.aria-pressed]="it.saved ? 'true' : 'false'"
+              (click)="items.setSaved(it.id, !it.saved)"
+            >
+              <app-icon name="bookmark" [size]="22" [filled]="!!it.saved" />
+            </button>
+            @if (it.noteId) {
+              <a class="icon" [routerLink]="['/n', it.noteId]" aria-label="In the garden">
+                <app-icon name="leaf" [size]="22" />
+              </a>
             } @else {
               <button
                 type="button"
                 class="icon"
-                aria-label="Download"
-                [disabled]="!!progress()"
-                (click)="download(it)"
+                aria-label="File in the garden"
+                (click)="file(it.id)"
               >
-                <app-icon name="download" [size]="22" />
+                <app-icon name="leaf-plus" [size]="22" />
               </button>
             }
-          }
-          <button
-            type="button"
-            class="icon"
-            aria-label="Save for later"
-            [attr.aria-pressed]="it.saved ? 'true' : 'false'"
-            (click)="items.setSaved(it.id, !it.saved)"
-          >
-            <app-icon name="bookmark" [size]="22" [filled]="!!it.saved" />
-          </button>
-          @if (it.noteId) {
-            <a class="icon" [routerLink]="['/n', it.noteId]" aria-label="In the garden">
-              <app-icon name="leaf" [size]="22" />
-            </a>
-          } @else {
-            <button
-              type="button"
-              class="icon"
-              aria-label="File in the garden"
-              (click)="file(it.id)"
-            >
-              <app-icon name="leaf-plus" [size]="22" />
-            </button>
-          }
-          @if (it.link) {
-            <a
-              class="icon"
-              [href]="it.link"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open the page"
-            >
-              <app-icon name="open-page" [size]="22" />
-            </a>
-          }
+            @if (it.link) {
+              <a
+                class="icon"
+                [href]="it.link"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open the page"
+              >
+                <app-icon name="open-page" [size]="22" />
+              </a>
+            }
+          </span>
         }
       </header>
       @if (pendingDone()) {
@@ -170,29 +208,14 @@ export function articleHtml(markdown: string, images: boolean): string {
                 , {{ it.author }}
               }
               · {{ when(it) }}
-            </p>
-            <p class="acts">
-              <button type="button" (click)="items.setRead(it.id, !it.read)">
-                {{ it.read ? 'Keep unread' : 'Mark read' }}
-              </button>
               @if (it.readerState === 'done') {
-                <span class="muted">Reader mode</span>
-              } @else {
-                <button
-                  type="button"
-                  [disabled]="it.readerState === 'working' || fetching()"
-                  (click)="readerMode(it.id)"
-                >
-                  {{
-                    it.readerState === 'working' || fetching()
-                      ? 'Fetching the page…'
-                      : 'Reader mode'
-                  }}
-                </button>
+                · Reader mode
               }
             </p>
             @if (said()) {
               <p class="status" role="status">{{ said() }}</p>
+            } @else if (it.readerState === 'working' || fetching()) {
+              <p class="status" role="status">Fetching the page…</p>
             } @else if (it.readerState === 'failed' && it.readerError) {
               <p class="status" role="status">Could not fetch the page: {{ it.readerError }}</p>
             }
@@ -266,7 +289,11 @@ export function articleHtml(markdown: string, images: boolean): string {
     .pane.next {
       left: 100%;
     }
+    /* 25 px (#288): at 34 a phone gave a long title five lines. */
     h1 {
+      margin: var(--space-2) 0 var(--space-1);
+      font-size: 25px;
+      line-height: 1.25;
       overflow-wrap: anywhere;
     }
     .meta,
@@ -274,12 +301,6 @@ export function articleHtml(markdown: string, images: boolean): string {
     .status {
       color: var(--quiet);
       font-size: 14px;
-    }
-    .acts {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      align-items: center;
     }
     .body {
       line-height: 1.55;
@@ -315,25 +336,46 @@ export function articleHtml(markdown: string, images: boolean): string {
       color: var(--quiet);
       font-style: italic;
     }
+    /*
+     * The way back takes what the icons leave, its name cut short; where
+     * even its least does not fit beside them (a narrow screen, an
+     * episode's Download too), the icons go to a line of their own,
+     * at the right.
+     */
     .top {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 2px;
     }
     .back {
+      flex: 1 1 0;
       display: inline-flex;
       align-items: center;
       gap: 4px;
       min-height: 44px;
-      min-width: 0;
+      min-width: 64px;
       margin-left: var(--space-2);
       padding: 0 8px;
       color: var(--quiet);
       text-decoration: none;
-      overflow-wrap: anywhere;
+      white-space: nowrap;
     }
-    .spacer {
-      flex: 1;
+    .back .name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .actions {
+      display: flex;
+      gap: 2px;
+      margin-left: auto;
+    }
+    .icon[aria-pressed='true'] {
+      background: var(--chip-bg);
+    }
+    .icon[aria-disabled='true'] {
+      cursor: default;
     }
     /* An icon-only control (#221): a 44 px target, named by its aria-label. */
     .icon {

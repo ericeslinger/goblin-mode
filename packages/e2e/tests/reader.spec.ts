@@ -39,7 +39,7 @@ const OPML = `<?xml version="1.0" encoding="UTF-8"?>
 
 const swipe = async (page: Page, text: string, dx: number) => {
   const row = page
-    .getByRole('list', { name: 'Articles' })
+    .getByRole('group', { name: 'Articles', exact: true })
     .getByRole('listitem')
     .filter({ hasText: text });
   const box = (await row.boundingBox())!;
@@ -174,7 +174,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await onScroll.check();
   await letItSave(page);
   await page.goto('/reader/f/all');
-  const articles = page.getByRole('list', { name: 'Articles' });
+  const articles = page.getByRole('group', { name: 'Articles', exact: true });
   await expect(articles.getByRole('listitem')).toHaveCount(7);
   const tall = page.viewportSize()!;
   await page.setViewportSize({ width: tall.width, height: 320 });
@@ -218,7 +218,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   // 2026-11-10: nothing moves by itself, #245): its episodes are on All
   // with their length, and there is no Podcasts tab.
   await expect(tabs.getByRole('link')).toHaveText([/^All/, 'Saved', 'Folders']);
-  const allRows = page.getByRole('list', { name: 'Articles' }).getByRole('listitem');
+  const allRows = page.getByRole('group', { name: 'Articles', exact: true }).getByRole('listitem');
   const firing = allRows.filter({ hasText: 'Reduction firing' });
   await expect(firing).toContainText('42 min');
   await expect(firing.getByRole('img', { name: 'episode' })).toBeVisible();
@@ -619,7 +619,9 @@ test('a feed whose address stopped working: needs attention, found, switched; it
   await expect(about).toContainText('https://feeds.invalid/design.xml');
   await expect(about).toContainText('Fine: the last look read it.');
   await expect(about).toContainText('Last looked at');
-  await expect(page.getByRole('list', { name: 'Articles' }).getByRole('listitem')).toHaveCount(3);
+  await expect(
+    page.getByRole('group', { name: 'Articles', exact: true }).getByRole('listitem'),
+  ).toHaveCount(3);
   await axe(page);
   await about.getByRole('button', { name: 'More for Design notes' }).click();
   const sheet = page.getByRole('dialog', { name: 'More for Design notes' });
@@ -747,7 +749,7 @@ test('import Feedly’s full export: the feeds, the saves, boards as tags', asyn
 
   // Saved: both, read, the board's name a chip; the page's brackets stay words.
   await page.goto('/reader/f/saved');
-  const articles = page.getByRole('list', { name: 'Articles' });
+  const articles = page.getByRole('group', { name: 'Articles', exact: true });
   await expect(articles.getByRole('listitem')).toHaveCount(2);
   const teapots = articles.getByRole('listitem').filter({ hasText: 'Teapots that pour' });
   await expect(teapots).toContainText('Design notes ·');
