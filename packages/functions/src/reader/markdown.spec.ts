@@ -97,3 +97,80 @@ describe('htmlToMarkdown (#161)', () => {
     expect(summaryOf('word '.repeat(100))).toMatch(/^(word ){50,60}word…$/);
   });
 });
+
+describe('htmlToMarkdown for reader mode (2026-11-16)', () => {
+  it('settles the spaces around marks inside link text too, leaving no marker', () => {
+    const md = htmlToMarkdown(
+      '<p>read <a href="https://v.test/a">published by<em> Variety</em></a> today, and <a href="https://v.test/b">x<strong>y</strong>,</a></p>',
+      BASE,
+    );
+    expect(md).toBe(
+      'read [published by _Variety_](https://v.test/a) today, and [x *y*,](https://v.test/b)',
+    );
+    expect(md).not.toMatch(/[\u0000\u0001]/);
+  });
+
+  it('puts no space between a mark and the punctuation after it', () => {
+    const md = htmlToMarkdown(
+      '<p>the <a href="/s">strip</a>; <em>Ocarina of Time</em>’s fans (<b>all</b>) agree.</p>',
+      BASE,
+    );
+    expect(md).toBe('the [strip](https://blog.example/s); _Ocarina of Time_’s fans (*all*) agree.');
+  });
+
+  it('drops a link with no words, keeps a linked image, and reads an anchor as its words', () => {
+    const md = htmlToMarkdown(
+      `<p>Share <a href="https://f.example/share"><i class="icon"></i></a>
+      <a href="/pic"><img src="https://blog.example/p.png" alt="Pic"></a></p>
+      <h2 id="x"><a href="#x">A heading</a></h2>`,
+      BASE,
+    );
+    expect(md).toBe(
+      'Share [![Pic](https://blog.example/p.png)](https://blog.example/pic)\n\n### A heading',
+    );
+  });
+
+  it('removes a list item left empty when its only link went', () => {
+    const md = htmlToMarkdown(
+      '<ul><li><a href="/a"></a></li><li>Kept</li><li><img src="data:image/gif;base64,AA"></li></ul>',
+      BASE,
+    );
+    expect(md).toBe('- Kept');
+  });
+
+  it('keeps the words of code a highlighter wrapped in buttons', () => {
+    const md = htmlToMarkdown(
+      '<pre><code>[1].<button class="hover">reduce</button>((<button>a</button>) =&gt; a);</code></pre><button>Copy</button>',
+      BASE,
+    );
+    expect(md).toBe('```\n[1].reduce((a) => a);\n```');
+  });
+
+  it('reads the common named entities, and a page’s own control characters are spaces', () => {
+    const md = htmlToMarkdown(
+      '<p>One &ndash; two &mdash; three&hellip; &lsquo;a&rsquo; &ldquo;b&rdquo; &copy; &Eacute;&eacute; x\u0000y\u00010\u0000</p>',
+      BASE,
+    );
+    expect(md).toBe('One – two — three… ‘a’ “b” © Éé x y 0');
+  });
+});
+
+describe('htmlToMarkdown, on review (2026-11-16)', () => {
+  it('fences code longer than any backticks in it, so its text stays inert', () => {
+    const md = htmlToMarkdown('<pre>a\n```\n[[x]]\n- [ ] do @goblin\n#tag</pre><p>after</p>', BASE);
+    expect(md).toBe('````\na\n```\n[[x]]\n- [ ] do @goblin\n#tag\n````\n\nafter');
+    expect(summaryOf(md)).toBe('after');
+  });
+
+  it('reads tags never closed, and a page’s own "<" as words, in time', () => {
+    const started = Date.now();
+    expect(htmlToMarkdown('<a '.repeat(20_000), BASE)).toMatch(/^<a <a/);
+    expect(htmlToMarkdown('&lt;a '.repeat(20_000), BASE)).toMatch(/^<a <a/);
+    expect(htmlToMarkdown(`${'<b>x'.repeat(20_000)}<p>end</p>`, BASE)).toMatch(/^x x x/);
+    expect(htmlToMarkdown(`${'<b>x'.repeat(2_000)}<p>end</p>`, BASE)).toMatch(/x\n\nend$/);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(htmlToMarkdown('<p>1 &lt; 2 and <a href="/x">a &lt;b&gt; link</a></p>', BASE)).toBe(
+      '1 < 2 and [a <b> link](https://blog.example/x)',
+    );
+  });
+});

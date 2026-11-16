@@ -233,7 +233,12 @@ export const fetchArticle = onCall({ memory: '512MiB', timeoutSeconds: 120 }, as
     if (!/^(text\/html|application\/xhtml\+xml)\b/i.test(res.contentType)) {
       throw new Error('the page is not HTML');
     }
-    const markdown = readerMarkdown(decodeBody(res.bytes, res.contentType), claim.link);
+    const markdown = readerMarkdown(
+      decodeBody(res.bytes, res.contentType),
+      claim.link,
+      // The item's own title, so the page's copy of it is not shown twice.
+      claim.title,
+    );
     if (markdown.length < 80) throw new Error('could not find the article on the page');
     await ref.update({
       readerState: 'done',
