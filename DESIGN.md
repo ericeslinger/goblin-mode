@@ -2582,7 +2582,8 @@ it sets `--mini-player-height` on the root: the page's bottom padding
 and the launch screen's height leave room for it, and the Reader
 list's Undo bar (#172) sits on top of it, so both show. The episode's
 page holds the full controls above its notes: a big play or pause, the
-Position slider, the skips, the speed and elapsed of total. The
+Position slider, the skips, the speed and elapsed of total (laid out
+again in #290, 2026-11-16: see The layout pass for Podcasts). The
 Reader's front lists Continue listening above the folders: episodes
 part-way and not played, the latest played first, each "12:34 of
 42:10", hidden when there are none. `list_feed_items` and
@@ -2780,9 +2781,10 @@ own "The site" link moved into it, and the list's keys leave the
 sheet and an Enter on a button alone. It is reached from Folders as
 before, from each row in Manage feeds and from the attention
 section. A show's page in Podcasts shows its feed's address under its
-folders, and the same words and fixes in place of its "Last look
-failed" line (Find the feed and Try again; Unfollow stays in More);
-Switch there keeps it a show.
+folders (since #290, 2026-11-16, under About this show, after its
+episodes, with Copy address), and the same words and fixes in place
+of its "Last look failed" line (Find the feed and Try again; Unfollow
+stays in More); Switch there keeps it a show.
 
 *Not done.* The fetcher's words stay as they are: a refused
 connection, a timeout inside the connection and a broken certificate
@@ -3014,18 +3016,19 @@ settings: New episodes join the queue (`autoQueue`, written through
 the cache by `ReaderService.setAutoQueue`; the queue is step 3, so
 step 1's note that it comes soon stayed, until step 3 removed it,
 #249) and Keep downloaded, step
-1's choice. Then its episodes, rows as in Latest without the artwork,
-Unheard and All with counts, Newest first or Oldest first, and the
-search: every word in the title or the notes (summary and content),
-on the episodes loaded on the device, which the field says; nothing
-asks the server. More is a modal `<dialog>` (focus stays inside,
-Escape or the backdrop closes it, each step focuses its first
-control): Move to a folder (one folder, or none when empty, replacing
-the show's folders), Move to the Reader, Mark all as heard, and
-Unfollow, which asks first ("Unfollow Kiln talk? Its episodes go with
-it, but for any saved or filed in the garden.", as `feedRemoved`
-does, #161; Unfollow or Keep following). The Reader's Remove has no
-confirm, so this one is new (2026-11-10).
+1's choice. Then its episodes, rows as in Latest without the artwork
+(since #290, 2026-11-16, with it, since the artwork is Play; and without
+the show's name), Unheard and All with counts, Newest first or Oldest
+first, and the search: every word in the title or the notes (summary and
+content), on the episodes loaded on the device, which the field says;
+nothing asks the server. More is a modal `<dialog>` (focus stays inside,
+Escape or the backdrop closes it, each step focuses its first control):
+Move to a folder (one folder, or none when empty, replacing the show's
+folders), Move to the Reader, Mark all as heard, and Unfollow, which
+asks first ("Unfollow Kiln talk? Its episodes go with it, but for any
+saved or filed in the garden.", as `feedRemoved` does, #161; Unfollow or
+Keep following). The Reader's Remove has no confirm, so this one is new
+(2026-11-10).
 
 *What is counted and searched.* Each show's listener holds its
 newest hundred episodes (#245); the grid's badges, the folder lines
@@ -3128,7 +3131,8 @@ do. With reduced motion the tilt goes and nothing glides (`--motion`
 is 0).
 
 *Everywhere an episode shows.* Latest's rows and a show's page's rows
-have Add to the queue beside Play, the queue icon named for the
+have Add to the queue beside Play (since #290 the artwork is Play, and
+the queue button the row's one other button), the queue icon named for the
 episode ("Add Reduction firing to the queue"), pressed and named
 "Reduction firing is in the queue" once in, a second press taking it
 off. The episode's page has Add to the queue (In the queue, pressed,
@@ -3452,6 +3456,83 @@ while the Reader's line stays. The Home tile through "4 new", "4 new
 into the next queued episode, and Kiln hour moved to the Reader with
 "1 episode left the queue." and the Queue tab at 0. axe on Add a
 podcast, Shows and Right Now.
+
+**The layout pass for Podcasts (#290, step 6 of epic #282,
+2026-11-16).** Layout and controls only: playback, the synced place
+(client timestamps, `playedAt` only increasing), downloads and the
+queue behave as they did, and no stored field, rule or tool changed.
+At 412 px Play and Add to the queue took a third of each row, so
+titles ran to three lines and the length fell to a line of its own;
+the episode's player was a plain Play, a short slider with a 12 px
+thumb and small boxes; the mini-player's controls were characters in
+plain buttons; and a show's page printed its feed's address under the
+name.
+
+*An episode's row* (`EpisodeRow`, `li[appEpisodeRow]`, one component
+for Latest and a show's page): the artwork, 56 px, is the Play button,
+named as the row's Play was ("Play Reduction firing", "Pause ..." while
+it plays), with a small disc on its corner holding the play or pause
+mark; the title, at most two lines (clamped; the link's name keeps it
+whole) and the meta line open the episode as before; Add to the queue,
+unchanged, is the one trailing button. The age and the length are one
+piece that does not break ("3 days ago · 42 min"), so the length always
+shares its line. Every piece is set apart by " · ", never run
+together. With no audio the artwork is only a picture and there is no
+queue button. A show's page now has the artwork in its rows too (the
+episode's, else the show's), and leaves the show's name out of the
+meta line. A show with no artwork draws its initials on its tinted
+square, hidden from screen readers, as before (#245, #246).
+
+*The episode's player* (`app-episode-player`, so the Reader's article
+page has it too): on Podcasts' page the artwork is large over the name
+(224 px, no wider than the page; the same image, so nothing more is
+fetched). In the player, the Position slider is first, the whole
+width, still the native `input type="range"` with its name, step,
+value text and keys; its track (6 px) and thumb (24 px) are drawn for
+WebKit and Firefox from the theme's tokens, the part played in the
+accent. Elapsed and the total sit at its two ends ("12:34 of 42:10" to
+a screen reader). Under it back 15 and on 30 (52 px, round, an arc
+with the seconds in it) beside a round Play or Pause of 64 px, the
+`.primary` look; under them the speed, a pill naming itself as before
+("Speed 1×"), cycling the same speeds. Continue from, Played to the
+end and the download's line follow as before. No sleep timer.
+
+*The mini-player*: back 15, play or pause (filled, `.primary`), on 30
+and close are round icon buttons, 40 px by mouse and 44 on a touch
+screen, with their names as before. A 2 px line in the accent along
+its top edge shows how far along, `role="presentation"`; the time
+beside the title still says it in words. The line is inside the 64 px,
+so `--mini-player-height` is set and cleared as before. One fault
+from before is mended: Close cleared the presence, and the shell's
+`@if` removed the bar before its effect could clear the property, so
+the page kept 64 px of room at its foot after Close; the bar now
+clears it as it is destroyed too. Its artwork is the rows' (the
+episode's, else its show's, else the show's initials on its tinted
+square, also when the image fails), where it drew a broken image for
+an episode whose own artwork failed. Its title opens the episode;
+there is no swipe to dismiss.
+
+*A show's page*: its feed's address left the head for About this show,
+a disclosure (`<details>`, closed) after the episodes, with Copy
+address as About this feed has it (2026-11-15). What went wrong at the
+last look and its fixes stay at the top, under the name.
+
+*The icons* gain `pause-bars` (two bars that can be filled),
+`skip-back`, `skip-forward` and `close`, in the same 1.6 stroke, and
+`current` on `app-icon` draws a mark in the text colour around it, for
+the marks on filled buttons.
+
+*Journeys.* `podcasts-layout.spec.ts`: at 412 px, Latest's four rows
+each with a title under two lines, its length sharing a line, two
+buttons each taking a 44 px tap, Glaze lab's initials, and the
+artwork playing; the mini-player's four controls by name and tap, its
+line, `--mini-player-height` above zero while it shows, zero on the
+episode's own page and after Close; the episode's Play round and at
+least 56 px, the skips round and at least 44, the slider at least 80%
+of the content's width with its times at its ends, and the arrow keys
+moving it; a show's page with the address hidden until About this
+show is opened. axe on each. The other journeys kept every name, so
+none changed.
 
 ## Themes (#23, 2026-10-06)
 

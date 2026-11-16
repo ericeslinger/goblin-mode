@@ -109,8 +109,7 @@ describe('A show’s page (#246)', () => {
     expect(el.querySelector('.head img')?.getAttribute('src')).toBe('https://kiln.test/show.jpg');
     expect(el.querySelector('.head img')?.getAttribute('alt')).toBe('');
     const meta = [...el.querySelectorAll('.head .meta')].map((p) => p.textContent!.trim());
-    // The show's feed address too (2026-11-15).
-    expect(meta).toEqual(['3 episodes · 2 unheard', 'In Making', 'https://kiln.test/f']);
+    expect(meta).toEqual(['3 episodes · 2 unheard', 'In Making']);
     expect(el.querySelector('input[role="switch"]')?.closest('label')?.textContent).toContain(
       'New episodes join the queue',
     );
@@ -118,6 +117,25 @@ describe('A show’s page (#246)', () => {
       el.querySelector('select[aria-label="Episodes of Kiln talk kept downloaded"]'),
     ).not.toBeNull();
     expect(el.querySelector('a.back')?.getAttribute('href')).toBe('/podcasts/shows');
+  });
+
+  it('keeps the feed’s address under About this show, closed, with Copy address (#290)', async () => {
+    const { el, button, stable } = await open();
+    // Not under the name any more (2026-11-15 until #290).
+    expect(el.querySelector('.head')?.textContent).not.toContain('https://kiln.test/f');
+    const about = el.querySelector('details.about') as HTMLDetailsElement;
+    expect(about.querySelector('summary')?.textContent?.trim()).toBe('About this show');
+    expect(about.open).toBe(false);
+    expect(about.querySelector('.url')?.textContent).toBe('https://kiln.test/f');
+    // After the episodes, lower on the page.
+    const list = el.querySelector('ul[aria-label="Episodes"]')!;
+    expect(list.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const writeText = vi.fn(async (_: string) => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    button('Copy address')!.click();
+    await stable();
+    expect(writeText).toHaveBeenCalledWith('https://kiln.test/f');
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Address copied.');
   });
 
   it('writes the queue switch through the reader', async () => {
@@ -148,8 +166,11 @@ describe('A show’s page (#246)', () => {
       'Wood firing New · just now · 42 min',
       'Ash glazes Started, notes read · just now · 32 min left',
     ]);
-    // Rows as in Latest, without the artwork; opening one keeps the way back.
-    expect(el.querySelector('ul[aria-label="Episodes"] img')).toBeNull();
+    // Rows as in Latest (since #290 with the artwork, which is Play, the
+    // show's own when the episode has none); opening one keeps the way back.
+    const art = el.querySelector('ul[aria-label="Episodes"] > li > button.art')!;
+    expect(art.getAttribute('aria-label')).toBe('Play Wood firing');
+    expect(art.querySelector('img')?.getAttribute('src')).toBe('https://kiln.test/show.jpg');
     expect(el.querySelector('ul[aria-label="Episodes"] a')?.getAttribute('href')).toBe(
       '/podcasts/e/e3?show=p1',
     );

@@ -4,7 +4,7 @@ import { Router, provideRouter } from '@angular/router';
 import { FakeReader } from '../testing/fakes';
 import type { ItemRecord } from './items.service';
 import { ItemsService } from './items.service';
-import { MiniPlayer } from './mini-player';
+import { MINI_PLAYER_HEIGHT, MiniPlayer } from './mini-player';
 import { PlayerService } from './player.service';
 import { ReaderService } from './reader.service';
 
@@ -72,6 +72,75 @@ describe('MiniPlayer (#179)', () => {
     expect(player.toggle).toHaveBeenCalled();
     (bar()!.querySelector('[aria-label="Back 15 seconds"]') as HTMLButtonElement).click();
     expect(player.skip).toHaveBeenCalledWith(-15);
+  });
+
+  it('has round icon buttons with their names, and a drawn line for how far along (#290)', async () => {
+    const { fixture, player, bar, root } = setup();
+    player.item.set(episode);
+    await fixture.whenStable();
+    const buttons = [...bar()!.querySelectorAll('.controls button')];
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Back 15 seconds',
+      'Play',
+      'Forward 30 seconds',
+      'Close the player',
+    ]);
+    // Each draws a mark, not a character standing in for one.
+    for (const b of buttons) expect(b.querySelector('app-icon')).not.toBeNull();
+    expect(bar()!.querySelector('button.primary')?.getAttribute('aria-label')).toBe('Play');
+    player.playing.set(true);
+    await fixture.whenStable();
+    expect(bar()!.querySelector('button.primary')?.getAttribute('aria-label')).toBe('Pause');
+    // 754 of 2530 seconds; drawn only, the time in words beside the title.
+    const line = bar()!.querySelector('.progress')!;
+    expect(line.getAttribute('role')).toBe('presentation');
+    expect((line.firstElementChild as HTMLElement).style.width).toMatch(/^29\.8\d*%$/);
+    expect(bar()!.querySelector('.time')?.textContent).toContain('12m / 42m');
+    // The bar's height is what it was: the line is inside it.
+    expect(root.style.getPropertyValue('--mini-player-height')).toBe(MINI_PLAYER_HEIGHT);
+    (bar()!.querySelector('[aria-label="Close the player"]') as HTMLButtonElement).click();
+    expect(player.stop).toHaveBeenCalled();
+  });
+
+  it('draws the show’s initials where an episode has no artwork, or it fails (#290)', async () => {
+    const reader = new FakeReader();
+    reader.feeds.set([
+      {
+        id: 'pod',
+        url: 'https://pod.test/f',
+        title: 'Kiln hour',
+        folders: [],
+        dead: false,
+        kind: 'podcast',
+      },
+    ]);
+    const { fixture, player, bar } = setup(reader);
+    player.item.set(episode);
+    await fixture.whenStable();
+    expect(bar()!.querySelector('img')).toBeNull();
+    expect(bar()!.querySelector('.square')?.textContent?.trim()).toBe('KH');
+    expect(bar()!.querySelector('.square')?.getAttribute('aria-hidden')).toBe('true');
+    // Its own artwork while it loads; the square again once it fails.
+    player.item.set({ ...episode, image: 'https://pod.test/e1.jpg' });
+    await fixture.whenStable();
+    const img = bar()!.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe('https://pod.test/e1.jpg');
+    expect(img.getAttribute('alt')).toBe('');
+    img.dispatchEvent(new Event('error'));
+    await fixture.whenStable();
+    expect(bar()!.querySelector('img')).toBeNull();
+    expect(bar()!.querySelector('.square')?.textContent?.trim()).toBe('KH');
+  });
+
+  it('takes its room back when the shell removes it after Close (#290)', async () => {
+    const { fixture, player, root } = setup();
+    player.item.set(episode);
+    await fixture.whenStable();
+    expect(root.style.getPropertyValue('--mini-player-height')).toBe(MINI_PLAYER_HEIGHT);
+    // Close clears the presence, and the shell's @if destroys the bar
+    // before its effect can run again.
+    fixture.destroy();
+    expect(root.style.getPropertyValue('--mini-player-height')).toBe('');
   });
 
   it('offers another device’s place in place of the time', async () => {
