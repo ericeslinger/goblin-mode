@@ -1,4 +1,5 @@
-import { Component, computed, inject } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { Component, computed, inject, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { neighborhood } from '@mossgoblin/schema';
@@ -7,9 +8,12 @@ import { LinksService } from '../links/links.service';
 import { NotesService } from '../notes/notes.service';
 import { PageHeader } from '../home/page-header';
 import { radial } from './layout';
+import { MapFrame, readable, wideScreen } from './map-frame';
 
 const SIZE = 600;
 const MAX_OUTER_LABELS = 12;
+/** A label's font size in viewBox units, as the styles below set it. */
+const LABEL = 14;
 
 /**
  * The neighborhood of a note or concept (#32): what it links and what
@@ -17,10 +21,15 @@ const MAX_OUTER_LABELS = 12;
  * /n/<id>, so back returns here; the same notes are listed under the
  * drawing for keyboards and screen readers. Lazy-loaded: capture never
  * pays for it.
+ *
+ * Under 900 px (#290, 2026-11-16) the Nearby list leads and the drawing
+ * comes after it, in a box that pans and zooms (MapFrame), its labels
+ * drawn only once they would be 11 px or more; wide screens are as
+ * before.
  */
 @Component({
   selector: 'app-neighborhood-map',
-  imports: [PageHeader, RouterLink],
+  imports: [PageHeader, RouterLink, NgTemplateOutlet, MapFrame],
   template: `
     <main class="page wide">
       <app-page-header
@@ -33,27 +42,9 @@ const MAX_OUTER_LABELS = 12;
       } @else if (placed().length <= 1) {
         <p class="muted">Nothing links here yet. Link a name with [[ to grow the map.</p>
       } @else {
-        <svg [attr.viewBox]="viewBox()" aria-hidden="true" class="map">
-          @for (e of lines(); track e.key) {
-            <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2" />
-          }
-          @for (n of placed(); track n.id) {
-            <g
-              class="node"
-              [class.center]="n.hop === 0"
-              [class.concept]="isConcept(n.id)"
-              (click)="open(n.id)"
-            >
-              <title>{{ title(n.id) }}</title>
-              <!-- A finger-sized target around the dot. -->
-              <circle class="hit" [attr.cx]="n.x" [attr.cy]="n.y" r="22" />
-              <circle [attr.cx]="n.x" [attr.cy]="n.y" [attr.r]="radius(n)" />
-              @if (labelled(n)) {
-                <text [attr.x]="n.x" [attr.y]="n.y + radius(n) + 16">{{ short(n.id) }}</text>
-              }
-            </g>
-          }
-        </svg>
+        @if (wide()) {
+          <ng-container *ngTemplateOutlet="drawing" />
+        }
         <section aria-labelledby="nearby">
           <h2 id="nearby">Nearby</h2>
           <h3 id="direct">Linked directly</h3>
@@ -76,7 +67,35 @@ const MAX_OUTER_LABELS = 12;
             </ul>
           }
         </section>
+        @if (!wide()) {
+          <app-map-frame [units]="frameWidth()">
+            <ng-container *ngTemplateOutlet="drawing" />
+          </app-map-frame>
+        }
       }
+      <ng-template #drawing>
+        <svg [attr.viewBox]="viewBox()" aria-hidden="true" class="map">
+          @for (e of lines(); track e.key) {
+            <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2" />
+          }
+          @for (n of placed(); track n.id) {
+            <g
+              class="node"
+              [class.center]="n.hop === 0"
+              [class.concept]="isConcept(n.id)"
+              (click)="open(n.id)"
+            >
+              <title>{{ title(n.id) }}</title>
+              <!-- A finger-sized target around the dot. -->
+              <circle class="hit" [attr.cx]="n.x" [attr.cy]="n.y" r="22" />
+              <circle [attr.cx]="n.x" [attr.cy]="n.y" [attr.r]="radius(n)" />
+              @if (labelled(n)) {
+                <text [attr.x]="n.x" [attr.y]="n.y + radius(n) + 16">{{ short(n.id) }}</text>
+              }
+            </g>
+          }
+        </svg>
+      </ng-template>
     </main>
   `,
   styles: `
@@ -141,12 +160,29 @@ const MAX_OUTER_LABELS = 12;
       color: var(--quiet);
       font-size: 14px;
     }
+    /* A row is a thumb's height on a touch screen (#290). */
+    @media (pointer: coarse) {
+      li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 0;
+      }
+      li a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+      }
+    }
   `,
 })
 export class NeighborhoodMap {
   protected readonly notes = inject(NotesService);
   private readonly links = inject(LinksService);
   private readonly router = inject(Router);
+  /** 900 px and up: the drawing first, every label, as before #290. */
+  protected readonly wide = wideScreen();
+  private readonly frame = viewChild(MapFrame);
   protected readonly id = toSignal(
     inject(ActivatedRoute).paramMap.pipe(map((p) => p.get('id') ?? '')),
     { initialValue: '' },
@@ -159,7 +195,7 @@ export class NeighborhoodMap {
    * never smaller than a full ring's frame, so a small neighborhood is
    * not blown up.
    */
-  protected readonly viewBox = computed(() => {
+  private readonly frameBox = computed(() => {
     const placed = this.placed();
     const xs = placed.map((p) => p.x);
     const ys = placed.map((p) => p.y);
@@ -169,8 +205,13 @@ export class NeighborhoodMap {
     const h = Math.max(Math.max(...ys) + 40 - top, SIZE * 0.6);
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
     const cy = (Math.min(...ys) + Math.max(...ys)) / 2 + 5;
-    return `${cx - w / 2} ${cy - h / 2} ${w} ${h}`;
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
   });
+  protected readonly viewBox = computed(() => {
+    const { x, y, w, h } = this.frameBox();
+    return `${x} ${y} ${w} ${h}`;
+  });
+  protected readonly frameWidth = computed(() => this.frameBox().w);
 
   protected readonly lines = computed(() => {
     const at = new Map(this.placed().map((p) => [p.id, p]));
@@ -203,9 +244,13 @@ export class NeighborhoodMap {
   /**
    * Labels for the center and the inner ring; the outer ring is labelled
    * only while it is sparse enough to read (the list below names all).
+   * On a phone, none until the box's zoom draws them 11 px or more: the
+   * cap stays, since zoom grows the labels and the gaps between them
+   * alike.
    */
   protected labelled(n: { hop: number }): boolean {
-    return n.hop < 2 || this.ring(2).length <= MAX_OUTER_LABELS;
+    const sparse = n.hop < 2 || this.ring(2).length <= MAX_OUTER_LABELS;
+    return sparse && (this.wide() || readable(LABEL, this.frame()?.pxPerUnit() ?? 0));
   }
 
   protected radius(n: { hop: number; id: string }): number {

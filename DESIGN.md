@@ -877,6 +877,22 @@ As on the neighborhood map, the drawing is plain SVG hidden from
 assistive tech, every dot opens its note, and the same notes are listed
 under it (Beds, Over time).
 
+*The maps on a phone (#290, 2026-11-16).* Squeezed to a 412 px screen
+the drawing's labels were a few pixels tall, and the lists came after
+it. Under 900 px the lists now lead (Beds, Over time, Nearby), each
+row a link 44 px tall on a touch screen, and the drawing follows in a
+box no taller than 60% of the screen (560 px at most) that scrolls
+both ways (`map/map-frame.ts`). Zoom in, Zoom out and Fit are buttons
+above it, always there; a pinch zooms too, as do + and - with the box
+focused, and a mouse drags it. The steps are 1, 1.5, 2, 3 and 4 times
+the width that fits the box, unanimated. A label is drawn only when it
+would be at least 11 px tall at the current zoom, worked out from its
+font size in the drawing's units (a bed's name 17, a lane's 20, the
+dates 18, the neighborhood's 14): at Fit on a phone that is usually
+none, and a step in brings them. The outer-ring cap stays, since zoom
+grows labels and the gaps between them alike. Wide screens are as
+before: the drawing first, every label, no box.
+
 **Signed out (Eric, 2026-10-06).** A signed-out visitor sees only a
 sign-in screen, never the editor. To keep launch instant, the device
 remembers that it has been signed in: with that mark set, the editor

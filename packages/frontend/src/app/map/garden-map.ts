@@ -1,5 +1,5 @@
-import { DatePipe } from '@angular/common';
-import { Component, computed, inject } from '@angular/core';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { Component, computed, inject, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
@@ -7,12 +7,17 @@ import { LinksService } from '../links/links.service';
 import { NotesService } from '../notes/notes.service';
 import { bedGrid, beds, lanes, plant } from './garden';
 import { PageHeader } from '../home/page-header';
+import { MapFrame, readable, wideScreen } from './map-frame';
 
 const CELL = 240;
 const SHOWN_PER_BED = 20;
 const LANE_H = 56;
 const LEFT = 170;
 const WIDTH = 760;
+/** The labels' font sizes in viewBox units, as the styles below set them. */
+const BED_LABEL = 17;
+const LANE_LABEL = 20;
+const AXIS_LABEL = 18;
 
 /**
  * The whole garden at /map (#33), two ways: Garden, every concept a bed
@@ -21,16 +26,28 @@ const WIDTH = 760;
  * concept, filterable to one (?concept=<id>). Every dot opens its note;
  * the same notes are listed under the drawing for keyboards and screen
  * readers. Lazy-loaded.
+ *
+ * Under 900 px (#290, 2026-11-16) the lists lead and the drawing comes
+ * after them, in a box that pans and zooms (MapFrame), its labels drawn
+ * only once they would be 11 px or more; wide screens are as before.
  */
 @Component({
   selector: 'app-garden-map',
-  imports: [PageHeader, RouterLink, DatePipe],
+  imports: [PageHeader, RouterLink, DatePipe, NgTemplateOutlet, MapFrame],
   template: `
     <main class="page wide">
       <app-page-header title="Map" />
       <nav aria-label="Layouts">
-        <a routerLink="/map" [attr.aria-current]="layout() === 'garden' ? 'page' : null">Garden</a>
-        <a routerLink="/map/timeline" [attr.aria-current]="layout() === 'timeline' ? 'page' : null"
+        <a
+          class="touch-target"
+          routerLink="/map"
+          [attr.aria-current]="layout() === 'garden' ? 'page' : null"
+          >Garden</a
+        >
+        <a
+          class="touch-target"
+          routerLink="/map/timeline"
+          [attr.aria-current]="layout() === 'timeline' ? 'page' : null"
           >Timeline</a
         >
       </nav>
@@ -40,30 +57,9 @@ const WIDTH = 760;
         @if (garden().length === 0) {
           <p class="muted">The garden is empty. Plant a note on the launch screen.</p>
         } @else {
-          <svg [attr.viewBox]="gardenBox()" aria-hidden="true" class="map">
-            @for (bed of placedBeds(); track bed.id) {
-              <g class="bed">
-                <circle class="plot" [attr.cx]="bed.x" [attr.cy]="bed.y" r="100" />
-                @for (p of bed.plants; track p.id) {
-                  <g class="node" (click)="open(p.id)">
-                    <title>{{ p.title }}</title>
-                    <circle class="hit" [attr.cx]="p.x" [attr.cy]="p.y" r="14" />
-                    <circle [attr.cx]="p.x" [attr.cy]="p.y" r="6" />
-                  </g>
-                }
-                @if (bed.id) {
-                  <g class="node concept" (click)="open(bed.id)">
-                    <title>{{ bed.title }}</title>
-                    <circle class="hit" [attr.cx]="bed.x" [attr.cy]="bed.y" r="22" />
-                    <circle [attr.cx]="bed.x" [attr.cy]="bed.y" r="13" />
-                  </g>
-                }
-                <text class="bed-label" [attr.x]="bed.x" [attr.y]="bed.y + 124">
-                  {{ bed.label }}
-                </text>
-              </g>
-            }
-          </svg>
+          @if (wide()) {
+            <ng-container *ngTemplateOutlet="gardenDrawing" />
+          }
           <section aria-labelledby="beds">
             <h2 id="beds">Beds</h2>
             @for (bed of garden(); track bed.id; let i = $index) {
@@ -84,6 +80,11 @@ const WIDTH = 760;
               </ul>
             }
           </section>
+          @if (!wide()) {
+            <app-map-frame [units]="gardenSize().width">
+              <ng-container *ngTemplateOutlet="gardenDrawing" />
+            </app-map-frame>
+          }
         }
       } @else {
         <label class="filter">
@@ -100,35 +101,9 @@ const WIDTH = 760;
         @if (!hasDots()) {
           <p class="muted">Nothing to show yet.</p>
         } @else {
-          <svg
-            [attr.viewBox]="'0 0 ' + width + ' ' + timelineHeight()"
-            aria-hidden="true"
-            class="map"
-          >
-            @for (lane of placedLanes(); track lane.id) {
-              <line
-                class="lane"
-                [attr.x1]="left"
-                [attr.x2]="width - 20"
-                [attr.y1]="lane.y"
-                [attr.y2]="lane.y"
-              />
-              <text class="lane-label" x="8" [attr.y]="lane.y + 5">{{ lane.label }}</text>
-              @for (d of lane.dots; track d.id) {
-                <g class="node" (click)="open(d.id)">
-                  <title>{{ d.title }}</title>
-                  <circle class="hit" [attr.cx]="d.x" [attr.cy]="lane.y" r="12" />
-                  <circle [attr.cx]="d.x" [attr.cy]="lane.y" r="6" />
-                </g>
-              }
-            }
-            <text class="axis" [attr.x]="left" [attr.y]="timelineHeight() - 6">
-              {{ span().from | date: 'mediumDate' }}
-            </text>
-            <text class="axis end" [attr.x]="width - 20" [attr.y]="timelineHeight() - 6">
-              {{ span().to | date: 'mediumDate' }}
-            </text>
-          </svg>
+          @if (wide()) {
+            <ng-container *ngTemplateOutlet="timelineDrawing" />
+          }
           <section aria-labelledby="lanes">
             <h2 id="lanes">Over time</h2>
             @for (lane of timeline(); track lane.id; let i = $index) {
@@ -143,8 +118,80 @@ const WIDTH = 760;
               </ul>
             }
           </section>
+          @if (!wide()) {
+            <app-map-frame [units]="width">
+              <ng-container *ngTemplateOutlet="timelineDrawing" />
+            </app-map-frame>
+          }
         }
       }
+      <ng-template #gardenDrawing>
+        <svg
+          [attr.viewBox]="'0 0 ' + gardenSize().width + ' ' + gardenSize().height"
+          aria-hidden="true"
+          class="map"
+        >
+          @for (bed of placedBeds(); track bed.id) {
+            <g class="bed">
+              <circle class="plot" [attr.cx]="bed.x" [attr.cy]="bed.y" r="100" />
+              @for (p of bed.plants; track p.id) {
+                <g class="node" (click)="open(p.id)">
+                  <title>{{ p.title }}</title>
+                  <circle class="hit" [attr.cx]="p.x" [attr.cy]="p.y" r="14" />
+                  <circle [attr.cx]="p.x" [attr.cy]="p.y" r="6" />
+                </g>
+              }
+              @if (bed.id) {
+                <g class="node concept" (click)="open(bed.id)">
+                  <title>{{ bed.title }}</title>
+                  <circle class="hit" [attr.cx]="bed.x" [attr.cy]="bed.y" r="22" />
+                  <circle [attr.cx]="bed.x" [attr.cy]="bed.y" r="13" />
+                </g>
+              }
+              @if (shows(BED_LABEL)) {
+                <text class="bed-label" [attr.x]="bed.x" [attr.y]="bed.y + 124">
+                  {{ bed.label }}
+                </text>
+              }
+            </g>
+          }
+        </svg>
+      </ng-template>
+      <ng-template #timelineDrawing>
+        <svg
+          [attr.viewBox]="'0 0 ' + width + ' ' + timelineHeight()"
+          aria-hidden="true"
+          class="map"
+        >
+          @for (lane of placedLanes(); track lane.id) {
+            <line
+              class="lane"
+              [attr.x1]="left"
+              [attr.x2]="width - 20"
+              [attr.y1]="lane.y"
+              [attr.y2]="lane.y"
+            />
+            @if (shows(LANE_LABEL)) {
+              <text class="lane-label" x="8" [attr.y]="lane.y + 5">{{ lane.label }}</text>
+            }
+            @for (d of lane.dots; track d.id) {
+              <g class="node" (click)="open(d.id)">
+                <title>{{ d.title }}</title>
+                <circle class="hit" [attr.cx]="d.x" [attr.cy]="lane.y" r="12" />
+                <circle [attr.cx]="d.x" [attr.cy]="lane.y" r="6" />
+              </g>
+            }
+          }
+          @if (shows(AXIS_LABEL)) {
+            <text class="axis" [attr.x]="left" [attr.y]="timelineHeight() - 6">
+              {{ span().from | date: 'mediumDate' }}
+            </text>
+            <text class="axis end" [attr.x]="width - 20" [attr.y]="timelineHeight() - 6">
+              {{ span().to | date: 'mediumDate' }}
+            </text>
+          }
+        </svg>
+      </ng-template>
     </main>
   `,
   styles: `
@@ -246,6 +293,24 @@ const WIDTH = 760;
       font-size: 14px;
       margin-left: var(--space-2);
     }
+    /* A row is a thumb's height on a touch screen (#290). */
+    @media (pointer: coarse) {
+      li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 0;
+      }
+      li a,
+      h3 a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+      }
+      h3 {
+        margin-top: var(--space-2);
+      }
+    }
   `,
 })
 export class GardenMap {
@@ -255,6 +320,12 @@ export class GardenMap {
   private readonly route = inject(ActivatedRoute);
   protected readonly width = WIDTH;
   protected readonly left = LEFT;
+  protected readonly BED_LABEL = BED_LABEL;
+  protected readonly LANE_LABEL = LANE_LABEL;
+  protected readonly AXIS_LABEL = AXIS_LABEL;
+  /** 900 px and up: the drawing first, every label, as before #290. */
+  protected readonly wide = wideScreen();
+  private readonly frame = viewChild(MapFrame);
 
   protected readonly layout = toSignal(
     this.route.data.pipe(map((d) => (d['layout'] === 'timeline' ? 'timeline' : 'garden'))),
@@ -289,12 +360,20 @@ export class GardenMap {
     });
   });
 
-  protected readonly gardenBox = computed(() => {
+  protected readonly gardenSize = computed(() => {
     const grid = bedGrid(this.garden().length, CELL);
     const cols = grid[0]?.cols ?? 1;
     const rows = Math.ceil(this.garden().length / cols);
-    return `0 0 ${cols * CELL} ${rows * CELL + 12}`;
+    return { width: cols * CELL, height: rows * CELL + 12 };
   });
+
+  /**
+   * Whether labels `size` units tall are drawn: always on a wide
+   * screen; on a phone once the box's zoom makes them 11 px or more.
+   */
+  protected shows(size: number): boolean {
+    return this.wide() || readable(size, this.frame()?.pxPerUnit() ?? 0);
+  }
 
   /** The filter, when it names a concept that exists; otherwise none. */
   protected readonly only = computed(() => {
