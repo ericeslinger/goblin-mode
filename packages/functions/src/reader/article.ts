@@ -14,7 +14,8 @@
 // nests (measured 2026-11-16: 1,000 nested divs took 2 seconds, 2,000
 // took 15), and its own element limit never fires on linkedom, which
 // answers getElementsByTagName('*') with nothing, so the page is
-// measured here first, in one pass over its tags.
+// measured here first: a bound from its tags before the parse, then the
+// parsed tree itself (withinLimits).
 //
 // Then a clean-up pass inside the chosen block (cleanArticle) drops what
 // Readability leaves in: share buttons, bylines, tag lists, newsletter
@@ -24,6 +25,7 @@
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { decode, visibleHtml } from '../attachments/import';
+import { escapeStrayLt } from '../attachments/tag-scan';
 import {
   type Edit,
   type El,
@@ -31,7 +33,7 @@ import {
   attr,
   descendants,
   innerHtml,
-  measure,
+  elementBound,
   outerHtml,
   parseTree,
   textOf,
@@ -43,7 +45,15 @@ import { codeButtonsAsSpans, htmlToMarkdown } from './markdown';
 export const READER_MAX = 100_000;
 
 /** Past any of these Readability is not tried (see the top of the file). */
-export const READABILITY_LIMITS = { elements: 25_000, depth: 200, chars: 4 * 1024 * 1024 };
+export const READABILITY_LIMITS = { elements: 25_000, depth: 200, chars: 1024 * 1024 };
+
+/**
+ * The most of a page reader mode reads at all, after hidden elements
+ * go: real articles' pages came to 250,000 characters and 2,300 tags at
+ * the most (2026-11-16), and past these the hand-written reading too
+ * slows, so the rest of a page so large is not read.
+ */
+export const READ_LIMITS = { elements: 50_000, chars: 2 * 1024 * 1024 };
 
 /** Readability's block stands when it keeps this share of the marked body. */
 const KEEPS_ENOUGH = 0.6;
@@ -204,15 +214,33 @@ const TEXT_BLOCKS = new Set([
   'dd',
 ]);
 
-function namedFraming(el: El): boolean {
-  if (PHRASING.has(el.name)) return false;
-  if (FRAMING_ELEMENTS.has(el.name)) return true;
-  if (FRAMING_ROLES.has(attr(el.tag, 'role').toLowerCase())) return true;
-  return namesOf(el.tag).some((w) => FRAMING.has(w));
+/** Names that could as well be on a block of the article's own notes. */
+const LOOSE_NAMES = new Set(['footer', 'notes']);
+/** Names of a part that is all words and still never the article. */
+const COMMENT_NAMES = new Set(['comment', 'comments', 'disqus']);
+
+/**
+ * How an element is named as framing, if it is: 'comments' goes unless
+ * it holds the article's matter; 'part' (share, related, newsletter and
+ * the like) also stays when it reads as text, two or more items of
+ * prose; 'loose' (a footer) stays when it holds any prose at all.
+ */
+function namedFraming(el: El): 'comments' | 'part' | 'loose' | undefined {
+  if (PHRASING.has(el.name)) return undefined;
+  if (el.name === 'footer') return 'loose';
+  if (FRAMING_ELEMENTS.has(el.name)) return 'part';
+  if (FRAMING_ROLES.has(attr(el.tag, 'role').toLowerCase())) return 'part';
+  const names = namesOf(el.tag).filter((w) => FRAMING.has(w));
+  if (!names.length) return undefined;
+  if (names.some((w) => COMMENT_NAMES.has(w))) return 'comments';
+  return names.every((w) => LOOSE_NAMES.has(w)) ? 'loose' : 'part';
 }
 
-function insideText(el: El): boolean {
-  for (let p = el.parent; p; p = p.parent) if (TEXT_BLOCKS.has(p.name)) return true;
+/** Whether an element named as framing is kept all the same for its words. */
+function keptForItsWords(kind: 'comments' | 'part' | 'loose', f: Facts): boolean {
+  if (f.matter) return true;
+  if (kind === 'part') return f.prose >= 2;
+  if (kind === 'loose') return f.prose >= 1;
   return false;
 }
 
@@ -231,9 +259,13 @@ interface Facts {
   linked: number;
   /** Whether it holds a long paragraph, code, a quote or a table. */
   matter: boolean;
+  /** How many paragraphs or list items of prose it holds: words, few of them links. */
+  prose: number;
 }
 
 const MIN_PARAGRAPH = 60;
+/** The fewest characters a paragraph or item of prose holds. */
+const PROSE_MIN = 20;
 const LONG_PARAGRAPH = 120;
 const UNREAD = new Set(['script', 'style', 'template', 'title', 'textarea']);
 
@@ -252,12 +284,13 @@ function readTree(html: string, root: El): Map<El, Facts> {
   for (let i = all.length - 1; i >= 0; i--) {
     const el = all[i];
     if (UNREAD.has(el.name)) {
-      facts.set(el, { text: 0, linked: 0, matter: false });
+      facts.set(el, { text: 0, linked: 0, matter: false, prose: 0 });
       continue;
     }
     let text = 0;
     let linked = 0;
     let matter = el.name === 'pre' || el.name === 'blockquote' || el.name === 'table';
+    let prose = 0;
     let at = el.innerStart;
     for (const child of el.children) {
       text += wordsIn(html.slice(at, child.start));
@@ -265,12 +298,16 @@ function readTree(html: string, root: El): Map<El, Facts> {
       text += f.text;
       linked += f.linked;
       matter ||= f.matter;
+      prose += f.prose;
       at = child.end;
     }
     text += wordsIn(html.slice(at, el.innerEnd));
     if (el.name === 'a') linked = text;
-    const f = { text, linked, matter };
+    const f = { text, linked, matter, prose };
     if (el.name === 'p' && isParagraph(f, LONG_PARAGRAPH)) f.matter = true;
+    if ((el.name === 'p' || el.name === 'li') && text >= PROSE_MIN && linked / text < 0.3) {
+      f.prose++;
+    }
     facts.set(el, f);
   }
   return facts;
@@ -406,6 +443,7 @@ function framingByShape(
   facts: Map<El, Facts>,
   base: string,
   byline?: string,
+  prompts: ReadonlySet<string> = new Set(),
 ): boolean {
   if (el.name === 'figure' || el.name === 'figcaption' || el.name === 'img') return false;
   const f = facts.get(el)!;
@@ -418,21 +456,113 @@ function framingByShape(
   const links = el.name === 'a' ? [el] : inner.filter((d) => d.name === 'a');
   if (f.text <= 300) {
     const text = textOf(outerHtml(html, el));
-    // A byline: an author's link, an avatar, or the byline Readability read.
+    // A byline, on evidence, never on wording alone ("By the time I
+    // arrived" opens a story): an author's link, an avatar, or the
+    // byline Readability read and little else.
     if (text.length <= 200) {
       if (links.some(authorLink) || avatar) return true;
-      if (/^by\s+\S/i.test(text) && text.length <= 120) return true;
-      const by = byline?.replace(/\s+/g, ' ').trim();
-      if (by && by.length >= 3 && text.includes(by) && text.length <= by.length + 80) return true;
-      if (links.length && NEXT_PREVIOUS.test(text)) return true;
+      if (justTheByline(text, el, byline)) return true;
+      if (
+        links.some((a) => NEXT_PREVIOUS.test(textOf(outerHtml(html, a)))) &&
+        f.linked * 2 >= f.text
+      ) {
+        return true;
+      }
     }
-    if (NEWSLETTER.test(text)) return true;
+    if (prompts.has(text) || isPrompt(html, el, text)) return true;
   }
   // Mostly links to the site's own pages: tags, sections, other stories.
   if (links.length && f.text && f.linked / f.text >= 0.7) {
     const site = siteOf(base, base);
     const own = links.filter((a) => siteOf(attr(a.tag, 'href'), base) === site);
     if (own.length * 2 >= links.length) return true;
+  }
+  return false;
+}
+
+const DATE =
+  /^(?:(?:published|updated|posted)\s*(?:on\s*)?)?(?:[a-z]{3,9}\.? \d{1,2},? \d{4}|\d{1,2} [a-z]{3,9},? \d{4}|\d{4}-\d{2}-\d{2})\b/i;
+
+/**
+ * Whether an element's words are the byline Readability read and little
+ * else: "By" and the name, then perhaps a date (a `<time>`, or one
+ * written out) and the words around it.
+ */
+function justTheByline(text: string, el: El, byline?: string): boolean {
+  const by = byline
+    ?.replace(/^by\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!by || by.length < 3) return false;
+  const rest = text.replace(/^by\s+/i, '');
+  if (!rest.startsWith(by)) return false;
+  const after = rest
+    .slice(by.length)
+    .replace(/^[\s,|·•–-]+/, '')
+    .trim();
+  if (!after) return true;
+  const dated = DATE.test(after) || descendants(el).some((d) => d.name === 'time');
+  return dated && after.length <= 80;
+}
+
+/** Past this much markup a block is no prompt's box. */
+const PROMPT_MAX = 5_000;
+
+/** The words of the prompts to subscribe or follow in `html`, told by their means. */
+export function promptsOf(html: string, tree = parseTree(html)): Set<string> {
+  const prompts = new Set<string>();
+  for (const el of descendants(tree)) {
+    if (PHRASING.has(el.name) || el.end - el.start > PROMPT_MAX) continue;
+    const text = textOf(outerHtml(html, el));
+    if (isPrompt(html, el, text)) prompts.add(text);
+  }
+  return prompts;
+}
+
+/** Words a call to sign up says, on a link or a button. */
+const SIGN_UP = /\b(?:subscribe|sign(?:ing)?[ -]?up|join|follow|get (?:the|our) newsletter)\b/i;
+const SIGN_UP_ADDRESS = /subscri|sign-?up|newsletter|\/join\b|\/follow\b/i;
+const PROMPT_NAMES = new Set([
+  'newsletter',
+  'newsletters',
+  'subscribe',
+  'signup',
+  'subscription',
+  'cta',
+]);
+const CONTROLS = new Set(['form', 'input', 'button', 'select', 'textarea']);
+
+/**
+ * Whether a short block is a prompt to subscribe or follow: its words
+ * say so, and it carries the means (a form, a field, a button, a link
+ * whose words or address are the sign-up), there or in the block around
+ * it, or it sits in a block named as one. Prose about a newsletter is
+ * not a prompt on its words alone.
+ */
+function isPrompt(html: string, el: El, text: string): boolean {
+  if (text.length > 300 || !NEWSLETTER.test(text) || el.end - el.start > PROMPT_MAX) return false;
+  // The block around it counts only when it is small: the prompt's
+  // own box, not the article that holds it.
+  const near = [el];
+  const parent = el.parent;
+  if (
+    parent &&
+    parent.name !== '#root' &&
+    parent.end - parent.start <= PROMPT_MAX &&
+    textOf(outerHtml(html, parent)).length <= 600
+  ) {
+    near.push(parent);
+  }
+  for (const block of near) {
+    for (const d of [block, ...descendants(block)]) {
+      if (CONTROLS.has(d.name) || attr(d.tag, 'role').toLowerCase() === 'button') return true;
+      if (d.name !== 'a') continue;
+      if (SIGN_UP_ADDRESS.test(attr(d.tag, 'href'))) return true;
+      if (SIGN_UP.test(textOf(outerHtml(html, d)))) return true;
+    }
+  }
+  for (let p: El | undefined = el, up = 0; p && up < 4; p = p.parent, up++) {
+    if (namesOf(p.tag).some((w) => PROMPT_NAMES.has(w))) return true;
   }
   return false;
 }
@@ -456,13 +586,17 @@ function paragraphsOf(
   tree: El,
   facts: Map<El, Facts>,
   byline?: string,
+  prompts: ReadonlySet<string> = new Set(),
 ): { paragraphs: El[]; framing: El[] } {
   const paragraphs = descendants(tree).filter(
     (el) => el.name === 'p' && isParagraph(facts.get(el)),
   );
   const framing: El[] = [];
-  const prompt = (el: El) =>
-    facts.get(el)!.text <= 300 && NEWSLETTER.test(textOf(outerHtml(html, el)));
+  const prompt = (el: El) => {
+    if (facts.get(el)!.text > 300) return false;
+    const text = textOf(outerHtml(html, el));
+    return prompts.has(text) || isPrompt(html, el, text);
+  };
   while (paragraphs.length > 1) {
     const [first, next] = paragraphs;
     const own = !!first.parent && next.start >= first.parent.end;
@@ -488,7 +622,12 @@ const dropped = (el: El): Edit => ({ start: el.start, end: el.end, text: ' ' });
  * avatars go. Conservative: losing a paragraph is worse than keeping a
  * stray line.
  */
-export function cleanArticle(html: string, base: string, byline?: string): string {
+export function cleanArticle(
+  html: string,
+  base: string,
+  byline?: string,
+  pagePrompts: Iterable<string> = [],
+): string {
   // Named parts and share links first, so the shapes below are read on
   // what is left.
   const tree0 = parseTree(html);
@@ -497,31 +636,37 @@ export function cleanArticle(html: string, base: string, byline?: string): strin
   const stack: [El, boolean][] = tree0.children.map((c) => [c, false]);
   while (stack.length) {
     const [el, inText] = stack.pop()!;
-    const byName = !inText && namedFraming(el) && !facts0.get(el)!.matter;
+    const kind = inText ? undefined : namedFraming(el);
+    const byName = !!kind && !keptForItsWords(kind, facts0.get(el)!);
     if (byName || sharesThePage(el)) named.push(dropped(el));
     else {
       const text = inText || TEXT_BLOCKS.has(el.name);
       for (const child of el.children) stack.push([child, text]);
     }
   }
+  // The prompts are told by their buttons and forms, which the named
+  // parts take with them, and Readability before: found on the page
+  // (`pagePrompts`) and here, before those go.
+  const prompts = promptsOf(html, tree0);
+  for (const text of pagePrompts) prompts.add(text);
   const html1 = applyEdits(html, named);
   // Then the paragraphs that frame it: an author's note, a prompt.
   const tree1 = parseTree(html1);
   const once = applyEdits(
     html1,
-    paragraphsOf(html1, tree1, readTree(html1, tree1), byline).framing.map(dropped),
+    paragraphsOf(html1, tree1, readTree(html1, tree1), byline, prompts).framing.map(dropped),
   );
   const tree = parseTree(once);
   const facts = readTree(once, tree);
   const edits: Edit[] = [];
-  const { paragraphs } = paragraphsOf(once, tree, facts, byline);
+  const { paragraphs } = paragraphsOf(once, tree, facts, byline, prompts);
   const first = paragraphs[0];
   const last = paragraphs[paragraphs.length - 1];
   // With no paragraph at all (a front page) there is no before or after.
   if (first && last) {
     walk(tree, (el) => {
       const outside = el.end <= first.start || el.start >= last.end;
-      if (outside && framingByShape(once, el, facts, base, byline)) {
+      if (outside && framingByShape(once, el, facts, base, byline, prompts)) {
         edits.push(dropped(el));
         return false;
       }
@@ -552,6 +697,7 @@ function holdsMore(el: El, facts: Map<El, Facts>): boolean {
 }
 
 const STOPS = new Set(['#root', 'html', 'body', 'main', 'article']);
+const MAX_AVATARS = 20;
 
 /**
  * The visible page made ready for Readability: a code highlighter's
@@ -566,19 +712,29 @@ function prepare(visible: string): string {
   const tree = parseTree(html);
   const facts = readTree(html, tree);
   const edits: Edit[] = [];
-  for (const el of descendants(tree)) {
+  // One walk, knowing whether it is inside running text; a page has an
+  // author or two, so past a few avatars the rest are left as they are.
+  let avatars = 0;
+  const stack: [El, boolean][] = tree.children.map((c) => [c, false]);
+  while (stack.length) {
+    const [el, inText] = stack.pop()!;
     if (el.name === 'pre') edits.push({ start: el.start, end: el.innerStart, text: '<pre>' });
     const avatar =
       el.name === 'img' ? isAvatar(el.tag) : wordsOf(attr(el.tag, 'class')).includes('avatar');
-    if (!avatar || insideText(el)) continue;
-    let cut = el;
-    for (let up = 0; up < 6; up++) {
-      const parent = cut.parent;
-      if (!parent || STOPS.has(parent.name) || facts.get(parent)!.text > 80) break;
-      if (parent.end - parent.start > SHAPE_MAX || holdsMore(parent, facts)) break;
-      cut = parent;
+    if (avatar && !inText && avatars < MAX_AVATARS) {
+      avatars++;
+      let cut = el;
+      for (let up = 0; up < 6; up++) {
+        const parent = cut.parent;
+        if (!parent || STOPS.has(parent.name) || facts.get(parent)!.text > 80) break;
+        if (parent.end - parent.start > SHAPE_MAX || holdsMore(parent, facts)) break;
+        cut = parent;
+      }
+      edits.push(dropped(cut));
+      continue;
     }
-    edits.push(dropped(cut));
+    const text = inText || TEXT_BLOCKS.has(el.name);
+    for (const child of el.children) stack.push([child, text]);
   }
   return applyEdits(html, edits);
 }
@@ -771,9 +927,42 @@ function proseOf(html: string): number {
   return n;
 }
 
+interface Walked {
+  firstElementChild: Walked | null;
+  nextElementSibling: Walked | null;
+  parentElement: Walked | null;
+}
+
+/**
+ * Whether the parsed document is within Readability's limits, read off
+ * the document itself (review, 2026-11-16): a count of the page's tags
+ * disagrees with the parser (`<div/>` is a real open element in HTML, as
+ * are tags left open, and a parser nests what it implies), and it is
+ * the parser's tree Readability is slow on. A loop, stopping once past.
+ */
+function withinLimits(root: Walked | null): boolean {
+  let elements = 0;
+  let depth = 0;
+  for (let el = root; el;) {
+    if (++elements > READABILITY_LIMITS.elements || depth > READABILITY_LIMITS.depth) return false;
+    if (el.firstElementChild) {
+      el = el.firstElementChild;
+      depth++;
+      continue;
+    }
+    while (el && el !== root && !el.nextElementSibling) {
+      el = el.parentElement;
+      depth--;
+    }
+    el = el && el !== root ? el.nextElementSibling : null;
+  }
+  return true;
+}
+
 function readability(prepared: string): { html: string; byline?: string } | undefined {
   try {
     const { document } = parseHTML(prepared);
+    if (!withinLimits(document.documentElement as unknown as Walked)) return undefined;
     const article = new Readability(document as unknown as Document, {
       charThreshold: 300,
       keepClasses: true,
@@ -792,23 +981,42 @@ function readability(prepared: string): { html: string; byline?: string } | unde
  * Readability's block when it keeps most of the page's marked body, else
  * the marked body by hand; the lead image put back when left out.
  */
-export function extractArticle(html: string): { html: string; byline?: string } {
+export function extractArticle(html: string): {
+  html: string;
+  byline?: string;
+  prompts?: string[];
+} {
   // Hidden elements first, before anything reads the page (CLAUDE.md:
-  // hidden page text is dropped before anything reads it).
-  const prepared = prepare(visibleHtml(html));
-  const marked = markedBody(prepared);
-  const size = measure(prepared);
+  // hidden page text is dropped before anything reads it); then every
+  // `<` that starts no tag made a word, so no pattern below can run
+  // across the page from it.
+  const whole = escapeStrayLt(visibleHtml(html));
+  // Sized before anything else reads it: past READ_LIMITS the rest is
+  // cut. The parse grows faster than the page past Readability's limits
+  // (100,000 nested divs took 8 seconds), so a page that could make more
+  // elements than it takes is not parsed at all; the parsed tree is
+  // then checked exactly (withinLimits).
+  const bound = elementBound(whole, READ_LIMITS.elements);
+  const cut = Math.min(bound.at, READ_LIMITS.chars);
+  // A tag the cut ends in half starts nothing any more: made words too.
+  const visible = cut < whole.length ? escapeStrayLt(whole.slice(0, cut)) : whole;
   const small =
-    prepared.length <= READABILITY_LIMITS.chars &&
-    size.elements <= READABILITY_LIMITS.elements &&
-    size.depth <= READABILITY_LIMITS.depth;
+    visible.length <= READABILITY_LIMITS.chars && bound.count <= READABILITY_LIMITS.elements;
+  const prepared = small ? prepare(visible) : codeButtonsAsSpans(visible);
+  const marked = markedBody(prepared);
   const read = small ? readability(prepared) : undefined;
   const chosen =
     read && (!marked.marked || proseOf(read.html) >= proseOf(marked.html) * KEEPS_ENOUGH)
       ? read
       : { html: marked.html };
   const lead = leadImage(prepared, chosen.html, chosen.byline);
-  return lead ? { ...chosen, html: `<div>${lead}</div>${chosen.html}` } : chosen;
+  // The page's prompts to subscribe, read while their forms are there.
+  const prompts = small ? [...promptsOf(prepared)] : [];
+  return {
+    ...chosen,
+    ...(lead ? { html: `<div>${lead}</div>${chosen.html}` } : {}),
+    ...(prompts.length ? { prompts } : {}),
+  };
 }
 
 /** A heading or a title as plain words, for comparing the two. */
@@ -825,34 +1033,41 @@ const plainWords = (s: string) =>
 
 /** Repeats count only for blocks this long: a short line can recur on purpose. */
 const REPEAT_MIN = 40;
+/** How many blocks open an article, for repeats. */
+const OPENING = 3;
 
 /**
  * The reader's markdown tidied: a first heading that is the item's own
  * title goes (the app shows the title above), a paragraph of 40 or more
- * characters or an image printed again exactly goes (a dek twice, a lead
- * image twice, a page's controls above and below), and a heading left
- * with nothing under it goes. Short lines, lists, quotes and code are
- * never deduplicated.
+ * characters or an image printed again exactly goes when it is right
+ * after itself or repeats the first blocks near the top (a dek twice, a
+ * lead image twice), and a heading left with nothing under it goes.
+ * Short lines, lists, quotes and code are never deduplicated.
  */
 export function tidyMarkdown(md: string, title?: string): string {
-  // Blocks, a code fence kept whole.
+  // Blocks, a code fence kept whole: it opens with three or more
+  // backticks and closes only with as many.
   const blocks: string[] = [];
-  let fence: string[] | undefined;
+  let open: string[] | undefined;
+  let fence = 0;
   for (const part of md.split(/\n{2,}/)) {
-    if (fence) {
-      fence.push(part);
-      if (/(?:^|\n)```\s*$/.test(part)) {
-        blocks.push(fence.join('\n\n'));
-        fence = undefined;
-      }
-    } else if ((part.match(/^```/gm) ?? []).length % 2) fence = [part];
+    for (const line of part.split('\n')) {
+      const run = /^`{3,}/.exec(line)?.[0].length ?? 0;
+      if (!fence) fence = run;
+      else if (run >= fence && /^`+\s*$/.test(line)) fence = 0;
+    }
+    if (open) open.push(part);
+    else if (fence) open = [part];
     else blocks.push(part);
+    if (open && !fence) {
+      blocks.push(open.join('\n\n'));
+      open = undefined;
+    }
   }
-  if (fence) blocks.push(fence.join('\n\n'));
+  if (open) blocks.push(open.join('\n\n'));
   const isHeading = (b: string) => /^#{1,6} /.test(b) && !b.includes('\n');
   const isImage = (b: string) => /^\[?!\[/.test(b) && !b.includes('\n');
-  const isProse = (b: string) => !/^(?:#{1,6} |> |- |\d+\. |```|---$)/.test(b);
-  const seen = new Set<string>();
+  const isProse = (b: string) => !/^(?:#{1,6} |> |- |\d+\. |`{3,}|---$)/.test(b);
   let titled = !title?.trim();
   const kept: string[] = [];
   for (const block of blocks) {
@@ -862,8 +1077,15 @@ export function tidyMarkdown(md: string, title?: string): string {
     }
     // A line of one image printed twice ("![a](u) ![a](u)") is the image once.
     const b = isImage(block) ? [...new Set(block.split(/ (?=\[?!\[)/))].join(' ') : block;
-    if ((isImage(b) || (isProse(b) && b.length >= REPEAT_MIN)) && seen.has(b)) continue;
-    seen.add(b);
+    // A repeat goes only beside its original, or when the article's
+    // first blocks repeat near the top (a dek or a lead image printed
+    // twice); a refrain later in an essay, or an image shown again, is
+    // the writer's (review, 2026-11-16).
+    const repeatable = isImage(b) || (isProse(b) && b.length >= REPEAT_MIN);
+    const again =
+      kept[kept.length - 1] === b ||
+      (kept.length < OPENING * 2 && kept.slice(0, OPENING).includes(b));
+    if (repeatable && again) continue;
     kept.push(b);
   }
   // A heading with nothing under it before the next of its rank or higher.
@@ -881,7 +1103,11 @@ export function tidyMarkdown(md: string, title?: string): string {
 export function readerMarkdown(html: string, url: string, title?: string): string {
   const article = extractArticle(html);
   return tidyMarkdown(
-    htmlToMarkdown(cleanArticle(article.html, url, article.byline), url, READER_MAX),
+    htmlToMarkdown(
+      cleanArticle(article.html, url, article.byline, article.prompts),
+      url,
+      READER_MAX,
+    ),
     title,
   );
 }

@@ -2671,22 +2671,42 @@ words beside it. The hand-written reading stays as the fallback
 that finds nested elements whole, the most specific marked body
 first): used when Readability finds nothing or throws, keeps under
 60% of the marked body's paragraphs, or the page is over 25,000
-elements, nests deeper than 200, or is over 4M characters, since
+elements, nests deeper than 200, or is over 1M characters, since
 Readability's time grows faster than the square of the nesting
 (1,000 nested divs took 2 seconds, 2,000 took 15) and its own element
-limit never fires on linkedom. When the chosen block left out the
+limit never fires on linkedom. The limits are read off the parsed
+document itself, walked in a loop, not off a count of tags (review,
+2026-11-16: `<div/>` is a real open element in HTML, so a page of
+them nested 3,000 deep while the count said 3); a page whose tags
+could make more than 25,000 elements is not parsed at all, the parse
+itself growing faster than the page. Past 50,000 tags or 2M
+characters of visible HTML the rest of a page is not read; real
+articles' pages came to 250,000 characters and 2,300 tags at most.
+Tags are found by a scanner (`attachments/tag-scan.ts`) that reads
+exactly what the old pattern did in one pass; the pattern looked
+ahead to the end of the page from every `<` left open, so a hostile
+page took time in the square of its length (`visibleHtml` uses it
+too, unchanged in what it returns). When the chosen block left out the
 lead image the page's og:image names, and it sits above the first
 paragraph (a featured image, a comic's panels), it is put back in
 front, with its caption or its link. Then `cleanArticle` works inside
 the block: parts whose class, id, role or label say share, byline,
 author, comments, related, newsletter, ad, tags, pagination, footer
 and the like go, never one holding a long paragraph, code, a quote
-or a table; share links go by address (sharers, intents, Reddit's
+or a table, nor one that reads as text (two or more paragraphs or
+items of prose; one, for a name as loose as footer or notes); share
+links go by address (sharers, intents, Reddit's
 submit, Cloudflare's email protection, `#comments`), while a link to
 a post or a thread stays; before the first paragraph or after the
 last only, a byline, an author's note, a block mostly of the site's
 own links, a newsletter or follow prompt and a next or previous link
-go; images get one good source (lazy sources, the widest of a srcset
+go, each on evidence, never on wording alone (review, 2026-11-16: an
+essay about newsletters lost its first and last paragraphs, and "By
+the time I arrived" was read as a byline): a byline by an author's
+link, an avatar, or words that are Readability's byline and a date;
+a prompt by its form, field, button or sign-up link, read on the page
+before Readability and the clean-up take those away, or a block named
+as one; images get one good source (lazy sources, the widest of a srcset
 up to 1600 pixels) and pixels, placeholders and avatars go, an emoji
 image its character. The markdown converter, shared with every
 feed's content, now drops a link with no words instead of printing
@@ -2695,9 +2715,14 @@ words inside highlighter buttons, writes no space between a mark and
 the punctuation after it, and drops a list item left empty; `decode`
 reads the common named entities. Last, `tidyMarkdown` drops a first
 heading that is the item's own title, a paragraph of 40 or more
-characters or an image printed again exactly, and a heading left with
-nothing under it; short lines, lists, quotes and code are never
-deduplicated. Still wrong: tables come out as their words; embedded
+characters or an image printed again exactly right after itself, or
+repeating the first blocks near the top (a dek or lead image twice; a
+refrain later in an essay stays, review 2026-11-16), and a heading
+left with nothing under it; short lines, lists, quotes and code are
+never deduplicated. A code block's fence is longer than any run of
+backticks in its code, so a line of them cannot end it and let the
+page's text after it be read as markdown (the notes grammar reads a
+fence of four or more, closed only by one as long). Still wrong: tables come out as their words; embedded
 players are lost; the comic's panels are found by the page's
 structure (its og:image), not by knowing comics; text hidden only by
 a stylesheet class still gets through, as before. **File in

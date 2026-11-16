@@ -5,6 +5,7 @@
 import { BlockList, isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
 import { MAX_TEXT, TEXT_METADATA } from './process';
+import { tagsOf } from './tag-scan';
 
 /** The most a page or PDF may weigh, as for uploads. */
 export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
@@ -197,29 +198,35 @@ export function visibleHtml(source: string): string {
   const html = source
     .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
     .replace(/<(script|style|template|textarea|title)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, ' ');
-  // A tag, a `>` inside a quoted attribute value not ending it.
-  const TAG = /<(\/?)([a-z][a-z0-9-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/gi;
   let out = '';
   let from = 0;
   // The open elements inside the hidden one, the hidden one first. A
   // close pops to its own name, closing what was left open inside it
-  // (an unclosed <p> or <li>), as a browser does.
-  let open: string[] = [];
-  for (const m of html.matchAll(TAG)) {
-    const [whole, close, rawName, , selfClose] = m;
-    const name = rawName.toLowerCase();
-    if (VOID.has(name) || selfClose) continue;
+  // (an unclosed <p> or <li>), as a browser does. How many of each name
+  // are open is kept beside, so a stray close is no search.
+  const open: string[] = [];
+  const counts = new Map<string, number>();
+  // A tag, a `>` inside a quoted attribute value not ending it: found
+  // in one pass, however many `<` never close (tag-scan.ts).
+  for (const t of tagsOf(html)) {
+    const name = t.name.toLowerCase();
+    if (VOID.has(name) || t.selfClose) continue;
     if (!open.length) {
-      if (!close && hides(whole)) {
-        out += html.slice(from, m.index) + ' ';
-        open = [name];
+      if (!t.close && hides(html.slice(t.start, t.end))) {
+        out += html.slice(from, t.start) + ' ';
+        open.push(name);
+        counts.set(name, 1);
       }
       continue;
     }
-    if (!close) open.push(name);
-    else if (open.includes(name)) {
-      open = open.slice(0, open.lastIndexOf(name));
-      if (!open.length) from = m.index + whole.length;
+    if (!t.close) {
+      open.push(name);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    } else if (counts.get(name)) {
+      const at = open.lastIndexOf(name);
+      for (let i = at; i < open.length; i++) counts.set(open[i], counts.get(open[i])! - 1);
+      open.length = at;
+      if (!open.length) from = t.end;
     }
   }
   return open.length ? out : out + html.slice(from);

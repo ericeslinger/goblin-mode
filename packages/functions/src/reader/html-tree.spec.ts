@@ -4,7 +4,7 @@ import {
   attr,
   descendants,
   innerHtml,
-  measure,
+  elementBound,
   outerHtml,
   parseTree,
   textOf,
@@ -39,10 +39,11 @@ describe('html-tree (2026-11-16)', () => {
     expect(descendants(tree)).toHaveLength(7);
   });
 
-  it('measures elements and depth in one pass, and walks a deep page without recursion', () => {
-    expect(measure('<div><p>a<p>b</div><img><br>')).toEqual({ elements: 5, depth: 2 });
+  it('bounds the elements a page can make, a self-closing tag counted, and walks a deep page', () => {
+    expect(elementBound('<div><p>a<p>b</div><img><br>').count).toBe(5);
+    expect(elementBound('<div/><div/> a < b <3 </div>').count).toBe(2);
+    expect(elementBound('<a><b><c><d>', 2)).toEqual({ count: 3, at: 6 });
     const deep = `${'<div>'.repeat(30_000)}x${'</div>'.repeat(30_000)}`;
-    expect(measure(deep)).toEqual({ elements: 30_000, depth: 30_000 });
     expect(descendants(parseTree(deep))).toHaveLength(30_000);
   });
 

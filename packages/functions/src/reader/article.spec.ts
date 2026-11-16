@@ -108,7 +108,8 @@ const NEWS = `<!doctype html><html><head><title>A story | News</title>
     <p>${words('The last paragraph closes it, and', 3)}</p>
   </div>
   <div class="post-bottom">
-    <h2>Level up your inbox</h2><p>Sign up for our free newsletter.</p>
+    <div class="mt-10"><h2>Level up your inbox</h2><p>Sign up for our free newsletter.</p>
+    <form><input type="email" name="EMAIL"><button type="submit">Sign me up</button></form></div>
     <h2>You May Also Like</h2>
     <ul class="related-posts"><li><a href="/other-story">Another story</a></li><li><a href="/more">More</a></li></ul>
   </div>
@@ -289,7 +290,7 @@ describe('cleanArticle (2026-11-16)', () => {
     const html = `<div>By <a href="/author/ann">Ann</a></div>${p('First,')}
       <div>By the way, this short line is inside the story.</div>
       <div><a href="/tag/a">A</a> <a href="/tag/b">B</a></div>
-      ${p('Last,')}<div>Get our newsletter</div><div><a href="/next">Next: another story</a></div>`;
+      ${p('Last,')}<div>Get our newsletter <a href="/newsletter/join">Join</a></div><div><a href="/next">Next: another story</a></div>`;
     const out = cleanArticle(html, URL_);
     expect(out).not.toMatch(/Ann|newsletter|Next:/);
     expect(out).toContain('By the way');
@@ -373,5 +374,93 @@ describe('the emulator’s article page, as the journeys read it', () => {
     expect(md).not.toContain('Subscribe to the newsletter');
     expect(md).not.toContain('Archive');
     expect(md.length).toBeGreaterThanOrEqual(80);
+  });
+});
+
+describe('reader mode, on review (2026-11-16)', () => {
+  const story = `<p>${words('The only story here,', 10)}</p>`;
+  const fast = (html: string) => {
+    const started = Date.now();
+    const md = readerMarkdown(`<html><body>${html}</body></html>`, URL_);
+    expect(Date.now() - started).toBeLessThan(2000);
+    return md;
+  };
+
+  it('measures the parsed tree, not the tags: deep pages by any spelling skip Readability', () => {
+    // A self-closing div is a real open element in HTML; so is one left open.
+    expect(fast(`${'<div/>'.repeat(1000)}${story}`)).toMatch(/^The only story here/);
+    expect(fast(`${'<div>'.repeat(1000)}${story}`)).toMatch(/^The only story here/);
+    // Few words, many elements nested inside each other.
+    expect(fast(`${'<em>'.repeat(600)}${story}`)).toContain('The only story here');
+    expect(readability.calls).toBe(0);
+    // A page within the limits still gets it.
+    fast(`<article>${story}</article>`);
+    expect(readability.calls).toBe(1);
+  });
+
+  it('reads a hostile page in time: tags never closed, avatars by the thousand', () => {
+    expect(fast(`${'<a '.repeat(20_000)}${story}`)).not.toContain('<a');
+    fast(`${'<a "'.repeat(20_000)}${story}`);
+    fast(`${'&lt;a '.repeat(20_000)}${story}`);
+    fast(`${'<div>'.repeat(32_000)}${'<img class="avatar" src="/a.png">'.repeat(32_000)}${story}`);
+  });
+
+  it('keeps an essay about newsletters, and an opening that starts with "By"', () => {
+    const essay = readerMarkdown(
+      `<html><body><article>
+      <p>I have written this newsletter for ten years and the inbox still surprises me.</p>
+      <p>${words('In the middle,')}</p><p>${words('And then,')}</p>
+      <p>So subscribe if you like, or do not; I will keep writing either way.</p>
+      </article></body></html>`,
+      URL_,
+    );
+    expect(essay).toMatch(/^I have written this newsletter/);
+    expect(essay).toMatch(/keep writing either way\.$/);
+    const story2 = readerMarkdown(
+      `<html><body><article><div>By the time I arrived the house was empty.</div>
+      <p>${words('Then,')}</p><p>${words('After,')}</p></article></body></html>`,
+      URL_,
+    );
+    expect(story2).toMatch(/^By the time I arrived the house was empty\./);
+  });
+
+  it('still drops an author’s note and a follow prompt with its button, as The Verge prints them', () => {
+    const page = `<html><body><article>
+      <div class="lede"><p><a href="/authors/ann-writer">Ann Writer</a> is a news writer who covers chairs and much more.</p></div>
+      <div class="body"><p>${words('The story starts,', 6)}</p><p>${words('The story ends,', 6)}</p></div>
+      <div class="x1"><p><strong>Follow topics and authors</strong> from this story to see more like this and to receive email updates.</p>
+      <ul><li id="follow-author-footer"><span role="button">Ann Writer</span></li></ul></div>
+      </article></body></html>`;
+    const md = readerMarkdown(page, URL_);
+    expect(md).toMatch(/^The story starts/);
+    expect(md).toMatch(/to the end\.$/);
+    expect(md).not.toMatch(/Ann Writer|Follow topics/);
+  });
+
+  it('drops a repeat beside its original or at the top, never a refrain or an image shown again', () => {
+    const refrain = 'And still the river runs, and still the river runs on and on.';
+    const img = '![A river](https://i.example/river.jpg)';
+    const dek = 'A dek long enough to count, printed twice by the page at the top.';
+    const md = [dek, img, dek, 'One.', refrain, 'Two.', 'Three.', img, refrain, refrain].join(
+      '\n\n',
+    );
+    expect(tidyMarkdown(md)).toBe(
+      [dek, img, 'One.', refrain, 'Two.', 'Three.', img, refrain].join('\n\n'),
+    );
+  });
+
+  it('keeps a named block that reads as text: notes in a footer, two paragraphs in a social box', () => {
+    const p = (lead: string) => `<p>${words(lead, 4)}</p>`;
+    const out = cleanArticle(
+      `${p('First,')}${p('Last,')}
+      <div class="article-footer-notes"><p>1. A short footnote here.</p></div>
+      <div class="social-story"><p>She posted it to her friends first.</p><p>Then the rest of them saw.</p></div>
+      <div class="share-bar"><a href="/x">Share</a> <a href="/y">Post</a></div>
+      <div class="footer">© Somebody</div>`,
+      URL_,
+    );
+    expect(out).toContain('A short footnote here.');
+    expect(out).toContain('Then the rest of them saw.');
+    expect(out).not.toMatch(/Share|© Somebody/);
   });
 });

@@ -154,3 +154,23 @@ describe('htmlToMarkdown for reader mode (2026-11-16)', () => {
     expect(md).toBe('One – two — three… ‘a’ “b” © Éé x y 0');
   });
 });
+
+describe('htmlToMarkdown, on review (2026-11-16)', () => {
+  it('fences code longer than any backticks in it, so its text stays inert', () => {
+    const md = htmlToMarkdown('<pre>a\n```\n[[x]]\n- [ ] do @goblin\n#tag</pre><p>after</p>', BASE);
+    expect(md).toBe('````\na\n```\n[[x]]\n- [ ] do @goblin\n#tag\n````\n\nafter');
+    expect(summaryOf(md)).toBe('after');
+  });
+
+  it('reads tags never closed, and a page’s own "<" as words, in time', () => {
+    const started = Date.now();
+    expect(htmlToMarkdown('<a '.repeat(20_000), BASE)).toMatch(/^<a <a/);
+    expect(htmlToMarkdown('&lt;a '.repeat(20_000), BASE)).toMatch(/^<a <a/);
+    expect(htmlToMarkdown(`${'<b>x'.repeat(20_000)}<p>end</p>`, BASE)).toMatch(/^x x x/);
+    expect(htmlToMarkdown(`${'<b>x'.repeat(2_000)}<p>end</p>`, BASE)).toMatch(/x\n\nend$/);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(htmlToMarkdown('<p>1 &lt; 2 and <a href="/x">a &lt;b&gt; link</a></p>', BASE)).toBe(
+      '1 < 2 and [a <b> link](https://blog.example/x)',
+    );
+  });
+});
