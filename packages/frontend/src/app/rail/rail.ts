@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   InjectionToken,
+  type Signal,
   computed,
   effect,
   inject,
@@ -20,8 +21,17 @@ import { NotesService } from '../notes/notes.service';
 import { Icon } from '../home/icon';
 import { PLACES, PlacesService, type PlaceId, RAIL_PLACES, placeLabel } from '../home/places';
 
-/** The rail shows from this width (#289), as the two panes do (DESIGN.md, Layout). */
+/**
+ * The full rail, its places named, from this width (#289), as the two
+ * panes do (DESIGN.md, Layout); the map's wide screen reads it too.
+ */
 export const RAIL_QUERY = '(min-width: 900px)';
+/**
+ * The rail is drawn from this width (#289, Eric 2026-11-15; built
+ * 2026-11-16): from here to RAIL_QUERY as icons alone, a tablet's,
+ * beside the phone's one column.
+ */
+export const ICON_RAIL_QUERY = '(min-width: 641px)';
 /** The class on `<html>` while the rail is drawn; styles.css gives `--rail-width` by it. */
 export const RAIL_CLASS = 'has-rail';
 
@@ -38,6 +48,22 @@ export const OPENED_AT = new InjectionToken<string>('rail-opened-at', {
     return location ? location.pathname + location.search : '/';
   },
 });
+
+/**
+ * Whether a media query matches, kept up to date; false where
+ * matchMedia is missing. Call it in an injection context.
+ */
+function matches(media: string): Signal<boolean> {
+  const matched = signal(false);
+  const query = typeof matchMedia === 'function' ? matchMedia(media) : undefined;
+  if (query) {
+    const onChange = () => matched.set(query.matches);
+    onChange();
+    query.addEventListener?.('change', onChange);
+    inject(DestroyRef).onDestroy(() => query.removeEventListener?.('change', onChange));
+  }
+  return matched.asReadonly();
+}
 
 /** Screens that are not the garden's: sign-in for development, and Claude's consent page. */
 const OFF_RAIL = ['dev-sign-in', 'oauth'];
@@ -96,19 +122,23 @@ export function currentPlace(
 /**
  * The rail's entries (#289): each place in order, a module that is off
  * left out as its Home tile is, with its count where Home's tile has
- * one; Settings last, at the foot.
+ * one; Settings last, at the foot. With `icons` (641 to 899 px,
+ * 2026-11-16) each is its icon alone: the name is still there for
+ * screen readers, the link's name is as it was, its title is the same
+ * words for a mouse, and the count is a badge on the icon.
  */
 @Component({
   selector: 'app-rail-nav',
   imports: [RouterLink, Icon],
   template: `
-    <nav aria-label="Places">
+    <nav aria-label="Places" [class.icons]="icons()">
       @for (e of entries(); track e.id) {
         <a
           [routerLink]="e.link"
           [class.foot]="e.id === 'settings'"
           [attr.aria-current]="e.current ? 'page' : null"
           [attr.aria-label]="e.label"
+          [attr.title]="icons() ? e.label : null"
         >
           <app-icon [name]="e.icon" [size]="20" />
           <span class="name">{{ e.name }}</span>
@@ -176,11 +206,55 @@ export function currentPlace(
     .foot {
       margin-top: auto;
     }
+    /* Icons alone (641 to 899 px, 2026-11-16): the strip is
+       --rail-width, 64 px, and each entry 48 px tall across it. */
+    nav.icons {
+      padding: var(--space-2) var(--space-1);
+      overflow-x: hidden;
+    }
+    .icons a {
+      position: relative;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0;
+    }
+    /* The current one has a bar at its edge too, not the chip alone. */
+    .icons a[aria-current] {
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .icons .name {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    /* On the icon's upper right, centred there so "999+" still fits. */
+    .icons .count {
+      position: absolute;
+      top: 4px;
+      left: calc(50% + 8px);
+      transform: translateX(-50%);
+      box-sizing: border-box;
+      min-width: 16px;
+      padding: 0 3px;
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 14px;
+      text-align: center;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-pill);
+    }
   `,
 })
 export class RailNav {
   /** The URL shown, for the current entry. */
   readonly url = input.required<string>();
+  /** Icons alone, the tablet's rail (641 to 899 px). */
+  readonly icons = input(false);
   private readonly places = inject(PlacesService);
   private readonly notes = inject(NotesService);
   private readonly modules = inject(ModulesService);
@@ -216,11 +290,12 @@ export class RailNav {
  * The desktop shell's rail (#289, Eric 2026-11-15): from 900 px, on
  * every screen of the garden, a column of its places fixed at the left
  * edge, the page beside it; with a "Skip to content" link before it,
- * the first thing Tab reaches. Not drawn signed out, on the sign-in
- * screens, the development sign-in or Claude's consent page, nor under
- * 900 px, where nothing changes. While it is drawn, `<html>` has
- * RAIL_CLASS, by which styles.css sets `--rail-width` and the body's
- * left padding.
+ * the first thing Tab reaches. From 641 to 899 px (2026-11-16) the same
+ * rail as icons alone, beside the phone's layout. Not drawn signed
+ * out, on the sign-in screens, the development sign-in or Claude's
+ * consent page, nor under 641 px, where nothing changes. While it is
+ * drawn, `<html>` has RAIL_CLASS, by which styles.css sets
+ * `--rail-width` and the body's left padding.
  */
 @Component({
   selector: 'app-rail',
@@ -228,7 +303,7 @@ export class RailNav {
   template: `
     @if (shown()) {
       <a class="skip" href="#content" (click)="skip($event)">Skip to content</a>
-      <app-rail-nav [url]="url()" />
+      <app-rail-nav [url]="url()" [icons]="!wide()" />
     }
   `,
   styles: `
@@ -257,8 +332,10 @@ export class Rail {
   private readonly router = inject(Router);
   private readonly doc = inject(DOCUMENT);
 
-  /** The window is 900 px or wider. */
-  private readonly wide = signal(false);
+  /** The window is 900 px or wider: the full rail. */
+  protected readonly wide = matches(RAIL_QUERY);
+  /** The window is 641 px or wider: a rail, of icons until `wide`. */
+  private readonly drawn = matches(ICON_RAIL_QUERY);
   protected readonly url = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -275,16 +352,11 @@ export class Rail {
     const user = this.auth.user();
     return !!user || (user === undefined && this.auth.signedInBefore());
   });
-  protected readonly shown = computed(() => this.wide() && this.signedIn() && !offRail(this.url()));
+  protected readonly shown = computed(
+    () => this.drawn() && this.signedIn() && !offRail(this.url()),
+  );
 
   constructor() {
-    const query = typeof matchMedia === 'function' ? matchMedia(RAIL_QUERY) : undefined;
-    if (query) {
-      const onChange = () => this.wide.set(query.matches);
-      onChange();
-      query.addEventListener?.('change', onChange);
-      inject(DestroyRef).onDestroy(() => query.removeEventListener?.('change', onChange));
-    }
     effect(() => this.doc.documentElement.classList.toggle(RAIL_CLASS, this.shown()));
     inject(DestroyRef).onDestroy(() => this.doc.documentElement.classList.remove(RAIL_CLASS));
   }

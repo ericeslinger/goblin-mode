@@ -39,7 +39,8 @@ interface Setup {
   due?: string[];
   notes?: NoteRecord[];
   listId?: string;
-  wide?: boolean;
+  /** The window's width, for the media queries; 1440 unless given. */
+  width?: number;
 }
 
 const episode = (id: string, more: Partial<ItemRecord> = {}): ItemRecord => ({
@@ -77,7 +78,7 @@ function configure(setup: Setup = {}) {
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: (query: string) => ({
-      matches: (setup.wide ?? true) && query.includes('min-width: 900px'),
+      matches: (setup.width ?? 1440) >= Number(/min-width: (\d+)px/.exec(query)?.[1] ?? Infinity),
       media: query,
       addEventListener: () => undefined,
       removeEventListener: () => undefined,
@@ -323,10 +324,44 @@ describe('where the rail is drawn (#289)', () => {
     expect(el.querySelector('nav')).not.toBeNull();
   });
 
-  it('draws nothing signed out, under 900 px, or on the sign-in pages', async () => {
+  it('draws it as icons alone from 641 to 899 px, each named as before', async () => {
+    for (const width of [641, 768, 899]) {
+      const el = await shell('/home', { width, reader: true, due: ['Stamps'] });
+      expect(el.querySelector('a')?.textContent?.trim()).toBe('Skip to content');
+      const nav = el.querySelector('nav[aria-label="Places"]')!;
+      expect([width, nav.classList.contains('icons')]).toEqual([width, true]);
+      expect(document.documentElement.classList).toContain(RAIL_CLASS);
+      // The same entries, their names kept for screen readers and a title.
+      expect(names(el)).toEqual([
+        'Home',
+        'Notes',
+        'Right Now',
+        'Reader',
+        'Podcasts',
+        'Reading queue',
+        'Map',
+        'Assistants',
+        'Settings',
+      ]);
+      const rightNow = entry(el, 'Right Now');
+      expect(rightNow.getAttribute('aria-label')).toBe('Right Now, 1 due');
+      expect(rightNow.getAttribute('title')).toBe('Right Now, 1 due');
+      expect(rightNow.querySelector('.count')?.textContent).toBe('1');
+      expect(entry(el, 'Map').getAttribute('title')).toBe('Map');
+      expect(current(el)).toEqual(['Home']);
+      TestBed.resetTestingModule();
+    }
+    // From 900 px the full rail: names shown, so no title.
+    const wide = await shell('/home', { width: 900 });
+    expect(wide.querySelector('nav')?.classList).not.toContain('icons');
+    expect(entry(wide, 'Map').hasAttribute('title')).toBe(false);
+  });
+
+  it('draws nothing signed out, under 641 px, or on the sign-in pages', async () => {
     for (const [url, setup] of [
       ['/home', { signedIn: false }],
-      ['/home', { wide: false }],
+      ['/home', { width: 640 }],
+      ['/home', { width: 412 }],
       ['/dev-sign-in', {}],
       ['/oauth/authorize?client_id=x', {}],
     ] as [string, Setup][]) {

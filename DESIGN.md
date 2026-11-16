@@ -1478,8 +1478,10 @@ From 900 px the app shell (`app.ts`, `app/rail/rail.ts`) draws, once
 for every screen, a "Skip to content" link (the first thing Tab
 reaches; it focuses the screen's `main`, or the screen, and on the
 note screen the note's text, 2026-11-16) and a
-navigation named Places, fixed at the left edge, 176 px wide, from the
-top to the mini-player. Its entries, in order: Home, Notes, Right Now
+navigation named Places, fixed at the left edge, 176 px wide (64 px
+of icons from 641 to 899 px since 2026-11-16; see The tablet's rail,
+below), from the top to the mini-player. Its entries, in order: Home,
+Notes, Right Now
 (how many are overdue or due today), Kitchen, Reader (unread), Podcasts
 (new episodes), Reading queue (to read), Map, Assistants (open
 suggestions), and Settings at the foot. Each is a link with its tile's
@@ -1502,12 +1504,16 @@ read, as Home's tiles do (2026-11-16).
 The rail is not drawn signed out (nor on the sign-in screen any
 screen shows then), on the development sign-in or on Claude's consent
 page, and never under 900 px, where the DOM, the screens and the
-journeys are as they were. While it is drawn `<html>` has the class
+journeys are as they were. (Changed 2026-11-16, Eric's decision of
+2026-11-15 for the tablet gap: from 641 to 899 px the rail is drawn
+too, as icons alone; see The tablet's rail, below. Under 641 px
+nothing changes.) While it is drawn `<html>` has the class
 `has-rail`, by which `--rail-width` is 176 px (0 otherwise, as
 `--mini-player-height` is 0 with no player): the body is padded by it,
 so every screen moves right by the rail and a 640 px column is centred
 in what is left. What is fixed to the window's edges starts at the
-rail's: the mini-player's bar and the Reader's status bar. Dialogs are
+rail's: the mini-player's bar and the Reader's status bar (and, since
+2026-11-16, the keyboard's ribbon). Dialogs are
 modal, over everything. Beside the rail the leaf is not drawn, the
 rail's Home being the way home; New note stays where it was. Until the
 router's first navigation ends the rail reads the address from the
@@ -1561,10 +1567,27 @@ The Reader. 1320 is the sum: the rail 176, the folders 192, the list
 352, and the article's 70 characters (560 px at 16 px) with 16 px
 either side, 1312.
 
-Still to come, each its own change: the other modules in the shell,
-the tablet's rail of icons alone (once the shell exists), and
-keyboard commands. (The Notes context column and the Reader's panes
-were built 2026-11-16, above.)
+**The tablet's rail (#289, 2026-11-16; Eric, 2026-11-15: "the rail
+collapsed to icons plus one column").** From 641 to 899 px (an iPad
+upright), by mouse or touch alike, the rail (`ICON_RAIL_QUERY`; the
+full rail is `RAIL_QUERY`, 900 px) is a strip of 64 px: the same
+entries in the same order, each its icon alone, 48 px tall across
+the strip. Each link's name is as it was ("Reader, 179 unread"), its
+place's name kept for screen readers though not shown, and its title
+the same words for a mouse. A count is a small badge on the icon's
+upper right; the current entry has the chip and a bar at its edge.
+The skip link is first, and `has-rail` is on `<html>` with
+`--rail-width` at 64 px, so everything moved right by the full rail
+moves by the strip, the leaf gives way to the rail's Home, and the
+keyboard's ribbon (`.mg-accessory-bar`) starts at the rail's edge, at
+any width with a rail. Everything else is the phone's one column,
+shifted: on a saved note Right Now is its line and sheet, the notes
+list is not beside the note, Home keeps its tiles, and the maps are
+the phone's.
+
+Still to come, each its own change: the other modules in the shell
+and keyboard commands. (The Notes context column, the Reader's panes
+and the tablet's rail were built 2026-11-16, above.)
 
 **Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
 design A over B (a bar of slots along the bottom): a Home screen at

@@ -40,11 +40,17 @@ body {
 /* Room for the mini-player while it shows (#179), and beside the
    desktop rail while it is drawn (#289): `--rail-width` is 0 unless
    the rail (app/rail/rail.ts) has put RAIL_CLASS on <html>, which it
-   does only from 900 px. Anything fixed to the viewport's left or
-   right edge starts at the rail's edge instead (the mini-player,
-   below; the Reader's status bar). */
+   does only from 641 px: 64 px of icons to 899 (2026-11-16), 176 px
+   from 900. Anything fixed to the viewport's left or right edge
+   starts at the rail's edge instead (the mini-player and the
+   keyboard's ribbon, below; the Reader's status bar). */
 :root {
   --rail-width: 0px;
+}
+@media (min-width: 641px) {
+  :root.has-rail {
+    --rail-width: 64px;
+  }
 }
 @media (min-width: 900px) {
   :root.has-rail {
@@ -58,6 +64,12 @@ body {
 /* The mini-player's bar is fixed across the foot and centred in what
    it spans: from the rail's edge, so it centres under the page. */
 html.has-rail app-mini-player .bar {
+  left: var(--rail-width);
+}
+/* The editor's ribbon over the on-screen keyboard (accessory-bar.ts)
+   spans the page, not the rail beside it (2026-11-16): a tablet has
+   both. */
+html.has-rail .mg-accessory-bar {
   left: var(--rail-width);
 }
 /* The note's reading measure (#289, 2026-11-16): from 900 px the
