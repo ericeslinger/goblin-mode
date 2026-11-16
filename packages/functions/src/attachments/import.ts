@@ -56,15 +56,73 @@ const ENTITIES: Record<string, string> = {
   quot: '"',
   apos: "'",
   nbsp: ' ',
+  // The common named ones too (2026-11-16): pages write "&ndash;" and
+  // "&rsquo;", and reader mode printed them as written.
+  ensp: ' ',
+  emsp: ' ',
+  thinsp: ' ',
+  shy: '',
+  ndash: '–',
+  mdash: '—',
+  minus: '−',
+  hellip: '…',
+  lsquo: '‘',
+  rsquo: '’',
+  sbquo: '‚',
+  ldquo: '“',
+  rdquo: '”',
+  bdquo: '„',
+  laquo: '«',
+  raquo: '»',
+  lsaquo: '‹',
+  rsaquo: '›',
+  prime: '′',
+  bull: '•',
+  middot: '·',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  deg: '°',
+  times: '×',
+  divide: '÷',
+  plusmn: '±',
+  frac12: '½',
+  frac14: '¼',
+  frac34: '¾',
+  euro: '€',
+  pound: '£',
+  cent: '¢',
+  yen: '¥',
+  sect: '§',
+  para: '¶',
+  iexcl: '¡',
+  iquest: '¿',
+  rarr: '→',
+  larr: '←',
+  eacute: 'é',
+  egrave: 'è',
+  aacute: 'á',
+  agrave: 'à',
+  iacute: 'í',
+  oacute: 'ó',
+  uacute: 'ú',
+  ntilde: 'ñ',
+  ccedil: 'ç',
+  auml: 'ä',
+  ouml: 'ö',
+  uuml: 'ü',
+  szlig: 'ß',
 };
 
 export function decode(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]*);/gi, (whole, code: string) => {
     if (code[0] === '#') {
       const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : Number(code.slice(1));
       return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : whole;
     }
-    return ENTITIES[code.toLowerCase()] ?? whole;
+    const named = ENTITIES[code] ?? ENTITIES[code.toLowerCase()];
+    // "&Eacute;" is the capital of "&eacute;".
+    return named && /^[A-Z][a-z]/.test(code) ? named.toUpperCase() : (named ?? whole);
   });
 }
 
