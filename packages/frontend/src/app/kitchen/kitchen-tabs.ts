@@ -2,10 +2,27 @@ import { Component, booleanAttribute, computed, inject, input } from '@angular/c
 import { checklist } from '@mossgoblin/schema';
 import { PageHeader } from '../home/page-header';
 import { type ModuleTab, ModuleTabs } from '../home/module-tabs';
-import { NotesService } from '../notes/notes.service';
+import { type NoteRecord, NotesService } from '../notes/notes.service';
 import { GroceryService } from './grocery.service';
 
 export type KitchenTab = 'meals' | 'shopping' | 'recipes' | 'pantry';
+
+/**
+ * The Kitchen tab a note is the screen of (#220): a week's plan is
+ * Meals, the pantry On hand, a grocery list Shopping; none while
+ * Kitchen is off. The note page draws the tabs by it, and the rail
+ * (#289) marks Kitchen current by it.
+ */
+export function kitchenTabOf(
+  note: NoteRecord | undefined,
+  kitchenOn: boolean,
+  isList: (note: NoteRecord) => boolean,
+): KitchenTab | undefined {
+  if (!note || !kitchenOn) return undefined;
+  if (note.kind === 'mealplan') return 'meals';
+  if (note.kind === 'pantry') return 'pantry';
+  return isList(note) ? 'shopping' : undefined;
+}
 
 /**
  * Kitchen's tabs (#220): Meals (`/kitchen`, this week's plan, or the

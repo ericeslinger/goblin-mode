@@ -18,40 +18,14 @@
 .list-pane {
   display: none;
 }
-/* Two panes on wide screens: Right Now over all notes on the left, the
-   note on the right (DESIGN.md, Layout). */
+/* Two panes on wide screens: all notes on the left, the note on the
+   right; Right Now is the rail's entry there (DESIGN.md, Layout; #289,
+   2026-11-16), so no panel sits above the list. */
 @media (min-width: 900px) {
   .launch {
     grid-template-columns: 320px 1fr;
-    grid-template-rows: auto auto 1fr;
-    grid-template-areas: 'bar bar' 'right-now capture' 'list capture';
-  }
-  .launch .right-now {
-    /* Sized by its content here, not by the phone's drag handle; past
-       the cap it scrolls inside, its heading pinned (#285). */
-    height: auto !important;
-    max-height: 40dvh;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    border-top: 0;
-    border-right: 1px solid var(--rule);
-    border-bottom: 1px solid var(--rule);
-    /* The pinned heading carries the top gap, so nothing scrolls
-       through a sliver above it. */
-    padding-top: 0;
-  }
-  .right-now .handle {
-    display: none;
-  }
-  .launch .right-now.collapsed {
-    padding-top: 0;
-    overflow-y: auto;
-  }
-  .right-now.collapsed app-right-now-panel {
-    display: block;
-  }
-  .peek {
-    display: none;
+    grid-template-rows: auto 1fr;
+    grid-template-areas: 'bar bar' 'list capture';
   }
   .list-pane {
     display: block;
@@ -467,4 +441,39 @@ app-template-header {
 .right-now.line-mode[hidden],
 .sheet[hidden] {
   display: none;
+}
+
+/* After the rules they adjust, which they must outweigh. */
+@media (min-width: 900px) {
+  /* The note at its reading measure (#289, 2026-11-16; styles.css):
+     what is over and around the text keeps to the text's column,
+     centred in the pane. A part padded inside (a header's section, the
+     back, the list view) gives way by its own 16 px; a part padded
+     itself keeps at least that. The editor's text and toolbar are
+     styles.css's, being inside the editor. */
+  .concept-header,
+  app-template-header,
+  app-recipe-header,
+  .back,
+  .list-view {
+    padding-inline: max(0px, calc((100% - var(--note-measure)) / 2 - var(--space-3)));
+  }
+  app-clipping-header,
+  .as-text,
+  .previous,
+  .template-menu,
+  .note-status {
+    padding-inline: max(var(--space-3), calc((100% - var(--note-measure)) / 2));
+  }
+  /* Kitchen's week and On hand keep to their header's column, the
+     640 px of Kitchen's other tabs (.kitchen-head), so the screen
+     does not change width from one tab to the next; so do the tabs
+     over the grocery list's text. */
+  .meal-plan-header,
+  .pantry-view {
+    padding-inline: max(0px, calc((100% - 640px - 2 * var(--space-3)) / 2));
+  }
+  .kitchen-tabs {
+    padding-inline: max(var(--space-3), calc((100% - 640px) / 2));
+  }
 }

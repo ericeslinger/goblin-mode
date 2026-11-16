@@ -377,7 +377,10 @@
           }
         </div>
       </section>
-    } @else {
+    } @else if (!wide()) {
+      <!-- On wide screens Right Now is the rail's entry, with its count,
+           and its own screen (#289, Eric 2026-11-15): the list is beside
+           the note alone. -->
       <section
         class="right-now"
         aria-labelledby="right-now-title"

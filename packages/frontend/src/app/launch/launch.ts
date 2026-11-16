@@ -34,7 +34,7 @@ import { NoteList } from '../browse/note-list';
 import { ConceptHeader } from '../links/concept-header';
 import { NoteBack } from '../back/note-back';
 import { GroceryService } from '../kitchen/grocery.service';
-import { type KitchenTab, KitchenTabs } from '../kitchen/kitchen-tabs';
+import { type KitchenTab, KitchenTabs, kitchenTabOf } from '../kitchen/kitchen-tabs';
 import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
 import { NewNoteService } from '../home/new-note';
@@ -78,8 +78,8 @@ export function sharedText(title: string | null, text: string | null, url: strin
 
 /**
  * The launch screen: a cursor in a note on top, Right Now below, and
- * on wide screens the notes list beside it, with Right Now on top of
- * the list. Signed out, only sign-in.
+ * on wide screens the notes list beside it, Right Now being the rail's
+ * entry there (#289, 2026-11-16). Signed out, only sign-in.
  */
 @Component({
   selector: 'app-launch',
@@ -203,13 +203,9 @@ export class Launch {
    */
   protected readonly modules = inject(ModulesService);
   /** Kitchen's tabs (#220) over a week's plan, the pantry and the grocery list. */
-  protected readonly kitchenTab = computed<KitchenTab | undefined>(() => {
-    const note = this.record();
-    if (!note || !this.modules.kitchen()) return undefined;
-    if (note.kind === 'mealplan') return 'meals';
-    if (note.kind === 'pantry') return 'pantry';
-    return this.grocery.isList(note) ? 'shopping' : undefined;
-  });
+  protected readonly kitchenTab = computed<KitchenTab | undefined>(() =>
+    kitchenTabOf(this.record(), this.modules.kitchen(), (note) => this.grocery.isList(note)),
+  );
   /**
    * Meals or On hand (#288, 2026-11-15): Kitchen's header and tabs in
    * place of the note bar, with its View, Back and More as the header's
@@ -466,7 +462,7 @@ export class Launch {
       document.removeEventListener('keydown', escape);
     });
 
-    // Wide screens (900 px and up) keep Right Now beside the notes.
+    // Wide screens (900 px and up): the notes beside the note, Right Now in the rail (#289).
     const wide = typeof matchMedia === 'function' ? matchMedia('(min-width: 900px)') : undefined;
     if (wide) {
       const onWide = () => this.wide.set(wide.matches);
@@ -490,8 +486,11 @@ export class Launch {
    * the capture screen's layout, never through line mode (#287).
    */
   private readonly noteRoute = signal<string | undefined>(undefined);
-  /** The window is 900 px or wider: two panes, Right Now beside the notes. */
-  private readonly wide = signal(false);
+  /**
+   * The window is 900 px or wider: the notes list beside the note, and
+   * no Right Now panel, it being the rail's entry (#289, 2026-11-16).
+   */
+  protected readonly wide = signal(false);
   /**
    * Right Now as one line (Eric, 2026-11-15, #287): on a phone, while
    * the screen shows a saved note, that is a note the URL names

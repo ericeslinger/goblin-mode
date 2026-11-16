@@ -238,6 +238,10 @@ test('Compact: no summaries, short rows, and the choice kept on the device', asy
 test('the folder chips: counts, a tap filters, the current one, and no sideways page at 320 px', async ({
   page,
 }) => {
+  // Follows two feeds, walks the folders and files one feed in eight
+  // more: about thirteen seconds alone, and past thirty once in a full
+  // run (2026-11-16).
+  test.setTimeout(90_000);
   await readerWithFixtures(page);
   await page.goto('/reader');
   const chips = page.getByRole('navigation', { name: 'By folder' });

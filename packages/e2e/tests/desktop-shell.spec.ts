@@ -1,0 +1,328 @@
+import AxeBuilder from '@axe-core/playwright';
+import type { Page } from '@playwright/test';
+import { type CallTool, connectClaude } from '../src/claude';
+import { expect, letItSave, openCapture, signInAs, test } from '../src/fixtures';
+import { OWNER } from '../src/personas';
+
+// The desktop shell, its first part (#289, epic #282; Eric, 2026-11-15):
+// from 900 px a rail of the garden's places on every screen, with
+// their counts, Right Now one of them; and the note at a reading
+// measure. Under 900 px nothing changes.
+
+async function noSeriousViolations(page: Page): Promise<void> {
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+  expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+}
+
+const rail = (page: Page) => page.getByRole('navigation', { name: 'Places', exact: true });
+/** An entry by its name, whatever its count says after it. */
+const entry = (page: Page, name: string) =>
+  rail(page).getByRole('link', { name: new RegExp(`^${name}(,|$)`) });
+/** The name of the entry marked as the current page. */
+const currentName = (page: Page) =>
+  rail(page).locator('a[aria-current="page"] .name').allTextContents();
+/** The routed screen: the element the router draws after its outlet. */
+const screen = (page: Page) => page.locator('app-root > router-outlet + *');
+/**
+ * The left edge of the screen's content: its own box and its top-level
+ * parts', whichever is furthest left (a custom element is inline, so
+ * its children say where the page is).
+ */
+const contentLeft = (page: Page) =>
+  screen(page).evaluate((host) =>
+    Math.min(
+      ...[host, ...host.children]
+        .map((el) => el.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0)
+        .map((r) => r.left),
+    ),
+  );
+
+const LONG =
+  'The kiln shelves want a fresh coat of wash before the next glaze firing, and the cone ' +
+  'packs for the top and bottom need moving to the spy holes, so the readings at cone six ' +
+  'are taken where the heat actually is and not where it is easiest to look. '.repeat(3);
+
+/** Kitchen, the Reader and Podcasts on, as other journeys switch them. */
+async function modulesOn(page: Page): Promise<void> {
+  await page.goto('/settings');
+  // Podcasts follows the Reader until it is switched itself (#245), so
+  // it comes on with the Reader: wait for that, never click it, or the
+  // click can land as it turns on and turn it off again.
+  await page.getByRole('switch', { name: 'Reader' }).check();
+  await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
+  await page.getByRole('switch', { name: 'Kitchen' }).check();
+  await letItSave(page);
+  await page.reload();
+  await expect(page.getByRole('switch', { name: 'Kitchen' })).toBeChecked();
+}
+
+async function aNote(call: CallTool, body: string): Promise<string> {
+  return ((await call('create_note', { body })) as { id: string }).id;
+}
+
+/** The screens with the rail, where each lands, and the entry it marks. */
+function screens(id: string): [url: string, lands: RegExp, current: string][] {
+  return [
+    ['/home', /\/home$/, 'Home'],
+    [`/n/${id}`, new RegExp(`/n/${id}$`), 'Notes'],
+    ['/browse', /\/browse/, 'Notes'],
+    ['/right-now', /\/right-now$/, 'Right Now'],
+    ['/settings', /\/settings$/, 'Settings'],
+    ['/map', /\/map$/, 'Map'],
+    ['/kitchen', /\/n\/meals-\d{4}-\d{2}-\d{2}$/, 'Kitchen'],
+    ['/kitchen/recipes', /\/kitchen\/recipes$/, 'Kitchen'],
+    ['/reader', /\/reader$/, 'Reader'],
+    ['/podcasts', /\/podcasts$/, 'Podcasts'],
+    ['/reading', /\/reading$/, 'Reading queue'],
+    ['/activity', /\/activity$/, 'Assistants'],
+  ];
+}
+
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 900, height: 700 },
+]) {
+  test.describe(`at ${viewport.width} by ${viewport.height}`, () => {
+    test.use({ isMobile: false, hasTouch: false, viewport });
+
+    test('the rail is on every screen, in one place, its entry current, nothing under it', async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      await signInAs(page, OWNER);
+      const call = await connectClaude(page);
+      const id = await aNote(call, 'Studio day\nclay');
+      await modulesOn(page);
+
+      let first: { x: number; width: number } | undefined;
+      for (const [url, lands, current] of screens(id)) {
+        await page.goto(url);
+        await expect(page).toHaveURL(lands, { timeout: 15_000 });
+        await expect(rail(page)).toBeVisible();
+        await expect.poll(() => currentName(page), { message: url }).toEqual([current]);
+        const box = (await rail(page).boundingBox())!;
+        first ??= { x: box.x, width: box.width };
+        expect([url, box.x, box.width]).toEqual([url, first.x, first.width]);
+        expect(box.x).toBe(0);
+        expect(box.width).toBeGreaterThanOrEqual(132);
+        expect(box.width).toBeLessThanOrEqual(180);
+        // The page beside it, never under it, and no sideways scroll.
+        expect(await contentLeft(page), url).toBeGreaterThanOrEqual(box.x + box.width - 0.5);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+          ),
+          url,
+        ).toBe(true);
+      }
+
+      // In order, Settings at the foot, each a mouse's height at least.
+      // A fresh page load draws the rail before the modules' settings
+      // are read, as Home's tiles are: the switched-on ones join it then.
+      await expect(rail(page).locator('a .name')).toHaveText([
+        'Home',
+        'Notes',
+        'Right Now',
+        'Kitchen',
+        'Reader',
+        'Podcasts',
+        'Reading queue',
+        'Map',
+        'Assistants',
+        'Settings',
+      ]);
+      for (const link of await rail(page).getByRole('link').all()) {
+        expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(36);
+      }
+      const settings = (await entry(page, 'Settings').boundingBox())!;
+      const assistants = (await entry(page, 'Assistants').boundingBox())!;
+      expect(settings.y).toBeGreaterThan(assistants.y + assistants.height);
+    });
+
+    test('each entry opens its screen', async ({ page }) => {
+      test.setTimeout(90_000);
+      await signInAs(page, OWNER);
+      await modulesOn(page);
+      await page.goto('/home');
+      const lands: [name: string, url: RegExp][] = [
+        ['Notes', /\/browse$/],
+        ['Right Now', /\/right-now$/],
+        ['Kitchen', /\/n\/meals-\d{4}-\d{2}-\d{2}$/],
+        ['Reader', /\/reader$/],
+        ['Podcasts', /\/podcasts$/],
+        ['Reading queue', /\/reading$/],
+        ['Map', /\/map$/],
+        ['Assistants', /\/activity$/],
+        ['Settings', /\/settings$/],
+        ['Home', /\/home$/],
+      ];
+      for (const [name, url] of lands) {
+        await entry(page, name).click();
+        await expect(page, name).toHaveURL(url, { timeout: 15_000 });
+        await expect.poll(() => currentName(page), { message: name }).toEqual([name]);
+      }
+    });
+  });
+}
+
+test.describe('on a wide screen', () => {
+  test.use({ isMobile: false, hasTouch: false, viewport: { width: 1440, height: 900 } });
+
+  test('Right Now is the rail’s entry, counting what is due until it is done', async ({ page }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    await call('create_reminder', {
+      text: 'Wedge the reclaim',
+      dueAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    await page.goto('/home');
+    const rightNow = entry(page, 'Right Now');
+    await expect(rightNow).toHaveAccessibleName('Right Now, 1 due', { timeout: 15_000 });
+    await expect(rightNow.locator('.count')).toHaveText('1');
+
+    await rightNow.click();
+    await expect(page).toHaveURL(/\/right-now$/);
+    await page.getByRole('button', { name: 'Done: Wedge the reclaim' }).click();
+    await expect(rightNow).toHaveAccessibleName('Right Now');
+    await expect(rightNow.locator('.count')).toHaveCount(0);
+  });
+
+  test('the note at a reading measure, the notes beside it, no Right Now above them', async ({
+    page,
+  }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    const id = await aNote(call, `Kiln notes\n${LONG}`);
+    await call('create_reminder', {
+      text: 'Order more cones',
+      dueAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+    await page.goto(`/n/${id}`);
+    const editor = page.getByRole('textbox', { name: 'New note' });
+    await expect(editor).toContainText('Kiln notes', { timeout: 15_000 });
+
+    // The text's column: about 70 characters, measured in the editor's
+    // own "0", and not cramped either.
+    const measure = await editor.evaluate((content) => {
+      const line = content.querySelector('.cm-line')!;
+      const style = getComputedStyle(line);
+      const probe = document.createElement('span');
+      probe.textContent = '0'.repeat(75);
+      Object.assign(probe.style, {
+        position: 'absolute',
+        visibility: 'hidden',
+        whiteSpace: 'pre',
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        letterSpacing: style.letterSpacing,
+      });
+      document.body.appendChild(probe);
+      const seventyFive = probe.getBoundingClientRect().width;
+      probe.remove();
+      return { line: line.getBoundingClientRect().width, seventyFive };
+    });
+    expect(measure.line).toBeLessThanOrEqual(measure.seventyFive);
+    expect(measure.line).toBeGreaterThan((measure.seventyFive * 55) / 75);
+
+    // The notes list beside it, and no Right Now panel over the list.
+    const list = page.getByRole('complementary', { name: 'All notes' });
+    await expect(list).toBeVisible();
+    const listBox = (await list.boundingBox())!;
+    const editorBox = (await editor.boundingBox())!;
+    expect(listBox.x + listBox.width).toBeLessThanOrEqual(editorBox.x + 1);
+    await expect(page.getByRole('region', { name: 'Right Now' })).toHaveCount(0);
+    await expect(page.getByRole('separator', { name: 'Resize Right Now' })).toHaveCount(0);
+    await expect(entry(page, 'Right Now')).toHaveAccessibleName('Right Now, 1 due');
+
+    // A click in the blank beside the first line puts the cursor at its
+    // end, as a click beside the text always did; typing lands there.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(editor).not.toBeFocused();
+    const firstLine = editor.locator('.cm-line').first();
+    const lineBox = (await firstLine.boundingBox())!;
+    await page.mouse.click(
+      Math.min(editorBox.x + editorBox.width - 8, lineBox.x + lineBox.width + 40),
+      lineBox.y + lineBox.height / 2,
+    );
+    await expect(editor).toBeFocused();
+    await page.keyboard.type(' today');
+    await expect(firstLine).toHaveText('Kiln notes today');
+    await letItSave(page);
+
+    // And beside the text on the left, the same.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.click(editorBox.x + 4, lineBox.y + lineBox.height / 2);
+    await expect(editor).toBeFocused();
+    await noSeriousViolations(page);
+  });
+
+  test('Tab reaches Skip to content first, then the rail; axe on Home', async ({ page }) => {
+    await signInAs(page, OWNER);
+    await page.goto('/home');
+    await expect(rail(page)).toBeVisible();
+    await page.keyboard.press('Tab');
+    const skip = page.getByRole('link', { name: 'Skip to content' });
+    await expect(skip).toBeFocused();
+    await expect(skip).toBeInViewport();
+    await page.keyboard.press('Tab');
+    await expect(entry(page, 'Home')).toBeFocused();
+    await expect(entry(page, 'Home')).toHaveAttribute('aria-current', 'page');
+    // Home's own tiles are still there beside it, under their own name.
+    await expect(page.getByRole('navigation', { name: 'Modules' })).toBeVisible();
+    await noSeriousViolations(page);
+
+    await page.keyboard.press('Shift+Tab');
+    await expect(skip).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('main')).toBeFocused();
+    await expect(page).toHaveURL(/\/home$/);
+  });
+
+  test('not on the sign-in screens, nor signed out', async ({ page }) => {
+    await page.goto('/dev-sign-in');
+    await expect(page.getByLabel('Email')).toBeVisible();
+    await expect(rail(page)).toHaveCount(0);
+    await page.goto('/home');
+    await expect(page.getByRole('button', { name: /Sign in/ }).first()).toBeVisible();
+    await expect(rail(page)).toHaveCount(0);
+    expect(
+      await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--rail-width').trim(),
+      ),
+    ).toBe('0px');
+  });
+});
+
+test.describe('just under 900 px', () => {
+  test.use({ isMobile: false, hasTouch: false, viewport: { width: 899, height: 700 } });
+
+  test('there is no rail, and the note screen is the phone’s', async ({ page }) => {
+    await signInAs(page, OWNER);
+    await openCapture(page);
+    await expect(page.getByRole('region', { name: 'Right Now' })).toBeVisible();
+    await expect(page.getByRole('complementary', { name: 'All notes' })).toBeHidden();
+    await expect(rail(page)).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toHaveCount(0);
+    expect(
+      await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--rail-width').trim(),
+      ),
+    ).toBe('0px');
+    // The leaf is in the bar, as on a phone.
+    await expect(page.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    expect(await contentLeft(page)).toBe(0);
+
+    // Widened past 900 px, the rail comes; narrowed again, it goes.
+    await page.setViewportSize({ width: 900, height: 700 });
+    await expect(rail(page)).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Right Now' })).toHaveCount(0);
+    await page.setViewportSize({ width: 899, height: 700 });
+    await expect(rail(page)).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Right Now' })).toBeVisible();
+  });
+});

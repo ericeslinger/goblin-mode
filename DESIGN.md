@@ -1241,10 +1241,16 @@ Gemini's help; this follows it:
   sign-in for third-party apps (researched 2026-10-24).
 
 **Layout.** One column on the phone (capture on top, Right Now below);
-two panes from 900 px (list left, note right). The handle between note
-and Right Now is a separator: drag it, or use the arrow keys, to give
-Right Now between 15% and 80% of the screen (Home and End jump to the
-limits), saved on the device when the drag ends (Eric, 2026-10-06).
+two panes from 900 px (list left, note right). (Changed 2026-11-16,
+#289, Eric's decision of 2026-11-15: from 900 px this is the first part
+of a desktop shell. The rail of the garden's places is at the left of
+every screen, then the notes list, then the note, its text at a
+reading measure of about 70 characters, centred in its pane; Right Now
+is the rail's entry, not a panel; see The desktop rail, below.) The
+handle between note and Right Now is a separator: drag it, or use the
+arrow keys, to give Right Now between 15% and 80% of the screen (Home
+and End jump to the limits), saved on the device when the drag ends
+(Eric, 2026-10-06).
 The floor is now 0% (Eric, 2026-10-18: Right Now rarely fills its
 space, and the note wants it): dragged all the way down, only the
 handle stays, the list leaves the screen and the tab order, and a drag
@@ -1262,7 +1268,11 @@ Tapping the Right Now heading opens the full list (`/right-now`). On
 wide screens Right Now sits above the notes list, as the UX spec has
 it, sized by its content (2026-10-06). (Since 2026-11-15, #285: up to
 its cap of 40% of the height; past that it scrolls inside, its heading
-kept in sight. On a phone, an open Projects or Previous note list and a
+kept in sight. Changed 2026-11-16, #289, Eric's decision of
+2026-11-15: on wide screens Right Now is no longer above the notes
+list, which has the left pane to itself; it is the rail's entry, with
+how many are due, and opens its own screen. Under 900 px it is as it
+was. On a phone, an open Projects or Previous note list and a
 tall meal plan header scroll in their own box above Right Now instead
 of painting over it; since #287 those lists open from More, between
 the bar and the note. Rows in Browse and meal slots show the plain words
@@ -1376,6 +1386,67 @@ straight to it, never through the line; wide screens are unchanged. A
 saved note opens with the caret at its end and scrolled to its top
 (Editor); where he left off (#272) still puts back its own caret and
 scroll.
+
+**The desktop rail (#289, step 5 of the layout pass, epic #282; Eric,
+2026-11-15: "Go with your recommendations for all"), 2026-11-16.**
+The design report found that from a note there was no way to Kitchen,
+Podcasts or Right Now but the leaf, Home and a tile; that the notes
+list beside a note came and went between screens; that the editor
+filled 1,100 px, about 170 characters a line; and that every other
+screen was a 640 px column in a 1440 px window. Eric chose a shell of
+four columns from 900 px: a rail of the places with their counts that
+never leaves, a list, the work at a reading measure, and a context
+column, built in that order, each its own change and usable by
+itself. This is the first: the rail, and the note at a reading
+measure, and nothing else moves.
+
+From 900 px the app shell (`app.ts`, `app/rail/rail.ts`) draws, once
+for every screen, a "Skip to content" link (the first thing Tab
+reaches; it focuses the screen's `main`, or the screen) and a
+navigation named Places, fixed at the left edge, 176 px wide, from the
+top to the mini-player. Its entries, in order: Home, Notes, Right Now
+(how many are overdue or due today), Kitchen, Reader (unread), Podcasts
+(new episodes), Reading queue (to read), Map, Assistants (open
+suggestions), and Settings at the foot. Each is a link with its tile's
+icon and name, at least 36 px tall, its count in the mono font when it
+is more than none, named for screen readers with what it counts
+("Reader, 179 unread"). A module that is off has no entry, as it has no
+tile; a tile taken off Home keeps its entry, the rail being every
+place, not Home's arrangement. The entry of the screen shown is
+`aria-current="page"`: a note is Notes, unless it is one of Kitchen's
+tabs (a week's plan, the pantry, a grocery list), which is Kitchen;
+History is Notes; Downloads is Podcasts' while Podcasts is on. The
+names, icons, links, which places show and their counts come from one
+place, `home/places.ts`, which Home's tiles read too, so the two cannot
+disagree. Home's own navigation keeps its name, Modules.
+
+The rail is not drawn signed out (nor on the sign-in screen any
+screen shows then), on the development sign-in or on Claude's consent
+page, and never under 900 px, where the DOM, the screens and the
+journeys are as they were. While it is drawn `<html>` has the class
+`has-rail`, by which `--rail-width` is 176 px (0 otherwise, as
+`--mini-player-height` is 0 with no player): the body is padded by it,
+so every screen moves right by the rail and a 640 px column is centred
+in what is left. What is fixed to the window's edges starts at the
+rail's: the mini-player's bar and the Reader's status bar. Dialogs are
+modal, over everything. Beside the rail the leaf is not drawn, the
+rail's Home being the way home; New note stays where it was.
+
+The note's reading measure: from 900 px the editor's text is a column
+of 70 of its own characters (`70ch` at its 17 px), centred in the
+note's pane. It is given as the editor content's side padding, not a
+maximum width, so the space beside the text is still the editor's: a
+click there puts the cursor in as it always did, and the scroll stays
+the pane's. The formatting toolbar, a concept's or project's header,
+the template, recipe and clipping headers, the note's back, the list
+view, Edit as text and the screen's status lines keep to the same
+column (`--note-measure`, `styles.css`). Kitchen's week and On hand
+keep to Kitchen's 640 px column, as its other tabs do, so its screens
+do not change width from tab to tab. Body type is as it was.
+
+Still to come, each its own change: the Notes context column, the
+Reader in three panes, the other modules in the shell, the tablet's
+rail of icons alone (once the shell exists), and keyboard commands.
 
 **Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
 design A over B (a bar of slots along the bottom): a Home screen at
