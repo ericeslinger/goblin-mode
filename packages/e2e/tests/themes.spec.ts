@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
 import {
+  SETTINGS_PAGE_NAMES,
   expect,
   letItSave,
   prepPage,
@@ -83,7 +84,7 @@ test('a theme chosen on one device follows the gardener to another', async ({ pa
 });
 
 test('every theme, light and dark, passes axe on the busiest screens', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   await signInAs(page, OWNER);
   await page.keyboard.type('Groceries for the week');
   // Past the autosave delay, so the note is written before we leave.
@@ -96,8 +97,7 @@ test('every theme, light and dark, passes axe on the busiest screens', async ({ 
 
   for (const theme of THEMES) {
     for (const mode of ['Light', 'Dark'] as const) {
-      // Settings is pages since #290: the list, then the page the theme
-      // is picked on and the two with the most kinds of control.
+      // Settings is pages since #290: the list, then every page.
       await page.goto('/settings');
       await expect(page.getByRole('navigation', { name: 'Settings', exact: true })).toBeVisible();
       await openSettings(page, 'Appearance');
@@ -105,7 +105,7 @@ test('every theme, light and dark, passes axe on the busiest screens', async ({ 
       await page.goto('/settings');
       await expect(page.getByRole('navigation', { name: 'Settings', exact: true })).toBeVisible();
       await expectNoSeriousViolations(page, `${theme} ${mode} Settings`);
-      for (const name of ['Appearance', 'Modules', 'AI assistants'] as const) {
+      for (const name of SETTINGS_PAGE_NAMES) {
         await openSettings(page, name);
         await expectNoSeriousViolations(page, `${theme} ${mode} Settings, ${name}`);
       }

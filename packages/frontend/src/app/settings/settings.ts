@@ -81,8 +81,9 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             Parts of Mossgoblin you can switch on or off. Off hides a module's screens; its notes
             stay as they are.
           </p>
-          <!-- Busy until the stored switches are read: until then they draw
-               off, and a tap could be undone by the doc arriving. -->
+          <!-- Busy, and its switches disabled, until the stored switches
+               are read: until then they draw off, and a tap would write
+               over the other modules' stored choices (review on #302). -->
           <ul
             aria-label="Modules"
             class="modules"
@@ -95,6 +96,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
                     type="checkbox"
                     role="switch"
                     [checked]="modules.on(m.id)"
+                    [disabled]="!modules.loaded()"
                     (change)="modules.set(m.id, $any($event.target).checked)"
                   />
                   {{ m.label }}
