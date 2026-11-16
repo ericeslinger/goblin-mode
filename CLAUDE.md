@@ -143,6 +143,14 @@ wait for Eric, with a PR comment saying why, when the change touches
 `storage.rules`, a data migration, auth, the merge policy itself, or
 the reviewer flags it for Eric to read.
 
+**Assigned means it waits for Eric (Eric, 2026-11-15).** A PR is
+assigned to Eric only when it needs his approval or his merge, and
+only once it is ready for him: reviewed, every comment answered, both
+gates green on its head. Until then, and for any PR the coding agent
+may merge itself, it stays unassigned, so Eric can take an assigned
+PR as his to act on and leave the rest alone. When something does
+wait on him, a push notification saying what and where is welcome.
+
 ## Cloud sessions
 
 `.claude/hooks/session-start.sh` runs only when
