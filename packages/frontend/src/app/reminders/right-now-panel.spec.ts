@@ -74,13 +74,15 @@ describe('RightNowPanel', () => {
     expect(link.getAttribute('href')).toBe('/reading');
   });
 
-  it('says what is new in the Reader (#173): three folders, then how many more', async () => {
-    const { el, fixture } = await renderWithReminders(RightNowPanel);
+  it('says what is new in one quiet line under the reminders (#288), each part to its module', async () => {
+    localStorage.clear();
+    const { el, fixture, push } = await renderWithReminders(RightNowPanel);
+    await push([reminderDoc('a', { text: 'call the bank', dueAt: NOW - HOUR })]);
     const modules = TestBed.inject(ModulesService) as unknown as FakeModules;
     const feeds = TestBed.inject(READER_API) as unknown as FakeReaderApi;
     const settings = TestBed.inject(SETTINGS_API) as unknown as FakeSettingsApi;
     const items = TestBed.inject(ITEMS_API) as unknown as FakeItemsApi;
-    const article = (id: string, feedId: string, hoursAgo: number) => ({
+    const item = (id: string, feedId: string, hoursAgo: number, more = {}) => ({
       id,
       data: {
         feedId,
@@ -89,28 +91,29 @@ describe('RightNowPanel', () => {
         published: { toMillis: () => NOW - hoursAgo * HOUR },
         read: false,
         saved: false,
+        ...more,
       },
     });
-    const feed = (id: string, folder: string) => ({
-      id,
-      data: { url: `https://${id}.test/f`, title: id, folders: [folder] },
-    });
-    const lines = () =>
-      [...el.querySelectorAll<HTMLAnchorElement>('[aria-label="New in the Reader"] a')].map((a) => [
+    const episode = (id: string, hoursAgo: number) =>
+      item(id, 'p1', hoursAgo, {
+        enclosure: { url: 'https://p.test/a.mp3', type: 'audio/mpeg' },
+      });
+    const line = () => el.querySelector<HTMLElement>('app-fresh-line p');
+    const links = () =>
+      [...el.querySelectorAll<HTMLAnchorElement>('app-fresh-line a')].map((a) => [
         a.textContent?.trim(),
         a.getAttribute('href'),
       ]);
     // Off: nothing.
     await fixture.whenStable();
-    expect(el.querySelector('app-reader-new')!.children).toHaveLength(0);
+    expect(line()).toBeNull();
     modules.set('reader', true);
+    modules.set('podcasts', true);
     await fixture.whenStable();
     feeds.push([
-      feed('a', 'Design'),
-      feed('b', 'Games'),
-      feed('c', 'Apple'),
-      feed('d', 'Music'),
-      feed('e', 'Zines'),
+      { id: 'a', data: { url: 'https://a.test/f', title: 'a', folders: ['Design'] } },
+      { id: 'b', data: { url: 'https://b.test/f', title: 'b', folders: ['Games'] } },
+      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
     ]);
     settings.push({
       folderOrder: [],
@@ -118,85 +121,35 @@ describe('RightNowPanel', () => {
       seenAt: { Games: NOW - 2 * HOUR },
       updatedAt: 1,
     });
+    await fixture.whenStable();
+    items.pushFeed('p1', [episode('e1', 1), episode('e2', 2)]);
     items.push('unread', [
-      article('a1', 'a', 1),
-      article('a2', 'a', 2),
-      article('a3', 'a', 3),
-      article('b1', 'b', 1),
-      article('b2', 'b', 3),
-      article('c1', 'c', 1),
-      article('c2', 'c', 2),
-      article('d1', 'd', 1),
-      article('e1', 'e', 1),
-    ]);
-    await fixture.whenStable();
-    expect(lines()).toEqual([
-      ['3 new in Design', '/reader/f/Design'],
-      ['2 new in Apple', '/reader/f/Apple'],
-      ['1 new in Games', '/reader/f/Games'],
-      ['and 2 more folders', '/reader/folders'],
-    ]);
-    // All seen: nothing.
-    settings.push({
-      folderOrder: [],
-      images: true,
-      seenAt: Object.fromEntries(
-        ['Design', 'Games', 'Apple', 'Music', 'Zines'].map((f) => [f, NOW]),
-      ),
-      updatedAt: 2,
-    });
-    await fixture.whenStable();
-    expect(el.querySelector('app-reader-new ul')).toBeNull();
-  });
-
-  it('says what is new in Podcasts since Latest was seen (#251), and the Reader’s line leaves it out', async () => {
-    localStorage.clear();
-    const { el, fixture } = await renderWithReminders(RightNowPanel);
-    const modules = TestBed.inject(ModulesService) as unknown as FakeModules;
-    const feeds = TestBed.inject(READER_API) as unknown as FakeReaderApi;
-    const items = TestBed.inject(ITEMS_API) as unknown as FakeItemsApi;
-    const episode = (id: string, hoursAgo: number, more: Record<string, unknown> = {}) => ({
-      id,
-      data: {
-        feedId: 'p1',
-        title: id,
-        link: '',
-        published: { toMillis: () => NOW - hoursAgo * HOUR },
-        read: false,
-        saved: false,
-        enclosure: { url: 'https://p.test/a.mp3', type: 'audio/mpeg' },
-        ...more,
-      },
-    });
-    const line = () => el.querySelector<HTMLAnchorElement>('app-podcasts-new a');
-    modules.set('podcasts', true);
-    modules.set('reader', true);
-    await fixture.whenStable();
-    feeds.push([
-      { id: 'p1', data: { url: 'https://p.test/f', title: 'Pod', folders: [], kind: 'podcast' } },
-    ]);
-    await fixture.whenStable();
-    items.pushFeed('p1', [
+      item('a1', 'a', 1),
+      item('a2', 'a', 2),
+      item('b1', 'b', 1),
+      item('b2', 'b', 3),
       episode('e1', 1),
-      episode('e2', 2, { read: true }),
-      episode('e3', 3, { position: 90 }),
-      episode('e4', 4, { played: true }),
+      episode('e2', 2),
     ]);
-    items.push('unread', [episode('e1', 1), episode('e2', 2)]);
     await fixture.whenStable();
-    // New is not heard and no place kept: notes read is still new.
-    expect(line()?.textContent?.trim()).toBe('2 new in Podcasts');
-    expect(line()?.getAttribute('href')).toBe('/podcasts');
+    // Design's two never seen, Games' one since it was opened; Podcasts' two.
+    expect(line()?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'New since you last looked: Reader 3 · Podcasts 2',
+    );
+    expect(links()).toEqual([
+      ['Reader 3', '/reader'],
+      ['Podcasts 2', '/podcasts'],
+    ]);
+    // Under the reminders, and no line per folder here.
+    const list = el.querySelector('ul[aria-labelledby="right-now-title"]')!;
+    expect(list.compareDocumentPosition(line()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(el.querySelector('[aria-label="New in the Reader"]')).toBeNull();
-    // Latest seen: nothing, until a newer episode comes out.
+    expect(el.textContent).not.toContain('new in Design');
+    // A part with nothing new is left out; with nothing at all, no line.
     TestBed.inject(PodcastsSeen).markSeen();
     await fixture.whenStable();
-    expect(line()).toBeNull();
-    items.pushFeed('p1', [episode('e5', -1), episode('e1', 1)]);
-    await fixture.whenStable();
-    expect(line()?.textContent?.trim()).toBe('1 new in Podcasts');
-    // The module off: nothing.
-    modules.set('podcasts', false);
+    expect(links()).toEqual([['Reader 3', '/reader']]);
+    modules.set('reader', false);
     await fixture.whenStable();
     expect(line()).toBeNull();
   });

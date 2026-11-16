@@ -296,15 +296,81 @@ describe('Home (#219)', () => {
     });
     const row = el.querySelector<HTMLAnchorElement>('a.right-now')!;
     expect(row.getAttribute('href')).toBe('/right-now');
-    expect(row.textContent).toContain('Glaze the mugs · Plan the week · 5 new in the Reader');
-    // And Podcasts' line beside it (#251), the Latest never seen on this device.
-    expect(row.textContent).toContain('5 new in the Reader · 2 new in Podcasts');
+    // And Podcasts' beside it (#251), the Latest never seen on this
+    // device; "since you last looked", not the tile's unread (#288).
+    expect(row.textContent).toContain(
+      'Glaze the mugs · Plan the week · 5 new in the Reader, 2 in Podcasts, since you last looked',
+    );
     expect(row.textContent).not.toContain('Call');
+    expect(row.querySelector('.status')?.classList.contains('empty')).toBe(false);
+  });
+
+  it('never says more are new in the Reader than are unread (#288)', async () => {
+    const el = await render({ reader: true, episodes: [] });
+    const items = TestBed.inject(ItemsService) as unknown as FakeItems;
+    // A feed in two folders counts in each: 5 by folder, 4 unread.
+    items.unreadCounts.set({ all: 4, saved: 0 });
+    await settle();
+    expect(el.querySelector('a.right-now')?.textContent).toContain(
+      '4 new in the Reader since you last looked',
+    );
+    expect(tile(el, 'Reader')?.textContent).toContain('4 unread');
   });
 
   it('leaves the Reader out of Right Now while it is off', async () => {
     const el = await render();
     expect(el.querySelector('a.right-now')?.textContent).toContain('Nothing to tend');
+    expect(el.querySelector('a.right-now .status')?.classList.contains('empty')).toBe(true);
+  });
+
+  it('draws a line with nothing in it in the quiet ink, one with something in ink (#288)', async () => {
+    const el = await render({ notes: [noteRecord('a', 'Kiln shelf')] });
+    const empty = (name: string) =>
+      tile(el, name)!.querySelector('.status')!.classList.contains('empty');
+    expect(empty('Notes')).toBe(false);
+    expect(empty('Reading queue')).toBe(false);
+    expect(empty('Assistants')).toBe(true);
+    expect(empty('Map')).toBe(true);
+  });
+
+  it('draws the lines of tiles with nothing in them in the quiet ink (#288)', async () => {
+    const bare = await render({ kitchen: true, reader: true, episodes: [], shows: [] });
+    const quiet = (name: string) =>
+      tile(bare, name)!.querySelector('.status')!.classList.contains('empty');
+    expect(quiet('Notes')).toBe(true);
+    expect(quiet('Kitchen')).toBe(true);
+    expect(quiet('Reader')).toBe(false);
+    expect(quiet('Podcasts')).toBe(true);
+  });
+
+  it('shows the box’s hint to someone new, until there are five notes (#288)', async () => {
+    const hint = (el: HTMLElement) => el.querySelector('.hint')?.textContent?.trim();
+    const four = ['a', 'b', 'c', 'd'].map((id) => noteRecord(id, `Note ${id}`));
+    const el = await render({ notes: four });
+    expect(hint(el)).toBe('Tap the box to write; it opens the editor.');
+    const notes = TestBed.inject(NotesService) as unknown as FakeNotes;
+    // An empty note and a template are not notes written.
+    notes.notes.set([
+      ...four,
+      noteRecord('e', ' '),
+      { ...noteRecord('t', 'A template'), kind: 'template' },
+    ]);
+    await settle();
+    expect(hint(el)).toBe('Tap the box to write; it opens the editor.');
+    notes.notes.set([...four, noteRecord('e', 'Note e')]);
+    await settle();
+    expect(hint(el)).toBeUndefined();
+  });
+
+  it('keeps the hint back until the notes are known', async () => {
+    const el = await render();
+    const notes = TestBed.inject(NotesService) as unknown as FakeNotes;
+    notes.loaded.set(false);
+    await settle();
+    expect(el.querySelector('.hint')).toBeNull();
+    notes.loaded.set(true);
+    await settle();
+    expect(el.querySelector('.hint')).not.toBeNull();
   });
 
   it('counts suggestions and today’s runs for Assistants', async () => {

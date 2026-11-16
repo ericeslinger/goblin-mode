@@ -11,8 +11,10 @@ import { UndoBar } from './undo-bar';
 import { PageHeader } from '../home/page-header';
 
 /**
- * Right Now, full screen: what is new in the Reader (#173) and in Podcasts (#251), every open
- * reminder by section, and +. Signed out, only sign-in.
+ * Right Now, full screen: every open reminder by section, Overdue
+ * tinted, and +; then what is new in the Reader (#173), a line per
+ * folder, and in Podcasts (#251), under the reminders since #288.
+ * Signed out, only sign-in.
  */
 @Component({
   selector: 'app-right-now',
@@ -38,11 +40,9 @@ import { PageHeader } from '../home/page-header';
           <app-add-reminder (closed)="adding.set(false)" />
         }
         <app-undo-bar />
-        <app-reader-new />
-        <app-podcasts-new />
         @for (s of sections(); track s.id) {
           <section [attr.aria-labelledby]="'section-' + s.id">
-            <h2 [id]="'section-' + s.id">{{ s.label }}</h2>
+            <h2 [id]="'section-' + s.id" [class.overdue]="s.id === 'overdue'">{{ s.label }}</h2>
             <ul [attr.aria-labelledby]="'section-' + s.id">
               @for (r of s.items; track r.id) {
                 <li><app-reminder-row [reminder]="r" /></li>
@@ -52,6 +52,9 @@ import { PageHeader } from '../home/page-header';
         } @empty {
           <p class="muted">Nothing to tend. The garden is quiet.</p>
         }
+        <!-- Under the reminders (#288): a line per folder, here only. -->
+        <app-reader-new />
+        <app-podcasts-new />
       </main>
     }
   `,
@@ -81,6 +84,13 @@ import { PageHeader } from '../home/page-header';
       margin: 20px 0 4px;
       font-size: 15px;
       color: var(--quiet);
+    }
+    /* Overdue in the accent, a text colour held to AA on the page, and
+       a bar beside it: the word says it too, not the colour alone. */
+    h2.overdue {
+      padding-left: 8px;
+      border-left: 3px solid var(--accent);
+      color: var(--accent);
     }
     ul {
       list-style: none;

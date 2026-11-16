@@ -20,6 +20,19 @@ export function lensId(value: string | null | undefined): LensId {
   return LENSES.find((l) => l.id === value)?.id ?? 'recent';
 }
 
+/**
+ * Browse's row of lenses (#288, 2026-11-15): an empty lens is left
+ * out, except Recent, the way back to everything, and the open one.
+ * Archived and Trash are reached only here (and Trash from a note in
+ * it), so they show whenever they hold a note.
+ */
+export function rowOfLenses<L extends { id: LensId; count: number }>(
+  lenses: readonly L[],
+  open: LensId,
+): L[] {
+  return lenses.filter((l) => l.count > 0 || l.id === 'recent' || l.id === open);
+}
+
 /** In Trash (#217): out of every lens but Trash. */
 const trashed = (n: NoteRecord) => n.deletedAt !== undefined;
 const live = (n: NoteRecord) => !n.archived && !trashed(n);

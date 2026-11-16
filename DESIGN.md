@@ -800,6 +800,28 @@ notes link to it), Tags (notes grouped under each tag) and Archived
 within the lens. The filters are pure (`browse/lenses.ts`). On a wide
 screen the launch screen's list pane stays on Recent.
 
+**Browse's search and lens row (#288, step 4 of the layout pass, epic
+#282, 2026-11-15).** After #286 what sat above the list was ten lens
+chips in three rows, then the search box. Now the search box comes
+first, full width, under the header, and `/` on a keyboard goes to it
+(nothing else on Browse uses the key; typed in a field it is a
+character). Under it the lenses are one row that scrolls sideways
+inside itself, never the page, each chip keeping its 44 px tap, the
+open one marked `aria-current` and scrolled into the row's sight when
+it opens or when lenses join the row before it. A lens with nothing
+in it is left out (`rowOfLenses`), except Recent, the way back to
+everything, and the open one, so a URL to an empty lens still shows
+where it is. Archived and Trash are reached only by their lenses (and
+Trash from a note in it), so they show whenever they hold a note and
+not when empty. What each lens lists is unchanged. In the Projects
+lens a project's line under its name is its kind, its status as a
+chip and its open tasks, "Build · Active · 2 open tasks", read and
+copied as words; the open tasks are the reminders linked to it that
+are not done, as its header counts them, from the listener Right Now
+already has. The search box and the lenses are the
+list's own when Browse uses it (`app-note-list` takes them as
+content); the list beside a note on a wide screen has neither.
+
 **Trash (#217, Eric, 2026-11-09).** Archive keeps a note out of the way
 (#207); Delete, beside it on the back, puts it in Trash, and 30 days
 later (`TRASH_DAYS`) it is gone for good. Delete asks first, in one
@@ -1326,11 +1348,14 @@ Right Now is one line at the foot: how many are due and the first,
 Reader or Podcasts, else "Right Now · Nothing to tend". The line is a
 44 px button saying whether it is open; a tap opens the whole panel
 (reminders with Done and Snooze, "N more", the reading and Reader and
-Podcasts lines) as a sheet over the lower part of the note, the focus
-moving into it (its heading's link, then its rows in Tab order); when
-Done takes the row that had the focus, the next row's Done has it, else
-the heading. The line again, Escape (wherever the focus is), a tap
-outside it, any navigation or leaving line mode closes it. Any
+Podcasts lines; since #288, 2026-11-15, the Reader and Podcasts in
+one line under the rest) as a sheet over the lower part of the note,
+the focus moving into it (its heading's link, then its rows in Tab
+order: since #288 a row's Done, its note's link if it has one, then
+its Snooze); when Done takes the row that had the focus, the next
+row's Done has it, else the heading. The line again, Escape
+(wherever the focus is), a tap outside it, any navigation or leaving
+line mode closes it. Any
 navigation also closes More and the Previous note and Projects lists.
 Nothing is reached by gesture alone. While the on-screen keyboard is up
 (as the ribbon reads it), the line and a folded project's one line step
@@ -1349,7 +1374,8 @@ design A over B (a bar of slots along the bottom): a Home screen at
 `/home` with a header (the leaf, Mossgoblin, the sync word, a gear to
 Settings), a one-line box, "Plant a thought", the Right Now row (the
 first two reminders that are overdue or due today, and how many are
-new in the Reader, linking to `/right-now`; until 2026-11-11 it named
+new in the Reader (since #288, 2026-11-15, "since you last looked"),
+linking to `/right-now`; until 2026-11-11 it named
 the next two whenever they were due, and Eric saw Wednesday's "for
 tonight's dinner" on Tuesday) and a two-column grid of tiles,
 each an icon, a name and a line on how it stands: Notes (what Browse's
@@ -1384,6 +1410,29 @@ new note, so nothing changed for Eric until he picks Home (since
 2026-11-15 the default is Where I left off, the same stored value,
 #272). A choice made on another device applies from the next cold open
 here.
+
+**Home's quieter lines (#288, step 4 of the layout pass, epic #282,
+2026-11-15).** Three small changes; nothing else on Home moves, and
+its header and Arrange Home are as they were. "Tap the box to write;
+it opens the editor." is for someone new: it shows once the notes are
+known and while Browse's Recent counts fewer than five
+(`HINT_UNTIL_NOTES`), from what is on the device, no stored state, so
+it goes for good once there are five, unless enough are deleted to
+bring it back. Right Now's row said "107 new in the Reader" beside the
+Reader tile's "178 unread": both true, the first the unread articles
+newer than their folder was last opened (#173), the second every
+unread one, but read as a disagreement. The row now says what its
+number is, "107 new in the Reader, 3 in Podcasts, since you last
+looked", and the tile keeps "unread"; the Reader's number is never
+more than the unread (Right Now's rows, above). A tile's status line,
+and Right Now's, is in ink when there is something in it and in the
+quiet ink, still AA on the card, when there is nothing: Notes with no
+notes, Kitchen with nothing planned tonight and nothing to buy, the
+Reader with nothing unread, Podcasts with nothing playing, new or
+queued, Reading queue's "Nothing waiting", Assistants with no
+suggestions and no runs today, Right Now's "Nothing to tend", and
+Map's line, which is a description, not a count. Until now every
+status line was in the quiet ink.
 
 **Arranging Home (#222, step 2 of #216, 2026-11-09).** A tile held for
 400 ms, or the Arrange Home button at the foot of Home (for keyboards
@@ -1800,7 +1849,10 @@ linking to the full list. The sort re-runs every 30 seconds, so items
 slide into Overdue while the app is open.
 With the Reader on, a line per folder with new articles sits under
 the panel's items and at the top of the full list (#173, 2026-11-07;
-Reader, What is new, in Right Now).
+Reader, What is new, in Right Now). (Changed 2026-11-15, #288: the
+reminders come first everywhere; the full list keeps its lines per
+folder under them, and the panel and the sheet have one quiet line
+instead; see Right Now's rows, below.)
 
 - **Done** finishes a one-off (`status: 'done'`, times removed). A
   repeat stays open and moves `dueAt` to its next occurrence after both
@@ -1812,6 +1864,7 @@ Reader, What is new, in Right Now).
   times back.
 - **Swipe** right is done, left opens snooze; the Done and Snooze
   buttons on every row do the same for keyboards and screen readers.
+  (Since #288, 2026-11-15, a round tick and a clock; below.)
 - **Add** takes text, an optional time and an optional repeat (daily,
   weekdays, weekly). A repeat stores the local time and the device's
   IANA zone; weekly keeps the weekday of its first time, and a repeat
@@ -1823,6 +1876,33 @@ Reader, What is new, in Right Now).
   milliseconds), so the app and `sendDuePush` agree. A wall time skipped
   by a clock change fires just after the gap; a repeated one fires the
   first time.
+
+**Right Now's rows (#288, step 4 of the layout pass, epic #282,
+2026-11-15).** On a 412 px phone Done and Snooze took 38% of a row,
+so most reminders wrapped. Now one row, used alike by the full screen,
+the panel on the capture screen and beside the notes, and the sheet
+over a saved note, is: a round tick at the left, a ring in the quiet
+ink with a faint tick that firms on hover or focus, which is Done
+("Done: <text>"); the text and its time; and a clock at the right,
+Snooze ("Snooze: <text>", saying whether its choices are open), which
+opens the same choices under the row as before (In an hour, Tonight,
+Tomorrow, a picked time) with the same Undo. Both are small boxes (28
+and 32 px) with 44 px taps on a touch screen through the invisible
+area of Buttons and tap targets, the rows 44 px apart or more, so a 60
+character reminder keeps to two lines. The swipe stays as it was, a
+second way, never the only one. What is new from the modules comes
+after the reminders: on the full screen the Reader's line per folder
+and Podcasts' line, under the sections; in the panel and the sheet one
+quiet line at the foot, "New since you last looked: Reader 107 ·
+Podcasts 3", each part a link to its module and a part with nothing
+new left out (`app-fresh-line`, `reminders/fresh-line.ts`), after the
+saved-to-read line, which is unchanged. The Reader's part is the
+folders' counts summed, as before, but never more than its unread: a
+feed in two folders counts in each, and the sum could otherwise pass
+the Reader tile's unread. The full screen's Overdue heading is in the
+accent (a text colour held to AA on the page) with a bar beside it;
+the word stays, so it is not colour alone, and the ✳ on a row still
+means only that an assistant made it.
 
 Not yet: tapping a reminder opens its note only when it has `noteId`
 (Claude sets it; the app has no way to link one yet), templates wait
@@ -2105,7 +2185,9 @@ episode counts in its feed's folders. "New" is by the article's
 the last open but stored after it (a back-dated post, a feed added
 late, a device syncing late) is not counted; a known limit (review on
 #186). Right Now (under the launch panel's items, at the top of the
-full screen) then has a line per folder with unread articles newer
+full screen; since #288, 2026-11-15, on the full screen only, under
+its reminders, the panel and the sheet saying it in one line) then
+has a line per folder with unread articles newer
 than its `seenAt`, "14 new in Design" linking to that folder's list,
 most first then by name, at most three, then "and 2 more folders"
 linking to the Reader. A folder never opened counts all its unread
@@ -3048,10 +3130,14 @@ heard, no place kept; the queue as the Queue tab counts it); else "N
 shows"; else "Shows and the queue", in the way Map's tile says "The
 whole garden". Started left the line (step 1's "N new · M started"):
 the queue says more about what is next. Home's Right Now row adds "N
-new in Podcasts" after "N new in the Reader".
+new in Podcasts" after "N new in the Reader". (Since #288, 2026-11-15:
+"N new in the Reader, M in Podcasts, since you last looked"; Home,
+below.)
 
 *Right Now's "new in Podcasts"* (`app-podcasts-new`, after the
-Reader's lines, on the launch screen's panel and the full screen):
+Reader's lines, on the launch screen's panel and the full screen;
+since #288, 2026-11-15, on the full screen only, the panel's one line
+saying "Podcasts 4"):
 "4 new in Podcasts", to Latest, while the module is on and the count
 is above zero. It counts the episodes at hand that are New and were
 published after the last visit to Latest; before any visit, every

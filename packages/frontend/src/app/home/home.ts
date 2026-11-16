@@ -28,11 +28,11 @@ import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
 import { episodeState } from '../podcasts/episodes';
-import { PodcastsSeen } from '../podcasts/podcasts-seen';
 import { PlayerService } from '../reader/player.service';
 import { ReaderService } from '../reader/reader.service';
 import { ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
+import { FreshCounts, sinceLooked } from '../reminders/fresh-line';
 import { RemindersService } from '../reminders/reminders.service';
 import { ShareWaiting } from '../share/share-waiting';
 import { SignIn } from '../sign-in/sign-in';
@@ -42,6 +42,8 @@ import { NewNoteButton } from './new-note';
 
 /** Right Now's row names at most this many reminders, of those due today. */
 export const HOME_REMINDERS = 2;
+/** The box's hint shows until the gardener has this many notes (#288). */
+export const HINT_UNTIL_NOTES = 5;
 /** How long a tile is held to open Arrange Home (#222), in milliseconds. */
 export const HOLD_MS = 400;
 /** The grid's columns, for a grip's Up and Down. */
@@ -55,6 +57,8 @@ interface Tile {
   icon: IconName;
   link: string;
   status: string;
+  /** Nothing in it: its line is drawn in the quiet ink (#288). */
+  empty: boolean;
 }
 
 /** A tile being dragged by its grip: the order it would drop in, and where it is. */
@@ -202,7 +206,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
             <app-icon name="right-now" />
             <span class="text">
               <span class="name">Right Now</span>
-              <span class="status">{{ rightNow() }}</span>
+              <span class="status" [class.empty]="rightNowEmpty()">{{ rightNow() }}</span>
             </span>
             <app-icon name="chevron" [size]="18" />
           </a>
@@ -222,12 +226,14 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
                 <app-icon [name]="t.icon" [size]="28" />
                 <span class="text">
                   <span class="name">{{ t.name }}</span>
-                  <span class="status">{{ t.status }}</span>
+                  <span class="status" [class.empty]="t.empty">{{ t.status }}</span>
                 </span>
               </a>
             }
           </nav>
-          <p class="hint">Tap the box to write; it opens the editor.</p>
+          @if (showHint()) {
+            <p class="hint">Tap the box to write; it opens the editor.</p>
+          }
           <button type="button" class="arrange" (click)="startArranging()">Arrange Home</button>
         </main>
       </div>
@@ -316,8 +322,13 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
       font-size: 16px;
       font-weight: 600;
     }
+    /* A line with something in it is in ink; one with nothing in the
+       quiet ink, still AA on the card (#288). */
     .status {
       font-size: 14px;
+      color: var(--ink);
+    }
+    .status.empty {
       color: var(--quiet);
     }
     nav {
@@ -474,7 +485,7 @@ export class Home {
   private readonly items = inject(ItemsService);
   private readonly reader = inject(ReaderService);
   private readonly player = inject(PlayerService);
-  private readonly podcastsSeen = inject(PodcastsSeen);
+  private readonly fresh = inject(FreshCounts);
   private readonly reading = inject(ReadingService);
   private readonly proposals = inject(ProposalsService);
   private readonly grocery = inject(GroceryService);
@@ -505,22 +516,37 @@ export class Home {
 
   /**
    * The first reminder or two that are overdue or due today, then what is
-   * new in the Reader and Podcasts. A later day's reminder waits for its
-   * day (Eric, 2026-11-11): one worded "tonight" read wrong the day before.
+   * new in the Reader and Podcasts since he last looked. A later day's
+   * reminder waits for its day (Eric, 2026-11-11): one worded "tonight"
+   * read wrong the day before. "Since you last looked" (#288) keeps the
+   * count from reading as the Reader tile's unread, a different number.
    */
-  protected readonly rightNow = computed(() => {
+  private readonly rightNowParts = computed(() => {
     const parts = this.reminders
       .due()
       .slice(0, HOME_REMINDERS)
       .map((r) => r.text);
-    const fresh = this.modules.reader()
-      ? this.items.newSince().reduce((sum, f) => sum + f.count, 0)
-      : 0;
-    if (fresh) parts.push(`${fresh} new in the Reader`);
-    const heard = this.modules.podcasts() ? this.podcastsSeen.fresh() : 0;
-    if (heard) parts.push(`${heard} new in Podcasts`);
-    return parts.length ? parts.join(' · ') : 'Nothing to tend. The garden is quiet.';
+    const fresh = sinceLooked(this.fresh.reader(), this.fresh.podcasts());
+    return fresh ? [...parts, fresh] : parts;
   });
+  protected readonly rightNow = computed(() =>
+    this.rightNowParts().length
+      ? this.rightNowParts().join(' · ')
+      : 'Nothing to tend. The garden is quiet.',
+  );
+  protected readonly rightNowEmpty = computed(() => this.rightNowParts().length === 0);
+  /** What Browse's Recent lists: the notes with something written. */
+  private readonly liveNotes = computed(() =>
+    this.notes.notes().filter((n) => inLens('recent', n)),
+  );
+  /**
+   * "Tap the box to write" is for someone new (#288): shown once the
+   * notes are known, while there are fewer than HINT_UNTIL_NOTES, and
+   * not again once there are that many (unless enough are deleted).
+   */
+  protected readonly showHint = computed(
+    () => this.notes.loaded() && this.liveNotes().length < HINT_UNTIL_NOTES,
+  );
 
   /** Home's tiles as arranged (#222), and those taken off. */
   private readonly layout = computed(() => {
@@ -538,7 +564,14 @@ export class Home {
   /** Every tile of a module that is on, in the default order (TILE_IDS). */
   private readonly allTiles = computed<Tile[]>(() => {
     const tiles: Tile[] = [
-      { id: 'notes', name: 'Notes', icon: 'notes', link: '/browse', status: this.notesLine() },
+      {
+        id: 'notes',
+        name: 'Notes',
+        icon: 'notes',
+        link: '/browse',
+        status: this.notesLine(),
+        empty: this.liveNotes().length === 0,
+      },
     ];
     if (this.modules.kitchen()) {
       tiles.push({
@@ -546,16 +579,18 @@ export class Home {
         name: 'Kitchen',
         icon: 'kitchen',
         link: '/kitchen',
-        status: this.kitchenLine(),
+        ...this.kitchenLine(),
       });
     }
     if (this.modules.reader()) {
+      const unread = this.items.unreadCounts()['all'] ?? 0;
       tiles.push({
         id: 'reader',
         name: 'Reader',
         icon: 'reader',
         link: '/reader',
-        status: `${this.items.unreadCounts()['all'] ?? 0} unread`,
+        status: `${unread} unread`,
+        empty: unread === 0,
       });
     }
     if (this.modules.podcasts()) {
@@ -564,7 +599,7 @@ export class Home {
         name: 'Podcasts',
         icon: 'podcasts',
         link: '/podcasts',
-        status: this.podcastsLine(),
+        ...this.podcastsLine(),
       });
     }
     const toRead = this.reading.unread().length;
@@ -577,6 +612,7 @@ export class Home {
         icon: 'reading',
         link: '/reading',
         status: toRead ? `${toRead} to read` : 'Nothing waiting',
+        empty: toRead === 0,
       },
       {
         id: 'assistants',
@@ -587,8 +623,17 @@ export class Home {
           plural(this.proposals.open(), 'suggestion', 'suggestions'),
           ...(runsToday ? [`${plural(runsToday, 'run', 'runs')} today`] : []),
         ].join(' · '),
+        empty: this.proposals.open() === 0 && runsToday === 0,
       },
-      { id: 'map', name: 'Map', icon: 'map', link: '/map', status: 'The whole garden' },
+      // A description, not a count: quiet, as a line with nothing in it.
+      {
+        id: 'map',
+        name: 'Map',
+        icon: 'map',
+        link: '/map',
+        status: 'The whole garden',
+        empty: true,
+      },
     );
     return tiles;
   });
@@ -777,15 +822,16 @@ export class Home {
   /**
    * The Podcasts tile's line (#251): what is playing with its time
    * left, else what is new and what is in the queue (a zero part left
-   * out), else how many shows, else what the module is.
+   * out), else how many shows, else what the module is; empty (#288)
+   * when nothing plays, is new or is queued.
    */
-  private podcastsLine(): string {
+  private podcastsLine(): { status: string; empty: boolean } {
     const it = this.player.item();
     if (it && this.player.playing() && this.reader.isPodcast(it.feedId)) {
       const total = this.player.duration();
       const left =
         total > 0 ? ` · ${this.items.duration(total - this.player.position())} left` : '';
-      return `Playing: ${it.title}${left}`;
+      return { status: `Playing: ${it.title}${left}`, empty: false };
     }
     const fresh = this.items.episodes().filter((e) => episodeState(e) === 'new').length;
     const queued = this.items.queue().length;
@@ -793,21 +839,24 @@ export class Home {
       ...(fresh ? [`${fresh} new`] : []),
       ...(queued ? [`${queued} in the queue`] : []),
     ];
-    if (parts.length) return parts.join(' · ');
+    if (parts.length) return { status: parts.join(' · '), empty: false };
     const shows = this.reader.podcastFeeds().length;
-    return shows ? plural(shows, 'show', 'shows') : 'Shows and the queue';
+    return { status: shows ? plural(shows, 'show', 'shows') : 'Shows and the queue', empty: true };
   }
 
   /** Every note Browse's Recent lists, and how many were written in today. */
   private notesLine(): string {
-    const live = this.notes.notes().filter((n) => inLens('recent', n));
+    const live = this.liveNotes();
     const today = this.startOfToday();
     const edited = live.filter((n) => (n.updatedAt ?? 0) >= today).length;
     return `${live.length} · ${edited} today`;
   }
 
-  /** Tonight's dinner from this week's plan, and what the grocery list has open. */
-  private kitchenLine(): string {
+  /**
+   * Tonight's dinner from this week's plan, and what the grocery list has
+   * open; empty (#288) with nothing planned and nothing to buy.
+   */
+  private kitchenLine(): { status: string; empty: boolean } {
     const date = localDate(this.now());
     const plans = this.notes
       .notes()
@@ -829,14 +878,15 @@ export class Home {
     const parts = [`Tonight: ${dinner}`];
     const listId = this.grocery.listId();
     const list = listId ? this.notes.find(listId) : undefined;
+    let open = 0;
     if (list) {
-      const open = checklist(list.body).reduce(
+      open = checklist(list.body).reduce(
         (sum, s) => sum + s.items.filter((i) => !i.done).length,
         0,
       );
       parts.push(`${open} to buy`);
     }
-    return parts.join(' · ');
+    return { status: parts.join(' · '), empty: !slot?.text && open === 0 };
   }
 
   private startOfToday(): number {

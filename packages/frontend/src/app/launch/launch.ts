@@ -43,8 +43,7 @@ import { type Spot } from './place';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { ClippingHeader } from '../reader/clipping-header';
-import { ItemsService } from '../reader/items.service';
-import { PodcastsSeen } from '../podcasts/podcasts-seen';
+import { FreshCounts } from '../reminders/fresh-line';
 import { rightNowLine } from './right-now-line';
 import { CaptureService } from '../capture/capture.service';
 import { KEY_SERVICE_MISSING } from '../notes/key-wait-notice';
@@ -468,14 +467,14 @@ export class Launch {
   protected readonly lineMode = computed(() => !!this.noteRoute() && !this.wide());
   /** Right Now's sheet is open over the note (line mode only). */
   protected readonly rightNowOpen = signal(false);
-  private readonly items = inject(ItemsService);
-  private readonly podcastsSeen = inject(PodcastsSeen);
+  private readonly fresh = inject(FreshCounts);
   /** The one line: how many are due and the first, or what is new. */
   protected readonly line = computed(() =>
     rightNowLine(
       this.reminders.due().map((r) => r.text),
-      this.modules.reader() ? this.items.newSince().reduce((sum, f) => sum + f.count, 0) : 0,
-      this.modules.podcasts() ? this.podcastsSeen.fresh() : 0,
+      // The same numbers as Right Now's own foot line (#288).
+      this.fresh.reader(),
+      this.fresh.podcasts(),
     ),
   );
   /**
@@ -650,6 +649,13 @@ export class Launch {
     const editor = this.editor();
     if (!editor || !this.notes.loaded() || this.waiting() || this.locked()) return false;
     if (!editor.shows(this.capture.current())) return false;
+    // Not before the note's text is in the editor: the notes can load
+    // a moment before the capture note's text merges in, and an empty
+    // editor "shows" the empty text it has then, so the scroll would
+    // land on nothing and the caret at 0, and the restore end there.
+    const rec = this.record();
+    if (spot.saved && !rec) return false;
+    if (rec && !rec.locked && rec.body.trim() && !this.capture.current().trim()) return false;
     editor.restorePlace(spot.top ?? 0, spot.caret);
     return true;
   }
