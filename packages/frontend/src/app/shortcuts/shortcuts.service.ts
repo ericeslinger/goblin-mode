@@ -8,6 +8,7 @@ import { ModulesService } from '../modules/modules.service';
 import { offRail } from '../rail/rail';
 import { SETTINGS_PAGES } from '../settings/settings-pages';
 import {
+  APPLE,
   type Command,
   GO_KEYS,
   GO_WAIT_MS,
@@ -18,6 +19,7 @@ import {
   editable,
   isBoxChord,
   placeForKey,
+  plainLetter,
 } from './shortcuts';
 
 /** Taken: nothing else hears it, the browser included. */
@@ -44,6 +46,7 @@ export class ShortcutsService {
   private readonly doc = inject(DOCUMENT);
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
+  private readonly apple = inject(APPLE);
   /** `g` was pressed and its letter is awaited until this fires. */
   private timer?: ReturnType<typeof setTimeout>;
   /** Screens' own searches (the Reader's), the latest drawn first. */
@@ -86,12 +89,13 @@ export class ShortcutsService {
   private keydown(event: KeyboardEvent): void {
     if (composing(event)) return;
     if (event.defaultPrevented || !this.active()) return this.cancel();
-    if (isBoxChord(event)) {
-      // The one key heard in a field too; not over another dialog.
+    if (isBoxChord(event, this.apple)) {
+      // The one key heard in a field too; not over another dialog. A
+      // held chord's repeats are taken and do nothing more.
       this.cancel();
       if (this.doc.querySelector(OWNS_KEYS)) return;
       consume(event);
-      this.opener?.();
+      if (!event.repeat) this.opener?.();
       return;
     }
     if (editable(event.target) || this.doc.querySelector(OWNS_KEYS)) return this.cancel();
@@ -103,12 +107,13 @@ export class ShortcutsService {
       // Escape is the sequence's, whether or not it names a place.
       if (event.key !== 'Escape' && event.key.length !== 1) return;
       consume(event);
-      const place = placeForKey(event.key);
+      const letter = plainLetter(event);
+      const place = letter && placeForKey(letter);
       if (place) this.go(place);
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.key === 'g' && !event.shiftKey) {
+    if (plainLetter(event) === 'g') {
       // Not stopped: a screen's own listener may hear it, though none
       // uses it.
       event.preventDefault();

@@ -8,6 +8,7 @@ import { NewNoteService } from '../home/new-note';
 import { ModulesService } from '../modules/modules.service';
 import { FakeAuthService, FakeModules } from '../testing/fakes';
 import { CommandBox } from './command-box';
+import { APPLE } from './shortcuts';
 import { ShortcutsService } from './shortcuts.service';
 
 beforeAll(() => {
@@ -39,7 +40,7 @@ function press(key: string, init: KeyboardEventInit, target: EventTarget): Keybo
   return event;
 }
 
-async function setup({ kitchen = false } = {}) {
+async function setup({ kitchen = false, apple }: { kitchen?: boolean; apple?: boolean } = {}) {
   const auth = new FakeAuthService();
   auth.user.set({ uid: 'u1', email: 'eric@example.com' } as User);
   const modules = new FakeModules();
@@ -54,6 +55,7 @@ async function setup({ kitchen = false } = {}) {
       { provide: AuthService, useValue: auth },
       { provide: ModulesService, useValue: modules },
       { provide: NewNoteService, useValue: newNote },
+      ...(apple === undefined ? [] : [{ provide: APPLE, useValue: apple }]),
     ],
   });
   TestBed.inject(ShortcutsService);
@@ -74,9 +76,10 @@ async function setup({ kitchen = false } = {}) {
     input().dispatchEvent(new Event('input'));
     await draw();
   };
+  const chord = apple ? { metaKey: true } : { ctrlKey: true };
   const open = async (from: HTMLElement = textarea) => {
     from.focus();
-    press('k', { ctrlKey: true }, from);
+    press('k', chord, from);
     await draw();
   };
   return {
@@ -195,6 +198,46 @@ describe('the command box (#289)', () => {
     await draw();
     expect(dialog.open).toBe(false);
     expect(document.activeElement).toBe(button);
+  });
+
+  it('stays open while the chord is held: its repeats do nothing (#313)', async () => {
+    const { dialog, input, draw, open } = await setup();
+    await open();
+    for (let i = 0; i < 3; i++) {
+      expect(press('k', { ctrlKey: true, repeat: true }, input()).defaultPrevented).toBe(true);
+      await draw();
+      expect(dialog.open).toBe(true);
+    }
+  });
+
+  it('names Ctrl K off Apple platforms, and closes on it, not on Cmd K (#313)', async () => {
+    const { dialog, input, draw, open } = await setup({ apple: false });
+    await open();
+    expect(dialog.querySelector('[aria-label="Keys"]')!.textContent).toContain('Ctrl K');
+    expect(input().getAttribute('aria-keyshortcuts')).toBe('Control+K');
+    expect(press('k', { metaKey: true }, input()).defaultPrevented).toBe(false);
+    await draw();
+    expect(dialog.open).toBe(true);
+    press('k', { ctrlKey: true }, input());
+    await draw();
+    expect(dialog.open).toBe(false);
+  });
+
+  it("names Cmd K on Apple's, and leaves Ctrl K to its field (#313)", async () => {
+    const { dialog, input, draw, open } = await setup({ apple: true });
+    await open();
+    expect(dialog.open).toBe(true);
+    const hints = dialog.querySelector('[aria-label="Keys"]')!.textContent!;
+    expect(hints).toContain('⌘ K');
+    expect(hints).not.toContain('Ctrl K');
+    expect(input().getAttribute('aria-keyshortcuts')).toBe('Meta+K');
+    // Kill-line, in the box's own field.
+    expect(press('k', { ctrlKey: true }, input()).defaultPrevented).toBe(false);
+    await draw();
+    expect(dialog.open).toBe(true);
+    press('k', { metaKey: true }, input());
+    await draw();
+    expect(dialog.open).toBe(false);
   });
 
   it('keeps what is typed in it from the screen under it', async () => {

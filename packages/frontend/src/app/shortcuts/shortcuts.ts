@@ -1,3 +1,5 @@
+import { DOCUMENT } from '@angular/common';
+import { InjectionToken, inject } from '@angular/core';
 import { type PlaceId, RAIL_PLACES } from '../home/places';
 
 /**
@@ -37,15 +39,40 @@ export function placeForKey(key: string): PlaceId | undefined {
 export const GO_WAIT_MS = 1500;
 
 /**
- * Where what is typed is text: a field, anything editable, and
- * anything inside the editor (CodeMirror's content, its widgets, its
- * search panel), whose keys are its own whether or not it is in View.
+ * Input types that take no typed text: a key on one of them is a key,
+ * not a character (#313, 2026-11-16). Any other type, a missing or
+ * unknown one included (the browser makes it text), is a field.
+ */
+const NOT_TYPED = new Set([
+  'checkbox',
+  'radio',
+  'range',
+  'button',
+  'submit',
+  'reset',
+  'file',
+  'color',
+  'image',
+  'hidden',
+]);
+
+/** Text whatever its kind: what `editable` takes besides the inputs. */
+const TEXT_PLACES =
+  'textarea, select, [contenteditable]:not([contenteditable="false"]), .cm-editor';
+
+/**
+ * Where what is typed is text: a text field of any kind, a text area,
+ * a select (its type-ahead), anything editable, and anything inside
+ * the editor (CodeMirror's content, its widgets, its search panel),
+ * whose keys are its own whether or not it is in View. A checkbox,
+ * radio, range or button is not (#313): `/` and `g` work from them,
+ * and no letter does anything native there to lose.
  */
 export function editable(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return !!target.closest(
-    'input, textarea, select, [contenteditable]:not([contenteditable="false"]), .cm-editor',
-  );
+  if (target.closest(TEXT_PLACES)) return true;
+  const input = target.closest('input');
+  return !!input && !NOT_TYPED.has(input.type);
 }
 
 /**
@@ -60,14 +87,47 @@ export const OWNS_KEYS =
 /** Keys that only modify the next one, which neither end nor start anything. */
 export const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'CapsLock']);
 
-/** Ctrl K, or Cmd K on a Mac: the command box, and nothing else held. */
-export function isBoxChord(event: KeyboardEvent): boolean {
+/**
+ * Whether this is an Apple platform (a Mac, an iPhone, an iPad or an
+ * iPod), whose keyboards name Cmd where others name Ctrl. iPadOS says
+ * it is a Mac, which is right here too.
+ */
+export function applePlatform(nav: Navigator | undefined): boolean {
+  const data = (nav as { userAgentData?: { platform?: string } } | undefined)?.userAgentData;
+  return /mac|iphone|ipad|ipod/i.test(data?.platform || nav?.platform || '');
+}
+
+/** Whether the keys are an Apple keyboard's: Cmd K, not Ctrl K, is the box. */
+export const APPLE = new InjectionToken<boolean>('Apple platform', {
+  providedIn: 'root',
+  factory: () => applePlatform(inject(DOCUMENT).defaultView?.navigator),
+});
+
+/**
+ * The command box's chord, and nothing else held: Cmd K on an Apple
+ * platform and Ctrl K elsewhere, never both (#313, 2026-11-16), so a
+ * Mac's Ctrl K stays a field's kill-line. A held key's repeats are
+ * the chord too; the callers take them without opening or closing.
+ */
+export function isBoxChord(event: KeyboardEvent, apple: boolean): boolean {
   return (
     event.key.toLowerCase() === 'k' &&
-    event.ctrlKey !== event.metaKey &&
+    event.metaKey === apple &&
+    event.ctrlKey !== apple &&
     !event.altKey &&
     !event.shiftKey
   );
+}
+
+/**
+ * The letter of a key for `g` and the letter after it, Caps Lock aside
+ * (#313, 2026-11-16): `event.key` lower-cased, the letter printed on
+ * the key on any layout (AZERTY, Dvorak), not `event.code`, which
+ * names a QWERTY place. Held with Shift it is no letter of ours (a
+ * capital typed on purpose), Caps Lock on or off.
+ */
+export function plainLetter(event: KeyboardEvent): string | undefined {
+  return event.shiftKey ? undefined : event.key.toLowerCase();
 }
 
 /** A key mid-composition (an IME, or Android's keyboards): never ours. */

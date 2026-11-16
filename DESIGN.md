@@ -1604,36 +1604,50 @@ the rail's widths were designed for.
   else, an article's own screen under 1320 px among them, it goes to
   `/browse` and focuses Search notes. Browse's own `/`
   (#288) still hears the key there and does the same.
-- `g` then a letter goes to a place, within 1.5 s; Escape or any
-  other key calls it off. The letter, a place's or not, is taken and
-  goes no further, so on the Reader `g` `s` is Settings and never
-  Save. Tab, the arrows and chords pass on as ever. The letters, one
-  table in `shortcuts.ts`, from the places' names: h Home, n Notes,
-  r Right Now, k Kitchen, f Reader (its feeds), p Podcasts, q Reading
-  queue, m Map, a Assistants, s Settings. A module that is off has
-  no key, as it has no entry.
-- Ctrl K (Cmd K on a Mac) opens the command box, from a field too.
+- `g` then a letter goes to a place, within 1.5 s; Escape or any other
+  key calls it off. Caps Lock aside (#313, 2026-11-16): `g` and its
+  letter are `event.key` lower-cased, the letter printed on the key on
+  any layout, not `event.code`'s QWERTY place; held with Shift, Caps
+  Lock on or off, neither is ours, so Shift g types a capital and Shift
+  after `g` goes nowhere. The letter, a place's or not, is taken and
+  goes no further, so on the Reader `g` `s` is Settings and never Save.
+  Tab, the arrows and chords pass on as ever. The letters, one table in
+  `shortcuts.ts`, from the places' names: h Home, n Notes, r Right Now,
+  k Kitchen, f Reader (its feeds), p Podcasts, q Reading queue, m Map, a
+  Assistants, s Settings. A module that is off has no key, as it has no
+  entry.
+- Ctrl K (Cmd K on a Mac) opens the command box, from a field too. Since
+  #313 (2026-11-16) Cmd K on Apple platforms (a Mac, an iPhone, an iPad)
+  and Ctrl K elsewhere, never both: a Mac's Ctrl K stays a field's
+  kill-line. The platform is `navigator.userAgentData`'s, or
+  `navigator.platform`'s, and the box's hints name the one chord. A held
+  chord's repeats are taken and do nothing, so the box does not flicker.
   A modal dialog, as the sheets are, with one field, "Go to or do", a
-  combobox over a listbox of what matches every word typed: each
-  place that shows ("Go to Notes", its letters beside it), New note,
-  Search notes, and each page of Settings ("Settings: Appearance").
-  Up and Down move the active one, Enter runs it, Escape or Ctrl K
-  closes, and the focus goes back where it was. With nothing typed it
-  lists the keys. Nothing typed in it reaches the screen under it.
+  combobox over a listbox of what matches every word typed: each place
+  that shows ("Go to Notes", its letters beside it), New note, Search
+  notes, and each page of Settings ("Settings: Appearance"). Up and Down
+  move the active one, Enter runs it, Escape or the chord closes, and
+  the focus goes back where it was. With nothing typed it lists the
+  keys. Nothing typed in it reaches the screen under it.
 
 Global keys are never heard where what is typed is text (a field,
-anything editable, anything inside the editor, View included), with
-Ctrl, Cmd or Alt held where the key names none, mid-composition, once
-something else took the key (`defaultPrevented`), or while a dialog,
-a menu, the note's More or Right Now sheet or the queue's row menu is
-open; nor signed out, on the development sign-in or on Claude's
-consent page. A screen's own keys win on it: the Reader's j, k, m, s,
-v, o, Enter and Escape, Browse's `/`, the map's + - 0, the arrows of
-Home's arrange, the queue's handles, the toolbar and the split
+anything editable, anything inside the editor, View included), with "a
+field" since #313 (2026-11-16) a text area, a select (its type-ahead) or
+an input that takes typed text: text, search, email, url, tel, password,
+number, the date and time kinds, and a missing or unknown type. A
+checkbox, radio, range, button, file or colour input is not one, so `/`
+and `g` work from them; no letter does anything there natively. Nor are
+they heard with Ctrl, Cmd or Alt held where the key names none,
+mid-composition, once something else took the key (`defaultPrevented`),
+or while a dialog, a menu, the note's More or Right Now sheet or the
+queue's row menu is open; nor signed out, on the development sign-in or
+on Claude's consent page. A screen's own keys win on it: the Reader's j,
+k, m, s, v, o, Enter and Escape, Browse's `/`, the map's + - 0, the
+arrows of Home's arrange, the queue's handles, the toolbar and the split
 handle, More's and the sheets' Escape, the Kitchen headers' Enter, and
-the editor's own keys, Mod-K among them: in a note's text Ctrl K
-inserts a link as before (Editor, Keyboard) and does not open the
-box, which Eric may want otherwise.
+the editor's own keys, Mod-K among them: in a note's text Ctrl K inserts
+a link as before (Editor, Keyboard) and does not open the box, which
+Eric may want otherwise.
 
 Still to come, each its own change: the other modules in the shell.
 (The Notes context column, the Reader's panes and the tablet's rail
@@ -3636,6 +3650,24 @@ shape on the device: a Blob's object URL on a link with `download`,
 clicked and let go (`SAVE_FILE` in `platform.ts`, a seam for specs),
 named `mossgoblin-podcasts.opml`. No network.
 
+*OPML hardening (review of #253, #254, 2026-11-16).* `toOpml` wrote
+attributes with the C0 controls taken out but kept U+FFFE, U+FFFF and
+a lone surrogate, so a show named with one made a file a strict XML
+reader refuses. `xmlChars` in `reader.ts` now keeps only what XML 1.0
+allows (tab, LF, CR, U+0020 to U+D7FF, U+E000 to U+FFFD, U+10000 to
+U+10FFFF), read by code point so an emoji's pair stays, on every value
+and the title the file writes. `parseOpml` took `htmlUrl` as written,
+so a `javascript:` site was stored (Angular's sanitizer made the link
+inert, but it should not be kept); it now keeps a site only when
+`isWebLink` says http(s), the check `toOpml` uses, and imports the
+feed either way. Its outline pattern backtracked on a file of
+`<outline ` that never closed, quadratic, so a 5 MB file could freeze
+the tab; outlines and their attributes are now read by a scan in one
+pass (no DOMParser, as the schema package runs in functions too). It
+reads what the pattern did on OPML as exporters write it (the spec
+keeps the old pattern as an oracle over varied files), except that a
+`>` inside a quoted value no longer ends the tag.
+
 *Keep downloaded on Add a podcast.* The design's switch "Download new
 episodes" is the show's page's Keep downloaded (#180), so Add offers
 the same select, the same choices (by hand only, the newest, the
@@ -3832,6 +3864,23 @@ the queue, an episode stays without an expiry, as an unsaved article
 does today (unsave writes nothing to `expireAt`), until the keep-for
 months are next applied, which give it one again.
 
+*Off the queue, no expiry: accepted (#254, 2026-11-16).* So with Keep
+articles for set, keep-for does not bound what an auto-queued show
+stores: every episode that has been through the queue and left it
+(heard and taken off, removed by hand, or its show moved to the
+Reader) is kept until the months are applied again. Nothing gives
+the expiry back sooner without a new piece: the app may not write
+`expireAt` (the rule lets the owner only clear it), no trigger runs
+on a feedItem's write, the fetcher writes only items it has not
+stored, and Firestore cannot ask for the items with no `expireAt`,
+so finding them on each look would need a stored marker or a new
+trigger, a schema change this follow-up does not make. It is
+tolerable: what it keeps grows only as fast as the gardener queues
+and hears episodes, each one text with no audio, the same as an
+article unsaved today; and changing Keep articles for in Settings
+(`applyRetentionNow`) gives each unqueued, unsaved, unfiled one its
+expiry again, the queued ones still spared.
+
 *One cap for the queue (review on #252, 2026-11-10).* The app's
 listener and the assistant's `queueRanks` read 500, but nothing kept
 writes under that, so a 501st episode would be queued and never
@@ -3850,6 +3899,15 @@ aggregate, billed as one read per thousand entries), and appends only
 while there is room, oldest first; the rest are stored unqueued, with
 their expiry. The assistant sees nothing new, so the tool docs are
 unchanged.
+
+*The cap's race: accepted (#254, 2026-11-16).* The app and the
+fetcher each read the count once before appending, so when both
+append at the same moment the queue can hold one more than
+`QUEUE_MAX`, at most one, and that one is not shown. It is accepted:
+it is one unseen episode, never lost (it keeps its place), and the
+next append by either sees the queue full and adds nothing until one
+is taken off, which brings the extra one into view. Closing it would
+need a transaction over the whole queue on every append.
 
 *No schema, rules or MCP change.* No stored field was added (the
 Right Now mark is the device's), so the validators and rules are as

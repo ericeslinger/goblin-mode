@@ -77,13 +77,104 @@ function decode(text: string): string {
   });
 }
 
-/** An outline's attributes, names lowercased. */
+const NAME_CHAR = /[\w:.-]/;
+const SPACE = /\s/;
+
+/**
+ * An outline's attributes, names lowercased: each `name="value"` or
+ * `name='value'`, read left to right in one pass (#254). It reads what
+ * the pattern `([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')` found before,
+ * but a long run of name characters with no `=` after it, or a quote
+ * never closed, is passed over once rather than once per character.
+ */
 function attributes(tag: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const m of tag.matchAll(/([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
-    out[m[1].toLowerCase()] = decode(m[2] ?? m[3] ?? '');
+  // Where a quote of each kind was last found missing: none after it.
+  const unclosed: Record<string, number> = { '"': Infinity, "'": Infinity };
+  let at = 0;
+  while (at < tag.length) {
+    if (!NAME_CHAR.test(tag[at])) {
+      at++;
+      continue;
+    }
+    const start = at;
+    while (at < tag.length && NAME_CHAR.test(tag[at])) at++;
+    // Every start inside this name reaches the same end, so a name that
+    // fails fails from all of them: going on from its end is the same.
+    const name = tag.slice(start, at);
+    let p = at;
+    while (p < tag.length && SPACE.test(tag[p])) p++;
+    if (tag[p] !== '=') continue;
+    p++;
+    while (p < tag.length && SPACE.test(tag[p])) p++;
+    const quote = tag[p];
+    if (quote !== '"' && quote !== "'") continue;
+    const close = p + 1 >= unclosed[quote] ? -1 : tag.indexOf(quote, p + 1);
+    if (close < 0) {
+      unclosed[quote] = Math.min(unclosed[quote], p + 1);
+      continue;
+    }
+    out[name.toLowerCase()] = decode(tag.slice(p + 1, close));
+    at = close + 1;
   }
   return out;
+}
+
+/**
+ * Each outline's opening and closing tags, in the file's order, in one
+ * pass (#254): what `<outline\b([^>]*?)(\/?)>|<\/outline\s*>` matched
+ * before, but linear, so a file of `<outline ` with no end cannot
+ * freeze the tab. An opening tag ends at the first `>` outside a
+ * quoted value, since one may hold a `>`; once a tag finds no such
+ * end, it and the rest end at their first `>`, as before.
+ */
+function* outlineTags(text: string): Generator<{ attrs: string; closed: boolean } | 'close'> {
+  const find = /<(\/?)outline/gi;
+  const significant = /["'>]/g;
+  let quotesBroken = false;
+  for (let m = find.exec(text); m; m = find.exec(text)) {
+    const after = m.index + m[0].length;
+    if (m[1]) {
+      let p = after;
+      while (p < text.length && SPACE.test(text[p])) p++;
+      if (text[p] === '>') {
+        find.lastIndex = p + 1;
+        yield 'close';
+      } else find.lastIndex = m.index + 1;
+      continue;
+    }
+    if (after >= text.length || /\w/.test(text[after])) {
+      find.lastIndex = m.index + 1;
+      continue;
+    }
+    let end = -1;
+    if (!quotesBroken) {
+      significant.lastIndex = after;
+      for (let s = significant.exec(text); s; s = significant.exec(text)) {
+        if (s[0] === '>') {
+          end = s.index;
+          break;
+        }
+        // A quote opens a value only after `=`; a stray one is a character.
+        let b = s.index - 1;
+        while (b >= after && SPACE.test(text[b])) b--;
+        if (text[b] !== '=') continue;
+        const close = text.indexOf(s[0], s.index + 1);
+        if (close < 0) break;
+        significant.lastIndex = close + 1;
+      }
+      // No end outside quotes: from here every tag ends at its first
+      // `>`, as before, so a value left open is passed over only once.
+      if (end < 0) quotesBroken = true;
+    }
+    if (quotesBroken) end = text.indexOf('>', after);
+    // No `>` at all: no later opening tag can have an end.
+    if (end < 0) return;
+    const slice = text.slice(after, end);
+    const closed = slice.endsWith('/');
+    find.lastIndex = end + 1;
+    yield { attrs: closed ? slice.slice(0, -1) : slice, closed };
+  }
 }
 
 /**
@@ -96,13 +187,13 @@ function attributes(tag: string): Record<string, string> {
 export function parseOpml(text: string): OpmlFeed[] {
   const byUrl = new Map<string, OpmlFeed>();
   const stack: string[] = [];
-  for (const m of text.matchAll(/<outline\b([^>]*?)(\/?)>|<\/outline\s*>/gi)) {
-    if (m[0].startsWith('</')) {
+  for (const tag of outlineTags(text)) {
+    if (tag === 'close') {
       stack.pop();
       continue;
     }
-    const attrs = attributes(m[1]);
-    const closed = m[2] === '/';
+    const attrs = attributes(tag.attrs);
+    const closed = tag.closed;
     const name = (attrs['text'] ?? attrs['title'] ?? '').trim();
     const url = attrs['xmlurl'] === undefined ? undefined : normalizeFeedUrl(attrs['xmlurl']);
     if (url) {
@@ -111,7 +202,10 @@ export function parseOpml(text: string): OpmlFeed[] {
       if (known) {
         for (const f of folders) if (!known.folders.includes(f)) known.folders.push(f);
       } else {
-        const site = attrs['htmlurl']?.trim();
+        // Only a web link, as for the feed's own (#254): a `javascript:`
+        // site is not stored, though the feed is.
+        const given = attrs['htmlurl']?.trim();
+        const site = given && isWebLink(given) ? given : undefined;
         byUrl.set(url, {
           url,
           title: name || url,
@@ -127,15 +221,38 @@ export function parseOpml(text: string): OpmlFeed[] {
   return [...byUrl.values()];
 }
 
-/** Text as an XML attribute's value: the five characters XML gives meaning to, escaped. */
+/**
+ * Text with every character XML 1.0 does not allow taken out (#254):
+ * it allows tab, LF, CR, U+0020 to U+D7FF, U+E000 to U+FFFD and
+ * U+10000 to U+10FFFF, so the other C0 controls, U+FFFE, U+FFFF and a
+ * lone surrogate go. Read by code point, so a pair (an emoji) stays.
+ */
+export function xmlChars(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (
+      c === 0x9 ||
+      c === 0xa ||
+      c === 0xd ||
+      (c >= 0x20 && c <= 0xd7ff) ||
+      (c >= 0xe000 && c <= 0xfffd) ||
+      c >= 0x10000
+    ) {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/** Text as an XML attribute's value or text: XML's characters only, its five escaped. */
 function attr(text: string): string {
-  return text
+  return xmlChars(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+    .replace(/'/g, '&apos;');
 }
 
 /**
