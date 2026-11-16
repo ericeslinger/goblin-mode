@@ -569,6 +569,57 @@ test.describe('in three panes', () => {
     await expect(articles(page).getByRole('listitem')).toHaveCount(2);
   });
 
+  test('the list pane’s own scroll marks read; closing the article ends the run', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await readerWithFixtures(page);
+    await seedKilnLogs(30);
+    await openSettings(page, 'Modules');
+    await page.getByRole('switch', { name: 'Mark articles read as I scroll past them' }).check();
+    await letItSave(page);
+    await page.goto('/reader');
+    await expect(articles(page).getByRole('listitem')).toHaveCount(35);
+
+    // A wheel over the list pane: its box scrolls, the page does not,
+    // and the rows passed are marked in one batch and kept in the list.
+    const pane = (await listPane(page).boundingBox())!;
+    await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+    await page.mouse.wheel(0, 1500);
+    const marked = listPane(page)
+      .getByRole('status')
+      .filter({ hasText: /Marked \d+ read/ });
+    await expect(marked).toBeVisible();
+    const passed = Number(/Marked (\d+) read/.exec(await marked.innerText())![1]);
+    expect(passed).toBeGreaterThan(0);
+    expect(passed).toBeLessThan(35);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(articles(page).getByRole('listitem')).toHaveCount(35);
+    await expect(foldersPane(page).getByRole('link', { name: /^All/ })).toHaveText(
+      `All ${35 - passed} unread`,
+    );
+    await listPane(page).getByRole('button', { name: 'Undo' }).click();
+    await expect(listPane(page).getByRole('status')).toContainText(`${passed} unread again.`);
+    await expect(foldersPane(page).getByRole('link', { name: /^All/ })).toHaveText('All 35 unread');
+
+    // An article opened stays in the list, read, while it is open;
+    // Escape closes it, the run is over, and it leaves the list.
+    await page.goto('/reader/f/Games');
+    await expect(articles(page).getByRole('listitem')).toHaveCount(2);
+    await articles(page)
+      .getByRole('link', { name: /A one-page dungeon/ })
+      .click();
+    await expect(page).toHaveURL(/\/reader\/a\//);
+    await expect(articlePane(page).getByRole('heading', { level: 2 })).toHaveText(
+      'A one-page dungeon',
+    );
+    await expect(articles(page).getByRole('listitem')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/reader\/f\/Games$/);
+    await expect(articlePane(page)).toHaveText('Choose an article');
+    await expect(articles(page).getByRole('listitem')).toHaveCount(1);
+  });
+
   test('no sideways page at its widths; under 1320 the Reader is as it was', async ({ page }) => {
     test.setTimeout(90_000);
     await readerWithFixtures(page);

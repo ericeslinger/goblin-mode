@@ -2497,7 +2497,12 @@ so opening an article neither draws the list again nor moves its
 scroll. The article open is the list's current row, scrolled into
 view once (a reload), and stays in the list once read, with the ones
 read on the way (#188's set, which a list in the panes keeps when it
-opens with an article); next and previous, j and k, go along the list
+opens with an article). The run ends as the rule of 2026-11-11 has
+it, when the list is the screen again, which in the panes is the
+article pane closing (Escape, its back link, a folder chosen): the
+read rows leave the list then and the next article counts from the
+unread (review on #305, 2026-11-16). Next and previous, j and k, go
+along the list
 as the pane draws it, and its keys are the article's while one is
 open, the list's (j, k, Enter) while none is. An article the gardener
 opens starts at its top with its title, an h2 under the Reader's h1,

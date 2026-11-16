@@ -708,6 +708,20 @@ export class ReaderList {
         if (!keep) this.items.forgetVisits();
       });
     });
+    // The run ends in the panes as it does on a phone, when the list
+    // is the screen again (2026-11-11): there, that is the article
+    // pane closing (Escape, its back link, a folder chosen). The rows
+    // read on the way then leave the list, and the next article
+    // opened counts from the unread (review on #305, 2026-11-16).
+    let reading = false;
+    effect(() => {
+      const alone = this.ownKeys();
+      if (!this.pane()) return;
+      untracked(() => {
+        if (alone && reading) this.items.forgetVisits();
+        reading = !alone;
+      });
+    });
     // In the panes the current row is scrolled into view first, then
     // the rows are followed, so the observer's first look is from
     // where that left them, and rows it put above the top are not

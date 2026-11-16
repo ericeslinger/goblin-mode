@@ -277,6 +277,12 @@ describe('ReaderPanes (#289)', () => {
     expect(el().querySelector('section[aria-label="Article"]')!.textContent!.trim()).toBe(
       'Choose an article',
     );
+    // The list is the screen again: the run is over, and the two read
+    // on the way have left it (2026-11-11).
+    expect(TestBed.inject(ItemsService).visitedIn({ kind: 'folder', name: 'Design' }).size).toBe(0);
+    expect(
+      [...el().querySelectorAll('li[data-id]')].map((li) => li.getAttribute('data-id')),
+    ).toEqual(['c']);
   });
 
   it('opens a cold article with its list beside it, and goes on to the caught-up page', async () => {
