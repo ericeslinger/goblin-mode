@@ -737,6 +737,16 @@ export class FakeItems {
   readonly episodes = signal<ItemRecord[]>([]);
   readonly unreadCounts = signal<Record<string, number>>({ all: 0, saved: 0 });
   readonly newSince = signal<{ folder: string; count: number }[]>([]);
+  /**
+   * Each new article once: a stand-in from the folders' counts, never
+   * more than the unread, as the real distinct count never is.
+   */
+  readonly newSinceTotal = computed(() =>
+    Math.min(
+      this.newSince().reduce((sum, f) => sum + f.count, 0),
+      this.unreadCounts()['all'] ?? 0,
+    ),
+  );
   markSeen = vi.fn((_folder: string) => undefined);
   inShelf = () => [];
   find = () => undefined;

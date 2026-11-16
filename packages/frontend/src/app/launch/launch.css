@@ -5,7 +5,8 @@
   /* Less the mini-player while it shows (#179). */
   height: calc(100dvh - var(--mini-player-height, 0px));
 }
-.bar {
+.bar,
+.kitchen-head {
   grid-area: bar;
 }
 .capture {
@@ -280,16 +281,48 @@
   max-height: 45%;
   overflow: auto;
 }
-/* A week whose dinners and their notes are taller than the room
-   scrolls in its own box (#285); the week is the screen's point, so it
-   may take more of it than a project's header does. */
-.meal-plan-header {
+/* Kitchen's Meals and On hand (#288, 2026-11-15): the module's header
+   and tabs where the note bar was, placed as a page's are on Shopping
+   and Recipes (styles.css, .page: 640 px wide at most, centred, 16 px
+   in), so the tabs stay put from one tab to the next. */
+.kitchen-head {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(640px + 2 * var(--space-3));
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-3) 0;
+}
+.kitchen-head .more-menu {
+  font-size: 14px;
+}
+/* The note's View, Back and More as the header's actions take no more
+   of its height than the leaf does (28 px, as in the bar), so the
+   header is as tall as on the tabs without them. */
+.kitchen-head .icon-button,
+.kitchen-head .more {
+  margin: calc(-1 * var(--space-2)) 0;
+}
+/* The week is the screen (#288): it takes the room, scrolling in its
+   own box when its dinners and their notes are taller (#285). */
+.meal-plan-header,
+.pantry-view {
   display: block;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
-  max-height: 60%;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+/* Edit as text: a line saying so over the editor, and the way back. */
+.as-text {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--quiet);
 }
 /* The other headers are short; should one outgrow the room, it
    scrolls rather than being cut off by the clip above (#285). */

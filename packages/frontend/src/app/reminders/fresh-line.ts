@@ -17,15 +17,12 @@ export class FreshCounts {
   private readonly seen = inject(PodcastsSeen);
 
   /**
-   * Summed over the folders, an article whose feed is in two folders
-   * counts in each; never more than the unread, so this line and the
-   * Reader's "N unread" cannot read as a disagreement (#288).
+   * Each new article once, though its feed be in two folders (#288,
+   * review on #298), so this line and the Reader's "N unread" cannot
+   * read as a disagreement: every one counted is unread. Until then a
+   * sum over the folders, capped at the unread total.
    */
-  readonly reader = computed(() => {
-    if (!this.modules.reader()) return 0;
-    const sum = this.items.newSince().reduce((total, f) => total + f.count, 0);
-    return Math.min(sum, this.items.unreadCounts()['all'] ?? 0);
-  });
+  readonly reader = computed(() => (this.modules.reader() ? this.items.newSinceTotal() : 0));
   readonly podcasts = computed(() => (this.modules.podcasts() ? this.seen.fresh() : 0));
 }
 

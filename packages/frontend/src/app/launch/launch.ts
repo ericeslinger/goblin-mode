@@ -12,7 +12,7 @@ import {
   viewChild,
   viewChildren,
 } from '@angular/core';
-import { DOCUMENT } from '@angular/common';
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { filter, map } from 'rxjs';
 import { ActivatedRoute, NavigationStart, Router, RouterLink } from '@angular/router';
@@ -41,6 +41,7 @@ import { NewNoteService } from '../home/new-note';
 import { LastPlaceService } from './last-place.service';
 import { type Spot } from './place';
 import { MealPlanHeader } from '../kitchen/meal-plan-header';
+import { PantryView } from '../kitchen/pantry-view';
 import { RecipeHeader } from '../kitchen/recipe-header';
 import { ClippingHeader } from '../reader/clipping-header';
 import { FreshCounts } from '../reminders/fresh-line';
@@ -92,7 +93,9 @@ export function sharedText(title: string | null, text: string | null, url: strin
     RecipeHeader,
     ClippingHeader,
     MealPlanHeader,
+    PantryView,
     KitchenTabs,
+    NgTemplateOutlet,
     NoteList,
     RightNowPanel,
     ListView,
@@ -207,6 +210,36 @@ export class Launch {
     if (note.kind === 'pantry') return 'pantry';
     return this.grocery.isList(note) ? 'shopping' : undefined;
   });
+  /**
+   * Meals or On hand (#288, 2026-11-15): Kitchen's header and tabs in
+   * place of the note bar, with its View, Back and More as the header's
+   * actions, and the week or the list as the screen.
+   */
+  protected readonly kitchenScreen = computed(() => {
+    const tab = this.kitchenTab();
+    return tab === 'meals' || tab === 'pantry';
+  });
+  /** Edit as text, from More: the plan's or the pantry's own editor. */
+  protected readonly asText = signal(false);
+  /** The week or the list shows, and the editor waits behind it. */
+  protected readonly kitchenView = computed(() => this.kitchenScreen() && !this.asText());
+  /** The way back from the text, named for what it shows. */
+  protected readonly kitchenBack = computed(() =>
+    this.kitchenTab() === 'meals' ? 'Show the week' : 'Show the list',
+  );
+  private readonly moreButton = viewChild<ElementRef<HTMLButtonElement>>('moreButton');
+
+  /** To the text, the cursor in it; back to the week or the list. */
+  protected setAsText(on: boolean): void {
+    this.asText.set(on);
+    this.moreOpen.set(false);
+    if (on) afterNextRender(() => this.editor()?.focus(), { injector: this.injector });
+  }
+
+  /** Back to More's button, wherever the bar or the header has put it. */
+  protected focusMore(): void {
+    this.moreButton()?.nativeElement.focus();
+  }
   protected readonly projects = computed(() => {
     // Off, Projects shows nowhere (#126).
     if (!this.modules.projects()) return [];
@@ -289,6 +322,8 @@ export class Launch {
       openId();
       untracked(() => {
         this.back.set(false);
+        // A plan or the pantry opens on its week or list (#288).
+        this.asText.set(false);
         // Right Now's sheet closes on going to another note (#287).
         this.rightNowOpen.set(false);
       });

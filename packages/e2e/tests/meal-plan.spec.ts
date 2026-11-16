@@ -1,10 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test } from '../src/fixtures';
+import { editAsText, expect, letItSave, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The meal plan (#129): a week opens as a note with its slots drawn
-// above its text. A dinner is planned from the recipes, ticked made,
+// as the screen, its text behind Edit as text (#288). A dinner is planned from the recipes, ticked made,
 // and asked about; the answer lands under the slot and in the recipe,
 // whose back counts how often it was made. Claude reads and plans the
 // same note.
@@ -39,9 +39,11 @@ test('a week is planned, a dinner made and noted, and Claude plans too', async (
   ).toHaveText('Shakshuka');
   await plan.getByRole('button', { name: 'Change Tue dinner, Oct 20: nothing planned' }).click();
   await plan.getByRole('button', { name: 'Delivery' }).click();
-  await expect(page.getByRole('textbox', { name: 'New note' })).toContainText(
-    'Tue dinner: delivery',
-  );
+  // The week is the screen; the text it wrote is behind Edit as text (#288).
+  await expect(page.getByRole('textbox', { name: 'New note' })).toBeHidden();
+  await expect(await editAsText(page)).toContainText('Tue dinner: delivery');
+  await page.getByRole('button', { name: 'Show the week', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'New note' })).toBeHidden();
 
   await plan.getByRole('checkbox', { name: 'Made Mon dinner, Oct 19' }).check();
   const ask = plan.getByRole('textbox', { name: 'How did Shakshuka go?' });
@@ -267,10 +269,12 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
 
   // Kitchen's tabs (#220): the week is Meals; Shopping is the week's
   // list to shop from, with what is left to buy on its tab; Recipes is
-  // the recipe book, each with how often it was made; On hand opens the
-  // pantry. Each is a URL of its own.
+  // the recipe book, A to Z, saying how often only of one made (#288);
+  // On hand opens the pantry. Each is a URL of its own, under the one
+  // Kitchen header (#288).
   const tabs = page.getByRole('navigation', { name: 'Kitchen screens' });
   await expect(tabs.getByRole('link', { name: 'Meals' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Kitchen', level: 1 })).toBeVisible();
   await tabs.getByRole('link', { name: /^Shopping/ }).click();
   await expect(page).toHaveURL(/\/kitchen\/shopping$/);
   const shopping = tabs.getByRole('link', { name: /^Shopping/ });
@@ -291,13 +295,15 @@ test('a planned week fills the grocery list, and shopping it clears it', async (
   await tabs.getByRole('link', { name: 'Recipes' }).click();
   await expect(page).toHaveURL(/\/kitchen\/recipes$/);
   const book = page.getByRole('list', { name: 'Recipes' });
-  await expect(book.getByRole('link', { name: /Dal/ })).toContainText('Made once, last Oct 20');
-  await expect(book.getByRole('link', { name: /Shakshuka/ })).toContainText('Not made yet');
-  // Newest first: Dal was written after Shakshuka.
+  await expect(book.getByRole('link', { name: /Dal/ })).toContainText('made 1×, last Oct 20');
+  // Never made: nothing said, where "Not made yet" was.
+  await expect(book.getByRole('link', { name: /Shakshuka/ })).toHaveText('Shakshuka');
+  // A to Z.
   await expect(book.getByRole('link')).toHaveText([/^Dal/, /^Shakshuka/]);
   await tabs.getByRole('link', { name: 'On hand' }).click();
   await expect(page).toHaveURL(/\/n\/pantry$/);
   await expect(tabs.getByRole('link', { name: 'On hand' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Kitchen', level: 1 })).toBeVisible();
   // Back steps through the tabs.
   await page.goBack();
   await expect(page).toHaveURL(/\/kitchen\/recipes$/);

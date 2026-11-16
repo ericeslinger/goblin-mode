@@ -2,30 +2,11 @@
   <app-sign-in />
 } @else {
   <div class="launch">
-    <header class="bar">
-      <!-- Home (#219): the leaf, at the left of every screen's top, and
-           New note beside it (#272), which here is this screen's New. -->
-      <app-home-link />
-      @if (templates.templates().length > 0) {
-        <button
-          type="button"
-          class="link"
-          aria-controls="template-menu"
-          [attr.aria-expanded]="templatesOpen()"
-          (click)="templatesOpen.set(!templatesOpen())"
-        >
-          From template
-        </button>
-      }
-      @if (listable()) {
-        <button type="button" class="link" (click)="listMode.set(!listMode())">
-          {{ listMode() ? 'Text' : 'List' }}
-        </button>
-      }
-      <span class="spacer"></span>
+    <ng-template #noteActions>
       @if (
         !locked() &&
         !back() &&
+        !kitchenView() &&
         (viewing() || (capture.current().trim() && !(listable() && listMode())))
       ) {
         <!-- Viewing (2026-10-17): select and tick without the keyboard. The
@@ -91,6 +72,21 @@
               }}
             </p>
             <ul>
+              @if (kitchenScreen()) {
+                <!-- Kitchen's Meals and On hand (#288): the text behind
+                     the week or the list, and From template, which the
+                     page header has no room for. -->
+                <li>
+                  <button type="button" (click)="setAsText(!asText())">
+                    {{ asText() ? kitchenBack() : 'Edit as text' }}
+                  </button>
+                </li>
+                @if (templates.templates().length > 0) {
+                  <li>
+                    <button type="button" (click)="templatesOpen.set(true)">From template</button>
+                  </li>
+                }
+              }
               <!-- From the row under the note (2026-11-15, #287): each opens
                    its list above the note. -->
               @if (previous().length > 0) {
@@ -128,7 +124,41 @@
           </nav>
         }
       </div>
-    </header>
+    </ng-template>
+    @if (kitchenScreen() && kitchenTab(); as tab) {
+      <!-- Kitchen's Meals and On hand (#288, 2026-11-15): the module's
+           header and tabs, as on Shopping and Recipes, the note bar's
+           View, Back and More as its actions. -->
+      <div class="kitchen-head">
+        <app-kitchen-tabs [active]="tab" heading>
+          <ng-container *ngTemplateOutlet="noteActions" />
+        </app-kitchen-tabs>
+      </div>
+    } @else {
+      <header class="bar">
+        <!-- Home (#219): the leaf, at the left of every screen's top, and
+             New note beside it (#272), which here is this screen's New. -->
+        <app-home-link />
+        @if (templates.templates().length > 0) {
+          <button
+            type="button"
+            class="link"
+            aria-controls="template-menu"
+            [attr.aria-expanded]="templatesOpen()"
+            (click)="templatesOpen.set(!templatesOpen())"
+          >
+            From template
+          </button>
+        }
+        @if (listable()) {
+          <button type="button" class="link" (click)="listMode.set(!listMode())">
+            {{ listMode() ? 'Text' : 'List' }}
+          </button>
+        }
+        <span class="spacer"></span>
+        <ng-container *ngTemplateOutlet="noteActions" />
+      </header>
+    }
 
     <aside class="list-pane" aria-label="All notes">
       <app-note-list [current]="capture.open().id" />
@@ -149,14 +179,14 @@
       @if (previousOpen() || projectsOpen()) {
         <!-- Previous note and Projects, opened from More (2026-11-15, #287):
              above the note, scrolling in their own box when long. -->
-        <div class="previous" (keydown.escape)="closeLists(); moreButton.focus()">
+        <div class="previous" (keydown.escape)="closeLists(); focusMore()">
           <div class="previous-head">
             <span>{{ projectsOpen() ? 'Projects' : 'Previous notes' }}</span>
             <button
               type="button"
               class="link quiet"
               [attr.aria-label]="projectsOpen() ? 'Close Projects' : 'Close Previous notes'"
-              (click)="closeLists(); moreButton.focus()"
+              (click)="closeLists(); focusMore()"
             >
               Close
             </button>
@@ -192,13 +222,17 @@
           }
         </div>
       }
-      @if (kitchenTab(); as tab) {
+      @if (kitchenTab() === 'shopping') {
         <!-- The grocery list's text is a screen the Shopping tab leads to, not the tab's own. -->
-        <app-kitchen-tabs
-          class="kitchen-tabs"
-          [active]="tab"
-          [current]="tab === 'shopping' ? 'true' : 'page'"
-        />
+        <app-kitchen-tabs class="kitchen-tabs" active="shopping" current="true" />
+      }
+      @if (kitchenScreen() && asText() && !back() && !locked()) {
+        <!-- Edit as text (#288): the plain editor, as it always was, and
+             the way back to the week or the list. -->
+        <div class="as-text">
+          <span>{{ kitchenTab() === 'meals' ? 'The plan as text' : 'On hand as text' }}</span>
+          <button type="button" (click)="setAsText(false)">{{ kitchenBack() }}</button>
+        </div>
       }
       @if (locked()) {
         <!-- Sealed, and its key is not on this device yet (step 3a). -->
@@ -227,12 +261,25 @@
         } @else if (note.kind === 'clipping') {
           <app-clipping-header [note]="note" />
         } @else if (note.kind === 'mealplan' && modules.kitchen()) {
-          <app-meal-plan-header
-            class="meal-plan-header"
-            [note]="note"
-            [body]="capture.current()"
-            (edited)="capture.replace($event)"
-          />
+          @if (!asText()) {
+            <!-- The week is the screen (#288); its text is behind Edit as text. -->
+            <app-meal-plan-header
+              class="meal-plan-header"
+              [note]="note"
+              [body]="capture.current()"
+              (edited)="capture.replace($event)"
+              (editText)="setAsText(true)"
+            />
+          }
+        } @else if (note.kind === 'pantry' && modules.kitchen()) {
+          @if (!asText()) {
+            <app-pantry-view
+              class="pantry-view"
+              [body]="capture.current()"
+              (edited)="capture.replace($event)"
+              (editText)="setAsText(true)"
+            />
+          }
         } @else if (note.kind === 'context') {
           <p class="note-status">
             Context for Claude: Claude is given this at the start of every conversation with the
@@ -278,7 +325,7 @@
       }
       <app-note-editor
         class="editor"
-        [class.hidden]="(listable() && listMode()) || back() || locked()"
+        [class.hidden]="(listable() && listMode()) || back() || locked() || kitchenView()"
         label="New note"
         placeholder="Plant a thought"
         autofocus

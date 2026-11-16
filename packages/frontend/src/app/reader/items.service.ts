@@ -591,6 +591,27 @@ export class ItemsService {
       );
   });
 
+  /**
+   * How many articles are new since their folder's list was opened, each
+   * once however many of its folders it is new in (#288, review on
+   * #298): what Right Now's "since you last looked" says. The folders'
+   * counts above stay per folder, for the full Right Now's lines. Every
+   * one counted is unread, so it is never more than `unreadCounts`' all.
+   */
+  readonly newSinceTotal = computed(() => {
+    const seen = this.feeds.seenAt();
+    const folders = this.foldersOf();
+    let total = 0;
+    for (const i of this.readerItems()) {
+      if (i.read) continue;
+      const fresh = (folders.get(i.feedId) ?? [UNCATEGORIZED]).some(
+        (f) => seen[f] === undefined || i.published > seen[f],
+      );
+      if (fresh) total++;
+    }
+    return total;
+  });
+
   private readonly foldersOf = computed(() => {
     const map = new Map<string, string[]>();
     for (const f of this.feeds.feeds())

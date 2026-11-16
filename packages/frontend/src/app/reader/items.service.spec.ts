@@ -519,6 +519,21 @@ describe('ItemsService (#162)', () => {
     expect(items.newSince()).toEqual([]);
   });
 
+  it('counts each new article once, though its feed is in two folders (#288)', () => {
+    const { items, api } = setup();
+    // Dice (f2) is filed in Games and Design: one article, new in both.
+    api.push('unread', [item('b', 'f2', 2), item('r', 'f2', 1, { read: true })]);
+    expect(items.newSince()).toEqual([
+      { folder: 'Design', count: 1 },
+      { folder: 'Games', count: 1 },
+    ]);
+    expect(items.newSinceTotal()).toBe(1);
+    expect(items.unreadCounts()[ALL]).toBe(1);
+    // One more, in Loose (Uncategorized): two in all.
+    api.push('unread', [item('b', 'f2', 2), item('d', 'f3', 3)]);
+    expect(items.newSinceTotal()).toBe(2);
+  });
+
   it('says how old an article is, in words', () => {
     const { items } = setup();
     expect(items.age(NOW_MS - 30_000)).toBe('just now');

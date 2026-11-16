@@ -11,8 +11,9 @@ import { KitchenTabs } from './kitchen-tabs';
 /**
  * /kitchen and /kitchen/<a day> (#129): opens the meal plan for the week
  * holding that day (today by default), making it first if no device has
- * yet. The plan is a note, so it opens on the note page, its week drawn
- * above its text, under Kitchen's tabs (#220).
+ * yet. The plan is a note, so it opens on the note page, under Kitchen's
+ * header and tabs (#220), its week the screen and its text behind Edit
+ * as text (#288).
  */
 @Component({
   selector: 'app-kitchen-week',

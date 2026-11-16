@@ -12,15 +12,19 @@ export type KitchenTab = 'meals' | 'shopping' | 'recipes' | 'pantry';
  * week shown), Shopping (`/kitchen/shopping`, with what is left to buy),
  * Recipes (`/kitchen/recipes`) and On hand (`/kitchen/pantry`). With
  * `heading`, the module's header above them: the page header (#286),
- * the leaf and Kitchen. The note page draws them without, under its
- * own bar, on a week's plan, the pantry and the grocery list.
+ * the leaf and Kitchen, with what is projected as its actions. Since
+ * #288 (2026-11-15) the note page draws them so over a week's plan and
+ * the pantry too, its View, Back and More as those actions, so the
+ * tabs never move from one tab to the next; over the grocery list's
+ * text, a screen the Shopping tab leads to, it draws them without,
+ * under its own bar.
  */
 @Component({
   selector: 'app-kitchen-tabs',
   imports: [ModuleTabs, PageHeader],
   template: `
     @if (heading()) {
-      <app-page-header title="Kitchen" />
+      <app-page-header title="Kitchen"><ng-content /></app-page-header>
     }
     <app-module-tabs label="Kitchen screens" [tabs]="tabs()" />
   `,

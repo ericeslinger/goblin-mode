@@ -87,6 +87,51 @@ describe('MealPlanHeader (#129)', () => {
     );
   });
 
+  it('draws the week as one row between its neighbours, today marked in words (#288)', async () => {
+    const { el } = await render(body);
+    const weeks = el.querySelector('nav[aria-label="Weeks"]')!;
+    expect(weeks.querySelector('h2')!.textContent?.trim()).toBe('Week of Oct 19');
+    expect(
+      [...weeks.querySelectorAll('a')].map((a) => [
+        a.getAttribute('aria-label'),
+        a.getAttribute('href'),
+      ]),
+    ).toEqual([
+      ['Previous week', '/kitchen/2026-10-12'],
+      ['Next week', '/kitchen/2026-10-26'],
+    ]);
+    const today = [...el.querySelectorAll('ul[aria-label="Meals"] > li[aria-current="date"]')];
+    expect(today).toHaveLength(1);
+    expect(today[0].textContent).toContain('Tue dinner, Oct 20');
+    expect(today[0].querySelector('.today-word')?.textContent?.trim()).toBe('Today');
+    // The day, Today and the dinner read apart, never run together.
+    expect(today[0].querySelector('.row')!.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Tue dinner, Oct 20, Today: delivery',
+    );
+    // The grocery list and On hand, under the week.
+    expect(el.querySelector('.week-links a')?.textContent?.trim()).toBe('Grocery list');
+    expect(buttonNamed(el, 'On hand')).toBeDefined();
+    // Nothing the week cannot draw: no Also in this plan.
+    expect(el.querySelector('section.extras')).toBeNull();
+  });
+
+  it('shows what the week cannot draw as plain words, with the way to the text', async () => {
+    const typed = '## Week of Oct 19\nGuests *Friday*\n- [ ] Mon dinner:\n  - from Ma’s\n';
+    const { el, fixture, edits } = await render(typed);
+    const extras = el.querySelector('section.extras')!;
+    expect(extras.querySelector('h3')?.textContent).toBe('Also in this plan');
+    expect([...extras.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Guests Friday',
+    ]);
+    // The note under the dinner is in the week, not in the block.
+    expect(el.querySelector('.note')?.textContent).toBe('from Ma’s');
+    let asked = 0;
+    fixture.componentInstance.editText.subscribe(() => asked++);
+    buttonNamed(extras as HTMLElement, 'Edit as text').click();
+    expect(asked).toBe(1);
+    expect(edits).toEqual([]);
+  });
+
   it('shows a slot and its notes as plain words, the text kept as typed (#285)', async () => {
     const typed = '- [ ] Mon dinner: [[Fish of the week]] (*half*)\n  - from [[Ma’s]]\n';
     const { el, edits } = await render(typed);

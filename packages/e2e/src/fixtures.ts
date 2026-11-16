@@ -144,6 +144,19 @@ export async function openMore(page: Page) {
 }
 
 /**
+ * Kitchen's Meals or On hand as text (#288): Edit as text, in More,
+ * shows the note's own editor in place of the week or the list.
+ * Returns the editor.
+ */
+export async function editAsText(page: Page) {
+  const menu = await openMore(page);
+  await menu.getByRole('button', { name: 'Edit as text', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: 'New note' });
+  await expect(editor).toBeVisible();
+  return editor;
+}
+
+/**
  * Opens Previous note or Projects from More (since 2026-11-15, #287;
  * until then a pill under the note) and returns its list.
  */
