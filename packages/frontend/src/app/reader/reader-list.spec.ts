@@ -7,7 +7,7 @@ import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
-import { NOW } from '../platform/platform';
+import { NOW, TIME_ZONE } from '../platform/platform';
 import { ReadingService } from '../reading/reading.service';
 import {
   FakeDownloadsApi,
@@ -21,6 +21,7 @@ import {
 import { SETTINGS_API } from '../theme/theme-sync.service';
 import { DOWNLOADS_API } from './downloads.service';
 import { ITEMS_API, ItemsService } from './items.service';
+import { DENSITY_KEY } from './density';
 import { PASSED_MS, ReaderList, SETTLE_MS, UNDO_MS, tabOf } from './reader-list';
 import { READER_API } from './reader.service';
 
@@ -81,6 +82,7 @@ function setup(readOnScroll: boolean, folder?: string) {
       { provide: DOWNLOADS_API, useValue: new FakeDownloadsApi() },
       { provide: AuthService, useValue: { user: signal<User | null>({ uid: 'u1' } as User) } },
       { provide: NOW, useValue: () => NOW_MS },
+      { provide: TIME_ZONE, useValue: 'UTC' },
       ...(folder
         ? [{ provide: ActivatedRoute, useValue: { paramMap: of(convertToParamMap({ folder })) } }]
         : []),
@@ -94,7 +96,7 @@ function setup(readOnScroll: boolean, folder?: string) {
   const fixture = TestBed.createComponent(ReaderList);
   fixture.detectChanges();
   const el = fixture.nativeElement as HTMLElement;
-  const row = (id: string) => el.querySelector<HTMLElement>(`li[data-id="${id}"]`)!;
+  const row = (id: string) => el.querySelector<HTMLElement>(`.row[data-id="${id}"]`)!;
   const entry = (target: Element, above: boolean): Partial<IntersectionObserverEntry> => ({
     target,
     isIntersecting: !above,
@@ -133,7 +135,7 @@ describe('ReaderList, mark read on scroll (#172)', () => {
     const { fixture, el, items, api, leave, back, look, move, status } = setup(true);
     look();
     move();
-    expect(el.querySelectorAll('li')).toHaveLength(3);
+    expect(el.querySelectorAll('.row[data-id]')).toHaveLength(3);
     leave('a');
     leave('b');
     // b comes back before its moment is up: only a counts.
@@ -145,8 +147,8 @@ describe('ReaderList, mark read on scroll (#172)', () => {
     expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual(['users/u1/feedItems/a']);
     expect(items.unreadCounts()['all']).toBe(2);
     // Held in the list, greyed, so nothing moves.
-    expect(el.querySelectorAll('li')).toHaveLength(3);
-    expect(el.querySelector('li[data-id="a"]')!.classList).toContain('read');
+    expect(el.querySelectorAll('.row[data-id]')).toHaveLength(3);
+    expect(el.querySelector('.row[data-id="a"]')!.classList).toContain('read');
     expect(status()).toBe('Marked 1 read. Undo');
     el.querySelector<HTMLButtonElement>('[role="status"] button')!.click();
     fixture.detectChanges();
@@ -245,7 +247,7 @@ describe('ReaderList, mark read on scroll (#172)', () => {
     fixture.detectChanges();
     api.push('unread', [item('d', 0.5), item('a', 1), item('b', 2), item('c', 3)]);
     fixture.detectChanges();
-    expect(el.querySelectorAll('li')).toHaveLength(4);
+    expect(el.querySelectorAll('.row[data-id]')).toHaveLength(4);
     look('d', 'a', 'b');
     window.dispatchEvent(new Event('scroll'));
     vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
@@ -314,8 +316,8 @@ describe('ReaderList, under the Reader tabs (#220)', () => {
       [...tabs.querySelectorAll('a')].map((a) => a.textContent!.trim().split(/\s/)[0]),
     ).toEqual(['All', 'Saved', 'Folders']);
     expect(tabs.querySelector('a')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('All 1 unread');
-    expect(el.querySelector('li[data-id="a"]')).not.toBeNull();
-    expect(el.querySelector('li[data-id="e1"]')).toBeNull();
+    expect(el.querySelector('.row[data-id="a"]')).not.toBeNull();
+    expect(el.querySelector('.row[data-id="e1"]')).toBeNull();
     expect(el.textContent).not.toContain('An episode');
   });
 
@@ -350,5 +352,126 @@ describe('ReaderList, under the Reader tabs (#220)', () => {
     // Back to the list from the article: the next one opened starts afresh.
     TestBed.createComponent(ReaderList).detectChanges();
     expect([...items.visitedIn(all)]).toEqual([]);
+  });
+});
+
+describe('ReaderList, by day, compact and the source marks (#288)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  const heads = (el: HTMLElement) =>
+    [...el.querySelectorAll('.day h3 > [aria-hidden="true"]')].map((h) =>
+      h.textContent!.replace(/\s+/g, ' ').trim(),
+    );
+
+  it('heads each day with its unread, and Mark these read marks that day alone, with Undo', () => {
+    const { fixture, el, api, items, status } = setup(false);
+    // Today (the 7th, by the injected clock, in UTC) and the day before.
+    api.push('unread', [item('a', 1), item('b', 2), item('y1', 13), item('y2', 30)]);
+    fixture.detectChanges();
+    expect(heads(el)).toEqual(['Today · 2', 'Yesterday · 2']);
+    // Named for the screen reader in words.
+    expect(
+      [...el.querySelectorAll('.day h3 > .visually-hidden')].map((h) => h.textContent!.trim()),
+    ).toEqual(['Today, 2 unread', 'Yesterday, 2 unread']);
+    // The list's items are its articles alone: each day's heading is in
+    // its first row's item, above the row; nothing else is the list's child.
+    const list = el.querySelector('ul[aria-label="Articles"]')!;
+    expect([...list.children].map((c) => c.tagName)).toEqual(['LI', 'LI', 'LI', 'LI']);
+    expect([...list.children].map((li) => li.querySelectorAll('.row').length)).toEqual([
+      1, 1, 1, 1,
+    ]);
+    expect(el.querySelectorAll('li > .day')).toHaveLength(2);
+    expect(list.children[2].querySelector('.day')).not.toBeNull();
+    expect([...el.querySelectorAll('.row[data-id]')].map((r) => r.getAttribute('data-id'))).toEqual(
+      ['a', 'b', 'y1', 'y2'],
+    );
+    const days = el.querySelectorAll<HTMLElement>('li > .day');
+    const yesterday = days[1].querySelector('button')!;
+    expect(yesterday.textContent!.trim()).toBe('Mark these read');
+    expect(yesterday.getAttribute('aria-describedby')).toBe(days[1].querySelector('h3')!.id);
+    yesterday.click();
+    fixture.detectChanges();
+    expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual([
+      'users/u1/feedItems/y1',
+      'users/u1/feedItems/y2',
+    ]);
+    expect(items.unreadCounts()['all']).toBe(2);
+    expect(status()).toBe('2 marked read. Undo');
+    expect(heads(el)).toEqual(['Today · 2']);
+    el.querySelector<HTMLButtonElement>('[role="status"] button')!.click();
+    fixture.detectChanges();
+    expect(api.setMany.mock.lastCall![1].map((w) => [w.path, w.data['read']])).toEqual([
+      ['users/u1/feedItems/y1', false],
+      ['users/u1/feedItems/y2', false],
+    ]);
+    expect(items.unreadCounts()['all']).toBe(4);
+    expect(status()).toBe('2 unread again.');
+  });
+
+  it('offers Undo for Mark all read too', () => {
+    const { fixture, el, items, status } = setup(false);
+    el.querySelector<HTMLButtonElement>('button.all')!.click();
+    fixture.detectChanges();
+    expect(items.unreadCounts()['all']).toBe(0);
+    expect(status()).toBe('3 marked read. Undo');
+    el.querySelector<HTMLButtonElement>('[role="status"] button')!.click();
+    fixture.detectChanges();
+    expect(items.unreadCounts()['all']).toBe(3);
+  });
+
+  it('heads a day with nothing unread without a count or a button, with Show read on', () => {
+    const { fixture, el, api } = setup(false);
+    api.push('unread', [item('a', 1)]);
+    api.push('read', [{ id: 'r', data: { ...item('r', 30).data, read: true } }]);
+    fixture.detectChanges();
+    el.querySelector<HTMLInputElement>('.tools input[type="checkbox"]')!.click();
+    fixture.detectChanges();
+    expect(heads(el)).toEqual(['Today · 1', 'Yesterday']);
+    expect(el.querySelectorAll('li > .day')[1].querySelector('button')).toBeNull();
+  });
+
+  it('draws Compact without summaries, and keeps the choice on the device', () => {
+    const { fixture, el, api } = setup(false);
+    api.push('unread', [{ id: 's', data: { ...item('s', 1).data, summary: 'The first lines.' } }]);
+    fixture.detectChanges();
+    expect(el.querySelector('.summary')!.textContent).toBe('The first lines.');
+    const compact = [...el.querySelectorAll<HTMLLabelElement>('.tools label')].find((l) =>
+      l.textContent!.includes('Compact list'),
+    )!;
+    compact.querySelector('input')!.click();
+    fixture.detectChanges();
+    expect(el.querySelector('.summary')).toBeNull();
+    expect(el.querySelector('ul.compact')).not.toBeNull();
+    expect(localStorage.getItem(DENSITY_KEY)).toBe('"compact"');
+  });
+
+  it('marks each row with its feed’s letter, hidden from screen readers', () => {
+    const { el } = setup(false);
+    const mark = el.querySelector('.row[data-id="a"] app-source-mark')!;
+    expect(mark.textContent!.trim()).toBe('B');
+    expect(mark.getAttribute('aria-hidden')).toBe('true');
+    // The row's name is still the article's.
+    expect(el.querySelector('.row[data-id="a"] a.open')!.textContent).toContain('Article a');
+  });
+
+  it('shows the folder chips on All with the current one marked', () => {
+    const { el } = setup(false);
+    const chips = el.querySelector('nav[aria-label="By folder"]')!;
+    expect(
+      [...chips.querySelectorAll('a')].map((a) => a.textContent!.replace(/\s+/g, ' ').trim()),
+    ).toEqual(['All 3 unread', 'Design 3 unread']);
+    expect(chips.querySelector('a[aria-current="page"]')!.textContent).toContain('All');
+  });
+
+  it('shows the chips on a folder’s list with that folder current, and none on Saved', () => {
+    const design = setup(false, 'Design');
+    const current = design.el.querySelector('nav[aria-label="By folder"] a[aria-current]')!;
+    expect(current.getAttribute('href')).toBe('/reader/f/Design');
+    TestBed.resetTestingModule();
+    const saved = setup(false, 'saved');
+    expect(saved.el.querySelector('nav[aria-label="By folder"]')).toBeNull();
   });
 });
