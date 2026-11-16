@@ -1480,7 +1480,8 @@ reaches; it focuses the screen's `main`, or the screen, and on the
 note screen the note's text, 2026-11-16) and a
 navigation named Places, fixed at the left edge, 176 px wide (64 px
 of icons from 641 to 899 px since 2026-11-16; see The tablet's rail,
-below), from the top to the mini-player. Its entries, in order: Home, Notes, Right Now
+below), from the top to the mini-player. Its entries, in order: Home,
+Notes, Right Now
 (how many are overdue or due today), Kitchen, Reader (unread), Podcasts
 (new episodes), Reading queue (to read), Map, Assistants (open
 suggestions), and Settings at the foot. Each is a link with its tile's
