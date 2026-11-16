@@ -438,3 +438,101 @@ export function parseFeed(source: string, url: string): ParsedFeed | undefined {
   });
   return feed;
 }
+
+/** What `parseFeed` failing is stored as, a feed's error (#161). */
+export const NOT_A_FEED = 'not a feed this can read (RSS, Atom or JSON Feed)';
+
+type Root = 'rss' | 'atom' | 'rdf' | 'json';
+
+/** The kind of feed a text's head starts, by its root element, or none. */
+function rootOf(source: string): { kind: Root; name: string } | undefined {
+  const trimmed = source.replace(/^﻿/, '').trimStart();
+  if (trimmed.startsWith('{')) return { kind: 'json', name: '' };
+  // The first element past the prolog, comments and doctype.
+  const name = /<(?![?!])([A-Za-z_][\w:.-]*)/.exec(trimmed)?.[1];
+  if (name === 'rss') return { kind: 'rss', name };
+  if (name === 'feed') return { kind: 'atom', name };
+  if (name === 'RDF' || name?.endsWith(':RDF')) return { kind: 'rdf', name };
+  return undefined;
+}
+
+/**
+ * The head of a feed cut off at the size cap (2026-11-16), made whole:
+ * cut after its last complete item (`</item>`, or `</entry>` for Atom)
+ * and closed as its root needs (`</channel></rss>`, `</feed>`, the
+ * RDF root's own name). A closing tag inside a CDATA section, an
+ * episode's show notes quoting one, is passed over for an earlier one.
+ * The cut drops whatever was half read, a partial character included.
+ * Undefined when the head holds no complete item, or is no RSS, Atom
+ * or RDF feed: a JSON Feed is not repaired.
+ */
+export function completeFeedHead(source: string): string | undefined {
+  const root = rootOf(source);
+  if (!root || root.kind === 'json') return undefined;
+  const close = root.kind === 'atom' ? '</entry>' : '</item>';
+  const ending =
+    root.kind === 'rss' ? '</channel></rss>' : root.kind === 'atom' ? '</feed>' : `</${root.name}>`;
+  for (let at = source.lastIndexOf(close); at >= 0; at = source.lastIndexOf(close, at - 1)) {
+    // CDATA does not nest: the tag is inside one when the last section
+    // opened before it is not closed before it.
+    const open = source.lastIndexOf('<![CDATA[', at);
+    const shut = open < 0 ? -1 : source.indexOf(']]>', open);
+    if (open < 0 || (shut >= 0 && shut + 3 <= at)) {
+      return source.slice(0, at + close.length) + ending;
+    }
+    if (at === 0) break;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a feed's items run oldest to newest: more of its dated items
+ * newer than the one before than older, the last over a day after the
+ * first. A feed read in part that lists so holds only its oldest.
+ */
+export function oldestFirst(items: readonly { published?: number }[]): boolean {
+  const dates = items.map((i) => i.published).filter((d): d is number => d !== undefined);
+  if (dates.length < 2) return false;
+  let up = 0;
+  let down = 0;
+  for (let i = 1; i < dates.length; i++) {
+    if (dates[i] > dates[i - 1]) up++;
+    else if (dates[i] < dates[i - 1]) down++;
+  }
+  return up > down && dates[dates.length - 1] - dates[0] > 86_400_000;
+}
+
+/**
+ * A fetched feed's text read (2026-11-16): parsed whole, or when the
+ * fetch stopped at `cutAt` bytes, its complete items. Feeds list their
+ * newest first and only the recent ones are kept, so a large feed's
+ * head is all that is needed. A head with no complete item, a JSON
+ * Feed (which cannot be read in part) and a feed that lists its oldest
+ * first (whose head holds nothing recent) are errors to show.
+ */
+export function readFeed(
+  source: string,
+  url: string,
+  cutAt?: number,
+): { feed: ParsedFeed } | { error: string } {
+  if (cutAt === undefined) {
+    const feed = parseFeed(source, url);
+    return feed ? { feed } : { error: NOT_A_FEED };
+  }
+  const mb = `${Math.round(cutAt / (1024 * 1024))} MB`;
+  const root = rootOf(source);
+  if (!root) return { error: NOT_A_FEED };
+  if (root.kind === 'json') return { error: `a JSON feed over ${mb} cannot be read in part` };
+  const head = completeFeedHead(source);
+  if (head === undefined) {
+    return { error: `the feed is over ${mb} and its first ${mb} hold no complete item` };
+  }
+  const feed = parseFeed(head, url);
+  if (!feed) return { error: NOT_A_FEED };
+  if (oldestFirst(feed.items)) {
+    return {
+      error: `the feed is over ${mb} and lists its oldest items first, so its newest cannot be read`,
+    };
+  }
+  return { feed };
+}

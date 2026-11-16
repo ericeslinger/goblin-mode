@@ -183,7 +183,44 @@ const WHEEL_GROWN = wheel(`<item>
     <itunes:duration>19:00</itunes:duration>
   </item>`);
 
-const FIXTURES: Record<string, { body: string; contentType: string }> = {
+/**
+ * A podcast with a long back catalogue (2026-11-16), served as a feed
+ * over the size cap is: its head only, cut inside an episode's show
+ * notes, and marked `truncated`, so the emulator reads it in part as
+ * production would. Its two complete episodes are what a look stores.
+ */
+const ARCHIVE = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>Long archive (fixture)</title>
+  <link>https://pod.invalid/archive/</link>
+  <itunes:image href="https://pod.invalid/archive.jpg"/>
+  <item>
+    <title>Episode 700: Salt glaze</title>
+    <link>https://pod.invalid/archive/700</link>
+    <guid>archive-700</guid>
+    <pubDate>Sat, 07 Nov 2026 07:00:00 GMT</pubDate>
+    <description><![CDATA[<p>Salt thrown into the kiln at heat.</p>]]></description>
+    <enclosure url="https://pod.invalid/archive/700.mp3" type="audio/mpeg" length="30000000"/>
+    <itunes:duration>33:00</itunes:duration>
+  </item>
+  <item>
+    <title>Episode 699: Soda firing</title>
+    <link>https://pod.invalid/archive/699</link>
+    <guid>archive-699</guid>
+    <pubDate>Sat, 31 Oct 2026 07:00:00 GMT</pubDate>
+    <description><![CDATA[<p>Salt's gentler cousin.</p>]]></description>
+    <enclosure url="https://pod.invalid/archive/699.mp3" type="audio/mpeg" length="30000000"/>
+    <itunes:duration>35:00</itunes:duration>
+  </item>
+  <item>
+    <title>Episode 698: Wood ash</title>
+    <link>https://pod.invalid/archive/698</link>
+    <guid>archive-698</guid>
+    <pubDate>Sat, 24 Oct 2026 07:00:00 GMT</pubDate>
+    <description><![CDATA[<p>Three days of stoking, and the ash that`;
+
+const FIXTURES: Record<string, { body: string; contentType: string; truncated?: boolean }> = {
   'design.xml': { body: DESIGN, contentType: 'application/rss+xml; charset=utf-8' },
   'games.atom': { body: GAMES, contentType: 'application/atom+xml' },
   'notes.json': { body: NOTES, contentType: 'application/feed+json' },
@@ -191,6 +228,7 @@ const FIXTURES: Record<string, { body: string; contentType: string }> = {
   'pod.xml': { body: POD, contentType: 'application/rss+xml' },
   'glaze.xml': { body: GLAZE, contentType: 'application/rss+xml' },
   'wheel.xml': { body: WHEEL, contentType: 'application/rss+xml' },
+  'archive.xml': { body: ARCHIVE, contentType: 'application/rss+xml', truncated: true },
   'page.html': { body: '<html><body>not a feed</body></html>', contentType: 'text/html' },
 };
 
@@ -216,7 +254,13 @@ export function standInFeedFetcher(env: NodeJS.ProcessEnv): FeedFetcher | undefi
     }
     if (seen.etag === etag || seen.etag === `"fixture-wheel.xml-2"`)
       return { status: 304, contentType: fixture.contentType, text: '', etag: seen.etag };
-    return { status: 200, contentType: fixture.contentType, text: fixture.body, etag };
+    return {
+      status: 200,
+      contentType: fixture.contentType,
+      text: fixture.body,
+      etag,
+      ...(fixture.truncated ? { truncated: true } : {}),
+    };
   };
 }
 
@@ -260,7 +304,11 @@ export function standInPageFetcher(env: NodeJS.ProcessEnv): PageFetcher | undefi
     const parsed = new URL(url);
     const fixture = parsed.hostname === 'feeds.invalid' && FIXTURES[parsed.pathname.slice(1)];
     if (fixture) {
-      return { contentType: fixture.contentType, bytes: new TextEncoder().encode(fixture.body) };
+      return {
+        contentType: fixture.contentType,
+        bytes: new TextEncoder().encode(fixture.body),
+        ...(fixture.truncated ? { truncated: true } : {}),
+      };
     }
     if (parsed.hostname === 'feeds.invalid') throw new Error('the site answered 404');
     throw new Error(`${parsed.hostname} is not reachable from the emulator`);

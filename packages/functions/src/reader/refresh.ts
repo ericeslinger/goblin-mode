@@ -5,7 +5,7 @@
 // how often it posts and backs off on errors; one that fails for about
 // a month is given up until the gardener asks again.
 import { FEED_CAP, QUEUE_MAX, feedItemId, orderAfter } from '@mossgoblin/schema';
-import { type Enclosure, parseFeed } from './feed-parse';
+import { type Enclosure, readFeed } from './feed-parse';
 import { CONTENT_MAX, htmlToMarkdown, summaryOf } from './markdown';
 import { termsOf } from './terms';
 
@@ -26,7 +26,12 @@ export const ITEMS_PER_FETCH = 200;
  * look must not bring in years of archive to be marked read by hand.
  */
 export const ITEM_MAX_AGE_MS = 90 * 86_400_000;
-/** A feed body over this is cut off: 5 MB is a very large feed. */
+/**
+ * A feed body over this is cut off: 5 MB is a very large feed. Past it
+ * only the head is read (2026-11-16), as a podcast's whole back
+ * catalogue often is: its newest items come first, and the first 5 MB
+ * hold hundreds of them, far more than the 90 days kept.
+ */
 export const FEED_MAX_BYTES = 5 * 1024 * 1024;
 
 export interface FeedResponse {
@@ -36,6 +41,11 @@ export interface FeedResponse {
   text: string;
   etag?: string;
   lastModified?: string;
+  /**
+   * True when the feed went on past the cap and only its head is in
+   * `text` (2026-11-16): `readFeed` then parses its complete items.
+   */
+  truncated?: boolean;
 }
 
 /** Fetches a feed, conditionally when it was seen before; throws a reason when it cannot. */
@@ -234,8 +244,11 @@ export async function refreshFeed(
     return { outcome: 'unchanged', added: 0 };
   }
   if (res.status < 200 || res.status >= 300) return failed(`the site answered ${res.status}`);
-  const parsed = parseFeed(res.text, feed.url);
-  if (!parsed) return failed('not a feed this can read (RSS, Atom or JSON Feed)');
+  // A feed read in part (2026-11-16) gives its complete items, or an
+  // error when they cannot be the newest.
+  const read = readFeed(res.text, feed.url, res.truncated ? FEED_MAX_BYTES : undefined);
+  if ('error' in read) return failed(read.error);
+  const parsed = read.feed;
   // Everything the feed lists, newest first, for its rhythm; only the
   // recent ones (ITEM_MAX_AGE_MS) are stored, so a first look is not a
   // feed's archive, and a dormant feed still gets its daily interval
@@ -285,8 +298,12 @@ export async function refreshFeed(
   await store.updateFeed(feed.uid, feed.id, {
     ...(unnamed && parsed.title ? { title: parsed.title.slice(0, 200) } : {}),
     ...(!feed.site && parsed.site ? { site: parsed.site } : {}),
-    // The feed's own artwork (#246), kept as the feed names it now.
-    ...((parsed.image ?? undefined) !== feed.image ? { image: parsed.image ?? null } : {}),
+    // The feed's own artwork (#246), kept as the feed names it now; a
+    // feed read in part may name it after the cut, so its missing
+    // artwork is no sign the feed dropped it (2026-11-16).
+    ...((parsed.image ?? undefined) !== feed.image && !(res.truncated && !parsed.image)
+      ? { image: parsed.image ?? null }
+      : {}),
     etag: res.etag ?? null,
     lastModified: res.lastModified ?? null,
     fetchedAt: now,

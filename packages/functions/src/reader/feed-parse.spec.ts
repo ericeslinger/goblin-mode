@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { durationSeconds, parseFeed } from './feed-parse';
+import {
+  NOT_A_FEED,
+  completeFeedHead,
+  durationSeconds,
+  oldestFirst,
+  parseFeed,
+  readFeed,
+} from './feed-parse';
 
 const RSS = `<?xml version="1.0"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -426,5 +433,149 @@ describe('parseFeed (#161)', () => {
     )!;
     expect(feed.items[0].html).toContain('<p>a ]]&gt; b ]]> c</p>');
     expect(feed.items[1].html).toContain('<content type="xhtml">y</content> and more.</p>');
+  });
+});
+
+describe('a feed read in part (2026-11-16)', () => {
+  const DAY = 86_400_000;
+  const T = Date.parse('2026-11-14T07:00:00Z');
+  const podItem = (n: number, notes = `<p>Show notes for ${n}.</p>`) =>
+    `<item><title>Episode ${n}</title><link>https://pod.test/${n}</link><guid>ep-${n}</guid>` +
+    `<pubDate>${new Date(T - (1000 - n) * 3 * DAY).toUTCString()}</pubDate>` +
+    `<description><![CDATA[${notes}]]></description>` +
+    `<enclosure url="https://pod.test/${n}.mp3" type="audio/mpeg" length="1000"/></item>`;
+  const HEAD =
+    '<?xml version="1.0"?>\n<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel>' +
+    '<title>Kiln hour</title><link>https://pod.test/</link><itunes:image href="https://pod.test/show.jpg"/>';
+  /** A podcast's feed, newest first, `count` episodes from 1000 down. */
+  const pod = (count: number, notes?: (n: number) => string) =>
+    HEAD +
+    Array.from({ length: count }, (_, i) => podItem(1000 - i, notes?.(1000 - i))).join('') +
+    '</channel></rss>';
+  /** The first `bytes` of a text's UTF-8, decoded as the fetcher does. */
+  const cut = (text: string, bytes: number) =>
+    new TextDecoder().decode(new TextEncoder().encode(text).slice(0, bytes));
+  const titles = (text: string) =>
+    parseFeed(text, 'https://pod.test/feed')!.items.map((i) => i.title);
+
+  it('cuts an RSS head after its last complete item and closes it', () => {
+    const whole = pod(3);
+    const at = whole.indexOf('<title>Episode 998');
+    const head = completeFeedHead(whole.slice(0, at + 10))!;
+    expect(head.endsWith('</item></channel></rss>')).toBe(true);
+    expect(titles(head)).toEqual(['Episode 1000', 'Episode 999']);
+  });
+
+  it('cuts before a CDATA section the cut landed in', () => {
+    const whole = pod(3);
+    const at = whole.indexOf('Show notes for 998');
+    expect(titles(completeFeedHead(whole.slice(0, at))!)).toEqual(['Episode 1000', 'Episode 999']);
+  });
+
+  it('passes over an </item> inside show notes, in a closed section or the open one', () => {
+    const quoting = pod(3, (n) => `<p>${n}: we wrote </item> on air.</p>`);
+    // The cut lands after the quoted tag in 998's notes, before its section closes.
+    const open = quoting.indexOf('</item> on air', quoting.indexOf('998: we wrote')) + 12;
+    expect(titles(completeFeedHead(quoting.slice(0, open))!)).toEqual([
+      'Episode 1000',
+      'Episode 999',
+    ]);
+    // A closed section's quoted tag is no item's end either.
+    const head = completeFeedHead(quoting.slice(0, quoting.indexOf('<item>', open)))!;
+    expect(titles(head)).toEqual(['Episode 1000', 'Episode 999', 'Episode 998']);
+    expect(head.endsWith('/></item></channel></rss>')).toBe(true);
+  });
+
+  it('drops a character cut in half', () => {
+    const whole = pod(2, () => '<p>Glazes 🔥 and celadon é</p>');
+    const bytes = new TextEncoder().encode(whole);
+    // Into the second item's four-byte emoji, one byte in.
+    const second = whole.indexOf('<item>', whole.indexOf('</item>'));
+    const at = new TextEncoder().encode(whole.slice(0, whole.indexOf('🔥', second))).length + 1;
+    const text = new TextDecoder().decode(bytes.slice(0, at));
+    expect(text.endsWith('\uFFFD')).toBe(true);
+    const head = completeFeedHead(text)!;
+    expect(head).not.toContain('\uFFFD');
+    expect(parseFeed(head, 'https://pod.test/feed')!.items[0].html).toContain('🔥');
+  });
+
+  it('reads an Atom head and an RDF head', () => {
+    const atom =
+      '<?xml version="1.0"?><!-- a comment --><feed xmlns="http://www.w3.org/2005/Atom"><title>Dice</title>' +
+      '<entry><title>One</title><id>1</id><link href="https://a.test/1"/></entry>' +
+      '<entry><title>Two</title><id>2</id><link href="https://a.test/2"/></entry>' +
+      '<entry><title>Thr';
+    const a = completeFeedHead(atom)!;
+    expect(a.endsWith('</entry></feed>')).toBe(true);
+    expect(titles(a)).toEqual(['One', 'Two']);
+    const rdf =
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">' +
+      '<channel rdf:about="https://r.test/"><title>Old</title><link>https://r.test/</link></channel>' +
+      '<item rdf:about="https://r.test/1"><title>First</title><link>https://r.test/1</link></item>' +
+      '<item rdf:about="https://r.test/2"><title>Sec';
+    const r = completeFeedHead(rdf)!;
+    expect(r.endsWith('</item></rdf:RDF>')).toBe(true);
+    expect(titles(r)).toEqual(['First']);
+  });
+
+  it('gives nothing for a head with no complete item, a JSON Feed or no feed', () => {
+    expect(completeFeedHead(HEAD + '<item><title>Episode 1</title><description><![CDATA[lo')).toBe(
+      undefined,
+    );
+    expect(completeFeedHead('{"version":"https://jsonfeed.org/version/1.1","items":[{"id":')).toBe(
+      undefined,
+    );
+    expect(completeFeedHead('<html><body><p>a </item> page</p>')).toBe(undefined);
+  });
+
+  it('reads a feed over 5 MB in part, newest first, its channel kept', () => {
+    // Long show notes, as a podcast's back catalogue has: over 5 MB.
+    const notes = (n: number) => `<p>${'Notes é '.repeat(700)} ${n}</p>`;
+    const big = pod(1000, notes);
+    expect(new TextEncoder().encode(big).length).toBeGreaterThan(5 * 1024 * 1024);
+    const cap = 5 * 1024 * 1024;
+    const read = readFeed(cut(big, cap), 'https://pod.test/feed', cap);
+    if (!('feed' in read)) throw new Error(read.error);
+    expect(read.feed.title).toBe('Kiln hour');
+    expect(read.feed.image).toBe('https://pod.test/show.jpg');
+    expect(read.feed.items.length).toBeGreaterThan(500);
+    expect(read.feed.items.length).toBeLessThan(1000);
+    expect(read.feed.items[0].title).toBe('Episode 1000');
+    expect(read.feed.items.every((i) => i.enclosure)).toBe(true);
+    // Read whole, the same feed is as it was.
+    expect('feed' in readFeed(big, 'https://pod.test/feed')).toBe(true);
+  });
+
+  it('says why a feed read in part cannot be read', () => {
+    const cap = 5 * 1024 * 1024;
+    const url = 'https://pod.test/feed';
+    expect(readFeed('{"items":[{"id":"1"', url, cap)).toEqual({
+      error: 'a JSON feed over 5 MB cannot be read in part',
+    });
+    expect(readFeed(HEAD + '<item><title>Episode 1</title>', url, cap)).toEqual({
+      error: 'the feed is over 5 MB and its first 5 MB hold no complete item',
+    });
+    expect(readFeed('<!doctype html><html><body>', url, cap)).toEqual({ error: NOT_A_FEED });
+    // Oldest first: the head holds only the old ones.
+    const ascending =
+      HEAD + [1, 2, 3, 4].map((n) => podItem(n)).join('') + '<item><title>Episode 5</title>';
+    expect(readFeed(ascending, url, cap)).toEqual({
+      error: 'the feed is over 5 MB and lists its oldest items first, so its newest cannot be read',
+    });
+    // Whole, the same order is fine: everything is there.
+    expect(
+      'feed' in
+        readFeed(ascending.slice(0, ascending.lastIndexOf('<item>')) + '</channel></rss>', url),
+    ).toBe(true);
+  });
+
+  it('knows oldest first from newest first, an old trailer on top included', () => {
+    const at = (...days: number[]) => days.map((d) => ({ published: T - d * DAY }));
+    expect(oldestFirst(at(9, 6, 3, 0))).toBe(true);
+    expect(oldestFirst(at(0, 3, 6, 9))).toBe(false);
+    // A trailer from years back pinned at the top of a newest-first feed.
+    expect(oldestFirst(at(2000, 0, 3, 6, 9, 12))).toBe(false);
+    expect(oldestFirst([{ published: T }, {}, { published: T }])).toBe(false);
+    expect(oldestFirst(at(0.1, 0))).toBe(false);
   });
 });

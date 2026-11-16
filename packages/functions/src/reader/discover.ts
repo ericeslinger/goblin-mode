@@ -5,8 +5,8 @@
 // come back, with their own names. The page reaches no model. Over
 // injected fetchers, so it runs in specs.
 import { type PageFetcher, decode, visibleHtml } from '../attachments/import';
-import { decodeBody } from './fetch';
-import { parseFeed } from './feed-parse';
+import { DISCOVER_MAX_BYTES, decodeBody } from './fetch';
+import { NOT_A_FEED, readFeed } from './feed-parse';
 import type { FeedFetcher } from './refresh';
 
 /** Where feeds usually are when a page does not say. */
@@ -111,10 +111,15 @@ export async function discoverFeeds(
   const page = await fetchPage(url);
   const text = decodeBody(page.bytes, page.contentType);
   // The address itself first, whatever its content type: some sites
-  // serve their feed as text/html (review on #183).
-  const itself = parseFeed(text, url);
-  if (itself)
+  // serve their feed as text/html (review on #183). A feed over 2 MB is
+  // read in part (2026-11-16); one that cannot be says why.
+  const cutAt = page.truncated ? DISCOVER_MAX_BYTES : undefined;
+  const read = readFeed(text, url, cutAt);
+  if ('feed' in read) {
+    const itself = read.feed;
     return { feeds: [{ url, title: plain(itself.title) || hostOf(url), ...episodesOf(itself) }] };
+  }
+  if (cutAt !== undefined && read.error !== NOT_A_FEED) throw new Error(read.error);
   if (!isHtml(page.contentType)) return { feeds: [] };
   const named = alternateLinks(text, url);
   const candidates: AlternateLink[] = named.length
@@ -125,8 +130,9 @@ export async function discoverFeeds(
       try {
         const res = await fetchFeed(c.url, {});
         if (res.status < 200 || res.status >= 300) return undefined;
-        const feed = parseFeed(res.text, c.url);
-        if (!feed) return undefined;
+        const read = readFeed(res.text, c.url, res.truncated ? DISCOVER_MAX_BYTES : undefined);
+        if ('error' in read) return undefined;
+        const feed = read.feed;
         return {
           url: c.url,
           title: plain(feed.title) || c.title || hostOf(c.url),

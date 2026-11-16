@@ -12,6 +12,8 @@ export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 export interface Fetched {
   contentType: string;
   bytes: Uint8Array;
+  /** Only the head was read (discovery's look at an address, 2026-11-16). */
+  truncated?: boolean;
 }
 
 /** Fetches a public http(s) URL, or throws a reason to show. */
@@ -287,6 +289,12 @@ export interface RequestOptions {
   /** The most bytes read; the default is a page's. */
   maxBytes?: number;
   userAgent?: string;
+  /**
+   * Past `maxBytes`: `'fail'` (the default) throws; `'truncate'` keeps
+   * the first `maxBytes` and says so in `truncated` (2026-11-16), for a
+   * feed whose newest items come first.
+   */
+  overflow?: 'fail' | 'truncate';
 }
 
 export interface Response {
@@ -295,6 +303,8 @@ export interface Response {
   /** A response header, lowercased name. */
   header(name: string): string | undefined;
   bytes: Uint8Array;
+  /** True when the body went on past `maxBytes` and only its head was read. */
+  truncated?: boolean;
 }
 
 /**
@@ -334,19 +344,26 @@ export async function publicRequest(
       url = new URL(next, url);
       continue;
     }
+    const truncate = options.overflow === 'truncate';
     const declared = Number(res.headers.get('content-length') ?? 0);
-    if (declared > maxBytes) throw new Error(over);
+    if (declared > maxBytes && !truncate) throw new Error(over);
     const reader = res.ok ? res.body?.getReader() : undefined;
     const chunks: Uint8Array[] = [];
     let size = 0;
+    let truncated = false;
     while (reader) {
       const { done, value } = await reader.read();
       if (done) break;
-      size += value.length;
-      if (size > maxBytes) {
-        await reader.cancel();
-        throw new Error(over);
+      if (size + value.length > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        if (!truncate) throw new Error(over);
+        // Only the head is kept, never more than `maxBytes`.
+        chunks.push(value.subarray(0, maxBytes - size));
+        size = maxBytes;
+        truncated = true;
+        break;
       }
+      size += value.length;
       chunks.push(value);
     }
     const bytes = new Uint8Array(size);
@@ -360,6 +377,7 @@ export async function publicRequest(
       contentType: res.headers.get('content-type') ?? '',
       header: (name) => res.headers.get(name) ?? undefined,
       bytes,
+      ...(truncated ? { truncated } : {}),
     };
   }
   throw new Error('too many redirects');
