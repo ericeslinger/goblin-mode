@@ -65,13 +65,15 @@ test('a project files under another, with its kind, status and tasks', async ({ 
   await expect(children).toContainText('Sprout docs');
   await expect(children).toContainText('Waiting');
 
-  // Browse: the tree, then one status.
+  // Browse: the tree, then one status; since #288 the status is a
+  // chip in the kind's line, still read as "Build · Active".
   await page.goto('/browse/projects');
   const projects = page.getByRole('list', { name: 'Projects' });
   await expect(projects.getByRole('listitem')).toHaveText([
     /Sprout\s*Build · Active/,
-    /Sprout docs/,
+    /Sprout docs\s*Waiting/,
   ]);
+  await expect(projects.getByRole('listitem').first().locator('.chip')).toHaveText('Active');
   await page.getByRole('combobox', { name: 'Status' }).selectOption('waiting');
   await expect(projects.getByRole('listitem')).toHaveText([/Sprout docs/]);
 });

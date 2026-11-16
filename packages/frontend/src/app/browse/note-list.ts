@@ -7,6 +7,7 @@ import { STATUSES, kindLabel, statusLabel } from '../links/project-labels';
 import { LinksService } from '../links/links.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
+import { RemindersService } from '../reminders/reminders.service';
 import { type LensId, byTag, goneIn, inLens, projectTree } from './lenses';
 
 /**
@@ -98,6 +99,8 @@ export function matches(note: NoteRecord, search: string): boolean {
         (input)="search.set($any($event.target).value)"
       />
     </label>
+    <!-- What the screen puts under the search box: Browse's lenses (#288). -->
+    <ng-content />
     @if (lens() === 'projects') {
       <label class="status">
         Status
@@ -166,6 +169,17 @@ export function matches(note: NoteRecord, search: string): boolean {
         <span class="title">{{ note.title || 'Untitled' }}</span>
         @if (snippetOf(note); as text) {
           <span class="snippet">{{ text }}</span>
+        }
+        @if (projectLine(note); as parts) {
+          <!-- One line that reads as words: "Build · Active · 2 open tasks". -->
+          <span class="meta">
+            @for (p of parts; track p.text; let first = $first) {
+              @if (!first) {
+                <span class="sep"> · </span>
+              }
+              <span [class.chip]="p.chip">{{ p.text }}</span>
+            }
+          </span>
         }
       </a>
     </ng-template>
@@ -256,6 +270,22 @@ export function matches(note: NoteRecord, search: string): boolean {
       padding: var(--space-1) var(--space-2);
       margin-left: var(--space-1);
     }
+    /* A project's status as a chip and its open tasks (#288). */
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 13px;
+      color: var(--quiet);
+    }
+    .chip {
+      padding: 1px var(--space-2);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-pill);
+      color: var(--ink);
+      background: var(--chip-bg);
+    }
     .tag {
       font-size: 14px;
       color: var(--quiet);
@@ -267,6 +297,7 @@ export class NoteList {
   protected readonly notes = inject(NotesService);
   private readonly now = inject(NOW);
   private readonly links = inject(LinksService);
+  private readonly reminders = inject(RemindersService);
   /** The open note, highlighted in the list. */
   readonly current = input<string | undefined>(undefined);
   /** Which notes to list (Browse lenses, #31). */
@@ -287,6 +318,18 @@ export class NoteList {
     ),
   );
   protected readonly tree = computed(() => projectTree(this.shown()));
+  /**
+   * Each note's open tasks, as its project header counts them: the
+   * reminders linked to it that are not done (#288). Already on the
+   * device for Right Now; no query of its own.
+   */
+  protected readonly openTasks = computed(() => {
+    const open = new Map<string, number>();
+    for (const r of this.reminders.reminders()) {
+      if (r.noteId && r.status !== 'done') open.set(r.noteId, (open.get(r.noteId) ?? 0) + 1);
+    }
+    return open;
+  });
   protected readonly tagged = computed(() => byTag(this.shown()));
   protected readonly empty: Record<LensId, string> = {
     recent: 'No notes planted yet.',
@@ -320,11 +363,34 @@ export class NoteList {
     return [when, moodsOf(note.body).join(', ')].filter(Boolean).join(' · ');
   }
 
-  /** A concept says how many notes link to it; a note shows its text. */
+  /**
+   * A project's line in the Projects lens (#288): its kind, its status
+   * as a chip and its open tasks, each a part with " · " between, so it
+   * reads (and copies) as words; undefined when it has none of them.
+   */
+  protected projectLine(note: NoteRecord): { text: string; chip: boolean }[] | undefined {
+    if (this.lens() !== 'projects' || note.conceptType !== 'project') return undefined;
+    const kind = kindLabel(note.projectKind);
+    const status = statusLabel(note.projectStatus);
+    const open = this.openTasks().get(note.id) ?? 0;
+    const parts = [
+      ...(kind ? [{ text: kind, chip: false }] : []),
+      ...(status ? [{ text: status, chip: true }] : []),
+      ...(open ? [{ text: `${open} open ${open === 1 ? 'task' : 'tasks'}`, chip: false }] : []),
+    ];
+    return parts.length ? parts : undefined;
+  }
+
+  /**
+   * A concept says how many notes link to it; a note shows its text. A
+   * project says its kind and status ("Build · Active"); in the
+   * Projects lens that line is `projectLine` instead (#288).
+   */
   protected snippetOf(note: NoteRecord): string {
     if (this.lens() === 'journal') return this.journalLine(note);
     if (note.kind !== 'concept') return snippet(note);
     if (note.conceptType === 'project') {
+      if (this.projectLine(note)) return '';
       const meta = [kindLabel(note.projectKind), statusLabel(note.projectStatus)];
       if (meta.some(Boolean)) return meta.filter(Boolean).join(' · ');
     }

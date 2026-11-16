@@ -5,6 +5,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { ProposalsService } from '../claude/proposals.service';
 import { ItemsService } from '../reader/items.service';
 import { ReadingService } from '../reading/reading.service';
+import { RemindersService } from '../reminders/reminders.service';
 import { NotesService } from '../notes/notes.service';
 import { FakeModules, FakeNotes, noteRecord, FakeProposals, FakeItems } from '../testing/fakes';
 import { ModulesService } from '../modules/modules.service';
@@ -23,6 +24,7 @@ describe('Browse', () => {
         { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
+        { provide: RemindersService, useValue: { reminders: signal([]) } },
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(Browse);
@@ -48,6 +50,7 @@ describe('Browse', () => {
         { provide: ModulesService, useValue: modules },
         { provide: NotesService, useValue: new FakeNotes() },
         { provide: ProposalsService, useValue: new FakeProposals() },
+        { provide: RemindersService, useValue: { reminders: signal([]) } },
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(Browse);
@@ -76,6 +79,7 @@ describe('Browse', () => {
         { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
+        { provide: RemindersService, useValue: { reminders: signal([]) } },
       ],
     });
     const harness = await RouterTestingHarness.create();
@@ -106,6 +110,7 @@ describe('Browse', () => {
         { provide: ModulesService, useValue: new FakeModules() },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
+        { provide: RemindersService, useValue: { reminders: signal([]) } },
       ],
     });
     const harness = await RouterTestingHarness.create();
@@ -124,6 +129,11 @@ describe('Browse', () => {
   it('drops the Projects lens while Projects is off (#126)', async () => {
     const modules = new FakeModules();
     modules.set('projects', false);
+    const notes = new FakeNotes();
+    notes.signIn([
+      { ...noteRecord('c-v', ''), title: 'Vikas', kind: 'concept', conceptType: 'person' },
+      { ...noteRecord('c-k', ''), title: 'Kiln', kind: 'concept', conceptType: 'project' },
+    ]);
     await TestBed.configureTestingModule({
       imports: [Browse],
       providers: [
@@ -131,8 +141,9 @@ describe('Browse', () => {
         { provide: ReadingService, useValue: { unread: signal([]) } },
         { provide: ItemsService, useValue: new FakeItems() },
         { provide: ModulesService, useValue: modules },
-        { provide: NotesService, useValue: new FakeNotes() },
+        { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
+        { provide: RemindersService, useValue: { reminders: signal([]) } },
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(Browse);
@@ -160,6 +171,7 @@ describe('Browse', () => {
         { provide: ModulesService, useValue: modules },
         { provide: NotesService, useValue: notes },
         { provide: ProposalsService, useValue: new FakeProposals() },
+        { provide: RemindersService, useValue: { reminders: signal([]) } },
       ],
     }).compileComponents();
     const harness = await RouterTestingHarness.create();
@@ -191,5 +203,71 @@ describe('Browse', () => {
     expect(notes.createRecipe).toHaveBeenLastCalledWith('Dal');
     expect(navigate).toHaveBeenCalledWith(['/n', expect.any(String)]);
     expect(input.value).toBe('');
+  });
+
+  describe('the search box and the row of lenses (#288)', () => {
+    async function at(url: string, notes: FakeNotes) {
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([
+            { path: 'browse', component: Browse },
+            { path: 'browse/:lens', component: Browse },
+          ]),
+          { provide: ReadingService, useValue: { unread: signal([]) } },
+          { provide: ItemsService, useValue: new FakeItems() },
+          { provide: ModulesService, useValue: new FakeModules() },
+          { provide: NotesService, useValue: notes },
+          { provide: ProposalsService, useValue: new FakeProposals() },
+          { provide: RemindersService, useValue: { reminders: signal([]) } },
+        ],
+      });
+      const harness = await RouterTestingHarness.create();
+      await harness.navigateByUrl(url, Browse);
+      // In the document, so the focus can move.
+      document.body.appendChild(harness.fixture.nativeElement);
+      return harness.routeNativeElement as HTMLElement;
+    }
+    const lensNames = (el: HTMLElement) =>
+      [...el.querySelectorAll('nav[aria-label="Lenses"] a')].map((a) =>
+        a.textContent?.replace(/\s+\d+$/, '').trim(),
+      );
+
+    it('puts the search box first, then the lenses, leaving out the empty ones', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([
+        noteRecord('n1', 'Groceries'),
+        { ...noteRecord('n2', 'Old list'), archived: true },
+      ]);
+      const el = await at('/browse', notes);
+      const search = el.querySelector('input[type="search"]')!;
+      const nav = el.querySelector('nav[aria-label="Lenses"]')!;
+      expect(search.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Archived holds a note, so it shows; Concepts, People, Trash and the rest do not.
+      expect(lensNames(el)).toEqual(['Recent', 'Archived']);
+    });
+
+    it('keeps Recent and the open lens, even empty', async () => {
+      const el = await at('/browse/trash', new FakeNotes());
+      expect(lensNames(el)).toEqual(['Recent', 'Trash']);
+      const trash = el.querySelector('nav a[aria-current="page"]')!;
+      expect(trash.textContent).toContain('Trash');
+      expect(el.textContent).toContain('Nothing in Trash.');
+    });
+
+    it('takes `/` to the search box, but not while typing', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([noteRecord('n1', 'Groceries')]);
+      const el = await at('/browse', notes);
+      const search = el.querySelector<HTMLInputElement>('input[type="search"]')!;
+      const slash = (target: EventTarget) => {
+        const e = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+        target.dispatchEvent(e);
+        return e.defaultPrevented;
+      };
+      expect(slash(document.body)).toBe(true);
+      expect(document.activeElement).toBe(search);
+      // In the box itself, `/` is a character.
+      expect(slash(search)).toBe(false);
+    });
   });
 });

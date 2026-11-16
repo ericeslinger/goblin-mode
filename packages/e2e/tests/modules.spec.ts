@@ -39,8 +39,12 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 
+  // Pottery is still a project, so its lens would show (#288 hides
+  // only empty ones): gone, it is the module that took it. Concepts,
+  // which holds Pottery, stays.
   await page.goto('/browse');
-  await expect(page.getByRole('link', { name: /People/ })).toBeVisible();
+  const lenses = page.getByRole('navigation', { name: 'Lenses' });
+  await expect(lenses.getByRole('link', { name: /^Concepts/ })).toContainText('1');
   await expect(page.getByRole('link', { name: /Projects/ })).toHaveCount(0);
   await page.goto('/n/c-pottery');
   // Still a project in its data, shown without its project parts.
@@ -59,6 +63,8 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   await expect(projects).not.toBeChecked();
   await projects.check();
   await letItSave(page);
+  await page.goto('/browse');
+  await expect(lenses.getByRole('link', { name: /^Projects/ })).toContainText('1');
   await page.goto('/n/c-pottery');
   // Its items, opened before Projects went off, are open still (#287).
   await expect(concept.getByRole('textbox', { name: 'Add a task' })).toBeVisible();

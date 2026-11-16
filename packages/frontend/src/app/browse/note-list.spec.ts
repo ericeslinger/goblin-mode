@@ -1,7 +1,10 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
+import type { ReminderRecord } from '../reminders/reminders.service';
+import { RemindersService } from '../reminders/reminders.service';
 import { FakeNotes, noteRecord } from '../testing/fakes';
 import { matches, NoteList, snippet } from './note-list';
 
@@ -63,18 +66,20 @@ describe('NoteList', () => {
     const notes = new FakeNotes();
     notes.signIn([...list, { ...noteRecord('n3', 'gone'), archived: true }, noteRecord('n4', ' ')]);
     notes.trash.set(trash);
+    const reminders = signal<Partial<ReminderRecord>[]>([]);
     await TestBed.configureTestingModule({
       imports: [NoteList],
       providers: [
         provideRouter([]),
         { provide: NotesService, useValue: notes },
         { provide: NOW, useValue: () => now },
+        { provide: RemindersService, useValue: { reminders } },
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(NoteList);
     fixture.componentRef.setInput('current', 'n2');
     await fixture.whenStable();
-    return { fixture, notes, el: fixture.nativeElement as HTMLElement };
+    return { fixture, notes, reminders, el: fixture.nativeElement as HTMLElement };
   }
 
   it('lists live, non-empty notes linking to /n/<id>', async () => {
@@ -128,6 +133,43 @@ describe('NoteList', () => {
     expect(el.querySelector('ul')!.textContent).toContain('gone');
   });
 
+  it('shows a project’s status as a chip and its open tasks in the Projects lens (#288)', async () => {
+    const { el, fixture, reminders } = await render([
+      {
+        ...noteRecord('c-kiln', ''),
+        title: 'Kiln',
+        kind: 'concept',
+        conceptType: 'project',
+        projectKind: 'build',
+        projectStatus: 'active',
+      },
+      { ...noteRecord('c-shed', ''), title: 'Shed', kind: 'concept', conceptType: 'project' },
+    ]);
+    reminders.set([
+      { id: 'r1', noteId: 'c-kiln', status: 'open' },
+      { id: 'r2', noteId: 'c-kiln', status: 'snoozed' },
+      { id: 'r3', noteId: 'c-kiln', status: 'done' },
+    ]);
+    fixture.componentRef.setInput('lens', 'projects');
+    await fixture.whenStable();
+    const row = (title: string) =>
+      [...el.querySelectorAll('ul[aria-label="Projects"] a')].find(
+        (a) => a.querySelector('.title')?.textContent === title,
+      )!;
+    // One line of words, the status a chip in it.
+    expect(row('Kiln').querySelector('.meta')?.textContent).toBe('Build · Active · 2 open tasks');
+    expect(row('Kiln').querySelector('.meta .chip')?.textContent).toBe('Active');
+    expect(row('Kiln').querySelector('.snippet')).toBeNull();
+    // Nothing to say: no line of its own, how many link to it instead.
+    expect(row('Shed').querySelector('.meta')).toBeNull();
+    expect(row('Shed').querySelector('.snippet')?.textContent).toBe('Linked from 0 notes');
+    // Outside the Projects lens the status stays in its line, with no chip.
+    fixture.componentRef.setInput('lens', 'concepts');
+    await fixture.whenStable();
+    expect(el.querySelector('.meta')).toBeNull();
+    expect(el.textContent).toContain('Build · Active');
+  });
+
   it('lists Trash, the last deleted first, with the days left and Restore (#217)', async () => {
     const { el, fixture, notes } = await render(undefined, [
       { ...noteRecord('t2', 'Kiln log'), deletedAt: now - day / 2 },
@@ -175,7 +217,8 @@ describe('NoteList', () => {
     await fixture.whenStable();
     const rows = [...el.querySelectorAll<HTMLLIElement>('ul[aria-label="Projects"] li')];
     expect(rows.map((r) => r.querySelector('.title')!.textContent)).toEqual(['Sprout', 'Leaf']);
-    expect(rows[0].textContent).toContain('Build · Active');
+    expect(rows[0].querySelector('.meta')!.textContent).toBe('Build · Active');
+    expect(rows[1].querySelector('.meta')!.textContent).toBe('Waiting');
     expect(rows[1].style.paddingLeft).toBe('20px');
     const status = el.querySelector<HTMLSelectElement>('.status select')!;
     status.value = 'waiting';

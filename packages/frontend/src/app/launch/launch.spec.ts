@@ -363,6 +363,25 @@ describe('Launch', () => {
     expect(source.read().note).toBeUndefined();
   });
 
+  it('on /, puts the place back only once the capture note’s text is in the editor', async () => {
+    const notes = new FakeNotes();
+    const { fixture } = await render({ notes });
+    const capture = TestBed.inject(CaptureService);
+    const source = (TestBed.inject(LastPlaceService) as unknown as { source: PlaceSource }).source;
+    const id = capture.open().id;
+    // Loaded, but a saved note not here yet: wait.
+    notes.signIn([]);
+    expect(source.apply({ top: 120, caret: 5, note: id, saved: true })).toBe(false);
+    // Here, but its text not yet merged into the empty editor: still wait,
+    // rather than put the scroll and caret on nothing.
+    notes.signIn([noteRecord(id, 'Groceries\neggs and milk')]);
+    expect(source.apply({ top: 120, caret: 5, note: id, saved: true })).toBe(false);
+    await fixture.whenStable();
+    expect(capture.current()).toBe('Groceries\neggs and milk');
+    expect(source.apply({ top: 120, caret: 5, note: id, saved: true })).toBe(true);
+    expect(source.read()).toMatchObject({ caret: 5 });
+  });
+
   it('on /, its place names the capture note and whether it was saved (#272)', async () => {
     const notes = new FakeNotes();
     notes.signIn([]);

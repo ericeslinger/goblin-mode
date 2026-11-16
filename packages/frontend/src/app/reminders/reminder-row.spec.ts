@@ -47,6 +47,27 @@ describe('ReminderRow', () => {
     expect(el.querySelector('a.text')?.getAttribute('href')).toBe('/n/n1?from=reminder');
   });
 
+  it('has the round tick at the left and one snooze control at the right (#288)', async () => {
+    const { el } = await renderRow({ text: 'stretch', dueAt: NOW, noteId: 'n1' });
+    const row = el.querySelector('.row')!;
+    const buttons = [...row.querySelectorAll(':scope > button')];
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Done: stretch',
+      'Snooze: stretch',
+    ]);
+    expect(row.firstElementChild).toBe(buttons[0]);
+    expect(row.lastElementChild).toBe(buttons[1]);
+    // Icons, named by their labels; no words beside the text.
+    expect(buttons.map((b) => b.textContent?.trim())).toEqual(['', '']);
+    expect(buttons.map((b) => b.querySelector('app-icon') !== null)).toEqual([true, true]);
+    expect(buttons[1].getAttribute('aria-expanded')).toBe('false');
+    // The note's link sits between them.
+    expect(
+      buttons[0].compareDocumentPosition(el.querySelector('a.text')!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('marks done from the button', async () => {
     const { el, reminders } = await renderRow({ text: 'stretch', dueAt: NOW });
     const done = vi.spyOn(reminders, 'done');

@@ -1,5 +1,6 @@
 import { Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { Icon } from '../home/icon';
 import { sameDay, snoozeChoices } from '@mossgoblin/schema';
 import { TIME_ZONE } from '../platform/platform';
 import { type PlacedReminder, RemindersService } from './reminders.service';
@@ -10,13 +11,13 @@ export const SWIPE_PX = 80;
 const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } as const;
 
 /**
- * One reminder: swipe right for done, left for snooze (DESIGN.md, Right
- * Now). The Done and Snooze buttons do the same for keyboards, screen
- * readers and wide screens.
+ * One reminder: a round tick at the left is Done, a clock at the right
+ * opens the snooze choices (#288). A swipe right or left does the same
+ * on a touch screen (DESIGN.md, Right Now), never the only way.
  */
 @Component({
   selector: 'app-reminder-row',
-  imports: [RouterLink],
+  imports: [RouterLink, Icon],
   template: `
     @let r = reminder();
     <div
@@ -28,6 +29,17 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
       (pointerup)="up($event)"
       (pointercancel)="cancel()"
     >
+      <!-- Done is the round tick at the left, Snooze the clock at the
+           right (#288, 2026-11-15): one line of text has the rest. -->
+      <button
+        type="button"
+        class="tick touch-target"
+        [attr.aria-label]="'Done: ' + r.text"
+        title="Done"
+        (click)="done()"
+      >
+        <app-icon name="check" [size]="16" />
+      </button>
       <span class="what">
         @if (r.noteId) {
           <a class="text" [routerLink]="['/n', r.noteId]" [queryParams]="{ from: 'reminder' }">{{
@@ -51,20 +63,13 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
       </span>
       <button
         type="button"
-        class="act touch-target"
-        [attr.aria-label]="'Done: ' + r.text"
-        (click)="done()"
-      >
-        Done
-      </button>
-      <button
-        type="button"
-        class="act touch-target"
+        class="snooze-toggle touch-target"
         [attr.aria-label]="'Snooze: ' + r.text"
         [attr.aria-expanded]="menuOpen()"
+        title="Snooze"
         (click)="menuOpen.set(!menuOpen())"
       >
-        Snooze
+        <app-icon name="clock" [size]="20" />
       </button>
     </div>
     @if (menuOpen()) {
@@ -90,7 +95,7 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
     .row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       padding: 8px 0;
       background: var(--bg);
       touch-action: pan-y;
@@ -122,7 +127,35 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
       font-size: 13px;
       color: var(--quiet);
     }
-    .act,
+    .tick,
+    .snooze-toggle {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border-radius: 50%;
+      background: transparent;
+    }
+    /* A ring, in the quiet ink so it reads as a control (3:1 and more),
+       the tick inside it faint until hovered or focused. */
+    .tick {
+      width: 28px;
+      height: 28px;
+      border: 2px solid var(--quiet);
+    }
+    .tick app-icon {
+      opacity: 0.4;
+    }
+    .tick:hover app-icon,
+    .tick:focus-visible app-icon {
+      opacity: 1;
+    }
+    .snooze-toggle {
+      width: 32px;
+      height: 32px;
+      border: 0;
+    }
     .pill {
       font: inherit;
       font-size: 14px;
@@ -133,11 +166,12 @@ const REPEAT_LABEL = { daily: 'daily', weekdays: 'weekdays', weekly: 'weekly' } 
       background: transparent;
       cursor: pointer;
     }
+    /* Under the text, past the tick. */
     .snooze {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      padding: 0 0 12px;
+      padding: 0 0 12px 38px;
     }
     .pick {
       display: flex;

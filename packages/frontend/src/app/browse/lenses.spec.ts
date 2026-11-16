@@ -1,6 +1,6 @@
 import type { NoteRecord } from '../notes/notes.service';
 import { noteRecord } from '../testing/fakes';
-import { byTag, goneIn, inLens, lensId, projectTree } from './lenses';
+import { byTag, goneIn, inLens, lensId, projectTree, rowOfLenses } from './lenses';
 
 const n = (id: string, over: Partial<NoteRecord> = {}): NoteRecord => ({
   ...noteRecord(id, 'some text'),
@@ -95,5 +95,22 @@ describe('lenses', () => {
       '0:loop-a',
       '1:loop-b',
     ]);
+  });
+});
+
+describe('rowOfLenses (#288)', () => {
+  const row = [
+    { id: 'recent', count: 0 },
+    { id: 'concepts', count: 2 },
+    { id: 'people', count: 0 },
+    { id: 'archived', count: 3 },
+    { id: 'trash', count: 0 },
+  ] as const;
+  const ids = (open: Parameters<typeof rowOfLenses>[1]) => rowOfLenses(row, open).map((l) => l.id);
+
+  it('leaves out an empty lens, keeping Recent and the open one', () => {
+    expect(ids('concepts')).toEqual(['recent', 'concepts', 'archived']);
+    expect(ids('people')).toEqual(['recent', 'concepts', 'people', 'archived']);
+    expect(ids('trash')).toEqual(['recent', 'concepts', 'archived', 'trash']);
   });
 });
