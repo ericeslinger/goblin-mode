@@ -71,6 +71,13 @@ const PATHS = {
   ],
   play: ['M8 5v14l11-7z'],
   pause: ['M9 5v14', 'M15 5v14'],
+  // The player's controls (#290): pause as two bars that can be
+  // filled, and back 15 and on 30 as an arc with its arrow, the
+  // seconds written in it by the button; close is a cross.
+  'pause-bars': ['M7 5h3.5v14H7z', 'M13.5 5H17v14h-3.5z'],
+  'skip-back': ['M6.3 7.3A8 8 0 1 1 4 13', 'M6.3 3.8v3.5h3.5'],
+  'skip-forward': ['M17.7 7.3A8 8 0 1 0 20 13', 'M17.7 3.8v3.5h-3.5'],
+  close: ['M6 6l12 12', 'M18 6L6 18'],
   plus: ['M12 5v14', 'M5 12h14'],
   // The note bar's View, Back and Front (#287): an eye, and a page with a
   // corner turned, turned the other way on the note's back.
@@ -111,6 +118,8 @@ export type IconName = keyof typeof PATHS;
 /**
  * A mark, drawn at `size`; decoration only, so its link or button names
  * it. `filled` fills its shape in ink, for a state such as saved.
+ * `current` draws it in the text colour around it instead of ink, for
+ * a mark on a filled button (the player's Play, #290).
  */
 @Component({
   selector: 'app-icon',
@@ -148,16 +157,27 @@ export type IconName = keyof typeof PATHS;
     :host(.filled) path {
       fill: var(--ink);
     }
+    :host(.current) svg {
+      stroke: currentColor;
+    }
+    :host(.current.filled) path {
+      fill: currentColor;
+    }
     .dot {
       fill: var(--ink);
       stroke: none;
     }
   `,
-  host: { '[class.leaf]': "name() === 'leaf'", '[class.filled]': 'filled()' },
+  host: {
+    '[class.leaf]': "name() === 'leaf'",
+    '[class.filled]': 'filled()',
+    '[class.current]': 'current()',
+  },
 })
 export class Icon {
   readonly name = input.required<IconName>();
   readonly size = input(24);
   readonly filled = input(false);
+  readonly current = input(false);
   protected readonly paths = computed(() => PATHS[this.name()]);
 }

@@ -1,15 +1,10 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { Icon } from '../home/icon';
-import { DownloadsService } from '../reader/downloads.service';
 import { type ItemRecord, ItemsService } from '../reader/items.service';
-import { PlayerService } from '../reader/player.service';
 import { ReaderService } from '../reader/reader.service';
-import { EpisodeArt } from './episode-art';
-import { type EpisodeState, episodeState, lengthText, stateText } from './episodes';
+import { EpisodeRow } from './episode-row';
+import { type EpisodeState, episodeState } from './episodes';
 import { PodcastsBar } from './podcasts-bar';
 import { PodcastsSeen } from './podcasts-seen';
-import { QueueButton } from './queue-button';
 
 /** Latest's filters (#245): New, Started, or every episode. */
 export type LatestFilter = 'new' | 'started' | 'all';
@@ -17,18 +12,18 @@ export type LatestFilter = 'new' | 'started' | 'all';
 /**
  * Latest (#245, step 1 of #244): the newest episodes across every show
  * followed in Podcasts, at `/podcasts`; one show's are on its page
- * since #246 (`PodcastShow`). Each
- * row has its artwork (the episode's, else its show's initials on a
- * tinted square), title, state, show, age and length, Play, and Add to
- * the queue (#249), pressed once it is in the queue; the
- * one playing has Pause and the time left. New, Started and All filter
- * them, with counts. New lasts until the episode is heard (Eric,
+ * since #246 (`PodcastShow`). Each row (`EpisodeRow`, #290) has its
+ * artwork (the episode's, else its show's initials on a tinted square),
+ * which is Play, its title, state, show, age and length, and Add to the
+ * queue (#249), pressed once it is in the queue; the one playing has
+ * Pause and the time left. New, Started and All filter them, with
+ * counts. New lasts until the episode is heard (Eric,
  * 2026-11-10): one whose notes were read says "New, notes read".
  * Opening it marks Latest seen on this device, for Right Now (#251).
  */
 @Component({
   selector: 'app-podcasts-latest',
-  imports: [EpisodeArt, Icon, PodcastsBar, QueueButton, RouterLink],
+  imports: [EpisodeRow, PodcastsBar],
   template: `
     <main class="page">
       <app-podcasts-bar active="latest" />
@@ -52,37 +47,7 @@ export type LatestFilter = 'new' | 'started' | 'all';
       }
       <ul aria-label="Episodes">
         @for (ep of list(); track ep.id) {
-          <li>
-            <app-episode-art [item]="ep" [show]="showTitle(ep)" [size]="48" />
-            <a class="open" [routerLink]="['/podcasts/e', ep.id]">
-              <span class="title">{{ ep.title }}</span>
-              <span class="meta"
-                ><span class="state" [class.fresh]="stateOf(ep) === 'new'">{{
-                  stateWords(ep)
-                }}</span>
-                · {{ showTitle(ep) }} · {{ items.age(ep.published) }}
-                @if (length(ep); as l) {
-                  · {{ l }}
-                }
-                @if (downloads.has(ep.id)) {
-                  · downloaded
-                }
-              </span>
-            </a>
-            @if (ep.enclosure) {
-              <button
-                type="button"
-                class="play"
-                [attr.aria-label]="(playing(ep) ? 'Pause ' : 'Play ') + ep.title"
-                (click)="play(ep)"
-              >
-                <app-icon [name]="playing(ep) ? 'pause' : 'play'" [size]="22" />
-              </button>
-            }
-            @if (ep.enclosure) {
-              <app-queue-button [item]="ep" (said)="said.set($event)" />
-            }
-          </li>
+          <li appEpisodeRow [item]="ep" [show]="showTitle(ep)" (said)="said.set($event)"></li>
         }
       </ul>
       @if (said()) {
@@ -126,56 +91,16 @@ export type LatestFilter = 'new' | 'started' | 'all';
       padding: 0;
       border-top: 1px solid var(--rule);
     }
-    li {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: 8px 0;
-      border-bottom: 1px solid var(--rule);
-    }
-    .open {
-      flex: 1;
-      min-width: 0;
-      display: grid;
-      gap: 2px;
-      padding: 2px 4px;
-      color: var(--ink);
-      text-decoration: none;
-    }
-    .title {
-      font-weight: 600;
-      overflow-wrap: anywhere;
-    }
-    .meta,
     .muted,
     .status {
       color: var(--quiet);
       font-size: 14px;
-    }
-    .state.fresh {
-      color: var(--ink);
-      font-weight: 600;
-    }
-    .play {
-      flex: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 44px;
-      height: 44px;
-      padding: 0;
-      border: var(--border) solid var(--rule);
-      border-radius: 50%;
-      background: var(--surface);
-      cursor: pointer;
     }
   `,
 })
 export class PodcastsLatest {
   protected readonly items = inject(ItemsService);
   protected readonly reader = inject(ReaderService);
-  protected readonly downloads = inject(DownloadsService);
-  private readonly player = inject(PlayerService);
 
   constructor() {
     // Seen while open (#251): Right Now's "new in Podcasts" counts only
@@ -222,34 +147,7 @@ export class PodcastsLatest {
     }
   });
 
-  protected stateOf(ep: ItemRecord): EpisodeState {
-    return this.states().get(ep.id) ?? episodeState(ep);
-  }
-
-  protected stateWords(ep: ItemRecord): string {
-    return stateText(ep);
-  }
-
   protected showTitle(ep: ItemRecord): string {
     return this.reader.feeds().find((f) => f.id === ep.feedId)?.title ?? 'A show';
-  }
-
-  /** Whether this row's episode is the one playing. */
-  protected playing(ep: ItemRecord): boolean {
-    return this.player.current() === ep.id && this.player.playing();
-  }
-
-  /**
-   * The row's length: the time left once a place is kept or it is
-   * playing ("22 min left"), else how long it is; nothing when unknown.
-   */
-  protected length(ep: ItemRecord): string | undefined {
-    return lengthText(ep, this.player, (s) => this.items.duration(s));
-  }
-
-  /** Play, or Pause the one playing, with the app's one player (#179). */
-  protected play(ep: ItemRecord): void {
-    if (this.player.current() === ep.id) this.player.toggle();
-    else this.player.load(ep, { autoplay: true });
   }
 }

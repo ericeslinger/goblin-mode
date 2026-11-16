@@ -15,9 +15,9 @@ import { episodeState, stateText } from './episodes';
 
 /**
  * An episode's page in Podcasts (#245, `/podcasts/e/<id>`): its artwork,
- * show, title and state, the player's full controls, Add to the queue
- * (In the queue once there) and Play next (#249), Mark as heard (or
- * Mark as new), Download, File in the garden and the page, then the
+ * large over the name since #290, its show, title and state, the
+ * player's full controls, Add to the queue (In the queue once there)
+ * and Play next (#249), Mark as heard (or Mark as new), Download, File in the garden and the page, then the
  * show notes, the feed's text rendered as the Reader renders an
  * article's. Opening it marks the notes read (`read`) and nothing else:
  * the episode stays New until it is heard (Eric, 2026-11-10). Back goes
@@ -88,8 +88,8 @@ import { episodeState, stateText } from './episodes';
       @if (item(); as it) {
         <article>
           <header class="head">
-            <app-episode-art [item]="it" [show]="show()" [size]="88" />
-            <div>
+            <app-episode-art class="cover" [item]="it" [show]="show()" [size]="224" />
+            <div class="words">
               <a class="show" [routerLink]="['/podcasts/s', it.feedId]">{{ show() }}</a>
               <h1>{{ it.title }}</h1>
               <p class="meta">
@@ -188,11 +188,25 @@ import { episodeState, stateText } from './episodes';
       border-radius: 50%;
       background: var(--second);
     }
+    /* The artwork large over the name (#290), as players draw it; at
+       most the page's width, still square. */
     .head {
-      display: flex;
+      display: grid;
+      justify-items: center;
       gap: var(--space-3);
-      align-items: flex-start;
       margin-top: var(--space-2);
+      text-align: center;
+    }
+    .cover {
+      max-width: 100%;
+    }
+    .cover ::ng-deep :is(img, .square) {
+      max-width: 100%;
+      height: auto !important;
+      aspect-ratio: 1;
+    }
+    .words {
+      justify-self: stretch;
     }
     .show {
       color: var(--quiet);

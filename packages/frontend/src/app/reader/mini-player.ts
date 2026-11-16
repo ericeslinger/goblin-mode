@@ -1,8 +1,10 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, computed, effect, inject } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
+import { Icon } from '../home/icon';
+import { EpisodeArt } from '../podcasts/episode-art';
 import { type ItemRecord, ItemsService } from './items.service';
 import { PlayerService } from './player.service';
 import { ReaderService } from './reader.service';
@@ -14,9 +16,11 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
  * The mini-player (#179): a bar fixed at the foot of every screen while
  * an episode is in hand, except that episode's own page, which holds
  * the full controls: in Podcasts for a show followed there, in the
- * Reader for a feed of its own (#245). Artwork when images are on, the title (a tap opens
- * the episode), elapsed and total, back 15, play or pause, on 30, and
- * close. Another device's newer place shows as "Continue from 12:34".
+ * Reader for a feed of its own (#245). Artwork when images are on, the
+ * title (a tap opens the episode), elapsed and total, back 15, play or
+ * pause, on 30, and close, as round icon buttons, and a 2 px line along
+ * its top edge for how far along it is, drawn only (#290). Another
+ * device's newer place shows as "Continue from 12:34".
  *
  * While it shows it sets `--mini-player-height` on the root, which the
  * page's bottom padding, the launch screen's height and the Reader
@@ -25,13 +29,17 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
  */
 @Component({
   selector: 'app-mini-player',
-  imports: [RouterLink],
+  imports: [EpisodeArt, Icon, RouterLink],
   template: `
     @if (shown(); as it) {
       <aside class="bar" aria-label="Now playing">
-        @if (it.image && reader.images()) {
-          <img [src]="it.image" alt="" width="44" height="44" referrerpolicy="no-referrer" />
-        }
+        <!-- How far along, drawn only: the time beside the title says it in words. -->
+        <div class="progress" role="presentation">
+          <span [style.width.%]="percent()"></span>
+        </div>
+        <!-- The row's artwork (#290): the episode's, else its show's, else
+             the show's initials on its tinted square, also when it fails. -->
+        <app-episode-art [item]="it" [show]="showTitle(it)" [size]="44" />
         <span class="info">
           <a
             class="title"
@@ -51,32 +59,34 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
           }
         </span>
         <span class="controls">
-          <button
-            type="button"
-            class="quiet"
-            aria-label="Back 15 seconds"
-            (click)="player.skip(-15)"
-          >
-            −15
+          <button type="button" class="ctl" aria-label="Back 15 seconds" (click)="player.skip(-15)">
+            <app-icon name="skip-back" [size]="28" />
+            <span class="n" aria-hidden="true">15</span>
           </button>
           <button
             type="button"
-            class="main"
+            class="ctl main primary"
             [attr.aria-label]="player.playing() ? 'Pause' : 'Play'"
             (click)="player.toggle()"
           >
-            {{ player.playing() ? '❚❚' : '▶' }}
+            <app-icon
+              [name]="player.playing() ? 'pause-bars' : 'play'"
+              [size]="20"
+              [filled]="true"
+              [current]="true"
+            />
           </button>
           <button
             type="button"
-            class="quiet"
+            class="ctl"
             aria-label="Forward 30 seconds"
             (click)="player.skip(30)"
           >
-            +30
+            <app-icon name="skip-forward" [size]="28" />
+            <span class="n" aria-hidden="true">30</span>
           </button>
-          <button type="button" class="quiet" aria-label="Close the player" (click)="player.stop()">
-            ×
+          <button type="button" class="ctl" aria-label="Close the player" (click)="player.stop()">
+            <app-icon name="close" [size]="20" />
           </button>
         </span>
       </aside>
@@ -101,10 +111,19 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
       color: var(--ink);
       border-top: 1px solid var(--rule);
     }
-    img {
+    /* The 2 px line along the top edge (#290), inside the bar's 64 px,
+       so --mini-player-height is what it was. */
+    .progress {
+      position: absolute;
+      inset: -1px 0 auto;
+      height: 2px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .progress span {
       display: block;
-      border-radius: var(--radius-control);
-      object-fit: cover;
+      height: 100%;
+      background: var(--accent);
     }
     .info {
       display: grid;
@@ -131,16 +150,47 @@ export const MINI_PLAYER_HEIGHT = 'calc(64px + env(safe-area-inset-bottom, 0px))
     }
     .controls {
       display: flex;
-      gap: 4px;
+      align-items: center;
+      gap: 2px;
     }
-    /* The kinds are global (styles.css): Play outlined, the rest text.
-       Reached by touch at 44 px (2026-11-15). */
-    .controls button {
+    /* Round icon buttons from the theme (#290): Play filled with the
+       accent (.primary), the others the mark alone; 40 px by mouse,
+       44 on a touch screen (2026-11-15). */
+    .ctl {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
       min-width: 40px;
       min-height: 40px;
+      padding: 0;
+      border-radius: 50%;
+    }
+    .ctl:not(.primary) {
+      border-color: transparent;
+      background: transparent;
+    }
+    .ctl:not(.primary):hover {
+      background: var(--chip-bg);
+    }
+    .n {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding-top: 2px;
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--ink);
     }
     @media (pointer: coarse) {
-      .controls button {
+      .ctl {
+        width: 44px;
+        height: 44px;
         min-width: 44px;
         min-height: 44px;
       }
@@ -160,6 +210,11 @@ export class MiniPlayer {
     { initialValue: this.router.url },
   );
 
+  /** The show's name, for the artwork's initials. */
+  protected showTitle(it: ItemRecord): string {
+    return this.reader.feeds().find((f) => f.id === it.feedId)?.title ?? 'A show';
+  }
+
   /** The episode's page: Podcasts' for a show followed there (#245), else the Reader's. */
   protected pageOf(it: ItemRecord): string[] {
     return this.reader.isPodcast(it.feedId) ? ['/podcasts/e', it.id] : ['/reader/a', it.id];
@@ -169,6 +224,12 @@ export class MiniPlayer {
   protected queryOf(it: ItemRecord): Record<string, string> | null {
     return this.reader.isPodcast(it.feedId) ? null : { in: `s:${it.feedId}` };
   }
+
+  /** How far along the episode in hand is, for the line along the top. */
+  protected readonly percent = computed(() => {
+    const total = this.player.duration();
+    return total > 0 ? Math.min(100, Math.max(0, (this.player.position() / total) * 100)) : 0;
+  });
 
   /** The episode in hand, unless this is its own page, in either module. */
   protected readonly shown = computed(() => {
@@ -185,5 +246,9 @@ export class MiniPlayer {
       if (this.shown()) root.style.setProperty('--mini-player-height', MINI_PLAYER_HEIGHT);
       else root.style.removeProperty('--mini-player-height');
     });
+    // Close puts the episode down, and the shell then removes this
+    // component (behind PlayerPresence) before the effect above runs
+    // again, which left the room set after the bar had gone (#290).
+    inject(DestroyRef).onDestroy(() => root.style.removeProperty('--mini-player-height'));
   }
 }

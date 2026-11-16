@@ -14,11 +14,9 @@ import { map } from 'rxjs';
 import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
 import { DownloadPrefs, KEEP_CHOICES, keepText } from '../reader/download-prefs';
-import { DownloadsService } from '../reader/downloads.service';
 import { FeedFix } from '../reader/feed-fix';
 import { feedTrouble } from '../reader/feed-health';
-import { type ItemRecord, ItemsService } from '../reader/items.service';
-import { PlayerService } from '../reader/player.service';
+import { ItemsService } from '../reader/items.service';
 import { renamedFolder } from '../reader/reader-feeds';
 import {
   type FeedRecord,
@@ -26,8 +24,7 @@ import {
   type Switched,
   cleanFolder,
 } from '../reader/reader.service';
-import { type EpisodeState, episodeState, lengthText, stateText } from './episodes';
-import { QueueButton } from './queue-button';
+import { EpisodeRow } from './episode-row';
 import { ShowArt } from './show-art';
 
 /** A show's filters (#246): the episodes not heard yet, or every one at hand. */
@@ -49,10 +46,13 @@ type Step = 'menu' | 'folder' | 'unfollow';
  * listens to, kept while the app is open. More is a sheet (a modal
  * dialog: focus stays inside, Escape closes) with Move to a folder,
  * Move to the Reader, Mark all as heard and Unfollow, which asks first.
+ * The rows are Latest's (`EpisodeRow`, #290) without the show's name;
+ * the feed's address is under About this show, after them, with Copy
+ * address (#290; under the name until then).
  */
 @Component({
   selector: 'app-podcast-show',
-  imports: [FeedFix, HomeLink, Icon, QueueButton, RouterLink, ShowArt],
+  imports: [EpisodeRow, FeedFix, HomeLink, Icon, RouterLink, ShowArt],
   template: `
     <main class="page">
       <header class="top">
@@ -90,7 +90,6 @@ type Step = 'menu' | 'folder' | 'unfollow';
             <h1>{{ s.title }}</h1>
             <p class="meta">{{ countLine() }}</p>
             <p class="meta">{{ foldersLine() }}</p>
-            <p class="meta url">{{ s.url }}</p>
           </div>
         </div>
         @if (trouble(); as t) {
@@ -175,36 +174,14 @@ type Step = 'menu' | 'folder' | 'unfollow';
         }
         <ul aria-label="Episodes">
           @for (ep of list(); track ep.id) {
-            <li>
-              <a class="open" [routerLink]="['/podcasts/e', ep.id]" [queryParams]="{ show: s.id }">
-                <span class="title">{{ ep.title }}</span>
-                <span class="meta"
-                  ><span class="state" [class.fresh]="stateOf(ep) === 'new'">{{
-                    stateWords(ep)
-                  }}</span>
-                  · {{ items.age(ep.published) }}
-                  @if (length(ep); as l) {
-                    · {{ l }}
-                  }
-                  @if (downloads.has(ep.id)) {
-                    · downloaded
-                  }
-                </span>
-              </a>
-              @if (ep.enclosure) {
-                <button
-                  type="button"
-                  class="play"
-                  [attr.aria-label]="(playing(ep) ? 'Pause ' : 'Play ') + ep.title"
-                  (click)="play(ep)"
-                >
-                  <app-icon [name]="playing(ep) ? 'pause' : 'play'" [size]="22" />
-                </button>
-              }
-              @if (ep.enclosure) {
-                <app-queue-button [item]="ep" (said)="said.set($event)" />
-              }
-            </li>
+            <li
+              appEpisodeRow
+              [item]="ep"
+              [show]="s.title"
+              [named]="false"
+              [queryParams]="{ show: s.id }"
+              (said)="said.set($event)"
+            ></li>
           }
         </ul>
         @if (items.mayHaveOlder(s.id)) {
@@ -217,6 +194,17 @@ type Step = 'menu' | 'folder' | 'unfollow';
         @if (said()) {
           <p class="status" role="status">{{ said() }}</p>
         }
+        <!-- The feed's address, out from under the name (#290). -->
+        <details class="about">
+          <summary>About this show</summary>
+          <dl>
+            <dt>Feed address</dt>
+            <dd class="address">
+              <span class="url">{{ s.url }}</span>
+              <button type="button" (click)="copy(s.url)">Copy address</button>
+            </dd>
+          </dl>
+        </details>
         <dialog
           #more
           class="sheet"
@@ -326,10 +314,40 @@ type Step = 'menu' | 'folder' | 'unfollow';
     .head .meta {
       margin: 2px 0;
     }
-    /* The show's feed address (2026-11-15): small, wrapping, never cut. */
+    /* About this show (#290): the feed's address, small, wrapping,
+       never cut (2026-11-15), with Copy address. */
+    .about {
+      margin-top: var(--space-4);
+      border-top: 1px solid var(--rule);
+    }
+    .about summary {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .about dl {
+      margin: 0 0 var(--space-2);
+    }
+    .about dt {
+      color: var(--quiet);
+      font-size: 14px;
+    }
+    .about dd {
+      margin: 4px 0 0;
+    }
+    .address {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+    }
     .url {
+      min-width: 0;
       font-size: 13px;
       overflow-wrap: anywhere;
+      user-select: text;
     }
     .trouble {
       margin-top: var(--space-3);
@@ -425,43 +443,6 @@ type Step = 'menu' | 'folder' | 'unfollow';
       padding: 0;
       border-top: 1px solid var(--rule);
     }
-    li {
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: 8px 0;
-      border-bottom: 1px solid var(--rule);
-    }
-    .open {
-      flex: 1;
-      min-width: 0;
-      display: grid;
-      gap: 2px;
-      padding: 2px 4px;
-      color: var(--ink);
-      text-decoration: none;
-    }
-    .title {
-      font-weight: 600;
-      overflow-wrap: anywhere;
-    }
-    .state.fresh {
-      color: var(--ink);
-      font-weight: 600;
-    }
-    .play {
-      flex: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 44px;
-      height: 44px;
-      padding: 0;
-      border: var(--border) solid var(--rule);
-      border-radius: 50%;
-      background: var(--surface);
-      cursor: pointer;
-    }
     .older button {
       min-height: 44px;
     }
@@ -522,9 +503,7 @@ type Step = 'menu' | 'folder' | 'unfollow';
 export class PodcastShow {
   protected readonly items = inject(ItemsService);
   protected readonly reader = inject(ReaderService);
-  protected readonly downloads = inject(DownloadsService);
   protected readonly prefs = inject(DownloadPrefs);
-  private readonly player = inject(PlayerService);
   private readonly injector = inject(Injector);
   private readonly router = inject(Router);
   protected readonly keepChoices = KEEP_CHOICES;
@@ -598,26 +577,17 @@ export class PodcastShow {
     return 'No episodes yet. They arrive once the server has looked.';
   });
 
-  protected stateOf(ep: ItemRecord): EpisodeState {
-    return episodeState(ep);
-  }
-
-  protected stateWords(ep: ItemRecord): string {
-    return stateText(ep);
-  }
-
-  protected playing(ep: ItemRecord): boolean {
-    return this.player.current() === ep.id && this.player.playing();
-  }
-
-  protected length(ep: ItemRecord): string | undefined {
-    return lengthText(ep, this.player, (s) => this.items.duration(s));
-  }
-
-  /** Play, or Pause the one playing, with the app's one player (#179). */
-  protected play(ep: ItemRecord): void {
-    if (this.player.current() === ep.id) this.player.toggle();
-    else this.player.load(ep, { autoplay: true });
+  /**
+   * Copies the feed's address, as About this feed does (2026-11-15);
+   * said either way, with the address when the clipboard refuses.
+   */
+  protected async copy(url: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      this.said.set('Address copied.');
+    } catch {
+      this.said.set(`Could not copy; the address is ${url}`);
+    }
   }
 
   /** The fixes on the page; Unfollow is in More. */
