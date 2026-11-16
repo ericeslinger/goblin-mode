@@ -946,7 +946,11 @@ a note once its notes have loaded and the editor shows its text, the
 caret first and then the scroll, so neither drags the other. A wheel,
 touch, press or key of his own first stops it, and once it is back
 nothing moves it again as more loads; meanwhile the place kept is not
-written over.
+written over. (2026-11-16, from #298: a note's place is put back only
+once the note's own text is in the editor, not merely once the notes
+have loaded: they can load a moment before the resumed note's text is
+merged in, and a restore on the empty editor put a long note back at
+its top.)
 
 *Gone.* Calmly Home (`/home`, replacing the entry), never an error and
 never a blank note standing in for the old one: a module turned off
@@ -1282,8 +1286,9 @@ base minimum, and the note bar's rows, when it wraps, are 44 px apart
 from centre to centre, so the areas of two rows meet mid-gap instead of
 overlapping. Not every control is there yet (2026-11-15): on touch the
 concept header's remove buttons and tag chips, the formatting toolbar
-(32 px), the meal plan's week links, the mini player's Continue from and
-the editor's page link are still under 44 px. On a mouse sizes stay as
+(32 px), the mini player's Continue from and the editor's page link are
+still under 44 px (the meal plan's week links were too, until #288 made
+them 44 px icons and buttons the same day). On a mouse sizes stay as
 they were, except a few buttons that had a 32 px floor, which now take
 their height from the base padding (31 to 35 px). (Since #287,
 2026-11-15, the note bar's View, Back and More are icons with boxes of
@@ -1309,10 +1314,13 @@ page to its shelf, and Add a podcast to Podcasts as before. Home keeps
 its own header (the sync word, Settings). The article, an episode and a
 show keep theirs too, with the chevron and the content's own `h1`. The
 note bar is not this header, and its Back turns the note over
-(2026-10-17, #112). Browse no longer lists the other places (the map,
-the week's meals, the Reader, Podcasts, the Reading queue, What
-assistants changed): each is a tile on Home, with the count the link
-carried, and a tile taken off Home comes back from Arrange Home.
+(2026-10-17, #112). (Since #288, 2026-11-15: on Kitchen's Meals and
+On hand, notes both, this header is drawn in the note bar's place,
+the note's View, Back and More as its actions; Kitchen, below.)
+Browse no longer lists the other places (the map, the week's meals,
+the Reader, Podcasts, the Reading queue, What assistants changed):
+each is a tile on Home, with the count the link carried, and a tile
+taken off Home comes back from Arrange Home.
 
 **Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
 New (since 2026-11-15 New note, the icon beside the leaf, #272), From
@@ -1471,16 +1479,18 @@ of tabs under their header (`app-module-tabs`, a `nav` with a name,
 `aria-current` on the tab shown, counts in the mono font). Each tab is
 a link to its own URL, so Back steps between them and a tab can be
 linked. Kitchen's (`app-kitchen-tabs`): Meals (`/kitchen` and
-`/kitchen/<day>`, as before: the week's plan on its note page, the week
-header's actions unchanged), Shopping (`/kitchen/shopping`, the grocery
+`/kitchen/<day>`, as before: the week's plan on its note page),
+Shopping (`/kitchen/shopping`, the grocery
 list `GroceryService.listId()` finds, in List view, written through the
 persistent cache like the note page's, with "N to buy" on the tab, or
 Make the grocery list while there is none), Recipes
-(`/kitchen/recipes`, every recipe newest first, each with "Made N
-times, last <date>" from the plans' made history) and On hand
-(`/kitchen/pantry`, which opens the pantry note, made if missing). The
-note page draws the tabs over a week's plan, the pantry and a grocery
-list. The Reader's: All (`/reader`, which now opens on All; unread
+(`/kitchen/recipes`, the recipe book; until #288 every recipe newest
+first, each with "Made N times, last <date>" or "Not made yet") and On
+hand (`/kitchen/pantry`, which opens the pantry note, made if missing).
+The note page draws the tabs over a week's plan, the pantry and a
+grocery list; since #288 (2026-11-15) over the first two under
+Kitchen's own header, in the note bar's place (Kitchen's tabs as they
+are, below). The Reader's: All (`/reader`, which now opens on All; unread
 count), Saved (`/reader/f/saved`), Podcasts (`/reader/f/podcasts`,
 unread episodes, once a feed is one; gone since 2026-11-10, #245, for
 the Podcasts module's own Latest and Shows) and Folders
@@ -1538,12 +1548,14 @@ table, item, the note after a comma, the `###` group it sits under) and
 recipes.ts`). A line the parser cannot read is still an ingredient,
 all item. Fields: `source` (`url`, `attachmentId`, `text`) and
 `servings`. In the app, with Kitchen on: Browse has a Recipes lens with
-New recipe (a generated id, written offline); a recipe's front shows
-its name and a line counting its ingredients and steps, and its back
-its servings, source link and original text. With Kitchen off a recipe
-is a plain note. Claude makes one with `create_recipe` (the recipe's
-words, not Claude's, so no ✳ mark) and lists them with `list_notes`
-`kind: recipe`. Made history arrives with meal plans (#129).
+New recipe (a generated id, written offline; since #288, 2026-11-15,
+Kitchen's Recipes tab has Add recipe, the same write); a recipe's
+front shows its name and a line counting its ingredients and steps,
+and its back its servings, source link and original text. With
+Kitchen off a recipe is a plain note. Claude makes one with
+`create_recipe` (the recipe's words, not Claude's, so no ✳ mark) and
+lists them with `list_notes` `kind: recipe`. Made history arrives
+with meal plans (#129).
 
 **Importing a recipe (#128, 2026-10-18).** From a link. In the app,
 Browse's Recipes lens has Import from a link: it writes a recipe at
@@ -1690,11 +1702,12 @@ In the app, `/kitchen` (This week's meals, in Settings, and in Browse
 until 2026-11-15, #286, when Home's Kitchen tile took its place)
 opens this week's plan, `/kitchen/<a day>` that day's week, making the
 plan once the notes and the configuration are read. A plan opens on
-the note page with its week drawn above its text (`MealPlanHeader`):
-tap a slot to plan a recipe (one that exists, by name), delivery or
-out, or to clear it; tick it made; Previous and Next week. Every
-change is an edit of the text, through the editor, so typing there is
-kept. A made dinner with nothing under it asks how it went (a
+the note page with its week drawn above its text (`MealPlanHeader`;
+since #288, 2026-11-15, the week is the screen and the text is behind
+Edit as text): tap a slot to plan a recipe (one that exists, by name),
+delivery or out, or to clear it; tick it made; Previous and Next week.
+Every change is an edit of the text, through the editor, so typing
+there is kept. A made dinner with nothing under it asks how it went (a
 delivery: what it was and from where); the answer goes under its slot
 and, for a recipe, as a dated line in its Notes. Ask me later makes a
 reminder an hour on that opens the plan. A recipe's back says how
@@ -1802,9 +1815,11 @@ the template's newest live note, or Make the grocery list.
 **On hand (#131, 2026-10-18; epic #125), presence only.** One note of
 kind `pantry` at id `pantry`, named On hand, made the first time it is
 needed with the store's sections. A line per item, edited by hand any
-time: `- onions: 3`, `- rice`, `- olive oil: always`; checkbox lines
-are not items. An item is matched by its words without an amount or
-unit, the way the grocery list matches (`itemKey`). Done shopping on
+time (since #288, 2026-11-15, through Edit as text, the tab showing the
+items by section, with Add to): `- onions: 3`, `- rice`, `- olive oil:
+always`; checkbox lines are not items. An item is matched by its
+words without an amount or unit, the way the grocery list matches
+(`itemKey`). Done shopping on
 the grocery list adds each ticked item not here yet, without its
 amount or dinner, under the section it was in on the list (From
 recipes, or none, goes under Other). A dinner ticked made, in the
@@ -1826,6 +1841,95 @@ made (never made first), then by name. In the week, picking a dinner
 offers the top three for that day, each with what it would need
 bought; a tap plans it. Claude's `suggest_recipes` gives the same
 ranking, five by default.
+
+**Kitchen's tabs as they are (#288, step 4 of the layout pass, epic
+#282, 2026-11-15).** The design report found the week drawn twice on
+a phone (the week, then the plan's own checklist under it), two
+headers (the note bar over Meals and On hand, Kitchen's over Shopping
+and Recipes, so the tabs jumped), week links on two ragged lines, a
+recipe book with no search that sent you to Browse to add one, and On
+hand's empty headings. Now:
+
+- *One header.* Every tab has `app-page-header` titled Kitchen, the
+  tabs under it, at the same place: on Meals and On hand, which are
+  notes on the note page, Launch draws `app-kitchen-tabs heading` in
+  the note bar's place, in a box placed as `.page` is (640 px at most,
+  centred, 16 px in), and the bar's View, Back and More (the same
+  markup, an `ng-template`) are the header's actions, each taking no
+  more of its height than the leaf. Nothing the bar offered there is
+  gone: the leaf and New note are the header's; From template, which
+  the header has no room for, is in More; View shows while the text
+  is out (the week and the list being a reading view already); Back,
+  More with its sync dot and offline word, and every item in More are
+  as they were. The grocery list's text (Edit the list) keeps the note
+  bar: it is a screen the Shopping tab leads to, not a tab.
+- *Meals: the week is the screen.* The plan's text is no longer drawn
+  under the week: the editor waits behind it, as it does behind List
+  view, and every change the week makes is still an edit of its text
+  (`capture.replace`). Edit as text, in More, shows the editor as it
+  always was, with "Show the week" over it (in More too); each plan
+  opens on its week. Notes under a dinner show under it, as before.
+  Any other line the week cannot draw (a line above or below it, a
+  slot it does not know, a note after a blank line, another heading)
+  shows as plain words (`plainText`) in "Also in this plan" under the
+  week, with Edit as text beside it: the block rather than "N more
+  lines", as the honest of the two, since it shows what is there
+  (`readPlan`, `kitchen/kitchen-lines.ts`; `planExtras` until
+  2026-11-16).
+- *The week switcher.* One centred row, "‹ Week of Nov 16 ›", the
+  week's name its `h2`, Previous week and Next week 44 px icon links
+  keeping those names; under it Grocery list (or Make the grocery
+  list) and On hand as outline buttons on one line. Today's row is
+  tinted and says Today in words, `aria-current="date"`. No swipe.
+- *Recipes.* A search that narrows by name as it is typed, on the
+  device; A to Z by default, or Made lately (the last day made, from
+  the plans' ticked dinners, as a recipe's back counts them; never
+  made after, by name); "made 3×, last Nov 2" on a recipe that was
+  made and nothing on one that was not. Add recipe, the tab's one
+  primary button, asks the name (the search's words to start) and
+  makes the recipe as Browse's New recipe does, `createRecipe`, then
+  opens it; the sentence sending you to Browse is gone, and the week's
+  "No recipe is called" now points here.
+- *On hand* reads as its sections with their items; a heading with
+  nothing under it is not shown, nor an empty note's (Nothing on hand
+  yet). Add to offers every heading the note has, empty ones too, and
+  Other; it writes only the new item's line (`editPantry`, as
+  `update_pantry` does), "limes", "rice: half a bag" or "salt:
+  always", and says so when the item is there already. Lines that are
+  neither items nor headings show in "Also in this note" (under their
+  heading since 2026-11-16, below). The text is
+  behind Edit as text, "Show the list" over it.
+
+*Every line shown or counted (2026-11-16, review on #299).* The review
+found three ways a line could be shown nowhere, and the rule is now
+that every line of a plan or the pantry that is not blank is drawn,
+shown as plain words, or counted:
+
+- Only the plan's own heading, its first line naming its own week, is
+  taken as the week's name; another week's heading or a free "Week of
+  Dec 1" line shows under "Also in this plan".
+- On hand shows a heading with anything at all under it; its lines
+  that are not items (`## Freezer`, `- [ ] defrost bread`) show as
+  plain words under it, no longer in a block of their own, which goes.
+  Only a heading with nothing under it is hidden, still in Add to.
+- A line with no words to show (a rule, an image with no alt text, a
+  code fence) is counted, "1 more line without words · Edit as text",
+  in the plan's "Also in this plan" and at the foot of On hand.
+- A plan with no `periodStart` draws no week: every line shows under
+  "Also in this plan".
+
+`readPlan` and `pantrySections` say which line is which, and a
+table-driven spec of awkward notes checks that the lines drawn, shown
+and counted are every line that is not blank, each once. Add to now
+splits what is typed at the last colon, as a line is read
+(`itemText`, `packages/schema/src/pantry.ts`, shared with
+`pantryItems`), a colon left in the name becoming a space as
+`editPantry` writes it, so "rice: half: a bag" is read back as rice
+half, a bag.
+
+UI only: no stored field, schema, rule, function or MCP tool changed.
+A cold reload of a plan or the pantry draws the note bar until the
+notes are read, as the tabs were drawn before.
 
 **Projects at hand (Eric, 2026-10-17).** "Open my pottery work or my
 writing project to see what's on tap" without going through Browse: a

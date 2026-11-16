@@ -11,13 +11,13 @@ import { MealPlanHeader } from './meal-plan-header';
 const START = '2026-10-19';
 const T = new Date(2026, 9, 20, 18).getTime(); // Tue Oct 20, 6 pm local
 
-async function render(body: string, extra: NoteRecord[] = []) {
+async function render(body: string, extra: NoteRecord[] = [], periodStart = START) {
   const notes = new FakeNotes();
   const plan: NoteRecord = {
     ...noteRecord('meals-2026-10-19', body),
     kind: 'mealplan',
     title: 'Meals, week of Oct 19',
-    periodStart: START,
+    ...(periodStart ? { periodStart } : {}),
   };
   notes.signIn([plan, { ...noteRecord('r-dal', ''), kind: 'recipe', title: 'Dal' }, ...extra]);
   const reminders = { add: vi.fn() };
@@ -85,6 +85,70 @@ describe('MealPlanHeader (#129)', () => {
     expect(el.querySelector('[role="status"]')?.textContent).toContain(
       'Added 2 lines to the grocery list.',
     );
+  });
+
+  it('draws the week as one row between its neighbours, today marked in words (#288)', async () => {
+    const { el } = await render(body);
+    const weeks = el.querySelector('nav[aria-label="Weeks"]')!;
+    expect(weeks.querySelector('h2')!.textContent?.trim()).toBe('Week of Oct 19');
+    expect(
+      [...weeks.querySelectorAll('a')].map((a) => [
+        a.getAttribute('aria-label'),
+        a.getAttribute('href'),
+      ]),
+    ).toEqual([
+      ['Previous week', '/kitchen/2026-10-12'],
+      ['Next week', '/kitchen/2026-10-26'],
+    ]);
+    const today = [...el.querySelectorAll('ul[aria-label="Meals"] > li[aria-current="date"]')];
+    expect(today).toHaveLength(1);
+    expect(today[0].textContent).toContain('Tue dinner, Oct 20');
+    expect(today[0].querySelector('.today-word')?.textContent?.trim()).toBe('Today');
+    // The day, Today and the dinner read apart, never run together.
+    expect(today[0].querySelector('.row')!.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Tue dinner, Oct 20, Today: delivery',
+    );
+    // The grocery list and On hand, under the week.
+    expect(el.querySelector('.week-links a')?.textContent?.trim()).toBe('Grocery list');
+    expect(buttonNamed(el, 'On hand')).toBeDefined();
+    // Nothing the week cannot draw: no Also in this plan.
+    expect(el.querySelector('section.extras')).toBeNull();
+  });
+
+  it('shows what the week cannot draw as plain words, with the way to the text', async () => {
+    const typed = '## Week of Oct 19\nGuests *Friday*\n- [ ] Mon dinner:\n  - from Ma’s\n';
+    const { el, fixture, edits } = await render(typed);
+    const extras = el.querySelector('section.extras')!;
+    expect(extras.querySelector('h3')?.textContent).toBe('Also in this plan');
+    expect([...extras.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+      'Guests Friday',
+    ]);
+    // The note under the dinner is in the week, not in the block.
+    expect(el.querySelector('.note')?.textContent).toBe('from Ma’s');
+    let asked = 0;
+    fixture.componentInstance.editText.subscribe(() => asked++);
+    buttonNamed(extras as HTMLElement, 'Edit as text').click();
+    expect(asked).toBe(1);
+    expect(edits).toEqual([]);
+  });
+
+  it('counts the lines with no words, so none is shown nowhere (2026-11-16)', async () => {
+    const typed = '## Week of Oct 19\n- [ ] Mon dinner:\n![](https://example.com/a.png)\n';
+    const { el } = await render(typed);
+    const extras = el.querySelector('section.extras')!;
+    expect(extras.querySelector('ul')).toBeNull();
+    expect(extras.querySelector('.more-lines')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '1 more line without words · Edit as text',
+    );
+  });
+
+  it('draws no week for a plan with no first day, every line under Also in this plan', async () => {
+    const typed = '## Week of Oct 19\n- [ ] Mon dinner: [[Dal]]\n  - more lemon\n';
+    const { el } = await render(typed, [], '');
+    expect(el.querySelector('nav[aria-label="Weeks"]')).toBeNull();
+    expect(el.querySelector('ul[aria-label="Meals"]')).toBeNull();
+    const lines = [...el.querySelectorAll('section.extras li')].map((li) => li.textContent);
+    expect(lines).toEqual(['Week of Oct 19', 'Mon dinner: Dal', 'more lemon']);
   });
 
   it('shows a slot and its notes as plain words, the text kept as typed (#285)', async () => {

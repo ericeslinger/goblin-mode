@@ -665,8 +665,9 @@ export class ReaderList {
   private markMany(ids: string[]): void {
     const n = this.items.setReadMany(ids, true);
     if (!n) {
-      this.offerUndo(undefined);
-      this.status.set('Nothing to mark.');
+      // A showing Undo for an earlier batch stays, its words and its
+      // seconds as they were (review on #297).
+      if (!this.undoIds()) this.status.set('Nothing to mark.');
       return;
     }
     this.offerUndo(ids, (all) => `${all} marked read.`);

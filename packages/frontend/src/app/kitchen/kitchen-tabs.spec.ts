@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { FISH_ID } from '@mossgoblin/schema';
@@ -78,31 +78,80 @@ describe('Kitchen tabs (#220)', () => {
     expect(grocery.makeList).toHaveBeenCalled();
   });
 
-  it('lists the recipes newest first, each with how often it was made', () => {
-    const recipe = (id: string, title: string, createdAt: number): NoteRecord => ({
-      ...noteRecord(id, `${title}\n\n## Ingredients\n\n## Method\n\n## Notes`),
-      kind: 'recipe',
-      title,
-      createdAt,
-    });
-    const plan: NoteRecord = {
-      ...noteRecord('meals-2026-10-19', 'Meals, week of Oct 19\n\n- [x] Mon dinner: [[Dal]]'),
-      kind: 'mealplan',
-      periodStart: '2026-10-19',
-    };
+  const recipe = (id: string, title: string, createdAt: number): NoteRecord => ({
+    ...noteRecord(id, `${title}\n\n## Ingredients\n\n## Method\n\n## Notes`),
+    kind: 'recipe',
+    title,
+    createdAt,
+  });
+  const plan: NoteRecord = {
+    ...noteRecord('meals-2026-10-19', 'Meals, week of Oct 19\n\n- [x] Mon dinner: [[Dal]]'),
+    kind: 'mealplan',
+    periodStart: '2026-10-19',
+  };
+
+  it('lists the recipes A to Z, saying made only on one that was (#288)', () => {
     // The fish placeholder is no dish, by its id whatever its name (#220).
     setup([
       recipe('d', 'Dal', 1),
       recipe('s', 'Shakshuka', 2),
-      recipe(FISH_ID, 'Miso cod', 3),
+      recipe('a', 'Aloo gobi', 3),
+      recipe(FISH_ID, 'Miso cod', 4),
       plan,
     ]);
     const fixture = TestBed.createComponent(KitchenRecipes);
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
-    const rows = [...el.querySelectorAll('ul[aria-label="Recipes"] a')];
-    expect(rows.map(text)).toEqual(['Shakshuka Not made yet', 'Dal Made once, last Oct 19']);
-    expect(rows[1].getAttribute('href')).toBe('/n/d');
+    const rows = () => [...el.querySelectorAll('ul[aria-label="Recipes"] a')];
+    expect(rows().map(text)).toEqual(['Aloo gobi', 'Dal made 1×, last Oct 19', 'Shakshuka']);
+    expect(rows()[1].getAttribute('href')).toBe('/n/d');
     expect(text(el.querySelector('nav a[aria-current="page"]'))).toBe('Recipes');
+    // Made lately: the made one first, then the rest by name.
+    const order = [...el.querySelectorAll('[role="group"][aria-label="Order"] button')];
+    expect(order.map((b) => [text(b), b.getAttribute('aria-pressed')])).toEqual([
+      ['A to Z', 'true'],
+      ['Made lately', 'false'],
+    ]);
+    (order[1] as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(rows().map(text)).toEqual(['Dal made 1×, last Oct 19', 'Aloo gobi', 'Shakshuka']);
+    // The search narrows as it is typed.
+    const search = el.querySelector<HTMLInputElement>('input[type="search"]')!;
+    search.value = 'SHAK';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(rows().map(text)).toEqual(['Shakshuka']);
+    search.value = 'paella';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(rows()).toEqual([]);
+    expect(el.textContent).toContain('No recipe is called “paella”.');
+  });
+
+  it('adds a recipe as Browse does, and opens it (#288)', async () => {
+    const { fake } = setup([recipe('d', 'Dal', 1)]);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(KitchenRecipes);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const button = (name: string) =>
+      [...el.querySelectorAll('button')].find((b) => text(b) === name)!;
+    // The sentence that sent you to Browse is gone.
+    expect(el.textContent).not.toContain('in Browse');
+    expect(button('Add recipe').classList).toContain('primary');
+    button('Add recipe').click();
+    fixture.detectChanges();
+    const name = el.querySelector<HTMLInputElement>('form input[name="name"]')!;
+    // A name already taken is refused, as in Browse.
+    name.value = 'Dal';
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    expect(text(el.querySelector('[role="status"]'))).toBe('“Dal” already names a note.');
+    name.value = '  Miso soup ';
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    expect(fake.createRecipe).toHaveBeenLastCalledWith('Miso soup');
+    expect(navigate).toHaveBeenCalledWith(['/n', expect.any(String)]);
+    expect(el.querySelector('form')).toBeNull();
   });
 });

@@ -432,6 +432,20 @@ describe('ReaderList, by day, compact and the source marks (#288)', () => {
     expect(items.unreadCounts()['all']).toBe(3);
   });
 
+  it('leaves a showing Undo alone when a batch marks nothing', () => {
+    const { fixture, el, items, status } = setup(false);
+    el.querySelector<HTMLButtonElement>('button.all')!.click();
+    fixture.detectChanges();
+    expect(status()).toBe('3 marked read. Undo');
+    // Unreachable from the buttons today: an empty batch, straight in.
+    (fixture.componentInstance as unknown as { markMany(ids: string[]): void }).markMany([]);
+    fixture.detectChanges();
+    expect(status()).toBe('3 marked read. Undo');
+    el.querySelector<HTMLButtonElement>('[role="status"] button')!.click();
+    fixture.detectChanges();
+    expect(items.unreadCounts()['all']).toBe(3);
+  });
+
   it('heads a day with nothing unread without a count or a button, with Show read on', () => {
     const { fixture, el, api } = setup(false);
     api.push('unread', [item('a', 1)]);

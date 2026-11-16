@@ -42,6 +42,19 @@ export interface PantryItem {
   section: string;
 }
 
+/**
+ * An item line's words as the pantry reads them: the name before the
+ * last colon, what follows it the amount, `always` marking a staple.
+ * The app's Add to splits what is typed by the same rule (#288,
+ * 2026-11-16), so what it writes reads back as the same item.
+ */
+export function itemText(text: string): { item: string; amount: string; always: boolean } {
+  const colon = text.lastIndexOf(':');
+  const item = (colon > 0 ? text.slice(0, colon) : text).trim();
+  const amount = colon > 0 ? text.slice(colon + 1).trim() : '';
+  return { item, amount, always: ALWAYS.test(amount) };
+}
+
 /** The pantry's items, in order. */
 export function pantryItems(body: string): PantryItem[] {
   const out: PantryItem[] = [];
@@ -54,15 +67,13 @@ export function pantryItems(body: string): PantryItem[] {
     }
     const m = ITEM.exec(l);
     if (!m) return;
-    const colon = m[1].lastIndexOf(':');
-    const item = (colon > 0 ? m[1].slice(0, colon) : m[1]).trim();
-    const amount = colon > 0 ? m[1].slice(colon + 1).trim() : '';
+    const { item, amount, always } = itemText(m[1]);
     out.push({
       line,
       item,
       key: itemKey(item),
-      ...(amount && !ALWAYS.test(amount) ? { amount } : {}),
-      always: ALWAYS.test(amount),
+      ...(amount && !always ? { amount } : {}),
+      always,
       section,
     });
   });

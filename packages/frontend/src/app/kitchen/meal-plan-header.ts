@@ -17,7 +17,9 @@ import {
   setSlot,
   shortDate,
 } from '@mossgoblin/schema';
+import { Icon } from '../home/icon';
 import { NOW } from '../platform/platform';
+import { readPlan, weekLabel, wordlessLine } from './kitchen-lines';
 import { GroceryService } from './grocery.service';
 import { RemindersService } from '../reminders/reminders.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
@@ -35,7 +37,9 @@ function groceryNote({ added, removed }: { added: number; removed: number }): st
 const LATER_MS = 60 * 60 * 1000;
 
 /**
- * Above a meal plan's text (#129): the week as slots. Tap one to plan a
+ * A meal plan's week (#129), which since #288 (2026-11-15) is the
+ * Meals tab's screen, the plan's text behind Edit as text: the week
+ * between Previous and Next week, then the slots. Tap one to plan a
  * recipe, delivery or out, or to clear it; tick it made. Once a dinner
  * is made it asks how it went (for a delivery, what it was and from
  * where), and the answer goes under the slot, and for a recipe in its
@@ -45,107 +49,156 @@ const LATER_MS = 60 * 60 * 1000;
  */
 @Component({
   selector: 'app-meal-plan-header',
-  imports: [RouterLink],
+  imports: [Icon, RouterLink],
   template: `
     <section class="plan" aria-label="Meal plan">
-      <nav class="weeks" aria-label="Weeks">
-        <a [routerLink]="['/kitchen', previous()]">Previous week</a>
+      <!-- A plan with no first day has no week to draw: all it holds
+           shows under Also in this plan (2026-11-16). -->
+      @if (start()) {
+        <!-- One row (#288, 2026-11-15): the week between its neighbours. -->
+        <nav class="weeks" aria-label="Weeks">
+          <a class="step" [routerLink]="['/kitchen', previous()]" aria-label="Previous week"
+            ><app-icon name="chevron-left" [size]="22"
+          /></a>
+          <h2 class="week">{{ week() }}</h2>
+          <a class="step" [routerLink]="['/kitchen', next()]" aria-label="Next week"
+            ><app-icon name="chevron" [size]="22"
+          /></a>
+        </nav>
+      }
+      <div class="week-links">
         @if (grocery.listId(); as list) {
-          <a [routerLink]="['/n', list]">Grocery list</a>
+          <a class="secondary" [routerLink]="['/n', list]">Grocery list</a>
         } @else {
-          <button type="button" (click)="makeList()">Make the grocery list</button>
+          <button type="button" class="secondary" (click)="makeList()">
+            Make the grocery list
+          </button>
         }
-        <button type="button" class="link" (click)="openPantry()">On hand</button>
-        <a [routerLink]="['/kitchen', next()]">Next week</a>
-      </nav>
+        <button type="button" class="secondary" (click)="openPantry()">On hand</button>
+      </div>
       <datalist id="recipe-names">
         @for (r of recipes(); track r.id) {
           <option [value]="r.title"></option>
         }
       </datalist>
-      <ul class="slots" aria-label="Meals">
-        @for (s of slots(); track s.line) {
-          <li [class.today]="s.date === today()">
-            <div class="row">
-              <!-- Its tap area on a touch screen (2026-11-15). -->
-              <label class="tick">
-                <input
-                  type="checkbox"
-                  [checked]="s.made"
-                  [attr.aria-label]="'Made ' + label(s)"
-                  (change)="tick(s, $any($event.target).checked)"
-                />
-              </label>
-              <span class="when">{{ label(s) }}</span>
-              @if (editing() === s.line) {
-                <span class="edit">
+      @if (start()) {
+        <ul class="slots" aria-label="Meals">
+          @for (s of slots(); track s.line) {
+            <li
+              [class.today]="s.date === today()"
+              [attr.aria-current]="s.date === today() ? 'date' : null"
+            >
+              <div class="row">
+                <!-- Its tap area on a touch screen (2026-11-15). -->
+                <label class="tick">
                   <input
-                    #pick
-                    list="recipe-names"
-                    placeholder="A recipe"
-                    [attr.aria-label]="'Recipe for ' + label(s)"
-                    [value]="s.recipe ?? ''"
-                    (keydown.enter)="choose(s, pick.value)"
+                    type="checkbox"
+                    [checked]="s.made"
+                    [attr.aria-label]="'Made ' + label(s)"
+                    (change)="tick(s, $any($event.target).checked)"
                   />
-                  <button type="button" (click)="choose(s, pick.value)">Plan it</button>
-                  <button type="button" (click)="set(s, 'delivery')">Delivery</button>
-                  <button type="button" (click)="set(s, 'out')">Out</button>
-                  <button type="button" (click)="set(s, '')">Clear</button>
-                  <button type="button" (click)="editing.set(undefined)">Cancel</button>
-                </span>
-                @if (suggestionsFor(s); as ideas) {
-                  @if (ideas.length) {
-                    <ul class="ideas" [attr.aria-label]="'Suggestions for ' + label(s)">
-                      @for (idea of ideas; track idea.id) {
-                        <li>
-                          <button
-                            type="button"
-                            class="link"
-                            [attr.aria-label]="'Plan ' + idea.title"
-                            (click)="set(s, '[[' + idea.title + ']]')"
-                          >
-                            {{ idea.title }}
-                          </button>
-                          <span class="muted">{{
-                            idea.missing.length ? 'needs ' + idea.missing.join(', ') : 'all on hand'
-                          }}</span>
-                        </li>
-                      }
-                    </ul>
-                  }
-                }
-              } @else {
-                <!-- The slot's plain words (#285): [[Dal]] reads Dal. -->
-                <button
-                  type="button"
-                  class="what"
-                  [attr.aria-label]="
-                    'Change ' + label(s) + ': ' + (plain(s.text) || 'nothing planned')
-                  "
-                  (click)="editing.set(s.line); refused.set('')"
-                >
-                  {{ plain(s.text) || 'Nothing planned' }}
-                </button>
-              }
-            </div>
-            @for (n of s.notes; track $index) {
-              <p class="note">{{ plain(n) }}</p>
-            }
-            @if (asking(s)) {
-              <div class="ask">
-                <label>
-                  {{ question(s) }}
-                  <input #answer [attr.aria-label]="question(s)" />
                 </label>
-                <button type="button" (click)="log(s, answer.value)">Save</button>
-                <button type="button" (click)="later(s)">Ask me later</button>
+                <!-- Separators in the text, so the day, Today and the dinner
+                   never read run together; the comma is not drawn. -->
+                <span class="when">{{ label(s) }}</span>
+                @if (s.date === today()) {
+                  <span class="visually-hidden">{{ ', ' }}</span>
+                  <span class="today-word">Today</span>
+                }
+                <span class="visually-hidden">{{ ': ' }}</span>
+                @if (editing() === s.line) {
+                  <span class="edit">
+                    <input
+                      #pick
+                      list="recipe-names"
+                      placeholder="A recipe"
+                      [attr.aria-label]="'Recipe for ' + label(s)"
+                      [value]="s.recipe ?? ''"
+                      (keydown.enter)="choose(s, pick.value)"
+                    />
+                    <button type="button" (click)="choose(s, pick.value)">Plan it</button>
+                    <button type="button" (click)="set(s, 'delivery')">Delivery</button>
+                    <button type="button" (click)="set(s, 'out')">Out</button>
+                    <button type="button" (click)="set(s, '')">Clear</button>
+                    <button type="button" (click)="editing.set(undefined)">Cancel</button>
+                  </span>
+                  @if (suggestionsFor(s); as ideas) {
+                    @if (ideas.length) {
+                      <ul class="ideas" [attr.aria-label]="'Suggestions for ' + label(s)">
+                        @for (idea of ideas; track idea.id) {
+                          <li>
+                            <button
+                              type="button"
+                              class="link"
+                              [attr.aria-label]="'Plan ' + idea.title"
+                              (click)="set(s, '[[' + idea.title + ']]')"
+                            >
+                              {{ idea.title }}
+                            </button>
+                            <span class="muted">{{
+                              idea.missing.length
+                                ? 'needs ' + idea.missing.join(', ')
+                                : 'all on hand'
+                            }}</span>
+                          </li>
+                        }
+                      </ul>
+                    }
+                  }
+                } @else {
+                  <!-- The slot's plain words (#285): [[Dal]] reads Dal. -->
+                  <button
+                    type="button"
+                    class="what"
+                    [attr.aria-label]="
+                      'Change ' + label(s) + ': ' + (plain(s.text) || 'nothing planned')
+                    "
+                    (click)="editing.set(s.line); refused.set('')"
+                  >
+                    {{ plain(s.text) || 'Nothing planned' }}
+                  </button>
+                }
               </div>
-            }
-          </li>
-        }
-      </ul>
+              @for (n of s.notes; track $index) {
+                <p class="note">{{ plain(n) }}</p>
+              }
+              @if (asking(s)) {
+                <div class="ask">
+                  <label>
+                    {{ question(s) }}
+                    <input #answer [attr.aria-label]="question(s)" />
+                  </label>
+                  <button type="button" (click)="log(s, answer.value)">Save</button>
+                  <button type="button" (click)="later(s)">Ask me later</button>
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      }
       @if (refused()) {
         <p class="muted" role="status">{{ refused() }}</p>
+      }
+      @if (extras().length || wordless()) {
+        <!-- What the week cannot draw stays in sight (#288): plain words,
+             and a count of the lines with none (2026-11-16). -->
+        <section class="extras" aria-labelledby="plan-extras">
+          <h3 id="plan-extras">Also in this plan</h3>
+          @if (extras().length) {
+            <ul aria-labelledby="plan-extras">
+              @for (x of extras(); track x.line) {
+                <li>{{ x.words }}</li>
+              }
+            </ul>
+          }
+          <p class="more-lines">
+            @if (wordless()) {
+              {{ wordless() }}
+              <span aria-hidden="true">{{ ' · ' }}</span>
+            }
+            <button type="button" class="link" (click)="editText.emit()">Edit as text</button>
+          </p>
+        </section>
       }
     </section>
   `,
@@ -155,15 +208,89 @@ const LATER_MS = 60 * 60 * 1000;
       border-bottom: 1px solid var(--rule);
       font-size: 14px;
     }
+    /* The week between its neighbours, one row, centred (#288). */
     .weeks {
       display: flex;
-      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
       gap: var(--space-2);
-      justify-content: space-between;
-      margin-bottom: var(--space-1);
+    }
+    .step {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: none;
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-control);
+      color: var(--ink);
+    }
+    .step:hover {
+      background: var(--chip-bg);
+    }
+    .week {
+      margin: 0;
+      min-width: 0;
+      font-size: 17px;
+      text-align: center;
+    }
+    .week-links {
+      display: flex;
+      justify-content: center;
+      gap: var(--space-2);
+      margin: var(--space-1) 0 var(--space-2);
     }
     a {
       color: var(--accent);
+    }
+    /* Secondary: the outline kind, a link drawn the same (#288). */
+    .week-links .secondary {
+      display: inline-flex;
+      align-items: center;
+      font: inherit;
+      padding: 6px 12px;
+      color: var(--ink);
+      background: var(--surface);
+      border: var(--border) solid var(--rule);
+      border-radius: var(--radius-control);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    @media (pointer: coarse) {
+      .week-links .secondary {
+        min-height: 44px;
+      }
+    }
+    /* Today, tinted, and said in words as well (#288). */
+    li.today {
+      margin: 0 calc(-1 * var(--space-2));
+      padding-left: var(--space-2);
+      padding-right: var(--space-2);
+      background: var(--chip-bg);
+      border-radius: var(--radius-control);
+    }
+    .today-word {
+      padding: 0 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-pill);
+    }
+    .extras {
+      margin-top: var(--space-3);
+    }
+    .extras h3 {
+      margin: 0 0 var(--space-1);
+      font-size: 14px;
+      color: var(--quiet);
+    }
+    .extras li {
+      color: var(--quiet);
+    }
+    .more-lines {
+      margin: var(--space-2) 0 0;
+      color: var(--quiet);
     }
     ul {
       list-style: none;
@@ -246,7 +373,7 @@ const LATER_MS = 60 * 60 * 1000;
       align-items: center;
     }
     input:not([type='checkbox']),
-    button:not(.what):not(.link) {
+    button:not(.what):not(.link):not(.secondary) {
       font: inherit;
       color: var(--ink);
       background: var(--surface);
@@ -271,6 +398,8 @@ export class MealPlanHeader {
   readonly body = input.required<string>();
   /** The plan's new text, for the editor to show and save. */
   readonly edited = output<string>();
+  /** Edit as text (#288), from the lines the week shows as plain words. */
+  readonly editText = output<void>();
 
   private readonly notes = inject(NotesService);
   protected readonly grocery = inject(GroceryService);
@@ -302,6 +431,15 @@ export class MealPlanHeader {
   protected readonly slots = computed(() =>
     this.start() ? planSlots(this.body(), this.start()) : [],
   );
+  /** "Week of Nov 16" (#288). */
+  protected readonly week = computed(() => (this.start() ? weekLabel(this.start()) : ''));
+  /** The plan's lines the week cannot draw, as plain words (#288). */
+  /** How the week accounts for the plan's lines (#288, 2026-11-16). */
+  private readonly reading = computed(() => readPlan(this.body(), this.start()));
+  /** The plan's lines the week cannot draw, as plain words. */
+  protected readonly extras = computed(() => this.reading().extras);
+  /** "1 more line without words", or ''. */
+  protected readonly wordless = computed(() => wordlessLine(this.reading().wordless.length));
   protected readonly previous = computed(() => addDays(this.start(), -7));
   protected readonly next = computed(() => addDays(this.start(), 7));
   protected readonly today = computed(() => localDate(this.now()));
@@ -379,7 +517,7 @@ export class MealPlanHeader {
     const id = this.notes.names().get(normalizeName(wanted));
     const recipe = id === undefined ? undefined : this.notes.find(id);
     if (recipe?.kind !== 'recipe') {
-      this.refused.set(`No recipe is called “${wanted}”. Make it in Browse, Recipes first.`);
+      this.refused.set(`No recipe is called “${wanted}”. Add it in Kitchen, Recipes first.`);
       return;
     }
     this.refused.set('');
