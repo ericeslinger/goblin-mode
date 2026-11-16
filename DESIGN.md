@@ -1545,13 +1545,14 @@ window widens. The breakpoint is the sum at the default theme: the rail
 176, the notes list 320, the text's 70 characters (595 px of Source
 Serif at 17 px) and 16 px either side, and the column 280 come to 1403;
 at 1400 the text is 592 px. The widest faces (Inter, Atkinson) get
-about 55 of their characters there, and 57 at 1440, rather than 70. The capture screen at `/`
-has no column even once saved, so nothing moves under typing, nor do a
-sealed note, Kitchen's week, pantry or grocery list (the rail's
-Kitchen, for the other modules' change), or any screen under 1400 px,
-where the back is turned to as before. The editor is outside the
-column: what the column reads is the note as stored, and its updates
-never draw the editor again or move the cursor.
+about 55 of their characters there, and 57 at 1440, rather than 70.
+The capture screen at `/` has no column even once saved, so nothing
+moves under typing, nor do a sealed note, Kitchen's week, pantry or
+grocery list (the rail's Kitchen, for the other modules' change), or
+any screen under 1400 px, where the back is turned to as before. The
+editor is outside the column: what the column reads is the note as
+stored, and its updates never draw the editor again or move the
+cursor.
 
 Still to come, each its own change: the Reader in three panes, the
 other modules in the shell, the tablet's rail of icons alone (once the
