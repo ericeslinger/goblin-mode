@@ -119,13 +119,13 @@ export function articleHtml(markdown: string, images: boolean): string {
                 <app-icon name="reader-mode" [size]="22" />
               </button>
             } @else {
+              <!-- While the page is fetched the name stays; the status line says so (#288). -->
               <button
                 type="button"
                 class="icon"
+                aria-label="Reader mode"
                 aria-pressed="false"
-                [attr.aria-label]="
-                  it.readerState === 'working' || fetching() ? 'Fetching the page…' : 'Reader mode'
-                "
+                [attr.aria-busy]="it.readerState === 'working' || fetching() ? 'true' : null"
                 [disabled]="it.readerState === 'working' || fetching()"
                 (click)="readerMode(it.id)"
               >

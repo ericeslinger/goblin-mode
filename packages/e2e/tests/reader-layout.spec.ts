@@ -73,13 +73,13 @@ async function readerWithFixtures(page: Page): Promise<void> {
   await page.clock.setFixedTime(NOW);
 }
 
-const articles = (page: Page) => page.getByRole('list', { name: 'Articles' });
+const articles = (page: Page) => page.getByRole('group', { name: 'Articles', exact: true });
 const dayHeading = (page: Page, name: string) =>
   articles(page).getByRole('heading', { level: 3, name, exact: true });
 /** A day's own Mark these read, beside its heading. */
 const markDay = (page: Page, name: string) =>
   articles(page)
-    .locator('.day')
+    .locator('section')
     // Relative to the day itself: a locator rooted at the list finds nothing inside it.
     .filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) })
     .getByRole('button', { name: 'Mark these read' });
@@ -88,16 +88,25 @@ test('the list by day: headings with counts, one day marked read, and Undo', asy
   await readerWithFixtures(page);
   await page.goto('/reader');
   const rows = articles(page).getByRole('listitem');
-  // Each day's heading is in its first article's item: five items, five articles.
+  // A section a day, each with its own list named by its heading; the
+  // rows are the only list items: five articles.
   await expect(rows).toHaveCount(5);
-  await expect(articles(page).locator('.row')).toHaveCount(5);
+  await expect(articles(page).locator('section')).toHaveCount(4);
+  await expect(
+    articles(page).getByRole('list', { name: 'Today, 2 unread', exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    articles(page)
+      .getByRole('list', { name: 'Today, 2 unread', exact: true })
+      .getByRole('listitem'),
+  ).toHaveCount(2);
   await expect(articles(page).getByRole('heading', { level: 3 })).toHaveCount(4);
   await expect(dayHeading(page, 'Today, 2 unread')).toBeVisible();
   await expect(dayHeading(page, 'Yesterday, 1 unread')).toBeVisible();
   await expect(dayHeading(page, 'Wednesday, Nov 4, 1 unread')).toBeVisible();
   await expect(dayHeading(page, 'Monday, Nov 2, 1 unread')).toBeVisible();
   // On screen the count follows a dot.
-  await expect(articles(page).locator('.day').first()).toContainText('Today · 2');
+  await expect(articles(page).locator('.day-head').first()).toContainText('Today · 2');
   // Newest first, each under its day.
   await expect(rows).toHaveText([
     /A one-page dungeon/,
@@ -113,24 +122,32 @@ test('the list by day: headings with counts, one day marked read, and Undo', asy
   await expect(rows.first().getByRole('link')).toHaveAccessibleName(/^A one-page dungeon/);
   await noSeriousViolations(page);
 
-  // The day being read stays at the top while its rows scroll: a bar
-  // standing for its heading, there only once the heading has gone up.
-  await page.setViewportSize({ width: 412, height: 420 });
-  const bar = page.locator('.current-day .bar');
-  await expect(bar).toHaveCount(0);
-  const scrollPast = (n: number) =>
+  // A day's heading sticks while its rows scroll, and the next day's
+  // pushes it off.
+  await page.setViewportSize({ width: 412, height: 360 });
+  const intoDay = (n: number) =>
     page.evaluate((at) => {
-      const head = document.querySelectorAll('ul[aria-label="Articles"] .day')[at]!;
-      window.scrollTo(0, window.scrollY + head.getBoundingClientRect().top + 60);
+      const day = document.querySelectorAll('[role="group"][aria-label="Articles"] > section')[at]!;
+      window.scrollTo(0, window.scrollY + day.getBoundingClientRect().top + 60);
     }, n);
-  await scrollPast(0);
-  await expect(bar).toBeVisible();
-  await expect(bar).toContainText('Today · 2');
-  await expect.poll(async () => Math.round((await bar.boundingBox())!.y)).toBe(0);
-  // Hidden from screen readers: the heading in the list is the one they read.
-  await expect(page.locator('.current-day')).toHaveAttribute('aria-hidden', 'true');
-  await scrollPast(1);
-  await expect(bar).toContainText('Yesterday · 1');
+  const headOf = (name: string) =>
+    articles(page)
+      .locator('.day-head')
+      .filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) });
+  await expect(headOf('Today, 2 unread')).toHaveCSS('position', 'sticky');
+  await intoDay(0);
+  await expect
+    .poll(async () => Math.round((await headOf('Today, 2 unread').boundingBox())!.y))
+    .toBe(0);
+  await expect(dayHeading(page, 'Today, 2 unread')).toBeInViewport();
+  await intoDay(1);
+  await expect
+    .poll(async () => Math.round((await headOf('Yesterday, 1 unread').boundingBox())!.y))
+    .toBe(0);
+  await expect(dayHeading(page, 'Yesterday, 1 unread')).toBeInViewport();
+  await expect(dayHeading(page, 'Today, 2 unread')).not.toBeInViewport();
+  // With a heading stuck over the rows.
+  await noSeriousViolations(page);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.setViewportSize({ width: 412, height: 839 });
 
@@ -156,21 +173,29 @@ test('the list by day: headings with counts, one day marked read, and Undo', asy
   // heading, with no count and nothing to mark.
   await markDay(page, 'Yesterday, 1 unread').click();
   await expect(rows).toHaveCount(4);
+  // The offer lapses after a few seconds; the focus it had goes to the
+  // articles, not the page.
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Undo' })).toHaveCount(0, { timeout: 10_000 });
+  await expect(articles(page)).toBeFocused();
   await page.getByRole('checkbox', { name: 'Show read' }).check();
   await expect(rows).toHaveCount(5);
   await expect(dayHeading(page, 'Yesterday')).toBeVisible();
   await expect(
     articles(page)
-      .locator('.day')
-      .filter({ has: dayHeading(page, 'Yesterday') })
+      .locator('.day-head')
+      .filter({ has: page.getByRole('heading', { level: 3, name: 'Yesterday', exact: true }) })
       .getByRole('button'),
   ).toHaveCount(0);
 
   // Mark all read stays at the top, and has the same Undo.
   await page.getByRole('button', { name: 'Mark all read' }).click();
   await expect(page.getByRole('status')).toContainText('4 marked read.');
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeFocused();
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByRole('status')).toContainText('4 unread again.');
+  // Undo went with its offer: the focus is on the articles.
+  await expect(articles(page)).toBeFocused();
   await expect(tabs.getByRole('link', { name: /^All/ })).toContainText('4 unread');
 });
 
@@ -188,13 +213,10 @@ test('Compact: no summaries, short rows, and the choice kept on the device', asy
   await compact.check();
   await expect(articles(page).locator('.summary')).toHaveCount(0);
   await expect(rows.filter({ hasText: 'Celadon glazes' })).not.toContainText('Why celadon');
-  // The rows themselves; a day's first item also holds its heading.
   const heights = async () =>
-    (
-      await articles(page)
-        .locator('.row')
-        .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height))
-    ).map(Math.round);
+    (await rows.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height))).map(
+      Math.round,
+    );
   for (const h of await heights()) expect(h).toBeLessThan(80);
   // Source and time stay, on one line.
   await expect(rows.filter({ hasText: 'Celadon glazes' })).toContainText('Design notes');

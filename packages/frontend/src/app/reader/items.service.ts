@@ -1383,15 +1383,6 @@ export class ItemsService {
     this.feeds.markSeen(folder, Math.max(this.now(), newest));
   }
 
-  /** Marks every unread article at hand on a shelf read; returns how many. */
-  markAllRead(shelf: Shelf2): number {
-    // Only the unread: Saved shows read ones too (review on #167).
-    const ids = this.inShelf(shelf, false)
-      .filter((i) => !i.read)
-      .map((i) => i.id);
-    return this.setReadMany(ids, true);
-  }
-
   /**
    * Marks several read (now) or unread again in one batch, shown at
    * once; returns how many. Mark all read and mark read on scroll and

@@ -17,7 +17,7 @@ export interface Day<T> {
   items: T[];
   /** The ids of the unread rows: what the day's Mark these read marks. */
   unread: string[];
-  /** Where the day's first row is in the whole list, for the keyboard's cursor. */
+  /** Where the day's first row is among the days' rows in order, for the keyboard's cursor. */
   start: number;
 }
 
@@ -53,11 +53,13 @@ export function dayLabel(key: string, today: string): string {
 }
 
 /**
- * The list cut into days, in its own order: a run of rows on one day
- * is one day, so the rows are drawn exactly as the list has them and
- * the keyboard's cursor (an index into the list) still names the row
- * it did. The list is newest first, so each day comes once; one out
- * of order would start a second run of its day rather than move.
+ * The list cut into days: each day once, in the order its first row
+ * comes, its rows in the list's order. The list is newest first, so
+ * this is the list's own order; a row out of order joins its day
+ * rather than starting a second one, so a day's key names it alone
+ * and a page can keep its section while rows above it change. `start`
+ * counts the rows of the days before, so the day's rows are
+ * `start` to `start + items.length - 1` of the days read in order.
  */
 export function groupByDay<T extends { id: string; published: number; read: boolean }>(
   items: readonly T[],
@@ -65,16 +67,22 @@ export function groupByDay<T extends { id: string; published: number; read: bool
   tz: string,
 ): Day<T>[] {
   const today = zonedDay(now, tz);
-  const days: Day<T>[] = [];
-  let last: Day<T> | undefined;
-  items.forEach((item, n) => {
+  const byKey = new Map<string, Day<T>>();
+  for (const item of items) {
     const key = dayKey(item.published, today, tz);
-    if (!last || last.key !== key) {
-      last = { key, label: dayLabel(key, today), items: [], unread: [], start: n };
-      days.push(last);
+    let day = byKey.get(key);
+    if (!day) {
+      day = { key, label: dayLabel(key, today), items: [], unread: [], start: 0 };
+      byKey.set(key, day);
     }
-    last.items.push(item);
-    if (!item.read) last.unread.push(item.id);
-  });
+    day.items.push(item);
+    if (!item.read) day.unread.push(item.id);
+  }
+  const days = [...byKey.values()];
+  let start = 0;
+  for (const day of days) {
+    day.start = start;
+    start += day.items.length;
+  }
   return days;
 }

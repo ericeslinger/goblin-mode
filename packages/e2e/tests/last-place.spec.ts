@@ -75,7 +75,7 @@ test('an article read part-way down is where it was after / is opened again, in 
   // A short screen, so even a fixture's article scrolls.
   await page.setViewportSize({ width: 412, height: 240 });
   await page
-    .getByRole('list', { name: 'Articles' })
+    .getByRole('group', { name: 'Articles', exact: true })
     .getByRole('link', { name: /Celadon/ })
     .click();
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();

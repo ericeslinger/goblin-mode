@@ -78,6 +78,22 @@ describe('the Reader list by day (#288)', () => {
     expect(dayKey(Number.NaN, '2026-11-15', NY)).toBe(NO_DATE);
   });
 
+  it('keeps each day once: a row out of order joins its day', () => {
+    const days = groupByDay(
+      [
+        row('a', '2026-11-15T14:00:00Z'),
+        row('y', '2026-11-14T14:00:00Z'),
+        row('b', '2026-11-15T13:00:00Z'),
+      ],
+      NOW,
+      NY,
+    );
+    expect(days.map((d) => [d.key, d.items.map((i) => i.id), d.start])).toEqual([
+      ['2026-11-15', ['a', 'b'], 0],
+      ['2026-11-14', ['y'], 2],
+    ]);
+  });
+
   it('has no days for an empty list', () => {
     expect(groupByDay([], NOW, NY)).toEqual([]);
   });

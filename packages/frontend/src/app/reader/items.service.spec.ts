@@ -444,25 +444,6 @@ describe('ItemsService (#162)', () => {
     expect(await items.readerMode('a')).toBe('Could not fetch the page. Are you online?');
   });
 
-  it('marks all read on a shelf in one batch, what is at hand', () => {
-    const { items, api } = setup();
-    api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2), item('c', 'f3', 3)]);
-    expect(items.markAllRead({ kind: 'folder', name: 'Design' })).toBe(2);
-    expect(api.setMany.mock.calls[0][1].map((w) => w.path)).toEqual([
-      'users/u1/feedItems/a',
-      'users/u1/feedItems/b',
-    ]);
-    expect(items.unreadCounts()[ALL]).toBe(1);
-    expect(items.markAllRead({ kind: 'folder', name: 'Design' })).toBe(0);
-    // Saved shows read ones too; they are not marked again (review on #167).
-    api.push('saved', [
-      item('s1', 'f1', 10, { saved: true, read: true }),
-      item('s2', 'f1', 11, { saved: true }),
-    ]);
-    expect(items.markAllRead({ kind: 'folder', name: SAVED })).toBe(1);
-    expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual(['users/u1/feedItems/s2']);
-  });
-
   it('marks several read or unread in one batch, at once (#172)', () => {
     const { items, api } = setup();
     api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2), item('c', 'f3', 3)]);

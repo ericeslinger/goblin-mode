@@ -742,7 +742,6 @@ export class FakeItems {
   find = () => undefined;
   setRead = vi.fn();
   setSaved = vi.fn();
-  markAllRead = vi.fn(() => 0);
   setReadMany = vi.fn((ids: string[], _read: boolean) => ids.length);
   fileInGarden = vi.fn(() => 'clip1');
   readerMode = vi.fn(async () => undefined);
