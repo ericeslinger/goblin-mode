@@ -38,7 +38,7 @@ import { QueueButton } from './queue-button';
       <span class="meta"
         ><span class="state" [class.fresh]="fresh()">{{ stateWords() }}</span>
         @if (showName()) {
-          · <span class="part">{{ showName() }}</span>
+          · <span class="show">{{ showName() }}</span>
         }
         ·
         <span class="part"
@@ -120,8 +120,13 @@ import { QueueButton } from './queue-button';
       font-size: 14px;
       line-height: 1.35;
     }
+    /* The age and length never part; a show's name may wrap, so a
+       long one cannot run under the queue button. */
     .part {
       white-space: nowrap;
+    }
+    .show {
+      overflow-wrap: anywhere;
     }
     .state.fresh {
       color: var(--ink);

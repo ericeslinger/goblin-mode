@@ -92,7 +92,7 @@ describe('An episode’s row (#290)', () => {
     // In DOM order: the title, then the meta line, whose last piece
     // holds both the age and the length, so the length never stands
     // on a line alone.
-    const parts = [...meta.querySelectorAll('.state, .part')].map((p) =>
+    const parts = [...meta.querySelectorAll('.state, .show, .part')].map((p) =>
       p.textContent!.replace(/\s+/g, ' ').trim(),
     );
     expect(parts).toEqual(['New', 'Kiln talk', 'just now · 42 min']);

@@ -17,7 +17,8 @@ import { episodeState, stateText } from './episodes';
  * An episode's page in Podcasts (#245, `/podcasts/e/<id>`): its artwork,
  * large over the name since #290, its show, title and state, the
  * player's full controls, Add to the queue (In the queue once there)
- * and Play next (#249), Mark as heard (or Mark as new), Download, File in the garden and the page, then the
+ * and Play next (#249), Mark as heard (or Mark as new), Download, File
+ * in the garden and the page, then the
  * show notes, the feed's text rendered as the Reader renders an
  * article's. Opening it marks the notes read (`read`) and nothing else:
  * the episode stays New until it is heard (Eric, 2026-11-10). Back goes
