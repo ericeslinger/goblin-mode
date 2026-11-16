@@ -45,14 +45,17 @@ const item = (id: string, hoursAgo: number) => ({
 let seen: (entries: Partial<IntersectionObserverEntry>[]) => void;
 /** Rows observed and not yet reported: the observer's first look is still to come. */
 let fresh: Element[];
+/** What the observer watches rows against: the viewport (null), or the list pane's box (#289). */
+let observerRoot: Element | Document | null | undefined;
 
-function setup(readOnScroll: boolean, folder?: string) {
+function setup(readOnScroll: boolean, folder?: string, inputs: Record<string, unknown> = {}) {
   vi.stubGlobal(
     'IntersectionObserver',
     class {
-      constructor(cb: typeof seen) {
+      constructor(cb: typeof seen, options?: IntersectionObserverInit) {
         seen = cb;
         fresh = [];
+        observerRoot = options?.root;
       }
       observe(el: Element) {
         fresh.push(el);
@@ -94,6 +97,7 @@ function setup(readOnScroll: boolean, folder?: string) {
   settings.push({ folderOrder: [], images: true, readOnScroll, updatedAt: 1 });
   api.push('unread', [item('a', 1), item('b', 2), item('c', 3)]);
   const fixture = TestBed.createComponent(ReaderList);
+  for (const [name, value] of Object.entries(inputs)) fixture.componentRef.setInput(name, value);
   fixture.detectChanges();
   const el = fixture.nativeElement as HTMLElement;
   const row = (id: string) => el.querySelector<HTMLElement>(`li[data-id="${id}"]`)!;
@@ -569,5 +573,134 @@ describe('ReaderList, by day, compact and the source marks (#288)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('ReaderList, the list pane of the three panes (#289)', () => {
+  const all = { kind: 'folder', name: 'all' } as const;
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('draws no header or main of its own, and scrolls in its own box', () => {
+    const { el } = setup(false, undefined, { pane: true, shelf: all });
+    expect(el.querySelector('main')).toBeNull();
+    expect(el.querySelector('app-reader-bar')).toBeNull();
+    const box = el.querySelector('.pane-body')!;
+    expect(box.querySelectorAll('li[data-id]')).toHaveLength(3);
+    // The observer of #172 watches the rows against that box.
+    expect(observerRoot).toBe(box);
+  });
+
+  it('takes the shelf the panes give it, not its route', () => {
+    const { el } = setup(false, 'Design', {
+      pane: true,
+      shelf: { kind: 'folder', name: 'Games' },
+    });
+    expect(el.querySelector('h2')!.textContent).toBe('Games');
+    expect(el.querySelectorAll('li[data-id]')).toHaveLength(0);
+  });
+
+  it('keeps the article open beside it as its current row once read, the keys the article’s', () => {
+    const { fixture, el, items } = setup(false, undefined, {
+      pane: true,
+      shelf: all,
+      current: 'b',
+      ownKeys: false,
+    });
+    // The article page reads it as it opens, and keeps it in the run.
+    items.visit(all, 'b');
+    items.setRead('b', true);
+    fixture.detectChanges();
+    const rowB = el.querySelector('li[data-id="b"]')!;
+    expect(el.querySelectorAll('li[data-id]')).toHaveLength(3);
+    expect(rowB.classList).toContain('read');
+    expect(rowB.classList).toContain('cursor');
+    expect(rowB.querySelector('a')!.getAttribute('aria-current')).toBe('true');
+    // j and m are the article's while it is open.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm' }));
+    fixture.detectChanges();
+    expect(el.querySelector('li.cursor')!.getAttribute('data-id')).toBe('b');
+    expect(items.find('b')?.read).toBe(true);
+    // The next article opened beside it is current in its turn, and the
+    // one before stays, read, as the article's previous.
+    items.visit(all, 'c');
+    items.setRead('c', true);
+    fixture.componentRef.setInput('current', 'c');
+    fixture.detectChanges();
+    expect(el.querySelector('li.cursor')!.getAttribute('data-id')).toBe('c');
+    expect(el.querySelectorAll('li.read')).toHaveLength(2);
+  });
+
+  it('counts a scroll of its own box as the page moving (#172)', () => {
+    vi.useFakeTimers();
+    try {
+      const { el, api, leave, look } = setup(true, undefined, { pane: true, shelf: all });
+      look();
+      window.dispatchEvent(new Event('wheel'));
+      el.querySelector('.pane-body')!.dispatchEvent(new Event('scroll'));
+      leave('a');
+      vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+      expect(api.setMany).toHaveBeenCalledTimes(1);
+      expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual(['users/u1/feedItems/a']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('ReaderList, the list pane scrolling itself to the article (#289)', () => {
+  const all = { kind: 'folder', name: 'all' } as const;
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('marks no row its own scroll to the current row put above the top (#172)', () => {
+    vi.useFakeTimers();
+    try {
+      const { fixture, el, api, leave, look } = setup(true, undefined, { pane: true, shelf: all });
+      look();
+      // An article opens beside the list: its row is scrolled into view,
+      // and the rows are looked at afresh from there.
+      fixture.componentRef.setInput('current', 'c');
+      fixture.detectChanges();
+      look('a');
+      const scroll = () => {
+        window.dispatchEvent(new Event('wheel'));
+        el.querySelector('.pane-body')!.dispatchEvent(new Event('scroll'));
+      };
+      scroll();
+      vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+      expect(api.setMany).not.toHaveBeenCalled();
+      // The gardener scrolls b past: that counts.
+      leave('b');
+      scroll();
+      vi.advanceTimersByTime(PASSED_MS + SETTLE_MS);
+      expect(api.setMany).toHaveBeenCalledTimes(1);
+      expect(api.setMany.mock.lastCall![1].map((w) => w.path)).toEqual(['users/u1/feedItems/b']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('ReaderList, the run through a shelf in the panes (#289)', () => {
+  const all = { kind: 'folder', name: 'all' } as const;
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the run when the panes open with an article, and ends it when they open on a list', () => {
+    const { items } = setup(false);
+    items.visit(all, 'a');
+    items.visit(all, 'b');
+    // A reload of an article in the panes: the list beside it keeps the run.
+    const withArticle = TestBed.createComponent(ReaderList);
+    withArticle.componentRef.setInput('pane', true);
+    withArticle.componentRef.setInput('shelf', all);
+    withArticle.componentRef.setInput('current', 'b');
+    withArticle.detectChanges();
+    expect([...items.visitedIn(all)]).toEqual(['a', 'b']);
+    // The panes on a list, with no article: as the list's own screen.
+    const onList = TestBed.createComponent(ReaderList);
+    onList.componentRef.setInput('pane', true);
+    onList.componentRef.setInput('shelf', all);
+    onList.detectChanges();
+    expect([...items.visitedIn(all)]).toEqual([]);
   });
 });

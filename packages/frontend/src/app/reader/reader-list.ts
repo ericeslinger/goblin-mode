@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   Component,
   DestroyRef,
@@ -6,9 +7,12 @@ import {
   Injector,
   afterNextRender,
   afterRenderEffect,
+  booleanAttribute,
   computed,
   effect,
   inject,
+  input,
+  linkedSignal,
   signal,
   untracked,
   viewChild,
@@ -51,11 +55,17 @@ export const SETTLE_MS = 300;
 export const UNDO_MS = 6000;
 /** What the gardener does to move the page, as against the browser restoring it. */
 const INPUTS = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const;
+const NO_IDS: ReadonlySet<string> = new Set();
 
 export function shelfFromParam(value: string | null): Shelf2 {
   if (value?.startsWith('s:')) return { kind: 'feed', id: value.slice(2) };
   if (value?.startsWith('f:')) return { kind: 'folder', name: value.slice(2) };
   return { kind: 'folder', name: ALL };
+}
+
+/** Whether two shelves are the same list. */
+export function sameShelf(a: Shelf2, b: Shelf2): boolean {
+  return shelfParam(a) === shelfParam(b);
 }
 
 /** A shelf's list: `/reader/f/<folder>` or `/reader/s/<feedId>`. */
@@ -110,17 +120,35 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
  * the day's list, named by its heading, of rows. Days are kept by
  * their key and rows by id, so a change above a day leaves its rows'
  * nodes, their swipe and their place for the observer as they were.
+ *
+ * In the Reader's three panes (#289, 2026-11-16) it is the list pane:
+ * the panes draw the header, the shelf is theirs (`shelf`), the list
+ * scrolls in its own box, which is what the observer of #172 watches
+ * and the status bar sits at the foot of, and the article open beside
+ * it (`current`) is its current row, scrolled into view once, kept in
+ * the list once read as the ones read on the way are. Its keys are
+ * the article's while one is open (`ownKeys`).
  */
 @Component({
   selector: 'app-reader-list',
-  imports: [Icon, ReaderBar, ReaderFeedHead, RouterLink, SourceMarkView, Swipe],
+  imports: [Icon, NgTemplateOutlet, ReaderBar, ReaderFeedHead, RouterLink, SourceMarkView, Swipe],
+  host: { '[class.in-panes]': 'pane()' },
   template: `
-    <main class="page">
-      <app-reader-bar
-        [active]="tab()"
-        [current]="tab() === 'folders' ? 'true' : 'page'"
-        [folder]="chipFolder()"
-      />
+    @if (pane()) {
+      <div class="pane-body" #scroller (scroll)="scrolled()">
+        <ng-container [ngTemplateOutlet]="body" />
+      </div>
+    } @else {
+      <main class="page">
+        <app-reader-bar
+          [active]="tab()"
+          [current]="tab() === 'folders' ? 'true' : 'page'"
+          [folder]="chipFolder()"
+        />
+        <ng-container [ngTemplateOutlet]="body" />
+      </main>
+    }
+    <ng-template #body>
       @if (tab() === 'folders') {
         <!-- A folder's or a feed's shelf, under Folders (#220): back to them, and its name. -->
         <a class="up" routerLink="/reader/folders"
@@ -277,9 +305,27 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
           </section>
         }
       </div>
-    </main>
+    </ng-template>
   `,
   styles: `
+    /* The list pane (#289): its own scroll box, the status at its foot. */
+    :host(.in-panes) {
+      display: block;
+      position: relative;
+      height: 100%;
+    }
+    .pane-body {
+      box-sizing: border-box;
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 0 var(--space-3);
+    }
+    :host(.in-panes) .status {
+      position: absolute;
+      inset: auto 0 0 0;
+      max-width: none;
+    }
     .up {
       display: inline-flex;
       align-items: center;
@@ -512,12 +558,33 @@ export class ReaderList {
   protected readonly density = inject(ReaderDensity);
   protected readonly compact = computed(() => this.density.value() === 'compact');
   private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
-  private readonly shelf = toSignal(inject(ActivatedRoute).paramMap.pipe(map(shelfOf)), {
+  /** The list pane of the three panes (#289). */
+  readonly pane = input(false, { transform: booleanAttribute });
+  /** The panes' shelf, which their route says; otherwise the list's own route's. */
+  readonly shelfIn = input<Shelf2 | undefined>(undefined, { alias: 'shelf' });
+  /** The article open beside the list, in the panes: its current row. */
+  readonly current = input<string | undefined>(undefined);
+  /** Whether the list's keys are its own: not while an article beside it has them. */
+  readonly ownKeys = input(true);
+  private readonly routeShelf = toSignal(inject(ActivatedRoute).paramMap.pipe(map(shelfOf)), {
     initialValue: { kind: 'folder', name: ALL } as Shelf2,
+  });
+  private readonly shelf = computed(() => this.shelfIn() ?? this.routeShelf(), {
+    equal: sameShelf,
   });
   protected readonly showRead = signal(false);
   protected readonly status = signal('');
-  protected readonly cursor = signal(-1);
+  /**
+   * The keyboard's row, by its index as drawn; in the panes the
+   * article open beside the list, wherever its row has moved to.
+   */
+  protected readonly cursor = linkedSignal<{ id?: string; drawn: ItemRecord[] }, number>({
+    source: () => ({ id: this.current(), drawn: this.drawn() }),
+    computation: ({ id, drawn }, previous) => {
+      const at = id ? drawn.findIndex((i) => i.id === id) : -1;
+      return at >= 0 ? at : (previous?.value ?? -1);
+    },
+  });
 
   protected readonly isSaved = computed(
     () => this.shelf().kind === 'folder' && (this.shelf() as { name: string }).name === SAVED,
@@ -530,9 +597,24 @@ export class ReaderList {
   protected readonly list = computed(() => {
     const shown = this.items.inShelf(this.shelf(), this.showRead());
     const held = this.held();
-    if (!held.size) return shown;
+    const kept = this.kept();
+    if (!held.size && !kept.size) return shown;
     const ids = new Set(shown.map((i) => i.id));
-    return this.items.inShelf(this.shelf(), true).filter((i) => ids.has(i.id) || held.has(i.id));
+    return this.items
+      .inShelf(this.shelf(), true)
+      .filter((i) => ids.has(i.id) || held.has(i.id) || kept.has(i.id));
+  });
+  /**
+   * In the panes, the articles opened on the way through the shelf
+   * and the one open now stay in the list once read (#289), as the
+   * article's next and previous count them, so its row stays current
+   * and nothing moves under the gardener.
+   */
+  private readonly kept = computed<ReadonlySet<string>>(() => {
+    if (!this.pane()) return NO_IDS;
+    const visited = this.items.visitedIn(this.shelf());
+    const id = this.current();
+    return id ? new Set([...visited, id]) : visited;
   });
   protected readonly unreadCount = computed(() => this.list().filter((i) => !i.read).length);
   /**
@@ -542,8 +624,12 @@ export class ReaderList {
    * keeps yesterday's Today until it does.
    */
   protected readonly days = computed(() => groupByDay(this.list(), this.now(), this.tz));
-  /** The rows in the order they are drawn, day by day: what the cursor's index counts. */
-  private readonly drawn = computed(() => this.days().flatMap((d) => d.items));
+  /**
+   * The rows in the order they are drawn, day by day: what the cursor's
+   * index counts, and in the panes what the article's next and previous
+   * go along (#289).
+   */
+  readonly drawn = computed(() => this.days().flatMap((d) => d.items));
   /** The folder chips' current one (#288): on All and a folder's list, not Saved or a feed's. */
   protected readonly chipFolder = computed(() => {
     const shelf = this.shelf();
@@ -560,6 +646,10 @@ export class ReaderList {
 
   private readonly rows = viewChildren('row', { read: ElementRef<HTMLElement> });
   private readonly articlesBox = viewChild<ElementRef<HTMLElement>>('articles');
+  /** The list pane's own scroll box (#289), the observer's root there. */
+  private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
+  /** The current row last scrolled into view, so it is scrolled to once. */
+  private revealed?: string;
   private observer?: IntersectionObserver;
   private readonly observed = new Set<HTMLElement>();
   /**
@@ -606,22 +696,43 @@ export class ReaderList {
     // Another shelf starts afresh: no hold, nothing waiting, no Undo.
     // And a list on screen ends the run through its articles: the next
     // one opened counts from the unread, not from all read before it.
+    // In the panes the list is on screen beside the run (#289): one
+    // they open with an article (a reload, a wider window) keeps it.
+    let first = true;
     effect(() => {
       this.shelf();
       untracked(() => {
+        const keep = first && this.pane() && !!this.current();
+        first = false;
         this.forget();
-        this.items.forgetVisits();
+        if (!keep) this.items.forgetVisits();
       });
     });
-    if (typeof IntersectionObserver !== 'undefined') {
-      this.observer = new IntersectionObserver((entries) => this.seen(entries));
-      afterRenderEffect(() => this.observe(this.rows()));
-    }
+    // The run ends in the panes as it does on a phone, when the list
+    // is the screen again (2026-11-11): there, that is the article
+    // pane closing (Escape, its back link, a folder chosen). The rows
+    // read on the way then leave the list, and the next article
+    // opened counts from the unread (review on #305, 2026-11-16).
+    let reading = false;
+    effect(() => {
+      const alone = this.ownKeys();
+      if (!this.pane()) return;
+      untracked(() => {
+        if (alone && reading) this.items.forgetVisits();
+        reading = !alone;
+      });
+    });
+    // In the panes the current row is scrolled into view first, then
+    // the rows are followed, so the observer's first look is from
+    // where that left them, and rows it put above the top are not
+    // passed (#172).
+    afterRenderEffect(() => {
+      const rows = this.rows();
+      if (this.pane()) this.reveal(this.current(), rows);
+      if (typeof IntersectionObserver !== 'undefined') this.observe(rows);
+    });
     const onInput = () => (this.touched = true);
-    const onScroll = () => {
-      if (this.touched && !this.armed) this.arm();
-      this.settle();
-    };
+    const onScroll = () => this.scrolled();
     for (const type of INPUTS) window.addEventListener(type, onInput, { passive: true });
     window.addEventListener('scroll', onScroll, { passive: true });
     inject(DestroyRef).onDestroy(() => {
@@ -630,6 +741,38 @@ export class ReaderList {
       this.observer?.disconnect();
       this.forget();
     });
+  }
+
+  /** The page moved: the window's scroll, or the list pane's (#289). */
+  protected scrolled(): void {
+    if (this.touched && !this.armed) this.arm();
+    this.settle();
+  }
+
+  /** The article open beside the list, its row scrolled into view once it is drawn (#289). */
+  private reveal(id: string | undefined, rows: readonly ElementRef<HTMLElement>[]): void {
+    if (!id || id === this.revealed) return;
+    const row = rows.find((r) => r.nativeElement.dataset['id'] === id)?.nativeElement;
+    if (!row) return;
+    this.revealed = id;
+    row.scrollIntoView?.({ block: 'nearest' });
+    this.relook();
+  }
+
+  /**
+   * The rows looked at afresh, after the list scrolled itself: a row
+   * that scroll put above the top was not passed by the gardener, so
+   * the observer's next report on each is a first look again (#172).
+   */
+  private relook(): void {
+    if (!this.observer) return;
+    for (const el of this.observed) {
+      this.observer.unobserve(el);
+      this.looked.delete(el);
+      const id = el.dataset['id'];
+      if (id) this.drop(id);
+      this.observer.observe(el);
+    }
   }
 
   protected source(item: ItemRecord): string {
@@ -677,6 +820,8 @@ export class ReaderList {
 
   @HostListener('document:keydown', ['$event'])
   protected keys(event: KeyboardEvent): void {
+    // In the panes, an article beside the list has the keys (#289).
+    if (!this.ownKeys()) return;
     const target = event.target as HTMLElement | null;
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
     // The feed's More sheet (2026-11-15) keeps its own keys, and Enter
@@ -739,6 +884,11 @@ export class ReaderList {
 
   /** Follows the rows on the page, and lets go of the ones that left it. */
   private observe(rows: readonly ElementRef<HTMLElement>[]): void {
+    // Made once the list is drawn: in the panes its root is the list's
+    // own scroll box, which a row above the top has left (#289).
+    this.observer ??= new IntersectionObserver((entries) => this.seen(entries), {
+      root: this.pane() ? (this.scroller()?.nativeElement ?? null) : null,
+    });
     const now = new Set(rows.map((r) => r.nativeElement));
     for (const el of this.observed) {
       if (now.has(el)) continue;

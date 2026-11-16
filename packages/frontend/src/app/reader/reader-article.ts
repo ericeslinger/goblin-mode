@@ -1,10 +1,15 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   Component,
   ElementRef,
   HostListener,
+  Injector,
+  afterNextRender,
+  booleanAttribute,
   computed,
   effect,
   inject,
+  input,
   signal,
   untracked,
   viewChild,
@@ -51,20 +56,34 @@ export function articleHtml(markdown: string, images: boolean): string {
  * and opening it reads nothing: hearing it to the end does. Its
  * Download keeps it on the device to play offline, with its progress,
  * then Remove (#180).
+ *
+ * In the Reader's three panes (#289, 2026-11-16) it is the article
+ * pane, beside the list it was opened from: no swipe there, its title
+ * an h2 under the Reader's h1, next and previous along the list as
+ * the list pane draws it (`order`), and the pane scrolled to the top
+ * and its title focused as another article opens in it.
  */
 @Component({
   selector: 'app-reader-article',
-  imports: [RouterLink, Swipe, CaughtUp, EpisodePlayer, HomeLink, Icon],
+  imports: [NgTemplateOutlet, RouterLink, Swipe, CaughtUp, EpisodePlayer, HomeLink, Icon],
+  host: { '[class.in-panes]': 'pane()' },
   template: `
-    <main
-      class="page"
-      appSwipe
-      #main
-      [canLeft]="!!next() || atEnd()"
-      [canRight]="!!prev()"
-      (left)="go(1)"
-      (right)="go(-1)"
-    >
+    @if (pane()) {
+      <div class="pane-body" #main><ng-container [ngTemplateOutlet]="body" /></div>
+    } @else {
+      <main
+        class="page"
+        appSwipe
+        #main
+        [canLeft]="!!next() || atEnd()"
+        [canRight]="!!prev()"
+        (left)="go(1)"
+        (right)="go(-1)"
+      >
+        <ng-container [ngTemplateOutlet]="body" />
+      </main>
+    }
+    <ng-template #body>
       @if (dragging()) {
         <!-- The stories either side, drawn beside this one while it is dragged, from the top
              of the screen however far down this one is read (Eric, 2026-11-07). -->
@@ -194,11 +213,16 @@ export function articleHtml(markdown: string, images: boolean): string {
       </header>
       @if (pendingDone()) {
         <!-- The caught-up page, shown here while its route loads. -->
-        <app-reader-caught-up [shelf]="shelfTitle()" />
+        <app-reader-caught-up [shelf]="shelfTitle()" [level]="pane() ? 2 : 1" />
       } @else if (item(); as it) {
         <article>
           <header>
-            <h1>{{ it.title }}</h1>
+            @if (pane()) {
+              <!-- Focused as another article opens in the pane (#289). -->
+              <h2 #title class="title" tabindex="-1">{{ it.title }}</h2>
+            } @else {
+              <h1>{{ it.title }}</h1>
+            }
             <p class="meta">
               @if (downloaded()) {
                 Downloaded ·
@@ -249,7 +273,7 @@ export function articleHtml(markdown: string, images: boolean): string {
       } @else if (items.loaded()) {
         <p class="muted">This article is not on this device. Open it online, or go back.</p>
       }
-    </main>
+    </ng-template>
   `,
   styles: `
     :host {
@@ -261,6 +285,19 @@ export function articleHtml(markdown: string, images: boolean): string {
     main {
       position: relative;
       touch-action: pan-y;
+    }
+    /* The article pane (#289): it scrolls on its own, the text at a
+       reading measure of 70 of its characters, centred. */
+    :host(.in-panes) {
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .pane-body {
+      box-sizing: content-box;
+      max-width: 70ch;
+      margin: 0 auto;
+      padding: var(--space-2) var(--space-3) var(--space-4);
     }
     main.settling {
       transition: transform 180ms ease-out;
@@ -290,7 +327,8 @@ export function articleHtml(markdown: string, images: boolean): string {
       left: 100%;
     }
     /* 25 px (#288): at 34 a phone gave a long title five lines. */
-    h1 {
+    h1,
+    h2.title {
       margin: var(--space-2) 0 var(--space-1);
       font-size: 25px;
       line-height: 1.25;
@@ -431,6 +469,22 @@ export class ReaderArticle {
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly route = inject(ActivatedRoute);
+  private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+  /** The article pane of the three panes (#289). */
+  readonly pane = input(false, { transform: booleanAttribute });
+  /**
+   * The list beside it, as drawn (#289): next and previous go along
+   * it, so the keys act on the list shown. Its own sequence otherwise.
+   */
+  readonly order = input<readonly ItemRecord[] | undefined>(undefined);
+  /**
+   * In the panes, whether an article arriving is one the gardener
+   * opened, which takes the focus: not one a reload or a wider window
+   * brought with the panes.
+   */
+  readonly opening = input(false);
+  private readonly titleEl = viewChild<ElementRef<HTMLElement>>('title');
   private readonly id = toSignal(this.route.paramMap.pipe(map((p) => p.get('id') ?? '')), {
     initialValue: '',
   });
@@ -529,6 +583,8 @@ export class ReaderArticle {
    * still has them (#188).
    */
   private readonly sequence = computed(() => {
+    const order = this.order();
+    if (order) return order;
     const id = this.currentId();
     const visited = this.items.visitedIn(this.shelf());
     return this.items
@@ -561,6 +617,32 @@ export class ReaderArticle {
       marked = it.id;
       this.items.setRead(it.id, true);
     });
+    // In the panes, an article the gardener opens starts at its top
+    // with its title focused, as a fresh page is read from the top.
+    let shown = '';
+    effect(() => {
+      const id = this.currentId();
+      if (!this.pane() || !id || id === shown) return;
+      shown = id;
+      if (!untracked(this.opening)) return;
+      untracked(() => {
+        this.host.scrollTop = 0;
+        afterNextRender(() => this.focusTitle(), { injector: this.injector });
+      });
+    });
+  }
+
+  /** The title takes the focus, unless the gardener is typing somewhere. */
+  private focusTitle(): void {
+    const active = document.activeElement as HTMLElement | null;
+    if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
+    this.titleEl()?.nativeElement.focus({ preventScroll: true });
+  }
+
+  /** Back to the top: the window's, or the pane's in the panes. */
+  private toTop(): void {
+    if (this.pane()) this.host.scrollTop = 0;
+    else window.scrollTo({ top: 0 });
   }
 
   /** Reader mode (#163): the page's article, fetched by the server, kept on the item. */
@@ -597,7 +679,7 @@ export class ReaderArticle {
         .then((ok) => {
           if (!ok) this.pendingDone.set(false);
         });
-      window.scrollTo({ top: 0 });
+      this.toTop();
       return;
     }
     if (!next) return;
@@ -606,7 +688,7 @@ export class ReaderArticle {
       queryParams: { in: shelfParam(this.shelf()) },
       replaceUrl: true,
     });
-    window.scrollTo({ top: 0 });
+    this.toTop();
   }
 
   protected when(it: ItemRecord): string {

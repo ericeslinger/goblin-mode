@@ -1554,10 +1554,17 @@ editor is outside the column: what the column reads is the note as
 stored, and its updates never draw the editor again or move the
 cursor.
 
-Still to come, each its own change: the Reader in three panes, the
-other modules in the shell, the tablet's rail of icons alone (once the
-shell exists), and keyboard commands. (The Notes context column was
-built 2026-11-16, above.)
+**The Reader in three panes (#289, part 3, 2026-11-16).** From
+1320 px the Reader's lists, an article and the caught-up page are
+three panes under its header; see The Reader in three panes, under
+The Reader. 1320 is the sum: the rail 176, the folders 192, the list
+352, and the article's 70 characters (560 px at 16 px) with 16 px
+either side, 1312.
+
+Still to come, each its own change: the other modules in the shell,
+the tablet's rail of icons alone (once the shell exists), and
+keyboard commands. (The Notes context column and the Reader's panes
+were built 2026-11-16, above.)
 
 **Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
 design A over B (a bar of slots along the bottom): a Home screen at
@@ -2461,6 +2468,49 @@ rows a screen, and the article's title took five lines at 34 px. Now:
   a screen too narrow for the way back beside them (under about 400 px
   for an article, or an episode with its Download), the icons take a
   line of their own at the right.
+
+**The Reader in three panes (#289, part 3 of the desktop shell, Eric's
+decision of 2026-11-15, built 2026-11-16).** From 1320 px
+(`READER_PANES_MIN`, the sum above under The desktop rail) `/reader`,
+`/reader/f/<folder>`, `/reader/s/<feedId>`, `/reader/a/<id>` and
+`/reader/done` are one route (`readerPanesMatcher`, matched only from
+that width), drawn by `ReaderPanes`: the Reader's header and tabs
+across the top, then three panes, each scrolling on its own, the page
+the window's height less the mini-player's, so it never scrolls.
+
+- **Folders** (a `nav` named Folders, 192 px): All, Saved, then the
+  folders with feeds in them in the Reader's order, each with its
+  unread, the shelf shown `aria-current="page"` (none on one feed's
+  list). It stands for the folder chips, which are not drawn there.
+- **The list** (a region, 352 px): the list component itself, by day,
+  with Show read, Compact, Mark all read, a day's Mark these read and
+  Undo, its status at the pane's foot; mark read on scroll watches the
+  pane's own box.
+- **The article** (a region, the rest, its text at 70 characters,
+  centred): with no article, "Choose an article", quiet; the caught-up
+  page past the list's end.
+
+The address stays the truth. An article's list is the one its `in`
+names, as next and previous always had it; opened with none (a
+search's hit), All. Moving between these addresses keeps the panes,
+so opening an article neither draws the list again nor moves its
+scroll. The article open is the list's current row, scrolled into
+view once (a reload), and stays in the list once read, with the ones
+read on the way (#188's set, which a list in the panes keeps when it
+opens with an article). The run ends as the rule of 2026-11-11 has
+it, when the list is the screen again, which in the panes is the
+article pane closing (Escape, its back link, a folder chosen): the
+read rows leave the list then and the next article counts from the
+unread (review on #305, 2026-11-16). Next and previous, j and k, go
+along the list
+as the pane draws it, and its keys are the article's while one is
+open, the list's (j, k, Enter) while none is. An article the gardener
+opens starts at its top with its title, an h2 under the Reader's h1,
+focused. There is no swipe between articles in the panes. Under
+1320 px nothing changes: the same screens, routes and swipes; a window
+that crosses the width takes its Reader address through the router
+again, to the panes or out of them. Folders, Manage feeds and
+Downloads stay screens of their own.
 
 **What is new, in Right Now (#173, 2026-11-07).** Opening a folder's
 list notes when it was seen, in `settings/reader.seenAt` by folder
