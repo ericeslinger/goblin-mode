@@ -1,7 +1,7 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { plainText } from '@mossgoblin/editor/grammar';
-import { editPantry, itemKey, OTHER, pantryItems } from '@mossgoblin/schema';
-import { pantryExtras, pantrySections, shownSections } from './kitchen-lines';
+import { editPantry, itemKey, itemText, OTHER, pantryItems } from '@mossgoblin/schema';
+import { pantrySections, shownSections, wordlessLine } from './kitchen-lines';
 
 /**
  * On hand as a page to read (#288, 2026-11-15): the pantry note's
@@ -9,8 +9,11 @@ import { pantryExtras, pantrySections, shownSections } from './kitchen-lines';
  * and Add to, which offers every section the note has, empty ones too,
  * and Other. Adding is an edit of the text that writes only the item's
  * line (`editPantry`, as Claude's `update_pantry` does), emitted for
- * the editor to show and save, so typing in the text is kept. Lines
- * that are neither items nor headings show as plain words below.
+ * the editor to show and save, so typing in the text is kept. Every
+ * line that is not blank shows (2026-11-16): one that is neither an
+ * item nor a heading as plain words under its section, so a heading
+ * holding only such lines shows too; a line with no words to show is
+ * counted, "N more lines without words", with Edit as text beside it.
  */
 @Component({
   selector: 'app-pantry-view',
@@ -20,20 +23,25 @@ import { pantryExtras, pantrySections, shownSections } from './kitchen-lines';
         @if (s.heading) {
           <h2>{{ plain(s.heading) }}</h2>
         }
-        <ul [attr.aria-label]="s.heading ? plain(s.heading) : 'Not in a section'">
-          @for (p of s.items; track p.line) {
-            <li>
-              <!-- As the pantry writes it, "salt: always", the colon kept so
+        @if (s.items.length || s.extras.length) {
+          <ul [attr.aria-label]="s.heading ? plain(s.heading) : 'Not in a section'">
+            @for (p of s.items; track p.line) {
+              <li>
+                <!-- As the pantry writes it, "salt: always", the colon kept so
                    the words never run together. -->
-              <span class="item">{{ plain(p.item) }}</span>
-              @if (p.always) {
-                <span class="muted">{{ ': always' }}</span>
-              } @else if (p.amount) {
-                <span class="muted">{{ ': ' + p.amount }}</span>
-              }
-            </li>
-          }
-        </ul>
+                <span class="item">{{ plain(p.item) }}</span>
+                @if (p.always) {
+                  <span class="muted">{{ ': always' }}</span>
+                } @else if (p.amount) {
+                  <span class="muted">{{ ': ' + p.amount }}</span>
+                }
+              </li>
+            }
+            @for (x of s.extras; track x.line) {
+              <li class="extra">{{ x.words }}</li>
+            }
+          </ul>
+        }
       } @empty {
         <p class="muted">Nothing on hand yet.</p>
       }
@@ -55,16 +63,12 @@ import { pantryExtras, pantrySections, shownSections } from './kitchen-lines';
       @if (said()) {
         <p class="muted" role="status">{{ said() }}</p>
       }
-      @if (extras().length) {
-        <section class="extras" aria-labelledby="pantry-extras">
-          <h2 id="pantry-extras">Also in this note</h2>
-          <ul aria-labelledby="pantry-extras">
-            @for (line of extras(); track $index) {
-              <li>{{ line }}</li>
-            }
-          </ul>
+      @if (wordless()) {
+        <p class="wordless muted">
+          {{ wordless() }}
+          <span aria-hidden="true">{{ ' · ' }}</span>
           <button type="button" class="link" (click)="editText.emit()">Edit as text</button>
-        </section>
+        </p>
       }
     </section>
   `,
@@ -123,14 +127,11 @@ import { pantryExtras, pantrySections, shownSections } from './kitchen-lines';
         min-height: 44px;
       }
     }
-    .extras {
-      margin-top: var(--space-4);
-    }
-    .extras li {
+    .extra {
       color: var(--quiet);
     }
-    .extras .link {
-      margin-top: var(--space-2);
+    .wordless {
+      margin-top: var(--space-3);
     }
   `,
 })
@@ -145,7 +146,10 @@ export class PantryView {
   protected readonly said = signal('');
   private readonly all = computed(() => pantrySections(this.body()));
   protected readonly shown = computed(() => shownSections(this.all()));
-  protected readonly extras = computed(() => pantryExtras(this.body()));
+  /** "2 more lines without words", over every section, or ''. */
+  protected readonly wordless = computed(() =>
+    wordlessLine(this.all().reduce((n, s) => n + s.wordless.length, 0)),
+  );
   /** Every heading the note has, empty or not, and Other, where an unsorted item goes. */
   protected readonly sections = computed(() => {
     const names = this.all()
@@ -169,9 +173,11 @@ export class PantryView {
   protected add(input: HTMLInputElement, select: HTMLSelectElement): void {
     const typed = input.value.trim();
     if (!typed) return;
-    const colon = typed.indexOf(':');
-    const item = (colon > 0 ? typed.slice(0, colon) : typed).trim();
-    const amount = colon > 0 ? typed.slice(colon + 1).trim() : '';
+    // Split as the pantry reads a line, at the last colon (`itemText`);
+    // a colon left in the name is a space, as `editPantry` writes it.
+    const parts = itemText(typed);
+    const item = parts.item.replace(/:/g, ' ').replace(/\s+/g, ' ').trim();
+    const amount = parts.amount;
     if (!item) return;
     const body = this.body();
     if (pantryItems(body).some((p) => p.key === itemKey(item))) {
@@ -179,7 +185,7 @@ export class PantryView {
       return;
     }
     const section = select.value || OTHER;
-    const always = /^always$/i.test(amount);
+    const always = parts.always;
     this.edited.emit(
       editPantry(body, {
         add: [{ item, section, ...(always ? { always } : amount ? { amount } : {}) }],

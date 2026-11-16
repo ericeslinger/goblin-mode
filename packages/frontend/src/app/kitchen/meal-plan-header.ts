@@ -19,7 +19,7 @@ import {
 } from '@mossgoblin/schema';
 import { Icon } from '../home/icon';
 import { NOW } from '../platform/platform';
-import { planExtras, weekLabel } from './kitchen-lines';
+import { readPlan, weekLabel, wordlessLine } from './kitchen-lines';
 import { GroceryService } from './grocery.service';
 import { RemindersService } from '../reminders/reminders.service';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
@@ -52,16 +52,20 @@ const LATER_MS = 60 * 60 * 1000;
   imports: [Icon, RouterLink],
   template: `
     <section class="plan" aria-label="Meal plan">
-      <!-- One row (#288, 2026-11-15): the week between its neighbours. -->
-      <nav class="weeks" aria-label="Weeks">
-        <a class="step" [routerLink]="['/kitchen', previous()]" aria-label="Previous week"
-          ><app-icon name="chevron-left" [size]="22"
-        /></a>
-        <h2 class="week">{{ week() }}</h2>
-        <a class="step" [routerLink]="['/kitchen', next()]" aria-label="Next week"
-          ><app-icon name="chevron" [size]="22"
-        /></a>
-      </nav>
+      <!-- A plan with no first day has no week to draw: all it holds
+           shows under Also in this plan (2026-11-16). -->
+      @if (start()) {
+        <!-- One row (#288, 2026-11-15): the week between its neighbours. -->
+        <nav class="weeks" aria-label="Weeks">
+          <a class="step" [routerLink]="['/kitchen', previous()]" aria-label="Previous week"
+            ><app-icon name="chevron-left" [size]="22"
+          /></a>
+          <h2 class="week">{{ week() }}</h2>
+          <a class="step" [routerLink]="['/kitchen', next()]" aria-label="Next week"
+            ><app-icon name="chevron" [size]="22"
+          /></a>
+        </nav>
+      }
       <div class="week-links">
         @if (grocery.listId(); as list) {
           <a class="secondary" [routerLink]="['/n', list]">Grocery list</a>
@@ -77,110 +81,123 @@ const LATER_MS = 60 * 60 * 1000;
           <option [value]="r.title"></option>
         }
       </datalist>
-      <ul class="slots" aria-label="Meals">
-        @for (s of slots(); track s.line) {
-          <li
-            [class.today]="s.date === today()"
-            [attr.aria-current]="s.date === today() ? 'date' : null"
-          >
-            <div class="row">
-              <!-- Its tap area on a touch screen (2026-11-15). -->
-              <label class="tick">
-                <input
-                  type="checkbox"
-                  [checked]="s.made"
-                  [attr.aria-label]="'Made ' + label(s)"
-                  (change)="tick(s, $any($event.target).checked)"
-                />
-              </label>
-              <!-- Separators in the text, so the day, Today and the dinner
-                   never read run together; the comma is not drawn. -->
-              <span class="when">{{ label(s) }}</span>
-              @if (s.date === today()) {
-                <span class="visually-hidden">{{ ', ' }}</span>
-                <span class="today-word">Today</span>
-              }
-              <span class="visually-hidden">{{ ': ' }}</span>
-              @if (editing() === s.line) {
-                <span class="edit">
+      @if (start()) {
+        <ul class="slots" aria-label="Meals">
+          @for (s of slots(); track s.line) {
+            <li
+              [class.today]="s.date === today()"
+              [attr.aria-current]="s.date === today() ? 'date' : null"
+            >
+              <div class="row">
+                <!-- Its tap area on a touch screen (2026-11-15). -->
+                <label class="tick">
                   <input
-                    #pick
-                    list="recipe-names"
-                    placeholder="A recipe"
-                    [attr.aria-label]="'Recipe for ' + label(s)"
-                    [value]="s.recipe ?? ''"
-                    (keydown.enter)="choose(s, pick.value)"
+                    type="checkbox"
+                    [checked]="s.made"
+                    [attr.aria-label]="'Made ' + label(s)"
+                    (change)="tick(s, $any($event.target).checked)"
                   />
-                  <button type="button" (click)="choose(s, pick.value)">Plan it</button>
-                  <button type="button" (click)="set(s, 'delivery')">Delivery</button>
-                  <button type="button" (click)="set(s, 'out')">Out</button>
-                  <button type="button" (click)="set(s, '')">Clear</button>
-                  <button type="button" (click)="editing.set(undefined)">Cancel</button>
-                </span>
-                @if (suggestionsFor(s); as ideas) {
-                  @if (ideas.length) {
-                    <ul class="ideas" [attr.aria-label]="'Suggestions for ' + label(s)">
-                      @for (idea of ideas; track idea.id) {
-                        <li>
-                          <button
-                            type="button"
-                            class="link"
-                            [attr.aria-label]="'Plan ' + idea.title"
-                            (click)="set(s, '[[' + idea.title + ']]')"
-                          >
-                            {{ idea.title }}
-                          </button>
-                          <span class="muted">{{
-                            idea.missing.length ? 'needs ' + idea.missing.join(', ') : 'all on hand'
-                          }}</span>
-                        </li>
-                      }
-                    </ul>
-                  }
-                }
-              } @else {
-                <!-- The slot's plain words (#285): [[Dal]] reads Dal. -->
-                <button
-                  type="button"
-                  class="what"
-                  [attr.aria-label]="
-                    'Change ' + label(s) + ': ' + (plain(s.text) || 'nothing planned')
-                  "
-                  (click)="editing.set(s.line); refused.set('')"
-                >
-                  {{ plain(s.text) || 'Nothing planned' }}
-                </button>
-              }
-            </div>
-            @for (n of s.notes; track $index) {
-              <p class="note">{{ plain(n) }}</p>
-            }
-            @if (asking(s)) {
-              <div class="ask">
-                <label>
-                  {{ question(s) }}
-                  <input #answer [attr.aria-label]="question(s)" />
                 </label>
-                <button type="button" (click)="log(s, answer.value)">Save</button>
-                <button type="button" (click)="later(s)">Ask me later</button>
+                <!-- Separators in the text, so the day, Today and the dinner
+                   never read run together; the comma is not drawn. -->
+                <span class="when">{{ label(s) }}</span>
+                @if (s.date === today()) {
+                  <span class="visually-hidden">{{ ', ' }}</span>
+                  <span class="today-word">Today</span>
+                }
+                <span class="visually-hidden">{{ ': ' }}</span>
+                @if (editing() === s.line) {
+                  <span class="edit">
+                    <input
+                      #pick
+                      list="recipe-names"
+                      placeholder="A recipe"
+                      [attr.aria-label]="'Recipe for ' + label(s)"
+                      [value]="s.recipe ?? ''"
+                      (keydown.enter)="choose(s, pick.value)"
+                    />
+                    <button type="button" (click)="choose(s, pick.value)">Plan it</button>
+                    <button type="button" (click)="set(s, 'delivery')">Delivery</button>
+                    <button type="button" (click)="set(s, 'out')">Out</button>
+                    <button type="button" (click)="set(s, '')">Clear</button>
+                    <button type="button" (click)="editing.set(undefined)">Cancel</button>
+                  </span>
+                  @if (suggestionsFor(s); as ideas) {
+                    @if (ideas.length) {
+                      <ul class="ideas" [attr.aria-label]="'Suggestions for ' + label(s)">
+                        @for (idea of ideas; track idea.id) {
+                          <li>
+                            <button
+                              type="button"
+                              class="link"
+                              [attr.aria-label]="'Plan ' + idea.title"
+                              (click)="set(s, '[[' + idea.title + ']]')"
+                            >
+                              {{ idea.title }}
+                            </button>
+                            <span class="muted">{{
+                              idea.missing.length
+                                ? 'needs ' + idea.missing.join(', ')
+                                : 'all on hand'
+                            }}</span>
+                          </li>
+                        }
+                      </ul>
+                    }
+                  }
+                } @else {
+                  <!-- The slot's plain words (#285): [[Dal]] reads Dal. -->
+                  <button
+                    type="button"
+                    class="what"
+                    [attr.aria-label]="
+                      'Change ' + label(s) + ': ' + (plain(s.text) || 'nothing planned')
+                    "
+                    (click)="editing.set(s.line); refused.set('')"
+                  >
+                    {{ plain(s.text) || 'Nothing planned' }}
+                  </button>
+                }
               </div>
-            }
-          </li>
-        }
-      </ul>
+              @for (n of s.notes; track $index) {
+                <p class="note">{{ plain(n) }}</p>
+              }
+              @if (asking(s)) {
+                <div class="ask">
+                  <label>
+                    {{ question(s) }}
+                    <input #answer [attr.aria-label]="question(s)" />
+                  </label>
+                  <button type="button" (click)="log(s, answer.value)">Save</button>
+                  <button type="button" (click)="later(s)">Ask me later</button>
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      }
       @if (refused()) {
         <p class="muted" role="status">{{ refused() }}</p>
       }
-      @if (extras().length) {
-        <!-- What the week cannot draw stays in sight (#288): plain words. -->
+      @if (extras().length || wordless()) {
+        <!-- What the week cannot draw stays in sight (#288): plain words,
+             and a count of the lines with none (2026-11-16). -->
         <section class="extras" aria-labelledby="plan-extras">
           <h3 id="plan-extras">Also in this plan</h3>
-          <ul aria-labelledby="plan-extras">
-            @for (line of extras(); track $index) {
-              <li>{{ line }}</li>
+          @if (extras().length) {
+            <ul aria-labelledby="plan-extras">
+              @for (x of extras(); track x.line) {
+                <li>{{ x.words }}</li>
+              }
+            </ul>
+          }
+          <p class="more-lines">
+            @if (wordless()) {
+              {{ wordless() }}
+              <span aria-hidden="true">{{ ' · ' }}</span>
             }
-          </ul>
-          <button type="button" class="link" (click)="editText.emit()">Edit as text</button>
+            <button type="button" class="link" (click)="editText.emit()">Edit as text</button>
+          </p>
         </section>
       }
     </section>
@@ -271,8 +288,9 @@ const LATER_MS = 60 * 60 * 1000;
     .extras li {
       color: var(--quiet);
     }
-    .extras .link {
-      margin-top: var(--space-2);
+    .more-lines {
+      margin: var(--space-2) 0 0;
+      color: var(--quiet);
     }
     ul {
       list-style: none;
@@ -416,9 +434,12 @@ export class MealPlanHeader {
   /** "Week of Nov 16" (#288). */
   protected readonly week = computed(() => (this.start() ? weekLabel(this.start()) : ''));
   /** The plan's lines the week cannot draw, as plain words (#288). */
-  protected readonly extras = computed(() =>
-    this.start() ? planExtras(this.body(), this.start()) : [],
-  );
+  /** How the week accounts for the plan's lines (#288, 2026-11-16). */
+  private readonly reading = computed(() => readPlan(this.body(), this.start()));
+  /** The plan's lines the week cannot draw, as plain words. */
+  protected readonly extras = computed(() => this.reading().extras);
+  /** "1 more line without words", or ''. */
+  protected readonly wordless = computed(() => wordlessLine(this.reading().wordless.length));
   protected readonly previous = computed(() => addDays(this.start(), -7));
   protected readonly next = computed(() => addDays(this.start(), 7));
   protected readonly today = computed(() => localDate(this.now()));

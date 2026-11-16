@@ -4,10 +4,10 @@ import { editAsText, expect, letItSave, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The meal plan (#129): a week opens as a note with its slots drawn
-// as the screen, its text behind Edit as text (#288). A dinner is planned from the recipes, ticked made,
-// and asked about; the answer lands under the slot and in the recipe,
-// whose back counts how often it was made. Claude reads and plans the
-// same note.
+// as the screen, its text behind Edit as text (#288). A dinner is
+// planned from the recipes, ticked made, and asked about; the answer
+// lands under the slot and in the recipe, whose back counts how often
+// it was made. Claude reads and plans the same note.
 
 test('a week is planned, a dinner made and noted, and Claude plans too', async ({ page }) => {
   await signInAs(page, OWNER);

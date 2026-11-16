@@ -1317,9 +1317,10 @@ note bar is not this header, and its Back turns the note over
 (2026-10-17, #112). (Since #288, 2026-11-15: on Kitchen's Meals and
 On hand, notes both, this header is drawn in the note bar's place,
 the note's View, Back and More as its actions; Kitchen, below.)
-Browse no longer lists the other places (the map, the week's meals, the Reader, Podcasts, the Reading queue, What
-assistants changed): each is a tile on Home, with the count the link
-carried, and a tile taken off Home comes back from Arrange Home.
+Browse no longer lists the other places (the map, the week's meals,
+the Reader, Podcasts, the Reading queue, What assistants changed):
+each is a tile on Home, with the count the link carried, and a tile
+taken off Home comes back from Arrange Home.
 
 **Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
 New (since 2026-11-15 New note, the icon beside the leaf, #272), From
@@ -1549,11 +1550,12 @@ all item. Fields: `source` (`url`, `attachmentId`, `text`) and
 `servings`. In the app, with Kitchen on: Browse has a Recipes lens with
 New recipe (a generated id, written offline; since #288, 2026-11-15,
 Kitchen's Recipes tab has Add recipe, the same write); a recipe's
-front shows its name and a line counting its ingredients and steps, and its back
-its servings, source link and original text. With Kitchen off a recipe
-is a plain note. Claude makes one with `create_recipe` (the recipe's
-words, not Claude's, so no ✳ mark) and lists them with `list_notes`
-`kind: recipe`. Made history arrives with meal plans (#129).
+front shows its name and a line counting its ingredients and steps,
+and its back its servings, source link and original text. With
+Kitchen off a recipe is a plain note. Claude makes one with
+`create_recipe` (the recipe's words, not Claude's, so no ✳ mark) and
+lists them with `list_notes` `kind: recipe`. Made history arrives
+with meal plans (#129).
 
 **Importing a recipe (#128, 2026-10-18).** From a link. In the app,
 Browse's Recipes lens has Import from a link: it writes a recipe at
@@ -1815,8 +1817,9 @@ kind `pantry` at id `pantry`, named On hand, made the first time it is
 needed with the store's sections. A line per item, edited by hand any
 time (since #288, 2026-11-15, through Edit as text, the tab showing the
 items by section, with Add to): `- onions: 3`, `- rice`, `- olive oil:
-always`; checkbox lines are not items. An item is matched by its words without an amount or
-unit, the way the grocery list matches (`itemKey`). Done shopping on
+always`; checkbox lines are not items. An item is matched by its
+words without an amount or unit, the way the grocery list matches
+(`itemKey`). Done shopping on
 the grocery list adds each ticked item not here yet, without its
 amount or dinner, under the section it was in on the list (From
 recipes, or none, goes under Other). A dinner ticked made, in the
@@ -1871,7 +1874,8 @@ hand's empty headings. Now:
   shows as plain words (`plainText`) in "Also in this plan" under the
   week, with Edit as text beside it: the block rather than "N more
   lines", as the honest of the two, since it shows what is there
-  (`planExtras`, `kitchen/kitchen-lines.ts`).
+  (`readPlan`, `kitchen/kitchen-lines.ts`; `planExtras` until
+  2026-11-16).
 - *The week switcher.* One centred row, "‹ Week of Nov 16 ›", the
   week's name its `h2`, Previous week and Next week 44 px icon links
   keeping those names; under it Grocery list (or Make the grocery
@@ -1892,8 +1896,36 @@ hand's empty headings. Now:
   Other; it writes only the new item's line (`editPantry`, as
   `update_pantry` does), "limes", "rice: half a bag" or "salt:
   always", and says so when the item is there already. Lines that are
-  neither items nor headings show in "Also in this note". The text is
+  neither items nor headings show in "Also in this note" (under their
+  heading since 2026-11-16, below). The text is
   behind Edit as text, "Show the list" over it.
+
+*Every line shown or counted (2026-11-16, review on #299).* The review
+found three ways a line could be shown nowhere, and the rule is now
+that every line of a plan or the pantry that is not blank is drawn,
+shown as plain words, or counted:
+
+- Only the plan's own heading, its first line naming its own week, is
+  taken as the week's name; another week's heading or a free "Week of
+  Dec 1" line shows under "Also in this plan".
+- On hand shows a heading with anything at all under it; its lines
+  that are not items (`## Freezer`, `- [ ] defrost bread`) show as
+  plain words under it, no longer in a block of their own, which goes.
+  Only a heading with nothing under it is hidden, still in Add to.
+- A line with no words to show (a rule, an image with no alt text, a
+  code fence) is counted, "1 more line without words · Edit as text",
+  in the plan's "Also in this plan" and at the foot of On hand.
+- A plan with no `periodStart` draws no week: every line shows under
+  "Also in this plan".
+
+`readPlan` and `pantrySections` say which line is which, and a
+table-driven spec of awkward notes checks that the lines drawn, shown
+and counted are every line that is not blank, each once. Add to now
+splits what is typed at the last colon, as a line is read
+(`itemText`, `packages/schema/src/pantry.ts`, shared with
+`pantryItems`), a colon left in the name becoming a space as
+`editPantry` writes it, so "rice: half: a bag" is read back as rice
+half, a bag.
 
 UI only: no stored field, schema, rule, function or MCP tool changed.
 A cold reload of a plan or the pantry draws the note bar until the

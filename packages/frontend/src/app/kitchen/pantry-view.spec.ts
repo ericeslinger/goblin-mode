@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { pantryItems } from '@mossgoblin/schema';
 import { PantryView } from './pantry-view';
 
 async function render(body: string) {
@@ -56,13 +57,46 @@ describe('On hand, to read (#288)', () => {
     expect(text(el.querySelector('[role="status"]'))).toBe('Rice is on hand already.');
   });
 
-  it('shows the lines that are not items, with the way to the text', async () => {
-    const { el, fixture, texts } = await render('- [ ] buy more rice\n## Produce\n');
-    expect(text(el.querySelector('p.muted'))).toBe('Nothing on hand yet.');
-    const extras = el.querySelector('section.extras')!;
-    expect([...extras.querySelectorAll('li')].map(text)).toEqual(['buy more rice']);
-    extras.querySelector('button')!.click();
+  it('shows a heading holding only lines that are not items, with them (2026-11-16)', async () => {
+    const { el, fixture, texts } = await render(
+      '## Freezer\n- [ ] defrost bread\n## Produce\n## Notes\n---\n',
+    );
+    // Freezer shows with its line; Produce, with nothing, does not;
+    // Notes holds only a rule, so it shows and the rule is counted.
+    expect(headings(el)).toEqual(['Freezer', 'Notes']);
+    expect([...el.querySelectorAll('ul[aria-label="Freezer"] li')].map(text)).toEqual([
+      'defrost bread',
+    ]);
+    const more = el.querySelector('p.wordless')!;
+    expect(text(more)).toBe('1 more line without words · Edit as text');
+    more.querySelector('button')!.click();
     await fixture.whenStable();
     expect(texts()).toBe(1);
+    // Add to still offers Produce.
+    expect([...el.querySelectorAll('select option')].map(text)).toContain('Produce');
+  });
+
+  // What Add to writes reads back as the same item and amount: both
+  // split at the last colon (`itemText`), a colon left in the name a
+  // space, as update_pantry writes it (2026-11-16).
+  const TYPED: [typed: string, item: string, amount: string | undefined, always: boolean][] = [
+    ['limes', 'limes', undefined, false],
+    ['rice: half a bag', 'rice', 'half a bag', false],
+    ['rice: half: a bag', 'rice half', 'a bag', false],
+    ['salt: always', 'salt', undefined, true],
+    ['tea: green: always', 'tea green', undefined, true],
+  ];
+  it.each(TYPED)('reads back what Add to wrote for “%s”', async (typed, item, amount, always) => {
+    const { el, fixture, edits } = await render('## Dry goods\n');
+    el.querySelector<HTMLInputElement>('input[name="item"]')!.value = typed;
+    el.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    const [read] = pantryItems(edits[0]);
+    expect({ item: read.item, amount: read.amount, always: read.always }).toEqual({
+      item,
+      amount,
+      always,
+    });
+    expect(text(el.querySelector('[role="status"]'))).toBe(`Added ${item} to Dry goods.`);
   });
 });

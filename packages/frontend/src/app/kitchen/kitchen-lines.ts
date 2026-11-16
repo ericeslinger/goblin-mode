@@ -7,7 +7,6 @@ import { plainText } from '@mossgoblin/editor/grammar';
 import {
   FISH_ID,
   normalizeName,
-  PANTRY_TITLE,
   type PantryItem,
   pantryItems,
   planSlots,
@@ -19,83 +18,124 @@ export function weekLabel(start: string): string {
   return `Week of ${shortDate(start)}`;
 }
 
-/** The week's own heading, as a new plan writes it, or its old name. */
-const WEEK_HEADING = /^(meals, )?week of [a-z]{3} \d{1,2}$/i;
+/** A line the reading view shows as plain words, and which line it is. */
+export interface Extra {
+  line: number;
+  words: string;
+}
 
 /**
- * The lines of a plan the week cannot show, as plain words: anything
- * that is not a slot, a note indented under one, a blank line or the
- * week's own heading. Lines with no words (a rule, a bare link mark)
- * are left out, being nothing to read.
+ * How a reading view accounts for a note's lines (#288, 2026-11-16):
+ * every line that is not blank is drawn (a slot, a note under one, an
+ * item, a heading, the week's own heading), shown as plain words
+ * (`extras`), or counted among the lines with no words to show
+ * (`wordless`: a rule, an image with no alt text, a code fence), which
+ * the view says as "N more lines without words". None is shown nowhere.
  */
-export function planExtras(body: string, start: string): string[] {
-  const slots = planSlots(body, start);
-  const shown = new Set<number>();
-  for (const s of slots) for (let i = 0; i <= s.notes.length; i++) shown.add(s.line + i);
-  return wordsOf(
-    body,
-    (line, i) => shown.has(i) || WEEK_HEADING.test(line.replace(/^#{1,6}[ \t]+/, '').trim()),
-  );
+export interface PlanReading {
+  /** The plan's own heading, drawn as the week's name; undefined if none. */
+  heading?: number;
+  /** The slots' lines and the notes under them, drawn as the week. */
+  drawn: number[];
+  extras: Extra[];
+  wordless: number[];
+}
+
+/**
+ * A plan's lines as the week reads them. Only the first line, and only
+ * when it names this plan's own week ("Week of Nov 16", or the old
+ * "Meals, week of Nov 16"), is the week's heading; another week's
+ * heading or a free "Week of …" line is an extra like any other. With
+ * no first day (`start` empty) nothing is a slot: every line is an
+ * extra, so a plan without its week still shows all it holds.
+ */
+export function readPlan(body: string, start: string): PlanReading {
+  const slots = start ? planSlots(body, start) : [];
+  const drawn = new Set<number>();
+  for (const s of slots) for (let i = 0; i <= s.notes.length; i++) drawn.add(s.line + i);
+  const lines = body.split('\n');
+  const first = lines.findIndex((l) => l.trim());
+  const own = start ? weekLabel(start).toLowerCase() : undefined;
+  const titled =
+    own !== undefined &&
+    first >= 0 &&
+    !drawn.has(first) &&
+    [own, `meals, ${own}`].includes(
+      lines[first]
+        .replace(/^#{1,6}[ \t]+/, '')
+        .trim()
+        .toLowerCase(),
+    );
+  const heading = titled ? first : undefined;
+  const reading: PlanReading = {
+    drawn: [...drawn].sort((a, b) => a - b),
+    extras: [],
+    wordless: [],
+  };
+  if (heading !== undefined) reading.heading = heading;
+  lines.forEach((line, i) => {
+    if (!line.trim() || drawn.has(i) || i === heading) return;
+    sort(reading, line, i);
+  });
+  return reading;
+}
+
+/** A line as plain words, or among the wordless. */
+function sort(into: { extras: Extra[]; wordless: number[] }, line: string, i: number): void {
+  const words = plainText(line).replace(/\s+/g, ' ').trim();
+  if (words) into.extras.push({ line: i, words });
+  else into.wordless.push(i);
+}
+
+/** "2 more lines without words", or '' for none. */
+export function wordlessLine(n: number): string {
+  if (!n) return '';
+  return `${n} more ${n === 1 ? 'line' : 'lines'} without words`;
 }
 
 const HEADING = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/;
 
 /** One of the pantry's sections, as the reading view draws it. */
 export interface PantrySection {
-  /** The heading as written, '' for items before any heading. */
+  /** The heading as written, '' for what comes before any heading. */
   heading: string;
+  /** The heading's line; undefined for the part before any heading. */
+  line?: number;
   items: PantryItem[];
+  /** Its lines that are not items (a checkbox, a sentence), as plain words. */
+  extras: Extra[];
+  /** Its lines with no words to show. */
+  wordless: number[];
 }
 
 /**
- * The pantry's sections in order, each with its items; the items
- * before any heading first, under ''. Every heading is here, empty or
- * not: the reading view hides the empty ones, Add to offers them all.
+ * The pantry's sections in order, each with every line under it: its
+ * items, its other lines as plain words, and those with no words; what
+ * comes before any heading first, under ''. Every heading is here:
+ * the reading view shows each with anything at all under it and hides
+ * only those with nothing, which Add to still offers.
  */
 export function pantrySections(body: string): PantrySection[] {
-  const sections: PantrySection[] = [{ heading: '', items: [] }];
-  const items = pantryItems(body);
-  let next = 0;
+  const sections: PantrySection[] = [{ heading: '', items: [], extras: [], wordless: [] }];
+  const items = new Map(pantryItems(body).map((p) => [p.line, p]));
   body.split('\n').forEach((line, i) => {
     const h = HEADING.exec(line);
-    if (h) sections.push({ heading: h[2], items: [] });
-    while (next < items.length && items[next].line === i) {
-      sections[sections.length - 1].items.push(items[next++]);
+    if (h) {
+      sections.push({ heading: h[2], line: i, items: [], extras: [], wordless: [] });
+      return;
     }
+    if (!line.trim()) return;
+    const here = sections[sections.length - 1];
+    const item = items.get(i);
+    if (item) here.items.push(item);
+    else sort(here, line, i);
   });
   return sections;
 }
 
-/** The sections worth reading: those with something under them. */
+/** The sections worth reading: those with any line under them. */
 export function shownSections(sections: readonly PantrySection[]): PantrySection[] {
-  return sections.filter((s) => s.items.length > 0);
-}
-
-/**
- * The pantry's lines that are neither items nor headings (a checkbox,
- * a sentence), as plain words; its name as a first line is not one.
- */
-export function pantryExtras(body: string): string[] {
-  const items = new Set(pantryItems(body).map((p) => p.line));
-  const first = body.split('\n').findIndex((l) => l.trim());
-  return wordsOf(
-    body,
-    (line, i) =>
-      items.has(i) ||
-      HEADING.test(line) ||
-      (i === first && line.trim().toLowerCase() === PANTRY_TITLE.toLowerCase()),
-  );
-}
-
-/** Each line not `skip`ped, as its plain words; blank results left out. */
-function wordsOf(body: string, skip: (line: string, i: number) => boolean): string[] {
-  const out: string[] = [];
-  body.split('\n').forEach((line, i) => {
-    if (!line.trim() || skip(line, i)) return;
-    const words = plainText(line).replace(/\s+/g, ' ').trim();
-    if (words) out.push(words);
-  });
-  return out;
+  return sections.filter((s) => s.items.length + s.extras.length + s.wordless.length > 0);
 }
 
 export type RecipeSort = 'name' | 'made';

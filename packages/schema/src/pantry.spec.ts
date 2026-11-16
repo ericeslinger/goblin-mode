@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addBought, editPantry, onHand, pantryItems, recipeKeys, useUp } from './pantry';
+import { addBought, editPantry, itemText, onHand, pantryItems, recipeKeys, useUp } from './pantry';
 
 const PANTRY = [
   '## Produce',
@@ -83,5 +83,19 @@ describe('on hand (#131)', () => {
     expect(body).toContain('- [ ] not an item, a task\n- rice');
     expect(body.match(/onions/g)).toHaveLength(1);
     expect(body.trimEnd().endsWith('## Other\n\n- salt: always')).toBe(true);
+  });
+
+  it('splits an item at its last colon, as a line is read (#288)', () => {
+    expect(itemText('rice: half: a bag')).toEqual({
+      item: 'rice: half',
+      amount: 'a bag',
+      always: false,
+    });
+    expect(itemText('salt: Always')).toEqual({ item: 'salt', amount: 'Always', always: true });
+    expect(itemText('limes')).toEqual({ item: 'limes', amount: '', always: false });
+    expect(pantryItems('- rice: half: a bag')[0]).toMatchObject({
+      item: 'rice: half',
+      amount: 'a bag',
+    });
   });
 });

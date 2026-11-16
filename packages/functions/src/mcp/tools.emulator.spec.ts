@@ -1601,7 +1601,10 @@ describe('line tools', () => {
     expect(text).toContain('- [x] apples');
     expect(text).toContain('- [ ] rice\n- [ ] oats');
     expect(text).toContain('## Butcher\n- [ ] chicken');
-  });
+    // Three writers on one note: two of them retry their transaction,
+    // with the emulator's backoff. On a loaded machine that has passed
+    // the default five seconds twice (2026-11-16), with nothing wrong.
+  }, 20_000);
 });
 
 describe('search_feed_items (#175)', () => {

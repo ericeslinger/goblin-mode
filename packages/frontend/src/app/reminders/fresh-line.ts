@@ -18,9 +18,9 @@ export class FreshCounts {
 
   /**
    * Each new article once, though its feed be in two folders (#288,
-   * review on #298), so this line and the Reader's "N unread" cannot
-   * read as a disagreement: every one counted is unread. Until then a
-   * sum over the folders, capped at the unread total.
+   * review on #298): a count of distinct articles, every one unread,
+   * so this line and the Reader's "N unread" cannot read as a
+   * disagreement.
    */
   readonly reader = computed(() => (this.modules.reader() ? this.items.newSinceTotal() : 0));
   readonly podcasts = computed(() => (this.modules.podcasts() ? this.seen.fresh() : 0));

@@ -11,13 +11,13 @@ import { MealPlanHeader } from './meal-plan-header';
 const START = '2026-10-19';
 const T = new Date(2026, 9, 20, 18).getTime(); // Tue Oct 20, 6 pm local
 
-async function render(body: string, extra: NoteRecord[] = []) {
+async function render(body: string, extra: NoteRecord[] = [], periodStart = START) {
   const notes = new FakeNotes();
   const plan: NoteRecord = {
     ...noteRecord('meals-2026-10-19', body),
     kind: 'mealplan',
     title: 'Meals, week of Oct 19',
-    periodStart: START,
+    ...(periodStart ? { periodStart } : {}),
   };
   notes.signIn([plan, { ...noteRecord('r-dal', ''), kind: 'recipe', title: 'Dal' }, ...extra]);
   const reminders = { add: vi.fn() };
@@ -130,6 +130,25 @@ describe('MealPlanHeader (#129)', () => {
     buttonNamed(extras as HTMLElement, 'Edit as text').click();
     expect(asked).toBe(1);
     expect(edits).toEqual([]);
+  });
+
+  it('counts the lines with no words, so none is shown nowhere (2026-11-16)', async () => {
+    const typed = '## Week of Oct 19\n- [ ] Mon dinner:\n![](https://example.com/a.png)\n';
+    const { el } = await render(typed);
+    const extras = el.querySelector('section.extras')!;
+    expect(extras.querySelector('ul')).toBeNull();
+    expect(extras.querySelector('.more-lines')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '1 more line without words · Edit as text',
+    );
+  });
+
+  it('draws no week for a plan with no first day, every line under Also in this plan', async () => {
+    const typed = '## Week of Oct 19\n- [ ] Mon dinner: [[Dal]]\n  - more lemon\n';
+    const { el } = await render(typed, [], '');
+    expect(el.querySelector('nav[aria-label="Weeks"]')).toBeNull();
+    expect(el.querySelector('ul[aria-label="Meals"]')).toBeNull();
+    const lines = [...el.querySelectorAll('section.extras li')].map((li) => li.textContent);
+    expect(lines).toEqual(['Week of Oct 19', 'Mon dinner: Dal', 'more lemon']);
   });
 
   it('shows a slot and its notes as plain words, the text kept as typed (#285)', async () => {

@@ -101,6 +101,8 @@ async function render(setup: Setup = {}) {
     { folder: 'Design', count: 3 },
     { folder: 'Clay', count: 2 },
   ]);
+  // No feed in both folders here: five articles, each new once.
+  items.newSinceTotal.set(5);
   const proposals = new FakeProposals();
   const activity = {
     listen: vi.fn(
@@ -305,10 +307,12 @@ describe('Home (#219)', () => {
     expect(row.querySelector('.status')?.classList.contains('empty')).toBe(false);
   });
 
-  it('never says more are new in the Reader than are unread (#288)', async () => {
+  it('says the articles new, each once, not the folders’ sum (#288)', async () => {
     const el = await render({ reader: true, episodes: [] });
     const items = TestBed.inject(ItemsService) as unknown as FakeItems;
-    // A feed in two folders counts in each: 5 by folder, 4 unread.
+    // A feed in two folders counts in each: 5 by folder, 4 articles,
+    // all of them unread.
+    items.newSinceTotal.set(4);
     items.unreadCounts.set({ all: 4, saved: 0 });
     await settle();
     expect(el.querySelector('a.right-now')?.textContent).toContain(

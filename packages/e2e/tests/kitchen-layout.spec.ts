@@ -157,6 +157,13 @@ test('Meals shows each day once, its text behind Edit as text', async ({ page })
   await page.reload();
   await expect(also).toHaveText('Bread from the market', { timeout: 15_000 });
   await noSeriousViolations(page);
+
+  // A line with no words to show is counted, never shown nowhere
+  // (2026-11-16): an image with no alt text.
+  await letItSave(page);
+  await call('add_lines', { id: 'meals-2026-10-19', lines: ['![](https://example.com/a.png)'] });
+  await expect(plan.getByText('1 more line without words')).toBeVisible({ timeout: 15_000 });
+  await expect(also).toHaveText('Bread from the market');
 });
 
 test('the week switcher is one row, moves a week each way, and marks today', async ({ page }) => {
@@ -330,4 +337,12 @@ test('On hand hides an empty heading, and adding to it still works', async ({ pa
   await page.getByRole('button', { name: 'Show the list', exact: true }).click();
   await expect(onHand.getByRole('heading', { name: 'Butcher' })).toHaveCount(0);
   await noSeriousViolations(page);
+
+  // A heading holding only a line that is not an item shows, with that
+  // line under it (2026-11-16).
+  await letItSave(page);
+  await call('add_lines', { id: 'pantry', heading: 'Freezer', lines: ['- [ ] defrost bread'] });
+  await expect(onHand.getByRole('heading', { name: 'Freezer' })).toBeVisible({ timeout: 15_000 });
+  await expect(onHand.getByRole('list', { name: 'Freezer' })).toHaveText('defrost bread');
+  await expect(onHand.getByRole('heading', { name: 'Butcher' })).toHaveCount(0);
 });
