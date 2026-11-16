@@ -1018,7 +1018,10 @@ cursor is in the fresh note before any navigation; on `/` with nothing
 written yet it stays, the cursor in the editor. Anywhere else it is the
 capture loop's New and then `/`, whose eager editor takes the cursor as
 it opens. No keyboard shortcut: the app has no app-wide keys, only the
-editor's and the article's own. Screens with a Back of their own and no
+editor's and the article's own. (Changed 2026-11-16, #289: there are
+app-wide keys now, and New note is in the command box, though still
+with no key of its own; see The desktop shell's keys.) Screens with a
+Back of their own and no
 leaf (the neighborhood map, Manage feeds, Downloads, the caught-up page)
 had none; since 2026-11-15 (#286) they have the page header, so the
 leaf and New note too.
@@ -1585,9 +1588,56 @@ shifted: on a saved note Right Now is its line and sheet, the notes
 list is not beside the note, Home keeps its tiles, and the maps are
 the phone's.
 
-Still to come, each its own change: the other modules in the shell
-and keyboard commands. (The Notes context column, the Reader's panes
-and the tablet's rail were built 2026-11-16, above.)
+**The desktop shell's keys (#289, step 5; Eric, 2026-11-15: "a
+command box on Ctrl/Cmd K, `g` then a letter for modules, `/` to
+search"), 2026-11-16.** One root service (`app/shortcuts/`) owns
+the app-wide keys with one keydown listener on the document, made by
+the app shell before any screen, so it hears a key before the
+screens' own document listeners (the Reader's) and after any element's
+(the editor's keymap, a field's Enter). Nothing is stored and there is
+no setting; the keys work at any width with a keyboard, though only
+the rail's widths were designed for.
+
+- `/` is the screen's own search where it has one, else Notes': on
+  the Reader's screens with its header (its lists, Folders, the three
+  panes) it opens Search articles with the cursor in it; anywhere
+  else, an article's own screen under 1320 px among them, it goes to
+  `/browse` and focuses Search notes. Browse's own `/`
+  (#288) still hears the key there and does the same.
+- `g` then a letter goes to a place, within 1.5 s; Escape or any
+  other key calls it off. The letter, a place's or not, is taken and
+  goes no further, so on the Reader `g` `s` is Settings and never
+  Save. Tab, the arrows and chords pass on as ever. The letters, one
+  table in `shortcuts.ts`, from the places' names: h Home, n Notes,
+  r Right Now, k Kitchen, f Reader (its feeds), p Podcasts, q Reading
+  queue, m Map, a Assistants, s Settings. A module that is off has
+  no key, as it has no entry.
+- Ctrl K (Cmd K on a Mac) opens the command box, from a field too.
+  A modal dialog, as the sheets are, with one field, "Go to or do", a
+  combobox over a listbox of what matches every word typed: each
+  place that shows ("Go to Notes", its letters beside it), New note,
+  Search notes, and each page of Settings ("Settings: Appearance").
+  Up and Down move the active one, Enter runs it, Escape or Ctrl K
+  closes, and the focus goes back where it was. With nothing typed it
+  lists the keys. Nothing typed in it reaches the screen under it.
+
+Global keys are never heard where what is typed is text (a field,
+anything editable, anything inside the editor, View included), with
+Ctrl, Cmd or Alt held where the key names none, mid-composition, once
+something else took the key (`defaultPrevented`), or while a dialog,
+a menu, the note's More or Right Now sheet or the queue's row menu is
+open; nor signed out, on the development sign-in or on Claude's
+consent page. A screen's own keys win on it: the Reader's j, k, m, s,
+v, o, Enter and Escape, Browse's `/`, the map's + - 0, the arrows of
+Home's arrange, the queue's handles, the toolbar and the split
+handle, More's and the sheets' Escape, the Kitchen headers' Enter, and
+the editor's own keys, Mod-K among them: in a note's text Ctrl K
+inserts a link as before (Editor, Keyboard) and does not open the
+box, which Eric may want otherwise.
+
+Still to come, each its own change: the other modules in the shell.
+(The Notes context column, the Reader's panes and the tablet's rail
+were built 2026-11-16, above, and the keys, just above.)
 
 **Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
 design A over B (a bar of slots along the bottom): a Home screen at

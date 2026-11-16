@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   type ElementRef,
   afterNextRender,
   afterRenderEffect,
@@ -15,6 +16,7 @@ import { Icon } from '../home/icon';
 import { type ModuleTab, ModuleTabs } from '../home/module-tabs';
 import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
+import { ShortcutsService } from '../shortcuts/shortcuts.service';
 import { DownloadPrefs } from './download-prefs';
 import { DownloadsService } from './downloads.service';
 import { ItemsService } from './items.service';
@@ -77,6 +79,7 @@ export function folderChips(
         type="button"
         class="icon"
         aria-label="Search articles"
+        aria-keyshortcuts="/"
         aria-controls="reader-search"
         [attr.aria-expanded]="searchOpen()"
         (click)="toggleSearch()"
@@ -309,6 +312,7 @@ export class ReaderBar {
         row.scrollLeft = Math.max(0, left - 16);
       }
     });
+    inject(DestroyRef).onDestroy(inject(ShortcutsService).ownSearch(() => this.openSearch()));
   }
 
   /** Whether to link Downloads (#180). */
@@ -334,6 +338,18 @@ export class ReaderBar {
   protected readonly searchSaid = signal('');
   /** The server stopped before the oldest articles (review on #197). */
   protected readonly truncated = signal(false);
+
+  /**
+   * `/` on a screen with this bar (#289): the search open, the cursor
+   * in its box, rather than Notes' search.
+   */
+  private openSearch(): void {
+    if (this.searchOpen()) {
+      this.box()?.nativeElement.focus();
+      return;
+    }
+    this.toggleSearch();
+  }
 
   /** Opens the search with the cursor in its box, or closes it. */
   protected toggleSearch(): void {
