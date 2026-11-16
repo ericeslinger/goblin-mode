@@ -77,8 +77,9 @@ export function wideScreen(): Signal<boolean> {
  * so reduced motion has nothing to turn off. A zoom keeps the point at
  * the box's middle (or between the fingers) where it was.
  *
- * The box never holds the page: at Fit nothing in it scrolls, and a
- * drag past its edge carries on into the page as usual. `pxPerUnit`
+ * The box never holds the page: a drag past its edge carries on into
+ * the page as usual (at Fit only a drawing taller than the box scrolls
+ * in it, up and down). `pxPerUnit`
  * says how big a viewBox unit is drawn, for the maps to leave out
  * labels too small to read.
  */
@@ -171,6 +172,12 @@ export class MapFrame {
   private pinch?: { distance: number; scale: number };
   private pointer?: { id: number; x: number; y: number; left: number; top: number; moved: boolean };
   private swallowClick = false;
+  /**
+   * Where the last zoom will put the box's scroll once it is redrawn.
+   * A second zoom before that (two touchmoves in one frame) starts
+   * from here, not from the scroll the first has yet to write.
+   */
+  private pending?: { left: number; top: number };
 
   constructor() {
     const destroy = inject(DestroyRef);
@@ -249,15 +256,19 @@ export class MapFrame {
     if (Math.abs(next - before) < 1e-6) return;
     const fx = at?.x ?? box.clientWidth / 2;
     const fy = at?.y ?? box.clientHeight / 2;
-    const x = box.scrollLeft + fx;
-    const y = box.scrollTop + fy;
+    const x = (this.pending?.left ?? box.scrollLeft) + fx;
+    const y = (this.pending?.top ?? box.scrollTop) + fy;
     const ratio = next / before;
     this.scale.set(next);
+    this.pending = { left: x * ratio - fx, top: y * ratio - fy };
     afterNextRender(
       {
         write: () => {
-          box.scrollLeft = x * ratio - fx;
-          box.scrollTop = y * ratio - fy;
+          const to = this.pending;
+          if (!to) return;
+          this.pending = undefined;
+          box.scrollLeft = to.left;
+          box.scrollTop = to.top;
         },
       },
       { injector: this.injector },

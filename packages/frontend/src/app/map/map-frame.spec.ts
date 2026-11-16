@@ -130,3 +130,50 @@ describe('MapFrame', () => {
     ]);
   });
 });
+
+describe('a mouse drag in the drawing', () => {
+  let restore: () => void;
+  beforeEach(() => (restore = boxWidthIs(400)));
+  afterEach(() => restore());
+
+  function pointer(type: string, x: number, y: number): Event {
+    const event = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+    return Object.assign(event, { pointerType: 'mouse', pointerId: 1 });
+  }
+
+  it('pans the box, and the click that ends it opens nothing', async () => {
+    const { el, press } = await render();
+    await press('Zoom in');
+    const box = el.querySelector<HTMLElement>('.box')!;
+    const svg = el.querySelector('svg')!;
+    // The capture stands in for a real pointer's, which a made event has not.
+    box.setPointerCapture = () => undefined;
+    box.releasePointerCapture = () => undefined;
+    let opened = 0;
+    svg.addEventListener('click', () => opened++);
+
+    svg.dispatchEvent(pointer('pointerdown', 200, 100));
+    svg.dispatchEvent(pointer('pointermove', 150, 100));
+    expect(box.classList.contains('dragging')).toBe(true);
+    svg.dispatchEvent(pointer('pointerup', 150, 100));
+    expect(box.classList.contains('dragging')).toBe(false);
+    svg.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(opened).toBe(0);
+
+    // The next click is an ordinary one.
+    svg.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(opened).toBe(1);
+  });
+
+  it('leaves a press without a move as a click', async () => {
+    const { el } = await render();
+    const svg = el.querySelector('svg')!;
+    let opened = 0;
+    svg.addEventListener('click', () => opened++);
+    svg.dispatchEvent(pointer('pointerdown', 200, 100));
+    svg.dispatchEvent(pointer('pointermove', 201, 101));
+    svg.dispatchEvent(pointer('pointerup', 201, 101));
+    svg.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(opened).toBe(1);
+  });
+});
