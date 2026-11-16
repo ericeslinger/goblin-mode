@@ -145,3 +145,51 @@ describe('feed discovery (#174)', () => {
     await expect(discoverFeeds('https://site.test/', page, feeds({}))).rejects.toThrow('500');
   });
 });
+
+describe('discovering a feed over 2 MB (2026-11-16)', () => {
+  const ep = (n: number, day: number) =>
+    `<item><title>Ep ${n}</title><guid>${n}</guid><pubDate>${new Date(Date.UTC(2026, 10, day)).toUTCString()}</pubDate>` +
+    `<description><![CDATA[${'Long show notes. '.repeat(40)}]]></description>` +
+    `<enclosure url="https://pod.test/${n}.mp3" type="audio/mpeg"/></item>`;
+  const head = (items: string) =>
+    `<rss version="2.0"><channel><title>Kiln talk</title>${items}<item><title>Ep 0</title><description><![CDATA[cut`;
+
+  it('reads the pasted address in part when it is a large feed', async () => {
+    const page: PageFetcher = async () => ({
+      contentType: 'application/rss+xml',
+      bytes: new TextEncoder().encode(head(ep(3, 14) + ep(2, 10) + ep(1, 6))),
+      truncated: true,
+    });
+    expect(await discoverFeeds('https://pod.test/rss', page, feeds({}))).toEqual({
+      feeds: [{ url: 'https://pod.test/rss', title: 'Kiln talk', episodes: 3 }],
+    });
+  });
+
+  it('says why a large feed pasted as it is cannot be read in part', async () => {
+    const page: PageFetcher = async () => ({
+      contentType: 'application/rss+xml',
+      bytes: new TextEncoder().encode(head(ep(1, 6) + ep(2, 10) + ep(3, 14))),
+      truncated: true,
+    });
+    await expect(discoverFeeds('https://pod.test/rss', page, feeds({}))).rejects.toThrow(
+      'the feed is over 2 MB and lists its oldest items first, so its newest cannot be read',
+    );
+  });
+
+  it('reads a large page for its links, and a large candidate feed in part', async () => {
+    const page: PageFetcher = async () => ({ ...html(PAGE), truncated: true });
+    const fetchFeed: FeedFetcher = vi.fn(async (url: string) =>
+      url === 'https://site.test/posts.xml'
+        ? {
+            status: 200,
+            contentType: 'application/rss+xml',
+            text: head(ep(2, 10) + ep(1, 6)),
+            truncated: true,
+          }
+        : { status: 404, contentType: 'text/plain', text: '' },
+    );
+    expect(await discoverFeeds('https://site.test/', page, fetchFeed)).toEqual({
+      feeds: [{ url: 'https://site.test/posts.xml', title: 'Kiln talk', episodes: 2 }],
+    });
+  });
+});

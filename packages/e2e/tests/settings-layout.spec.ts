@@ -7,6 +7,7 @@ import {
   letItSave,
   openSettings,
   signInAs,
+  switchModulesOn,
   test,
 } from '../src/fixtures';
 import { OWNER } from '../src/personas';
@@ -50,11 +51,9 @@ async function missedTaps(control: Locator): Promise<string[]> {
 
 /** Kitchen, the Reader and Podcasts on, so their settings show. */
 async function everyModuleOn(page: Page): Promise<void> {
-  await openSettings(page, 'Modules');
-  for (const name of ['Kitchen', 'Reader', 'Podcasts']) {
-    await page.getByRole('switch', { name }).check();
-  }
-  await letItSave(page);
+  // The shared helper: Podcasts follows the Reader's switch (#245), and
+  // a click on it while it is switching itself on turned it off again.
+  await switchModulesOn(page, 'Kitchen', 'Reader', 'Podcasts');
 }
 
 /**

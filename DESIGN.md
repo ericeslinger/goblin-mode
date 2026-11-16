@@ -2369,6 +2369,34 @@ ETag (a second look is a 304), any other host fails as an unreachable
 site would; the journey imports an OPML with both and reads the
 report.
 
+**A feed over 5 MB is read in part (2026-11-16).** Until then the cap
+failed it ("the page is over 5 MB"), and every refresh of a podcast
+with its whole back catalogue (often 5 to 40 MB) failed so (Eric,
+2026-11-16). Now `publicRequest` takes `overflow: 'truncate'`, which
+the feed fetchers ask for and every other caller does not: past the
+cap it stops reading (the reader cancelled, never more than the cap
+buffered) and marks the response `truncated`. `readFeed` then cuts
+the head after its last complete item (`</item>`, or `</entry>` for
+Atom, passing over one inside a CDATA section), closes the root the
+head opened, and parses that. That is enough: feeds list their newest
+first, only ninety days and at most 200 items are kept, and the first
+5 MB hold hundreds of episodes (On the Media's 9 MB feed: 840 items in
+its first 5 MB, back to 2018, parsed in about 200 ms). The cap stays
+5 MB, as the functions parse the text in memory at 512 MiB. Channel
+fields after the items are lost in a cut, so a look read in part never
+clears artwork the feed already has (a name is only ever set on a feed
+named by its address). The ETag and Last-Modified are kept as for any
+look, and a 304 is unchanged. Three cases are errors on the feed, shown
+where feed errors show: a head with no complete item ("the feed is over
+5 MB and its first 5 MB hold no complete item"), a JSON Feed ("a JSON
+feed over 5 MB cannot be read in part"), and a feed whose items run
+oldest first, more of them newer than the one before than older ("the
+feed is over 5 MB and lists its oldest items first, so its newest
+cannot be read"), since its head would hold nothing recent and the show
+would quietly never update. A later good look clears the error and the
+backoff as any does. The emulator's `archive.xml` fixture is served cut
+off and marked `truncated`, so the emulator reads it in part too.
+
 **Step 3, reading (#162, built 2026-11-07).** `/reader` is the front:
 the folders with what is unread in each, All and Saved, Refresh, and
 Manage feeds (`/reader/feeds`, step 1's page). A folder or a feed
@@ -2654,13 +2682,18 @@ so none is denied to a run.
 **Feed discovery (#174, 2026-11-07).** Follow a feed takes a site's
 address too: Find feeds calls `discoverFeeds` (`onCall`, signed in,
 fifty a day per gardener in the usage record, `discoveries`), which
-fetches the address through `publicRequest` (2 MB). A feed is its own
-answer, whatever content type it comes with (review on #183); an HTML
+fetches the address through `publicRequest` (2 MB, its head only past
+that since 2026-11-16, as a podcast's address is often its large feed
+itself and a page's feed links are in its head). A feed is its own
+answer, whatever content type it comes with (review on #183), a large
+one read in part as the fetcher does (step 2), or the reason it cannot
+be shown when it is a feed that cannot; an HTML
 page gives the `<link rel="alternate">` feeds in its head (RSS, Atom or
 JSON Feed types, read from the visible HTML, resolved, http(s), at most
 ten), and when it names none, the usual paths on the site (`/feed`,
 `/rss`, `/atom.xml`, `/feed.xml`, `/index.xml`). Five candidates at most
-are fetched (2 MB each) and kept only if `parseFeed` reads them, under
+are fetched (2 MB each, read in part past that) and kept only if
+`parseFeed` reads them, under
 their own names; none is `not-found`, "No feed found at that address."
 The page reaches no model, and the names are shown only to the gardener.
 Manage feeds lists what came back, each with its address and a Follow

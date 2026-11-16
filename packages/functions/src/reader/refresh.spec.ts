@@ -3,6 +3,7 @@ import { QUEUE_MAX, feedItemId } from '@mossgoblin/schema';
 import {
   DEAD_AFTER,
   type DueFeed,
+  FEED_MAX_BYTES,
   type FeedFetcher,
   type FeedUpdate,
   INTERVAL_MAX,
@@ -436,5 +437,114 @@ describe('refreshDue', () => {
     expect(s.due).toHaveBeenCalledWith(NOW, 10, 'u1');
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(report).toEqual({ fetched: 1, added: 1, failed: 0, skipped: 1 });
+  });
+});
+
+describe('a podcast feed over 5 MB (2026-11-16)', () => {
+  const DAY = 24 * H;
+  // An episode every twelve hours, with long show notes, as a back
+  // catalogue of a thousand runs well past 5 MB.
+  const episode = (n: number, daysAgo: number) =>
+    `<item><title>Episode ${n}</title><link>https://pod.test/${n}</link><guid>ep-${n}</guid>` +
+    `<pubDate>${new Date(NOW - daysAgo * DAY).toUTCString()}</pubDate>` +
+    `<description><![CDATA[<p>${'Notes on glazes, é and 🔥. '.repeat(250)}</p>]]></description>` +
+    `<enclosure url="https://pod.test/${n}.mp3" type="audio/mpeg" length="1000"/></item>`;
+  const show = (order: 'newest' | 'oldest', art: 'before' | 'after') => {
+    const image = '<itunes:image href="https://pod.test/show.jpg"/>';
+    const eps = Array.from({ length: 1000 }, (_, i) =>
+      order === 'newest' ? episode(1000 - i, i / 2) : episode(i + 1, (999 - i) / 2),
+    ).join('');
+    return (
+      '<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel>' +
+      `<title>Kiln hour</title>${art === 'before' ? image : ''}${eps}` +
+      `${art === 'after' ? image : ''}</channel></rss>`
+    );
+  };
+  /** The fetcher's answer for a feed past the cap: its first 5 MB, marked. */
+  const head = (whole: string): FeedFetcher => {
+    const bytes = new TextEncoder().encode(whole);
+    expect(bytes.length).toBeGreaterThan(FEED_MAX_BYTES);
+    return ok(new TextDecoder().decode(bytes.slice(0, FEED_MAX_BYTES)), {
+      truncated: true,
+      lastModified: 'Sat, 14 Nov 2026 07:00:00 GMT',
+    });
+  };
+  const pod: DueFeed = {
+    ...feed,
+    url: 'https://pod.test/feed.xml',
+    title: 'Kiln hour',
+    podcast: true,
+    image: 'https://pod.test/show.jpg',
+  };
+
+  it('stores the recent episodes from its head, and clears an old error and backoff', async () => {
+    const s = store();
+    const failing = {
+      ...pod,
+      error: 'the page is over 5 MB',
+      errorCount: 6,
+      interval: INTERVAL_MAX,
+    };
+    const out = await refreshFeed(
+      { store: s, fetch: head(show('newest', 'before')), now: () => NOW },
+      failing,
+    );
+    // Ninety days at two a day: 181 episodes.
+    expect(out).toEqual({ outcome: 'new', added: 181 });
+    const written = s.writeItems.mock.calls[0][1];
+    expect(written[0]).toMatchObject({ title: 'Episode 1000', podcast: true });
+    expect(written.every((i) => i.enclosure)).toBe(true);
+    const update = s.updateFeed.mock.calls[0][2];
+    expect(update).toMatchObject({
+      errorCount: 0,
+      error: null,
+      etag: 'W/"1"',
+      lastModified: 'Sat, 14 Nov 2026 07:00:00 GMT',
+      lastItemAt: NOW,
+    });
+    // The rhythm again, not the backoff: half of twelve hours.
+    expect(update.interval).toBe(6 * 60);
+    expect(update).not.toHaveProperty('image');
+  });
+
+  it('never blanks the name or artwork the feed has when they come after the cut', async () => {
+    const s = store();
+    await refreshFeed({ store: s, fetch: head(show('newest', 'after')), now: () => NOW }, pod);
+    const update = s.updateFeed.mock.calls[0][2];
+    expect(update).not.toHaveProperty('image');
+    expect(update).not.toHaveProperty('title');
+    expect(update.error).toBeNull();
+    // Read whole, a feed that no longer names artwork still clears it.
+    const whole = store();
+    await refreshFeed({ store: whole, fetch: ok(RSS(item('a', 1))), now: () => NOW }, pod);
+    expect(whole.updateFeed.mock.calls[0][2].image).toBeNull();
+  });
+
+  it('says so when it lists its oldest first, and stores nothing', async () => {
+    const s = store();
+    const out = await refreshFeed(
+      { store: s, fetch: head(show('oldest', 'before')), now: () => NOW },
+      { ...pod, interval: 60 },
+    );
+    expect(out).toEqual({ outcome: 'failed', added: 0 });
+    expect(s.writeItems).not.toHaveBeenCalled();
+    expect(s.updateFeed.mock.calls[0][2]).toEqual({
+      fetchedAt: NOW,
+      nextFetchAt: NOW + 120 * 60_000,
+      interval: 120,
+      errorCount: 1,
+      error: 'the feed is over 5 MB and lists its oldest items first, so its newest cannot be read',
+    });
+  });
+
+  it('says so when its head holds no complete item', async () => {
+    const s = store();
+    const fetch = ok('<rss version="2.0"><channel><title>Big</title><item><title>One', {
+      truncated: true,
+    });
+    await refreshFeed({ store: s, fetch, now: () => NOW }, pod);
+    expect(s.updateFeed.mock.calls[0][2].error).toBe(
+      'the feed is over 5 MB and its first 5 MB hold no complete item',
+    );
   });
 });
