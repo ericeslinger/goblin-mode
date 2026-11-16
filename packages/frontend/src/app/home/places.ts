@@ -59,6 +59,26 @@ export const RAIL_PLACES: readonly PlaceId[] = [
   'assistants',
 ];
 
+/** The module a place belongs to, where it is one; the rest are always there. */
+const PLACE_MODULE: Partial<Record<PlaceId, 'kitchen' | 'reader' | 'podcasts'>> = {
+  kitchen: 'kitchen',
+  reader: 'reader',
+  podcasts: 'podcasts',
+};
+
+/**
+ * Whether a place shows, from the modules alone: a module that is off
+ * has no tile, no entry and no key (#289). A pure function, so the
+ * keys can ask without starting the counts' listeners.
+ */
+export function placeOn(
+  id: PlaceId,
+  modules: Record<'kitchen' | 'reader' | 'podcasts', () => boolean>,
+): boolean {
+  const module = PLACE_MODULE[id];
+  return !module || modules[module]();
+}
+
 /** A place's count, and what it counts, for the screen reader ("unread"). */
 export interface PlaceCount {
   n: number;
@@ -80,12 +100,10 @@ export class PlacesService {
 
   /** Whether a place shows: a module that is off has no tile and no entry. */
   readonly isOn = computed(() => {
-    const off = new Set<PlaceId>([
-      ...(this.modules.kitchen() ? [] : (['kitchen'] as const)),
-      ...(this.modules.reader() ? [] : (['reader'] as const)),
-      ...(this.modules.podcasts() ? [] : (['podcasts'] as const)),
-    ]);
-    return (id: PlaceId) => !off.has(id);
+    const on = new Set(
+      (Object.keys(PLACES) as PlaceId[]).filter((id) => placeOn(id, this.modules)),
+    );
+    return (id: PlaceId) => on.has(id);
   });
 
   /** Home's tiles that can show, in the default order (`TILE_IDS`). */

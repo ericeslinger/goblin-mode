@@ -149,3 +149,21 @@ describe('Reader, search articles from the header (#175, #221)', () => {
     expect(feeds.searchArticles).not.toHaveBeenCalled();
   });
 });
+
+describe('Reader, `/` (#289)', () => {
+  it('opens Search articles, the cursor in its box, rather than Notes', async () => {
+    const { fixture, el } = setup();
+    // Closed again, as a screen arrives.
+    el.querySelector<HTMLButtonElement>('button[aria-label="Search articles"]')!.click();
+    fixture.detectChanges();
+    expect(el.querySelector('input[aria-label="Search articles"]')).toBeNull();
+    const slash = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(slash);
+    expect(slash.defaultPrevented).toBe(true);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const box = el.querySelector('input[aria-label="Search articles"]');
+    expect(box).not.toBeNull();
+    expect(document.activeElement).toBe(box);
+  });
+});
