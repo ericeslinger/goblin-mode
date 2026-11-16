@@ -283,7 +283,11 @@ kind and status, and a project's items (folded to one line since
 2026-11-15, #287; Room on a project page). The editor stays
 mounted, hidden, while the back shows, so nothing typed is lost and
 the cursor comes back where it was. A side panel on wide screens and
-the attachments list wait until they are missed.
+the attachments list wait until they are missed. (Changed 2026-11-16,
+#289, Eric's decision of 2026-11-15: from 1400 px a saved note's back
+is kept open beside its text as the context column, and Back is not
+offered there; see The context column, below. The attachments list
+still waits, and the back has no outline.)
 
 **Feelings journal (#40, Eric, 2026-10-08).** Moods are concepts of
 type `mood`, not tags. Settings, Templates, Add a feelings journal,
@@ -1467,7 +1471,8 @@ four columns from 900 px: a rail of the places with their counts that
 never leaves, a list, the work at a reading measure, and a context
 column, built in that order, each its own change and usable by
 itself. This is the first: the rail, and the note at a reading
-measure, and nothing else moves.
+measure, and nothing else moves. (The second, the Notes context
+column, was built 2026-11-16; see The context column, below.)
 
 From 900 px the app shell (`app.ts`, `app/rail/rail.ts`) draws, once
 for every screen, a "Skip to content" link (the first thing Tab
@@ -1522,9 +1527,37 @@ column (`--note-measure`, `styles.css`). Kitchen's week and On hand
 keep to Kitchen's 640 px column, as its other tabs do, so its screens
 do not change width from tab to tab. Body type is as it was.
 
-Still to come, each its own change: the Notes context column, the
-Reader in three panes, the other modules in the shell, the tablet's
-rail of icons alone (once the shell exists), and keyboard commands.
+**The context column (#289, part 2, 2026-11-16).** From 1400 px a
+saved note, one the URL names, has its back kept open in a column at
+the right, 280 px wide, scrolling on its own: an `aside` named "Back of
+the note", after the text in the page and the Tab order. It is the
+back's own component (`NoteBack` with `column`), the same parts in a
+column's order: the note's title (h2) and when it was made and edited,
+Linked from and Often together, a grocery list's dinners, the tags,
+History and Map, What assistants changed, Send to an assistant and
+Leave this note alone, a concept's, recipe's or template's settings,
+how the note takes new material and its Instructions for Claude, and
+Archive and Delete last. The back's headings are h3s under the title
+(Linked from's were h2s until now). Back is not offered while the
+column shows, there being nothing to turn to, so the bar has View and
+More; a note turned to its back under 1400 px shows its front when the
+window widens. The breakpoint is the sum at the default theme: the rail
+176, the notes list 320, the text's 70 characters (595 px of Source
+Serif at 17 px) and 16 px either side, and the column 280 come to 1403;
+at 1400 the text is 592 px. The widest faces (Inter, Atkinson) get
+about 55 of their characters there, and 57 at 1440, rather than 70.
+The capture screen at `/` has no column even once saved, so nothing
+moves under typing, nor do a sealed note, Kitchen's week, pantry or
+grocery list (the rail's Kitchen, for the other modules' change), or
+any screen under 1400 px, where the back is turned to as before. The
+editor is outside the column: what the column reads is the note as
+stored, and its updates never draw the editor again or move the
+cursor.
+
+Still to come, each its own change: the Reader in three panes, the
+other modules in the shell, the tablet's rail of icons alone (once the
+shell exists), and keyboard commands. (The Notes context column was
+built 2026-11-16, above.)
 
 **Home and Start on (#219, step 1 of #216, 2026-11-09).** Eric chose
 design A over B (a bar of slots along the bottom): a Home screen at

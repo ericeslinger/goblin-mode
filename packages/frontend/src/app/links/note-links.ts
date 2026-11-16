@@ -5,7 +5,9 @@ import { LinksService } from './links.service';
 /**
  * On the back of a note (#112): the notes that link to it, each with the sentence it
  * does it in, and for a concept the concepts often linked alongside it
- * (#30). Every entry is a link to /n/<id>, so back returns here.
+ * (#30). Every entry is a link to /n/<id>, so back returns here. Its
+ * headings are h3s, under the back's h2, its note's title, as the
+ * back's other parts are (2026-11-16, #289; until then h2s).
  */
 @Component({
   selector: 'app-note-links',
@@ -13,7 +15,7 @@ import { LinksService } from './links.service';
   template: `
     @if (linkedFrom().length > 0) {
       <section aria-labelledby="linked-from">
-        <h2 id="linked-from">Linked from</h2>
+        <h3 id="linked-from">Linked from</h3>
         <ul>
           @for (b of linkedFrom(); track b.id) {
             <li>
@@ -26,12 +28,12 @@ import { LinksService } from './links.service';
         </ul>
       </section>
     } @else if (empty()) {
-      <h2>Linked from</h2>
+      <h3>Linked from</h3>
       <p class="sentence">{{ empty() }}</p>
     }
     @if (concept() && together().length > 0) {
       <section aria-labelledby="often-together">
-        <h2 id="often-together">Often together</h2>
+        <h3 id="often-together">Often together</h3>
         <ul class="chips">
           @for (c of together(); track c.id) {
             <li>
@@ -47,7 +49,7 @@ import { LinksService } from './links.service';
       display: block;
       padding: 0 var(--space-3);
     }
-    h2 {
+    h3 {
       font-size: 14px;
       margin: var(--space-3) 0 var(--space-1);
       color: var(--quiet);

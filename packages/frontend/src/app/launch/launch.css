@@ -477,3 +477,23 @@ app-template-header {
     padding-inline: max(var(--space-3), calc((100% - 640px) / 2));
   }
 }
+
+/* The context column (2026-11-16, #289, Eric's decision of 2026-11-15):
+   from 1400 px a saved note's back is kept open at the right, 280 px,
+   scrolling on its own. The sum, at the default theme: the rail 176,
+   the notes 320, the text's 70 characters 595 and its 16 px sides, and
+   the column 280 come to 1403 (CONTEXT_COLUMN_MIN, launch.ts). The
+   note's pane may shrink to nothing rather than push the page wider. */
+@media (min-width: 1400px) {
+  .launch.with-context {
+    grid-template-columns: 320px minmax(0, 1fr) 280px;
+    grid-template-areas: 'bar bar bar' 'list capture context';
+  }
+  .context {
+    grid-area: context;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-left: 1px solid var(--rule);
+  }
+}

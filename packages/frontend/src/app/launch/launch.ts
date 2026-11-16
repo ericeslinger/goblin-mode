@@ -77,9 +77,20 @@ export function sharedText(title: string | null, text: string | null, url: strin
 }
 
 /**
+ * From this width a saved note's back is kept open beside it as the
+ * context column (2026-11-16, #289). The sum, at the default theme's
+ * 17 px Source Serif, whose "0" is half its size: the rail 176, the
+ * notes list 320, the text's 70 characters (595) and the 16 px either
+ * side of it (627), and the column 280 come to 1403. At 1400 the text
+ * is 592 px, its measure less 3. launch.css says it again.
+ */
+export const CONTEXT_COLUMN_MIN = 1400;
+
+/**
  * The launch screen: a cursor in a note on top, Right Now below, and
  * on wide screens the notes list beside it, Right Now being the rail's
- * entry there (#289, 2026-11-16). Signed out, only sign-in.
+ * entry there (#289, 2026-11-16), and from CONTEXT_COLUMN_MIN a saved
+ * note's back beside it. Signed out, only sign-in.
  */
 @Component({
   selector: 'app-launch',
@@ -264,6 +275,13 @@ export class Launch {
   protected readonly projectsOpen = signal(false);
   /** The back of the open note is showing (#112); each note opens on its front. */
   protected readonly back = signal(false);
+  /**
+   * The back as flipped to: never while the context column shows it,
+   * so it is never drawn twice. Turned to under the breakpoint and then
+   * widened past it, the note shows its front beside the column, and
+   * narrowed again, its front.
+   */
+  protected readonly flipped = computed(() => this.back() && !this.contextColumn());
   protected readonly contextMax = CONTEXT_MAX;
   /** The open note is being viewed, not edited (2026-10-17). */
   protected readonly viewing = computed(() => this.modes.viewing(this.capture.open().id));
@@ -323,6 +341,10 @@ export class Launch {
         // Right Now's sheet closes on going to another note (#287).
         this.rightNowOpen.set(false);
       });
+    });
+    // The context column showing turns the note to its front (#289).
+    effect(() => {
+      if (this.contextColumn()) untracked(() => this.back.set(false));
     });
     // Any navigation, back and forward too, closes Right Now's sheet,
     // the Previous note and Projects lists, and More (#287).
@@ -470,6 +492,17 @@ export class Launch {
       wide.addEventListener?.('change', onWide);
       inject(DestroyRef).onDestroy(() => wide.removeEventListener?.('change', onWide));
     }
+    // Room for the context column beside the note (#289, 2026-11-16).
+    const roomy =
+      typeof matchMedia === 'function'
+        ? matchMedia(`(min-width: ${CONTEXT_COLUMN_MIN}px)`)
+        : undefined;
+    if (roomy) {
+      const onRoomy = () => this.roomy.set(roomy.matches);
+      onRoomy();
+      roomy.addEventListener?.('change', onRoomy);
+      inject(DestroyRef).onDestroy(() => roomy.removeEventListener?.('change', onRoomy));
+    }
 
     const update = () => this.online.set(navigator.onLine);
     addEventListener('online', update);
@@ -499,6 +532,22 @@ export class Launch {
    * moves under typing.
    */
   protected readonly lineMode = computed(() => !!this.noteRoute() && !this.wide());
+  /** The window is CONTEXT_COLUMN_MIN or wider. */
+  protected readonly roomy = signal(false);
+  /**
+   * The context column (2026-11-16, #289): the back kept open beside a
+   * saved note, as the rail marks Notes. Only where there is a back to
+   * keep open (a note that exists and is not sealed here), only on a
+   * note the URL names, so the capture screen at `/` never moves under
+   * typing when what is typed there is first saved, and not on
+   * Kitchen's week, pantry or grocery list, which the rail marks Kitchen.
+   * Its parts read the note as stored; the editor is outside it and is
+   * never drawn again for it.
+   */
+  protected readonly contextColumn = computed(() => {
+    const note = this.record();
+    return this.roomy() && !!this.noteRoute() && !!note && !note.locked && !this.kitchenTab();
+  });
   /** Right Now's sheet is open over the note (line mode only). */
   protected readonly rightNowOpen = signal(false);
   private readonly fresh = inject(FreshCounts);

@@ -35,6 +35,7 @@ async function render(
   note: NoteRecord,
   runs: { id: string; data: Record<string, unknown> }[],
   others: NoteRecord[] = [],
+  { column = false }: { column?: boolean } = {},
 ) {
   const notes = new FakeNotes();
   notes.signIn([note, ...others]);
@@ -68,6 +69,7 @@ async function render(
   });
   const fixture = TestBed.createComponent(NoteBack);
   fixture.componentRef.setInput('note', note);
+  if (column) fixture.componentRef.setInput('column', true);
   await fixture.whenStable();
   return { el: fixture.nativeElement as HTMLElement, notes, fixture };
 }
@@ -544,5 +546,83 @@ describe('NoteBack (#112)', () => {
     );
     // Limes, which no dinner needs, and the ticked tomatoes are left out.
     expect(items).toEqual(['2 onions, sliced: Shakshuka (Mon), Chili (Thu)']);
+  });
+
+  describe('as the context column (#289)', () => {
+    const note: NoteRecord = {
+      ...noteRecord('c-pots', 'Pots'),
+      kind: 'concept',
+      conceptType: 'project',
+      tags: ['studio'],
+    };
+    /** Each heading and part, in the order the page reads them. */
+    const order = (el: HTMLElement) =>
+      [
+        ...el.querySelectorAll(
+          'h2, h3, .more-links, app-concept-header, [aria-labelledby="claude-changes"]',
+        ),
+      ].map((e) =>
+        e.matches('.more-links')
+          ? [...e.querySelectorAll('a, button')].map((c) => c.textContent!.trim()).join(' ')
+          : e.matches('app-concept-header')
+            ? 'Concept settings'
+            : e.matches('ul')
+              ? 'changes'
+              : `${e.tagName.toLowerCase()} ${e.textContent!.trim()}`,
+      );
+
+    it('flipped to, keeps the order it always had', async () => {
+      const { el } = await render(note, [run('r1', 'Filed Lovers vase here', ['c-pots'])]);
+      expect(el.querySelector('section.back')!.getAttribute('aria-label')).toBe('Back of the note');
+      expect(el.classList.contains('column')).toBe(false);
+      expect(order(el)).toEqual([
+        'h2 Pots',
+        'Concept settings',
+        'h3 Send to an assistant',
+        'h3 What assistants changed',
+        'changes',
+        'h3 Linked from',
+        'h3 Tags',
+        'History Map Archive Delete',
+      ]);
+    });
+
+    it('kept open, puts what links here and its places first, its settings last', async () => {
+      const { el } = await render(note, [run('r1', 'Filed Lovers vase here', ['c-pots'])], [], {
+        column: true,
+      });
+      // The column's aside names it.
+      expect(el.querySelector('section.back')!.hasAttribute('aria-label')).toBe(false);
+      expect(el.classList.contains('column')).toBe(true);
+      expect(order(el)).toEqual([
+        'h2 Pots',
+        'h3 Linked from',
+        'h3 Tags',
+        'History Map',
+        'h3 What assistants changed',
+        'changes',
+        'h3 Send to an assistant',
+        'Concept settings',
+        'Archive Delete',
+      ]);
+      // The same parts, working: Archive, and Delete's confirm.
+      const button = (name: string) =>
+        [...el.querySelectorAll('button')].find((b) => b.textContent!.trim() === name)!;
+      button('Archive').click();
+      await TestBed.inject(ApplicationRef).whenStable();
+      expect(el.textContent).toContain('Archived');
+      button('Delete').click();
+      await TestBed.inject(ApplicationRef).whenStable();
+      expect(el.querySelector('.confirm')!.textContent).toContain('Delete this note?');
+    });
+
+    it('takes instructions there as on the back, every keystroke kept (#200)', async () => {
+      const plain = noteRecord('n1', 'Kiln log');
+      const { el, notes } = await render(plain, [], [], { column: true });
+      const box = el.querySelector<HTMLTextAreaElement>('textarea')!;
+      box.value = 'File under Pottery';
+      box.dispatchEvent(new Event('input'));
+      expect(notes.holdInstructions).toHaveBeenCalledWith('n1', 'File under Pottery');
+    });
   });
 });

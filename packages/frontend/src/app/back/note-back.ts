@@ -1,6 +1,7 @@
-import { DOCUMENT } from '@angular/common';
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import {
   Component,
+  booleanAttribute,
   DestroyRef,
   type ElementRef,
   computed,
@@ -61,13 +62,16 @@ function stamp(ms: number | undefined): string {
  * takes them since #231); for a grocery list, which dinners want each
  * item (#207); its tags, History and Map, Archive, and Delete (#217),
  * which puts it in Trash after a one-line confirm. The front keeps the
- * text.
+ * text. From the context column's breakpoint (2026-11-16, #289) the
+ * note screen keeps it open beside the text, `column`, in a column's
+ * order; under it, it is flipped to as before.
  */
 @Component({
   selector: 'app-note-back',
-  imports: [ConceptHeader, NoteLinks, PutBack, RouterLink],
+  host: { '[class.column]': 'column()' },
+  imports: [ConceptHeader, NgTemplateOutlet, NoteLinks, PutBack, RouterLink],
   template: `
-    <section class="back" aria-label="Back of the note">
+    <ng-template #headPart>
       <h2 class="title">{{ note().title || 'Untitled' }}</h2>
       <p class="times">
         @if (note().createdAt !== undefined) {
@@ -77,7 +81,8 @@ function stamp(ms: number | undefined): string {
           <span>Edited {{ edited() }} {{ by() }}</span>
         }
       </p>
-
+    </ng-template>
+    <ng-template #kindPart>
       @if (note().kind === 'recipe' && modules.kitchen()) {
         <div class="settings">
           <p class="made">{{ made() || 'Not made from a meal plan yet.' }}</p>
@@ -129,7 +134,8 @@ function stamp(ms: number | undefined): string {
           </label>
         </div>
       }
-
+    </ng-template>
+    <ng-template #takesPart>
       @if (takes()) {
         <div class="settings">
           <label>
@@ -145,10 +151,10 @@ function stamp(ms: number | undefined): string {
           <label class="instructions">
             Instructions for Claude
             <!--
-              Kept on the device as typed, written after a pause, and at once
-              on leaving the field or the page (#200). Its value is set by
-              the class, never over typing.
-            -->
+                Kept on the device as typed, written after a pause, and at once
+                on leaving the field or the page (#200). Its value is set by
+                the class, never over typing.
+              -->
             <textarea
               #instructions
               rows="5"
@@ -169,7 +175,8 @@ function stamp(ms: number | undefined): string {
           </p>
         </div>
       }
-
+    </ng-template>
+    <ng-template #sourcesPart>
       @if (listSources(); as list) {
         <h3 id="list-for">For the week of {{ week(list.start) }}</h3>
         @if (list.items.length) {
@@ -182,7 +189,8 @@ function stamp(ms: number | undefined): string {
           <p class="muted">No planned dinner needs what is on the list.</p>
         }
       }
-
+    </ng-template>
+    <ng-template #sendPart>
       <h3 id="send-to">Send to an assistant</h3>
       @if (note().sendState && note().sentOnArrival) {
         <p class="arrival">Sent on arrival {{ sentAt() }}, with no ask, to be filed.</p>
@@ -268,7 +276,8 @@ function stamp(ms: number | undefined): string {
           they are. You can still send it with an ask.
         </p>
       }
-
+    </ng-template>
+    <ng-template #changesPart>
       <h3 id="claude-changes">What assistants changed</h3>
       @if (!loaded()) {
         <p class="muted" role="status">Loading…</p>
@@ -288,13 +297,15 @@ function stamp(ms: number | undefined): string {
         </ul>
       }
       <a routerLink="/activity" class="quiet-link">All assistants’ changes</a>
-
+    </ng-template>
+    <ng-template #linksPart>
       <app-note-links
         [noteId]="note().id"
         [concept]="note().kind === 'concept'"
         empty="Nothing links here yet."
       />
-
+    </ng-template>
+    <ng-template #tagsPart>
       @if (note().tags?.length) {
         <h3 id="note-tags">Tags</h3>
         <ul aria-labelledby="note-tags" class="chips">
@@ -303,17 +314,20 @@ function stamp(ms: number | undefined): string {
           }
         </ul>
       }
-
-      <p class="more-links">
-        <a routerLink="/history" [queryParams]="{ note: note().id }">History</a>
-        <a [routerLink]="['/map/n', note().id]">Map</a>
-        <button type="button" class="link" (click)="archive(!note().archived)">
-          {{ note().archived ? 'Restore' : 'Archive' }}
-        </button>
-        @if (deletable() && !confirmingDelete()) {
-          <button type="button" class="link" (click)="confirmingDelete.set(true)">Delete</button>
-        }
-      </p>
+    </ng-template>
+    <ng-template #placesPart>
+      <a routerLink="/history" [queryParams]="{ note: note().id }">History</a>
+      <a [routerLink]="['/map/n', note().id]">Map</a>
+    </ng-template>
+    <ng-template #keepPart>
+      <button type="button" class="link" (click)="archive(!note().archived)">
+        {{ note().archived ? 'Restore' : 'Archive' }}
+      </button>
+      @if (deletable() && !confirmingDelete()) {
+        <button type="button" class="link" (click)="confirmingDelete.set(true)">Delete</button>
+      }
+    </ng-template>
+    <ng-template #afterPart>
       @if (confirmingDelete()) {
         <p class="confirm">
           <span id="delete-note"
@@ -327,6 +341,46 @@ function stamp(ms: number | undefined): string {
       }
       @if (archiveStatus()) {
         <p class="muted" role="status">{{ archiveStatus() }}</p>
+      }
+    </ng-template>
+    <!--
+      One back, two presentations (2026-11-16, #289): flipped to under
+      the breakpoint, in the order it always had; kept open as the note
+      screen's context column above it, in a column's order, what links
+      here and the note's places first and its settings last. Each part
+      is written once, above.
+    -->
+    <section class="back" [attr.aria-label]="column() ? null : 'Back of the note'">
+      @if (column()) {
+        <ng-container *ngTemplateOutlet="headPart" />
+        <ng-container *ngTemplateOutlet="linksPart" />
+        <ng-container *ngTemplateOutlet="sourcesPart" />
+        <ng-container *ngTemplateOutlet="tagsPart" />
+        <p class="more-links">
+          <ng-container *ngTemplateOutlet="placesPart" />
+        </p>
+        <ng-container *ngTemplateOutlet="changesPart" />
+        <ng-container *ngTemplateOutlet="sendPart" />
+        <ng-container *ngTemplateOutlet="kindPart" />
+        <ng-container *ngTemplateOutlet="takesPart" />
+        <p class="more-links">
+          <ng-container *ngTemplateOutlet="keepPart" />
+        </p>
+        <ng-container *ngTemplateOutlet="afterPart" />
+      } @else {
+        <ng-container *ngTemplateOutlet="headPart" />
+        <ng-container *ngTemplateOutlet="kindPart" />
+        <ng-container *ngTemplateOutlet="takesPart" />
+        <ng-container *ngTemplateOutlet="sourcesPart" />
+        <ng-container *ngTemplateOutlet="sendPart" />
+        <ng-container *ngTemplateOutlet="changesPart" />
+        <ng-container *ngTemplateOutlet="linksPart" />
+        <ng-container *ngTemplateOutlet="tagsPart" />
+        <p class="more-links">
+          <ng-container *ngTemplateOutlet="placesPart" />
+          <ng-container *ngTemplateOutlet="keepPart" />
+        </p>
+        <ng-container *ngTemplateOutlet="afterPart" />
       }
     </section>
   `,
@@ -452,6 +506,16 @@ function stamp(ms: number | undefined): string {
       gap: var(--space-3);
       margin: var(--space-3) 0 0;
     }
+    /* In the context column (#289), 280 px: what is wider wraps or
+       shrinks to it rather than reaching past the column's edge. */
+    :host(.column) .more-links {
+      flex-wrap: wrap;
+      row-gap: var(--space-1);
+    }
+    :host(.column) :is(input, select, textarea) {
+      box-sizing: border-box;
+      max-width: 100%;
+    }
     .confirm {
       display: flex;
       flex-wrap: wrap;
@@ -481,6 +545,12 @@ function stamp(ms: number | undefined): string {
 })
 export class NoteBack {
   readonly note = input.required<NoteRecord>();
+  /**
+   * Kept open as the note screen's context column (2026-11-16, #289):
+   * the column's `aside` names it, and its parts come in a column's
+   * order. Without, the flipped back, as it always was.
+   */
+  readonly column = input(false, { transform: booleanAttribute });
   protected readonly notes = inject(NotesService);
   /** Kitchen off, a recipe is a plain note (review on #135). */
   protected readonly modules = inject(ModulesService);
