@@ -109,7 +109,10 @@ test('swiping a reminder right marks it done, left offers snooze', async ({ page
   await expect(page.getByRole('group', { name: 'Snooze Reply to Vikas until' })).toBeVisible();
 });
 
-test('wide screens put Right Now above all notes', async ({ page }) => {
+// Since #289 (Eric, 2026-11-15) Right Now on a wide screen is the
+// rail's entry, with its count, and its own screen; until then it sat
+// above all notes.
+test('wide screens put Right Now in the rail, with what is due', async ({ page }) => {
   await signInAs(page, OWNER);
   await page.goto('/right-now');
   await addReminder(page, 'Buy stamps', { inMinutes: -1 });
@@ -117,9 +120,12 @@ test('wide screens put Right Now above all notes', async ({ page }) => {
   await page.getByRole('link', { name: 'Home' }).click();
   await page.getByRole('link', { name: 'Plant a thought' }).click();
   await page.setViewportSize({ width: 1200, height: 800 });
-  const panel = (await rightNow(page).boundingBox())!;
-  const list = (await page.getByRole('complementary', { name: 'All notes' }).boundingBox())!;
-  expect(panel.x).toBe(list.x);
-  expect(panel.y).toBeLessThan(list.y);
-  await expect(rightNow(page)).toContainText('Buy stamps');
+  await expect(page.getByRole('complementary', { name: 'All notes' })).toBeVisible();
+  await expect(rightNow(page)).toHaveCount(0);
+  const entry = page
+    .getByRole('navigation', { name: 'Places', exact: true })
+    .getByRole('link', { name: 'Right Now, 1 due', exact: true });
+  await entry.click();
+  await expect(page).toHaveURL(/\/right-now$/);
+  await expect(section(page, 'Overdue')).toContainText('Buy stamps');
 });

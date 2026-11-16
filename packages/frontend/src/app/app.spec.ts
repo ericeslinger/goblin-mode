@@ -2,8 +2,10 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { App } from './app';
+import { AuthService } from './auth.service';
 import { configFor, isLocalHost } from './firebase';
 import { NoteKeyService } from './notes/note-key.service';
+import { FakeAuthService } from './testing/fakes';
 
 describe('App', () => {
   it('creates', async () => {
@@ -13,6 +15,8 @@ describe('App', () => {
         provideRouter([]),
         // The key-wait line asks whether the key service is set up (2026-11-15).
         { provide: NoteKeyService, useValue: { unconfigured: signal(false) } },
+        // The rail (#289) asks whether anyone is signed in.
+        { provide: AuthService, useValue: new FakeAuthService() },
       ],
     }).compileComponents();
     expect(TestBed.createComponent(App).componentInstance).toBeTruthy();

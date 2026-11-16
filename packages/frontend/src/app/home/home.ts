@@ -21,24 +21,30 @@ import {
 import { AuthService } from '../auth.service';
 import { inLens } from '../browse/lenses';
 import { ACTIVITY_API } from '../claude/activity';
-import { ProposalsService } from '../claude/proposals.service';
 import { FIREBASE } from '../firebase';
 import { GroceryService } from '../kitchen/grocery.service';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
 import { NOW } from '../platform/platform';
-import { episodeState } from '../podcasts/episodes';
 import { PlayerService } from '../reader/player.service';
 import { ReaderService } from '../reader/reader.service';
 import { ItemsService } from '../reader/items.service';
-import { ReadingService } from '../reading/reading.service';
 import { FreshCounts, sinceLooked } from '../reminders/fresh-line';
 import { RemindersService } from '../reminders/reminders.service';
 import { ShareWaiting } from '../share/share-waiting';
 import { SignIn } from '../sign-in/sign-in';
-import { HomeTilesService, arrange, moveBy, moveTo, nearestSlot, type Slot } from './home-tiles';
+import {
+  HomeTilesService,
+  TILE_IDS,
+  arrange,
+  moveBy,
+  moveTo,
+  nearestSlot,
+  type Slot,
+} from './home-tiles';
 import { Icon, type IconName } from './icon';
 import { NewNoteButton } from './new-note';
+import { PLACES, PlacesService } from './places';
 
 /** Right Now's row names at most this many reminders, of those due today. */
 export const HOME_REMINDERS = 2;
@@ -486,8 +492,7 @@ export class Home {
   private readonly reader = inject(ReaderService);
   private readonly player = inject(PlayerService);
   private readonly fresh = inject(FreshCounts);
-  private readonly reading = inject(ReadingService);
-  private readonly proposals = inject(ProposalsService);
+  private readonly places = inject(PlacesService);
   private readonly grocery = inject(GroceryService);
   private readonly activity = inject(ACTIVITY_API);
   private readonly fb = inject(FIREBASE);
@@ -561,82 +566,48 @@ export class Home {
   protected readonly tiles = computed(() => this.layout().tiles);
   protected readonly notOnHome = computed(() => this.layout().off);
 
-  /** Every tile of a module that is on, in the default order (TILE_IDS). */
-  private readonly allTiles = computed<Tile[]>(() => {
-    const tiles: Tile[] = [
-      {
-        id: 'notes',
-        name: 'Notes',
-        icon: 'notes',
-        link: '/browse',
-        status: this.notesLine(),
-        empty: this.liveNotes().length === 0,
-      },
-    ];
-    if (this.modules.kitchen()) {
-      tiles.push({
-        id: 'kitchen',
-        name: 'Kitchen',
-        icon: 'kitchen',
-        link: '/kitchen',
-        ...this.kitchenLine(),
-      });
+  /**
+   * Every tile of a module that is on, in the default order (TILE_IDS),
+   * named, drawn and counted as the rail's entries are (`places.ts`).
+   */
+  private readonly allTiles = computed<Tile[]>(() =>
+    this.places.tiles().map((id) => ({ id, ...PLACES[id], ...this.line(id) })),
+  );
+
+  /** A tile's status line, and whether there is nothing in it (#288). */
+  private line(id: (typeof TILE_IDS)[number]): { status: string; empty: boolean } {
+    switch (id) {
+      case 'notes':
+        return { status: this.notesLine(), empty: this.liveNotes().length === 0 };
+      case 'kitchen':
+        return this.kitchenLine();
+      case 'reader': {
+        const unread = this.places.readerUnread();
+        return { status: `${unread} unread`, empty: unread === 0 };
+      }
+      case 'podcasts':
+        return this.podcastsLine();
+      case 'reading': {
+        const toRead = this.places.toRead();
+        return { status: toRead ? `${toRead} to read` : 'Nothing waiting', empty: toRead === 0 };
+      }
+      case 'assistants': {
+        const today = this.startOfToday();
+        const runsToday = this.runs().filter((at) => at >= today).length;
+        const open = this.places.suggestions();
+        return {
+          status: [
+            plural(open, 'suggestion', 'suggestions'),
+            ...(runsToday ? [`${plural(runsToday, 'run', 'runs')} today`] : []),
+          ].join(' · '),
+          empty: open === 0 && runsToday === 0,
+        };
+      }
+      case 'map':
+        // A description, not a count: quiet, as a line with nothing in it.
+        return { status: 'The whole garden', empty: true };
     }
-    if (this.modules.reader()) {
-      const unread = this.items.unreadCounts()['all'] ?? 0;
-      tiles.push({
-        id: 'reader',
-        name: 'Reader',
-        icon: 'reader',
-        link: '/reader',
-        status: `${unread} unread`,
-        empty: unread === 0,
-      });
-    }
-    if (this.modules.podcasts()) {
-      tiles.push({
-        id: 'podcasts',
-        name: 'Podcasts',
-        icon: 'podcasts',
-        link: '/podcasts',
-        ...this.podcastsLine(),
-      });
-    }
-    const toRead = this.reading.unread().length;
-    const today = this.startOfToday();
-    const runsToday = this.runs().filter((at) => at >= today).length;
-    tiles.push(
-      {
-        id: 'reading',
-        name: 'Reading queue',
-        icon: 'reading',
-        link: '/reading',
-        status: toRead ? `${toRead} to read` : 'Nothing waiting',
-        empty: toRead === 0,
-      },
-      {
-        id: 'assistants',
-        name: 'Assistants',
-        icon: 'assistants',
-        link: '/activity',
-        status: [
-          plural(this.proposals.open(), 'suggestion', 'suggestions'),
-          ...(runsToday ? [`${plural(runsToday, 'run', 'runs')} today`] : []),
-        ].join(' · '),
-        empty: this.proposals.open() === 0 && runsToday === 0,
-      },
-      // A description, not a count: quiet, as a line with nothing in it.
-      {
-        id: 'map',
-        name: 'Map',
-        icon: 'map',
-        link: '/map',
-        status: 'The whole garden',
-        empty: true,
-      },
-    );
-    return tiles;
-  });
+  }
 
   constructor() {
     // The runs, as What assistants changed lists them, for how many today.
@@ -833,8 +804,8 @@ export class Home {
         total > 0 ? ` · ${this.items.duration(total - this.player.position())} left` : '';
       return { status: `Playing: ${it.title}${left}`, empty: false };
     }
-    const fresh = this.items.episodes().filter((e) => episodeState(e) === 'new').length;
-    const queued = this.items.queue().length;
+    const fresh = this.places.podcastsNew();
+    const queued = this.places.podcastsQueued();
     const parts = [
       ...(fresh ? [`${fresh} new`] : []),
       ...(queued ? [`${queued} in the queue`] : []),

@@ -1032,18 +1032,27 @@ describe('Launch', () => {
       });
       afterEach(() => delete (window as { matchMedia?: unknown }).matchMedia);
 
-      it('keeps the panel beside the notes, and hides nothing for the keyboard', async () => {
+      // Right Now is the rail's entry there (#289, 2026-11-16): no panel
+      // above the notes list, and no line.
+      it('draws no Right Now beside the notes, and hides nothing for the keyboard', async () => {
         const notes = new FakeNotes();
         notes.signIn([
           { ...noteRecord('c-pots', 'Pots'), kind: 'concept', conceptType: 'project' },
         ]);
         const { el, fixture, editor } = await render({ notes, url: '/n/c-pots' });
         expect(line(el)).toBeNull();
-        expect(el.querySelector('app-right-now-panel')).not.toBeNull();
+        expect(el.querySelector('section.right-now')).toBeNull();
+        expect(el.querySelector('app-right-now-panel')).toBeNull();
+        expect(el.querySelector('aside.list-pane')).not.toBeNull();
         editor().keyboardUp.set(true);
         await fixture.whenStable();
-        expect(el.querySelector<HTMLElement>('section.right-now')!.hidden).toBe(false);
         expect(el.querySelector<HTMLButtonElement>('button.fold')!.hidden).toBe(false);
+      });
+
+      it('draws no Right Now on the capture screen either', async () => {
+        const { el } = await render();
+        expect(el.querySelector('section.right-now')).toBeNull();
+        expect(el.querySelector('[role="separator"]')).toBeNull();
       });
     });
   });

@@ -463,7 +463,8 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
      */
     .status {
       position: fixed;
-      inset: auto 0 var(--mini-player-height, 0px);
+      /* From the desktop rail's edge (#289), so it centres under the page. */
+      inset: auto 0 var(--mini-player-height, 0px) var(--rail-width, 0px);
       /* Over a day's heading (#288) passing behind it. */
       z-index: 2;
       box-sizing: border-box;

@@ -707,9 +707,11 @@ test.describe('on a narrow phone', () => {
 
     // The modules with a header of their own, on as other journeys do.
     await page.goto('/settings');
-    for (const name of ['Reader', 'Podcasts', 'Kitchen']) {
-      await page.getByRole('switch', { name }).check();
-    }
+    // Podcasts comes on with the Reader (#245): waited for, never
+    // clicked, or the click can turn it off as it turns on.
+    await page.getByRole('switch', { name: 'Reader' }).check();
+    await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
+    await page.getByRole('switch', { name: 'Kitchen' }).check();
     await letItSave(page);
 
     const screens: [url: string, title: string, parent?: string][] = [
@@ -749,12 +751,12 @@ test.describe('on a narrow phone', () => {
 test.describe('on a wide screen', () => {
   test.use({ isMobile: false, hasTouch: false, viewport: { width: 1440, height: 900 } });
 
-  test('Right Now beside the notes scrolls inside its cap, its heading in sight', async ({
-    page,
-  }) => {
+  // Until #289 (2026-11-16) Right Now sat above the notes here, capped
+  // and scrolling inside (#285). It is now the rail's entry, its count
+  // what is due, and the notes list has the whole left pane.
+  test('the notes list has the left pane, Right Now being the rail’s entry', async ({ page }) => {
     await signInAs(page, OWNER);
     const call = await connectClaude(page);
-    // Long reminders, so the three shown are taller than the cap.
     const long = 'ring about the kiln shelves, the cone packs and the glaze order '.repeat(3);
     for (const n of [1, 2, 3, 4]) {
       await call('create_reminder', {
@@ -764,27 +766,19 @@ test.describe('on a wide screen', () => {
     }
 
     await openCapture(page);
-    const rightNow = page.getByRole('region', { name: 'Right Now' });
-    await expect(rightNow.getByRole('button', { name: /^Done: Reminder/ })).toHaveCount(3, {
-      timeout: 15_000,
-    });
-    const box = await rightNow.evaluate(scrolling);
-    // Capped (40% of the height, and its padding) well short of the
-    // window, it scrolls rather than clips.
-    expect(box.clientHeight).toBeLessThan(900 * 0.5);
-    expect(box.scrollHeight).toBeGreaterThan(box.clientHeight);
-    expect(['auto', 'scroll']).toContain(box.overflowY);
-
-    // Scrolled to its end, the heading is still at its top.
-    await rightNow.evaluate((el) => el.scrollTo(0, el.scrollHeight));
-    const heading = rightNow.getByRole('heading', { name: 'Right Now' });
-    await expect
-      .poll(async () => {
-        const [h, r] = [(await heading.boundingBox())!, (await rightNow.boundingBox())!];
-        return Math.abs(h.y - r.y);
-      })
-      .toBeLessThanOrEqual(1);
-    await expect(rightNow.getByRole('link', { name: '1 more' })).toBeInViewport();
+    const entry = page
+      .getByRole('navigation', { name: 'Places', exact: true })
+      .getByRole('link', { name: 'Right Now, 4 due', exact: true });
+    await expect(entry).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('region', { name: 'Right Now' })).toHaveCount(0);
+    // The list starts under the bar, nothing between them.
+    const bar = (await page.locator('header.bar').boundingBox())!;
+    const list = (await page.getByRole('complementary', { name: 'All notes' }).boundingBox())!;
+    expect(Math.abs(list.y - (bar.y + bar.height))).toBeLessThanOrEqual(1);
     await noSeriousViolations(page);
+
+    await entry.click();
+    await expect(page.getByRole('heading', { name: 'Right Now', level: 1 })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Done: Reminder/ })).toHaveCount(4);
   });
 });

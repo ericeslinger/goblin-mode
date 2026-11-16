@@ -6,7 +6,8 @@ import { NewNoteButton } from './new-note';
 /**
  * The leaf (#219): Home, from the top left of every screen, where Back
  * to the start screen used to be. A 44 px target. New note (#272) sits
- * just right of it, so it is wherever the leaf is.
+ * just right of it, so it is wherever the leaf is. Beside the desktop
+ * rail (#289, 2026-11-16) the leaf is not drawn: the rail's Home is it.
  */
 @Component({
   selector: 'app-home-link',
@@ -25,6 +26,11 @@ import { NewNoteButton } from './new-note';
       height: 44px;
       margin: calc(-1 * var(--space-2));
       border-radius: var(--radius-control);
+    }
+    /* Beside the desktop rail (#289) its Home entry is the way home;
+       the leaf gives way, New note staying where it was. */
+    :host-context(.has-rail) a {
+      display: none;
     }
   `,
 })
