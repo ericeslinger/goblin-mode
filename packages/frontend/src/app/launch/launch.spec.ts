@@ -1111,4 +1111,136 @@ describe('Launch', () => {
     await go('/');
     expect(source.read().caret).toBe(0);
   });
+
+  describe('the context column (#289)', () => {
+    /** The window's width, and the queries told when it changes. */
+    let width = 1440;
+    let told: (() => void)[] = [];
+    const resize = (to: number) => {
+      width = to;
+      for (const tell of told) tell();
+    };
+    beforeEach(() => {
+      width = 1440;
+      told = [];
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: (query: string) => {
+          const min = Number(/min-width: (\d+)px/.exec(query)?.[1] ?? 0);
+          return {
+            get matches() {
+              return width >= min;
+            },
+            media: query,
+            // Only the width's: the editor listens for print, too.
+            addEventListener: (_: string, tell: () => void) => min && told.push(tell),
+            removeEventListener: () => undefined,
+          };
+        },
+      });
+    });
+    afterEach(() => delete (window as { matchMedia?: unknown }).matchMedia);
+    const column = (el: HTMLElement) => el.querySelector<HTMLElement>('aside.context');
+
+    it('keeps a saved note’s back open beside it, with no Back to turn to', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([noteRecord('n1', 'Kiln day\nCone 6')]);
+      const { el, fixture, url } = await render({ notes, url: '/n/n1' });
+      const aside = column(el)!;
+      expect(aside.getAttribute('aria-label')).toBe('Back of the note');
+      expect(aside.querySelector('app-note-back.column')).not.toBeNull();
+      // The aside names it: no second landmark of the same name inside.
+      expect(aside.querySelector('section.back')!.hasAttribute('aria-label')).toBe(false);
+      expect(el.querySelector('.launch')!.classList.contains('with-context')).toBe(true);
+      expect(buttonNamed(el, 'Back')).toBeUndefined();
+      expect(buttonNamed(el, 'Front')).toBeUndefined();
+      // The text beside it, and the column after it in the page.
+      const editor = el.querySelector('app-note-editor')!;
+      expect(editor.classList.contains('hidden')).toBe(false);
+      expect(editor.compareDocumentPosition(aside) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Its actions are the back's: Delete leaves the note for a fresh one.
+      buttonNamed(aside, 'Delete')!.click();
+      await fixture.whenStable();
+      buttonNamed(aside, 'Yes')!.click();
+      await fixture.whenStable();
+      expect(notes.setDeleted).toHaveBeenCalledWith('n1', true);
+      expect(url()).toBe('/');
+      expect(column(el)).toBeNull();
+    });
+
+    it('never draws the editor again, nor moves the cursor, as the note changes', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([noteRecord('n1', 'Kiln day'), noteRecord('n2', 'See [[Kiln day]]')]);
+      const { el, fixture } = await render({ notes, url: '/n/n1' });
+      const content = el.querySelector<HTMLElement>('.cm-content')!;
+      content.focus();
+      expect(column(el)).not.toBeNull();
+      // The stored note changes under it, as each save and sync does.
+      notes.notes.set([
+        { ...noteRecord('n1', 'Kiln day, glazed'), tags: ['studio'] },
+        noteRecord('n2', 'See [[Kiln day]]'),
+      ]);
+      await fixture.whenStable();
+      expect(column(el)!.textContent).toContain('studio');
+      expect(el.querySelector('.cm-content')).toBe(content);
+      expect(document.activeElement).toBe(content);
+    });
+
+    it('is not on the capture screen, a sealed note, nor under 1400 px', async () => {
+      const notes = new FakeNotes();
+      const sealed = { ...noteRecord('s1', ''), title: SEALED_TITLE, locked: true as const };
+      notes.signIn([noteRecord('n1', 'Kiln day'), sealed]);
+      const { el, fixture, go } = await render({ notes });
+      // At `/`, saved or not, the Back is as it was: nothing moves under typing.
+      const capture = TestBed.inject(CaptureService);
+      capture.onText('Wheel day');
+      capture.flush();
+      notes.notes.set([...notes.notes(), noteRecord(capture.open().id, 'Wheel day')]);
+      await fixture.whenStable();
+      expect(column(el)).toBeNull();
+      expect(buttonNamed(el, 'Back')).toBeDefined();
+      await go('/n/s1');
+      expect(column(el)).toBeNull();
+      await go('/n/n1');
+      expect(column(el)).not.toBeNull();
+      resize(1399);
+      await fixture.whenStable();
+      expect(column(el)).toBeNull();
+      expect(el.querySelector('.launch')!.classList.contains('with-context')).toBe(false);
+      buttonNamed(el, 'Back')!.click();
+      await fixture.whenStable();
+      expect(el.querySelector('[aria-label="Back of the note"]')!.tagName).toBe('SECTION');
+      expect(el.querySelector('app-note-editor')!.classList.contains('hidden')).toBe(true);
+    });
+
+    it('turns a note shown on its back to its front when the column comes', async () => {
+      width = 1000;
+      const notes = new FakeNotes();
+      notes.signIn([noteRecord('n1', 'Kiln day')]);
+      const { el, fixture } = await render({ notes, url: '/n/n1' });
+      buttonNamed(el, 'Back')!.click();
+      await fixture.whenStable();
+      expect(buttonNamed(el, 'Front')).toBeDefined();
+      resize(1400);
+      await fixture.whenStable();
+      // Drawn once, in the column, the text beside it.
+      expect(el.querySelectorAll('app-note-back')).toHaveLength(1);
+      expect(column(el)).not.toBeNull();
+      expect(el.querySelector('app-note-editor')!.classList.contains('hidden')).toBe(false);
+      resize(1399);
+      await fixture.whenStable();
+      expect(el.querySelector('app-note-back')).toBeNull();
+      expect(buttonNamed(el, 'Back')).toBeDefined();
+    });
+
+    it('is not on Kitchen’s week, which the rail marks Kitchen', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([{ ...noteRecord('meals-2026-11-16', 'Meals'), kind: 'mealplan' }]);
+      const { el, fixture } = await render({ notes, url: '/n/meals-2026-11-16' });
+      (TestBed.inject(ModulesService) as unknown as FakeModules).set('kitchen', true);
+      await fixture.whenStable();
+      expect(column(el)).toBeNull();
+      expect(el.querySelector('app-kitchen-tabs')).not.toBeNull();
+    });
+  });
 });

@@ -1,11 +1,11 @@
 @if (showSignIn()) {
   <app-sign-in />
 } @else {
-  <div class="launch">
+  <div class="launch" [class.with-context]="contextColumn()">
     <ng-template #noteActions>
       @if (
         !locked() &&
-        !back() &&
+        !flipped() &&
         !kitchenView() &&
         (viewing() || (capture.current().trim() && !(listable() && listMode())))
       ) {
@@ -22,11 +22,12 @@
           <span class="visually-hidden">{{ viewing() ? 'Edit' : 'View' }}</span>
         </button>
       }
-      @if (record() && !locked()) {
+      @if (record() && !locked() && !contextColumn()) {
         <!-- The back of the note (#112): what is about it, not in it. The
              name says the side a tap turns to; an icon since 2026-11-15
              (#287): a page with its corner turned, the other corner on the
-             back. -->
+             back. Not while the context column keeps the back open beside
+             the text (2026-11-16, #289): there is no second copy to turn to. -->
         <button
           type="button"
           class="icon-button"
@@ -226,7 +227,7 @@
         <!-- The grocery list's text is a screen the Shopping tab leads to, not the tab's own. -->
         <app-kitchen-tabs class="kitchen-tabs" active="shopping" current="true" />
       }
-      @if (kitchenScreen() && asText() && !back() && !locked()) {
+      @if (kitchenScreen() && asText() && !flipped() && !locked()) {
         <!-- Edit as text (#288): the plain editor, as it always was, and
              the way back to the week or the list. -->
         <div class="as-text">
@@ -243,7 +244,7 @@
             What you typed in it is kept here and goes into it then.
           }
         </p>
-      } @else if (back() && record(); as note) {
+      } @else if (flipped() && record(); as note) {
         <!-- A note put in Trash is left for a fresh one (#217). -->
         <app-note-back class="back" [note]="note" (deleted)="newNote()" />
       } @else if (record(); as note) {
@@ -320,12 +321,12 @@
           }
         </p>
       }
-      @if (listable() && listMode() && !back()) {
+      @if (listable() && listMode() && !flipped()) {
         <app-list-view class="list-view" [body]="capture.current()" (edited)="listChange($event)" />
       }
       <app-note-editor
         class="editor"
-        [class.hidden]="(listable() && listMode()) || back() || locked() || kitchenView()"
+        [class.hidden]="(listable() && listMode()) || flipped() || locked() || kitchenView()"
         label="New note"
         placeholder="Plant a thought"
         autofocus
@@ -340,6 +341,16 @@
         (linkOpen)="followLink($event)"
       />
     </section>
+
+    @if (contextColumn() && record(); as note) {
+      <!-- The context column (2026-11-16, #289, Eric's decision of
+           2026-11-15): from 1400 px a saved note's back is kept open
+           beside its text, the same parts in a column's order. After the
+           note, so Tab goes from the text into it. -->
+      <aside class="context" aria-label="Back of the note">
+        <app-note-back column [note]="note" (deleted)="newNote()" />
+      </aside>
+    }
 
     @if (lineMode()) {
       <!-- A saved note on a phone (Eric, 2026-11-15, #287): Right Now is

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { type CallTool, connectClaude } from '../src/claude';
 import { expect, letItSave, openCapture, signInAs, switchModulesOn, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
@@ -7,7 +7,8 @@ import { OWNER } from '../src/personas';
 // The desktop shell, its first part (#289, epic #282; Eric, 2026-11-15):
 // from 900 px a rail of the garden's places on every screen, with
 // their counts, Right Now one of them; and the note at a reading
-// measure. Under 900 px nothing changes.
+// measure. Under 900 px nothing changes. Its second (2026-11-16): from
+// 1400 px a saved note's back kept open as a column beside its text.
 
 async function noSeriousViolations(page: Page): Promise<void> {
   const { violations } = await new AxeBuilder({ page })
@@ -40,6 +41,38 @@ const contentLeft = (page: Page) =>
         .map((r) => r.left),
     ),
   );
+
+/**
+ * The text's column is about 70 characters, measured in the editor's
+ * own "0": no wider than 75 of them, and not cramped either.
+ */
+async function expectReadingMeasure(editor: Locator): Promise<void> {
+  const measure = await editor.evaluate((content) => {
+    const line = content.querySelector('.cm-line')!;
+    const style = getComputedStyle(line);
+    const probe = document.createElement('span');
+    probe.textContent = '0'.repeat(75);
+    Object.assign(probe.style, {
+      position: 'absolute',
+      visibility: 'hidden',
+      whiteSpace: 'pre',
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      letterSpacing: style.letterSpacing,
+    });
+    document.body.appendChild(probe);
+    const seventyFive = probe.getBoundingClientRect().width;
+    probe.remove();
+    return { line: line.getBoundingClientRect().width, seventyFive };
+  });
+  expect(measure.line).toBeLessThanOrEqual(measure.seventyFive);
+  expect(measure.line).toBeGreaterThan((measure.seventyFive * 55) / 75);
+}
+
+/** The page does not scroll sideways. */
+const noSidewaysScroll = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
 const LONG =
   'The kiln shelves want a fresh coat of wash before the next glaze firing, and the cone ' +
@@ -202,29 +235,8 @@ test.describe('on a wide screen', () => {
     const editor = page.getByRole('textbox', { name: 'New note' });
     await expect(editor).toContainText('Kiln notes', { timeout: 15_000 });
 
-    // The text's column: about 70 characters, measured in the editor's
-    // own "0", and not cramped either.
-    const measure = await editor.evaluate((content) => {
-      const line = content.querySelector('.cm-line')!;
-      const style = getComputedStyle(line);
-      const probe = document.createElement('span');
-      probe.textContent = '0'.repeat(75);
-      Object.assign(probe.style, {
-        position: 'absolute',
-        visibility: 'hidden',
-        whiteSpace: 'pre',
-        fontFamily: style.fontFamily,
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
-        letterSpacing: style.letterSpacing,
-      });
-      document.body.appendChild(probe);
-      const seventyFive = probe.getBoundingClientRect().width;
-      probe.remove();
-      return { line: line.getBoundingClientRect().width, seventyFive };
-    });
-    expect(measure.line).toBeLessThanOrEqual(measure.seventyFive);
-    expect(measure.line).toBeGreaterThan((measure.seventyFive * 55) / 75);
+    // The text's column: about 70 characters, and not cramped either.
+    await expectReadingMeasure(editor);
 
     // The notes list beside it, and no Right Now panel over the list.
     const list = page.getByRole('complementary', { name: 'All notes' });
@@ -333,5 +345,160 @@ test.describe('just under 900 px', () => {
     await page.setViewportSize({ width: 899, height: 700 });
     await expect(rail(page)).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Right Now' })).toBeVisible();
+  });
+});
+
+// The context column (#289, part 2, 2026-11-16): from 1400 px a saved
+// note's back is kept open beside its text, and Back is not offered.
+const column = (page: Page) => page.getByRole('complementary', { name: 'Back of the note' });
+const flippedBack = (page: Page) => page.getByRole('region', { name: 'Back of the note' });
+const backButton = (page: Page) =>
+  page.locator('header.bar').getByRole('button', { name: 'Back', exact: true });
+
+/** A note with tags, and another linking to it; the first's id and the other's. */
+async function linkedNotes(call: CallTool): Promise<{ kiln: string; firing: string }> {
+  const kiln = (
+    (await call('create_note', {
+      body: `Kiln log\n${LONG}`,
+      tags: ['studio'],
+    })) as { id: string }
+  ).id;
+  const firing = await aNote(call, 'Firing day\nCheck the [[Kiln log]] before loading.');
+  return { kiln, firing };
+}
+
+test.describe('the context column at 1440 by 900', () => {
+  test.use({ isMobile: false, hasTouch: false, viewport: { width: 1440, height: 900 } });
+
+  test('a saved note’s back, kept open beside it', async ({ page }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    const { kiln, firing } = await linkedNotes(call);
+    await page.goto(`/n/${kiln}`);
+    const editor = page.getByRole('textbox', { name: 'New note' });
+    await expect(editor).toContainText('Kiln log', { timeout: 15_000 });
+
+    // The back's parts, in a column's order, under the note's title.
+    const side = column(page);
+    await expect(side).toBeVisible();
+    await expect(side.getByRole('heading', { level: 2 })).toHaveText('Kiln log');
+    await expect(side.getByRole('heading', { level: 3 })).toHaveText(
+      ['Linked from', 'Tags', 'What assistants changed', 'Send to an assistant'],
+      { timeout: 15_000 },
+    );
+    const linkedFrom = side.getByRole('region', { name: 'Linked from' });
+    await expect(linkedFrom.getByRole('link', { name: 'Firing day', exact: true })).toBeVisible();
+    await expect(side).toContainText('studio');
+    await expect(side.getByRole('link', { name: 'History', exact: true })).toBeVisible();
+    // No Back to turn to, and no second copy of the back.
+    await expect(backButton(page)).toHaveCount(0);
+    await expect(flippedBack(page)).toHaveCount(0);
+
+    // Beside the text, at the window's right, 280 px, scrolling itself;
+    // the text keeps its measure and the page does not scroll sideways.
+    const box = (await side.boundingBox())!;
+    const editorBox = (await editor.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(editorBox.x + editorBox.width - 1);
+    expect(Math.abs(box.x + box.width - 1440)).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.width - 280)).toBeLessThanOrEqual(1);
+    expect(box.y + box.height).toBeLessThanOrEqual(900 + 0.5);
+    await expect(side).toHaveCSS('overflow-y', 'auto');
+    await expectReadingMeasure(editor);
+    expect(await noSidewaysScroll(page)).toBe(true);
+    await noSeriousViolations(page);
+
+    // Typing lands, and stays in the note while the column takes in
+    // the edit it saved.
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.keyboard.type(' Wash the shelves.');
+    await expect(editor).toContainText('Wash the shelves.');
+    await letItSave(page);
+    await expect(side.locator('.times')).toContainText('on this device');
+    await expect(editor).toBeFocused();
+    await page.keyboard.type(' Twice.');
+    await expect(editor).toContainText('Wash the shelves. Twice.');
+    await letItSave(page);
+
+    // Its links work: Linked from opens the note that links here.
+    await linkedFrom.getByRole('link', { name: 'Firing day', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/n/${firing}$`));
+    await expect(editor).toContainText('Check the');
+    await expect(side.getByRole('heading', { level: 2 })).toHaveText('Firing day');
+    await expect(side.getByRole('region', { name: 'Linked from' })).toHaveCount(0);
+    await expect(side).toContainText('Nothing links here yet.');
+  });
+
+  test('not on the capture screen, which keeps its Back', async ({ page }) => {
+    await signInAs(page, OWNER);
+    await openCapture(page);
+    await page.keyboard.type('Glaze order');
+    await letItSave(page);
+    await expect(backButton(page)).toBeVisible();
+    await expect(column(page)).toHaveCount(0);
+    await backButton(page).click();
+    await expect(flippedBack(page)).toBeVisible();
+  });
+});
+
+test.describe('the context column’s breakpoint', () => {
+  test.use({ isMobile: false, hasTouch: false, viewport: { width: 1400, height: 900 } });
+
+  test('from 1400 px; under it, Back turns the note as before', async ({ page }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    const { kiln } = await linkedNotes(call);
+    await page.goto(`/n/${kiln}`);
+    const editor = page.getByRole('textbox', { name: 'New note' });
+    await expect(editor).toContainText('Kiln log', { timeout: 15_000 });
+    await expect(column(page)).toBeVisible();
+    await expect(backButton(page)).toHaveCount(0);
+    await expectReadingMeasure(editor);
+    expect(await noSidewaysScroll(page)).toBe(true);
+
+    for (const width of [1399, 1200]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(column(page), `${width}`).toHaveCount(0);
+      expect(await noSidewaysScroll(page), `${width}`).toBe(true);
+    }
+    // The back as it always was: turned to, in place of the text.
+    await backButton(page).click();
+    const back = flippedBack(page);
+    await expect(back).toBeVisible();
+    await expect(
+      back.getByRole('region', { name: 'Linked from' }).getByRole('link', { name: 'Firing day' }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(editor).toBeHidden();
+    await page.locator('header.bar').getByRole('button', { name: 'Front', exact: true }).click();
+    await expect(back).toHaveCount(0);
+    await expect(editor).toBeVisible();
+
+    // Widened again, the column, and the note on its front.
+    await backButton(page).click();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(column(page)).toBeVisible();
+    await expect(flippedBack(page)).toHaveCount(0);
+    await expect(editor).toBeVisible();
+    expect(await noSidewaysScroll(page)).toBe(true);
+  });
+});
+
+test.describe('the context column on a phone', () => {
+  test('is not there: Back turns the note', async ({ page }) => {
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    const { kiln } = await linkedNotes(call);
+    await page.goto(`/n/${kiln}`);
+    await expect(page.getByRole('textbox', { name: 'New note' })).toContainText('Kiln log', {
+      timeout: 15_000,
+    });
+    await expect(column(page)).toHaveCount(0);
+    await backButton(page).click();
+    await expect(
+      flippedBack(page)
+        .getByRole('region', { name: 'Linked from' })
+        .getByRole('link', { name: 'Firing day' }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(column(page)).toHaveCount(0);
   });
 });
