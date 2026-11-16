@@ -2119,6 +2119,31 @@ offers the top three for that day, each with what it would need
 bought; a tap plans it. Claude's `suggest_recipes` gives the same
 ranking, five by default.
 
+**Planning the week in a chat (#115, 2026-11-16; epic #125).** Eric
+asked (2026-10-10) to say "time for meal planning" in a Claude chat
+and work out the week together, down to "and what are the ingredients
+for that", by voice too. The tools were all there after #129 to #132;
+what was missing was the conversation, so it is one passage of the
+server instructions, not a template. The issue sketched the plan as
+an entry template with its own Instructions for Claude, but the plan
+became a note kind of its own (#129), made by `plan_meal` and the app
+rather than `use_template`, so a template's instructions would never
+be read. The passage says: settle the week (this or next, asking if
+unclear), read it with `get_meal_plan` (its slots already follow
+Kitchen's week start and planned meals), then `get_context` and
+`get_pantry`, with `suggest_recipes` for ideas; go slot by slot, one
+or two ideas, Eric's answer saved at once with `plan_meal` so a chat
+cut short loses nothing, never the whole week read out; for a
+dinner's ingredients, `get_note` on the slot's `recipeId`, compared
+with `get_pantry` when he asks what is missing; at the end, how many
+lines `plan_meal` itself put on the week's grocery list (#130), with
+nothing added to it unasked; and aloud, no ids or links, only days,
+meals and recipe names. Leftovers and the like are a slot's own few
+words (kind `other`, which feeds no list). `server.spec.ts` checks
+that every tool the passage names is registered. Voice is the Claude
+app's own voice mode against the same connector, so nothing here is
+voice-specific beyond short turns; it is untried until Eric tries it.
+
 **Kitchen's tabs as they are (#288, step 4 of the layout pass, epic
 #282, 2026-11-15).** The design report found the week drawn twice on
 a phone (the week, then the plan's own checklist under it), two
