@@ -338,7 +338,7 @@ export class NoteList {
     projects: 'No projects yet. Set a concept’s type to Project.',
     recipes: 'No recipes yet. Name one above to start it.',
     clippings: 'No clippings yet. File an article from the Reader.',
-    journal: 'No journal entries yet. Add a feelings journal in Settings.',
+    journal: 'No journal entries yet. Add a feelings journal in Settings, Templates.',
     tags: 'No tagged notes yet.',
     archived: 'Nothing archived.',
     trash: `Nothing in Trash. A deleted note stays here for ${TRASH_DAYS} days.`,

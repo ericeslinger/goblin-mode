@@ -57,7 +57,7 @@ export function renamedFolder(names: readonly string[]): string {
       <app-page-header title="Manage feeds" backLabel="Reader" backLink="/reader" />
       @if (!modules.reader()) {
         <p class="muted">
-          Reader is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.
+          Reader is off. Turn it on in <a routerLink="/settings/modules">Settings, Modules</a>.
         </p>
       }
 

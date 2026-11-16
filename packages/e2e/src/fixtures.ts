@@ -143,6 +143,72 @@ export async function openMore(page: Page) {
   return menu;
 }
 
+/** The pages of Settings (#290), as their rows and headers name them. */
+export const SETTINGS_PAGE_NAMES = [
+  'Appearance',
+  'Start on',
+  'Modules',
+  'Templates',
+  'AI assistants',
+  'Notifications',
+  'This device',
+  'Account',
+] as const;
+export type SettingsPageName = (typeof SETTINGS_PAGE_NAMES)[number];
+
+/**
+ * Opens one page of Settings (#290) from its list, as a tap does:
+ * `/settings` first unless the list is already the screen, then the
+ * page's row. Returns once the page's name is the screen's h1.
+ */
+export async function openSettings(page: Page, name: SettingsPageName): Promise<void> {
+  if (new URL(page.url()).pathname !== '/settings') await page.goto('/settings');
+  await page
+    .getByRole('navigation', { name: 'Settings', exact: true })
+    .getByRole('link', { name, exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/settings\/[\w-]+$/);
+  await expect(page.getByRole('heading', { level: 1, name, exact: true })).toBeVisible();
+}
+
+/** The modules, as their switches in Settings, Modules name them. */
+export type ModuleName = 'Projects' | 'Kitchen' | 'Reader' | 'Podcasts';
+
+/**
+ * Switches modules on in Settings, Modules (#290), from any screen, and
+ * waits for the switches to be written. It never clicks a switch that
+ * is, or is about to be, the way it is wanted: it waits for the modules
+ * to be read (the switches draw off until then, and a click before can
+ * be undone by the doc), switches the Reader first, and then waits for
+ * Podcasts to follow it (#245) before deciding Podcasts needs a click,
+ * since a click as it turns on can turn it off again.
+ */
+export async function switchModulesOn(page: Page, ...names: ModuleName[]): Promise<void> {
+  await openSettings(page, 'Modules');
+  await expect(page.getByRole('list', { name: 'Modules', exact: true })).not.toHaveAttribute(
+    'aria-busy',
+    'true',
+    { timeout: 15_000 },
+  );
+  const toggle = (name: ModuleName) => page.getByRole('switch', { name, exact: true });
+  const ordered = names.includes('Reader')
+    ? (['Reader', ...names.filter((n) => n !== 'Reader')] as ModuleName[])
+    : names;
+  for (const name of ordered) {
+    if (name === 'Podcasts' && (await toggle('Reader').isChecked())) {
+      // Following the Reader: on by itself, unless it was switched off itself.
+      const followed = await expect(toggle('Podcasts'))
+        .toBeChecked({ timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (followed) continue;
+    }
+    if (!(await toggle(name).isChecked())) await toggle(name).click();
+    await expect(toggle(name)).toBeChecked();
+  }
+  await letItSave(page);
+}
+
 /**
  * Kitchen's Meals or On hand as text (#288): Edit as text, in More,
  * shows the note's own editor in place of the week or the list.

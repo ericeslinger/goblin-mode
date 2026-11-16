@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { createHash, randomBytes } from 'node:crypto';
-import { expect, signInAs, test, openMore } from '../src/fixtures';
+import { expect, signInAs, test, openMore, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 import { connectClient } from '../src/claude';
 
@@ -105,6 +105,8 @@ test('Claude connects with OAuth, writes a note through MCP, and can be disconne
   await page.getByRole('link', { name: 'Home' }).click();
   await page.getByRole('link', { name: 'Plant a thought' }).click();
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await openSettings(page, 'AI assistants');
   await expect(page.getByText(/\/mcp$/)).toBeVisible();
   await page.getByRole('button', { name: 'Disconnect all assistants' }).click();
   await expect(page.getByText('Every assistant is disconnected.')).toBeVisible();

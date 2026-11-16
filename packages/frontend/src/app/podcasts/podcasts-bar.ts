@@ -36,7 +36,7 @@ export type PodcastsTab = 'latest' | 'shows' | 'queue';
     <app-module-tabs label="Podcasts screens" [tabs]="tabs()" />
     @if (!modules.podcasts()) {
       <p class="muted">
-        Podcasts is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.
+        Podcasts is off. Turn it on in <a routerLink="/settings/modules">Settings, Modules</a>.
       </p>
     } @else if (reader.loaded() && reader.podcastFeeds().length === 0) {
       <p class="muted">

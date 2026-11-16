@@ -1,4 +1,4 @@
-import { FIRESTORE_EMULATOR, expect, signInAs, test } from '../src/fixtures';
+import { FIRESTORE_EMULATOR, expect, signInAs, test, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const KEY = 'sk-ant-api03-e2e-abcdefghijklmnopqrstuvwxyz0123';
@@ -17,7 +17,7 @@ async function stored(path: string): Promise<string> {
 // and removed with removeKey.
 test('a pasted provider key is kept sealed, shown masked, and removed', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const keys = page.getByRole('list', { name: 'API keys' });
   await keys.getByRole('textbox', { name: 'Anthropic key' }).fill(KEY);
   await keys.getByRole('button', { name: 'Save' }).first().click();

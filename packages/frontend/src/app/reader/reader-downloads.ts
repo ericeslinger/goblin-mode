@@ -9,7 +9,7 @@ import { ReaderService } from './reader.service';
 /**
  * Downloads (#180): the episodes kept on this device to play offline,
  * newest first, each with its podcast, its size and Remove, and the
- * total against the cap set in Settings, Downloads. Reached from the
+ * total against the cap set in Settings, This device. Reached from the
  * Reader's header and Podcasts' (#245); back goes to Podcasts while it
  * is on, the Reader otherwise, and an episode opens on its own module's
  * page.
@@ -55,7 +55,7 @@ import { ReaderService } from './reader.service';
       </ul>
       <p class="muted">
         Downloads stay on this device. The cap and Wi-Fi are in
-        <a routerLink="/settings" fragment="downloads">Settings, Downloads</a>.
+        <a routerLink="/settings/device">Settings, This device</a>.
       </p>
     </main>
   `,

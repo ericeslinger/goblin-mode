@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, typeLines, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Home (#219, step 1 of #216): the box to write in, Right Now, and a
@@ -60,6 +60,8 @@ test('Home shows the places, its box writes a note, and Start on lands there', a
   // A module switched on gets its tile.
   await page.getByRole('link', { name: 'Home' }).click();
   await page.getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.getByRole('link', { name: 'Home' }).click();
@@ -70,7 +72,7 @@ test('Home shows the places, its box writes a note, and Start on lands there', a
   // Start on Home: a cold open of / lands there; a note's link does not.
   // Until chosen it is Where I left off (#272, 2026-11-15; A new note
   // before, which New note beside the leaf now gives).
-  await page.goto('/settings');
+  await openSettings(page, 'Start on');
   await expect(page.getByRole('radio', { name: /^Where I left off/ })).toBeChecked();
   await page.getByRole('radio', { name: /^Home/ }).check();
   await letItSave(page);
@@ -80,13 +82,15 @@ test('Home shows the places, its box writes a note, and Start on lands there', a
   await page.goto('/n/context');
   await expect(note(page)).toBeVisible();
 
-  // Back to Where I left off: / reopens the screen open last, Settings.
-  await page.goto('/settings');
+  // Back to Where I left off: / reopens the screen open last, Settings'
+  // Start on page (#290).
+  await openSettings(page, 'Start on');
   await page.getByRole('radio', { name: /^Where I left off/ }).check();
   await letItSave(page);
   await page.goto('/');
-  await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/start-on$/);
+  await expect(page.getByRole('heading', { name: 'Start on', level: 1 })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /^Where I left off/ })).toBeChecked();
   // New note, beside the leaf, is the fresh note a launch used to give.
   await page.getByRole('button', { name: 'New note', exact: true }).click();
   await expect(note(page)).toBeFocused();

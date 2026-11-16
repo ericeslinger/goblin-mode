@@ -8,6 +8,7 @@ import {
   signInAs,
   test,
   typeLines,
+  openSettings,
 } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
@@ -28,7 +29,7 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   await openProjectHeader(page);
   await expect(concept.getByRole('textbox', { name: 'Add a task' })).toBeVisible();
 
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   const projects = page.getByRole('switch', { name: 'Projects' });
   await expect(projects).toBeChecked();
   await projects.uncheck();
@@ -59,7 +60,7 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   await page.keyboard.press('Escape');
 
   // Remembered across a reload, then back on.
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await expect(projects).not.toBeChecked();
   await projects.check();
   await letItSave(page);

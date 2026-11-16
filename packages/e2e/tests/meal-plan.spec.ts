@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { connectClaude } from '../src/claude';
-import { editAsText, expect, letItSave, signInAs, test } from '../src/fixtures';
+import { editAsText, expect, letItSave, openSettings, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The meal plan (#129): a week opens as a note with its slots drawn
@@ -12,7 +12,7 @@ import { OWNER } from '../src/personas';
 test('a week is planned, a dinner made and noted, and Claude plans too', async ({ page }) => {
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();
@@ -90,7 +90,7 @@ test('a week is planned, a dinner made and noted, and Claude plans too', async (
 // neighbours; a made dinner's question can wait for a reminder.
 test('Kitchen settings shape new weeks, and a question waits for later', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();
@@ -140,7 +140,7 @@ test('Kitchen settings shape new weeks, and a question waits for later', async (
 test('a planned week fills the grocery list, and shopping it clears it', async ({ page }) => {
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();

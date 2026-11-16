@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The Reader's list and article, step 4 of the layout pass (#288):
@@ -53,7 +53,7 @@ async function missedTaps(control: Locator): Promise<string[]> {
  */
 async function readerWithFixtures(page: Page): Promise<void> {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
   await page.goto('/reader/feeds');

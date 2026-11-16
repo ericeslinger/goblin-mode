@@ -1,4 +1,11 @@
-import { FIRESTORE_EMULATOR as FIRESTORE, expect, signInAs, test, openMore } from '../src/fixtures';
+import {
+  FIRESTORE_EMULATOR as FIRESTORE,
+  expect,
+  signInAs,
+  test,
+  openMore,
+  openSettings,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 /** Every device record in the emulator, read past the rules as admin. */
@@ -33,6 +40,8 @@ test('turning notifications on registers this device, and off removes it', async
   await context.grantPermissions(['notifications']);
   await signInAs(page, OWNER);
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await openSettings(page, 'Notifications');
   const status = page.getByRole('status').filter({ hasText: /device|notifications/i });
   await expect(status).toHaveText('Reminders are not sent to this device.');
 

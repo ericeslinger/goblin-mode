@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Share to Mossgoblin (2026-11-14): the share sheet's words and link
@@ -99,7 +99,7 @@ test('shared words with a link show the landing step, and keep as a note', async
 
 test('words shared from a refusing recipe site are imported as the recipe', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();

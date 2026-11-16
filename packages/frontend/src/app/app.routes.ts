@@ -55,7 +55,13 @@ export const routes: Routes = [
     path: 'oauth/authorize',
     loadComponent: () => import('./claude/authorize').then((m) => m.Authorize),
   },
-  { path: 'settings', loadComponent: () => import('./settings/settings').then((m) => m.Settings) },
+  // Settings as pages (#290): the list, `/settings/<page>`, and old
+  // anchors (`/settings#downloads`) sent on to their page.
+  {
+    path: 'settings',
+    loadComponent: () => import('./settings/settings-shell').then((m) => m.SettingsShell),
+    loadChildren: () => import('./settings/settings.routes').then((m) => m.SETTINGS_ROUTES),
+  },
   {
     path: 'kitchen',
     loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),

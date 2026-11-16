@@ -1,6 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
-import { expect, letItSave, prepPage, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  prepPage,
+  signInAs,
+  test,
+  typeLines,
+  openSettings,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Where he left off (#272, Eric, 2026-11-15): a plain launch of `/`
@@ -56,7 +64,7 @@ test('an article read part-way down is where it was after / is opened again, in 
 }) => {
   test.setTimeout(90_000);
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
   await page.goto('/reader/feeds');
@@ -115,7 +123,7 @@ test('New note from the Reader gives a note ready to type, and is named and reac
   page,
 }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
   await page.goto('/reader');

@@ -84,8 +84,8 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
  * readers); tap to open. On a keyboard j and k move, m marks read, s
  * saves, Enter opens.
  *
- * With Settings, Reader, Mark articles read as I scroll past them on
- * (#172), an unread row that stays above the top for a moment counts
+ * With Mark articles read as I scroll past them on (Settings, Modules,
+ * under Reader; #172), an unread row that stays above the top for a moment counts
  * as passed, and the passed ones are marked read in one batch once the
  * page is still. They stay in the list, greyed, until the list is left
  * or the shelf changes, so nothing moves under the finger; the status
