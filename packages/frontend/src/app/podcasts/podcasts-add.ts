@@ -40,7 +40,7 @@ export const OPML_MAX_BYTES = 5 * 1024 * 1024;
       <app-page-header title="Add a podcast" backLabel="Podcasts" backLink="/podcasts" />
       @if (!modules.podcasts()) {
         <p class="muted">
-          Podcasts is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.
+          Podcasts is off. Turn it on in <a routerLink="/settings/modules">Settings, Modules</a>.
         </p>
       }
       <form novalidate (submit)="follow($event)">

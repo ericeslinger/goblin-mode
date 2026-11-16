@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, signInAs, test, openMore } from '../src/fixtures';
+import { expect, signInAs, test, openMore, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 /**
@@ -18,7 +18,11 @@ test('signing in shows the account and build in Settings', async ({ page }) => {
   await expect.poll(() => noteKeyOnDevice(page)).toBe(JSON.stringify(OWNER_NOTE_KEY));
 
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await openSettings(page, 'Account');
   await expect(page.getByText(`Signed in as ${OWNER.email}`)).toBeVisible();
+  // The build and Check for updates are on This device since #290.
+  await openSettings(page, 'This device');
   await expect(page.getByText('e2e · e2e')).toBeVisible();
   // Check for updates asks the worker to look now (Eric, 2026-11-07).
   // Deep in a long page the phone emulation's hit test lands beside the
@@ -31,6 +35,7 @@ test('signing in shows the account and build in Settings', async ({ page }) => {
     { timeout: 15_000 },
   );
 
+  await openSettings(page, 'Account');
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByText('Not signed in.')).toBeVisible();
   // Signing out forgets it.

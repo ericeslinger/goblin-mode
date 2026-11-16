@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, typeLines, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Context for Claude (#113): one note, opened from Settings, that Claude
@@ -16,7 +16,7 @@ test('Context for Claude reaches Claude, and shows on the back what Claude added
 }) => {
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   await page.getByRole('link', { name: 'Context for Claude' }).click();
   await expect(page).toHaveURL(/\/n\/context$/);
   await expect(page.getByText('0 of 4000 characters')).toBeVisible();

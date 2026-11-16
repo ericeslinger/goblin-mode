@@ -1,5 +1,5 @@
-import { Component, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { Component, computed, inject, input, signal } from '@angular/core';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { SwUpdate } from '@angular/service-worker';
 import {
   MEALS,
@@ -33,204 +33,423 @@ import { RemindersService } from '../reminders/reminders.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ThemePicker } from '../theme/theme-picker';
 import { reloadPage } from '../unknown-route';
-import { PageHeader } from '../home/page-header';
+import { FIRST_PAGE, START_CHOICES, type SettingsPageId } from './settings-pages';
 
 /** The weekly reminder to plan the meals (#129). */
 export const PLAN_REMINDER = 'Plan next week’s meals';
 
+/**
+ * One page of Settings (#290, 2026-11-16): the sections that were one
+ * long screen, each shown on the page it is on now, under the Settings
+ * shell's header (settings-shell.ts). The controls, their names and
+ * what they save are as they were.
+ */
 @Component({
   selector: 'app-settings',
-  imports: [PageHeader, RouterLink, ThemePicker],
+  imports: [RouterLink, ThemePicker],
   template: `
-    <main class="page">
-      <app-page-header title="Settings" />
-      @if (auth.user(); as user) {
-        <p>Signed in as {{ user.email }}</p>
-        <button type="button" (click)="signOut()">Sign out</button>
-      } @else {
-        <p>Not signed in.</p>
+    @switch (shown()) {
+      @case ('appearance') {
+        <app-theme-picker />
       }
-      <h2 id="start-on">Start on</h2>
-      <p class="muted">
-        The screen the app opens on. Home and New note are one tap away from everywhere either way.
-      </p>
-      <div role="radiogroup" aria-labelledby="start-on" class="start-on">
-        @for (c of startChoices; track c.value) {
-          <label>
-            <input
-              type="radio"
-              name="start-on"
-              [value]="c.value"
-              [checked]="startOn.choice() === c.value"
-              (change)="startOn.set(c.value)"
-            />
-            <span>
-              {{ c.label }}
-              <span class="muted">{{ startNote(c.value) ?? c.about }}</span>
-            </span>
-          </label>
-        }
-      </div>
-      <h2>Appearance</h2>
-      <app-theme-picker />
-      @if (auth.user()) {
-        <h2>Notifications</h2>
-        <p role="status">{{ pushMessage[push.state()] }}</p>
-        @if (push.state() === 'error') {
-          <p class="error">{{ push.error() }}</p>
-        }
-        @switch (push.state()) {
-          @case ('off') {
-            <button type="button" (click)="push.enable()">Turn on notifications</button>
-          }
-          @case ('error') {
-            <button type="button" (click)="push.enable()">Try again</button>
-          }
-          @case ('on') {
-            <button type="button" (click)="push.disable()">Turn off notifications</button>
-          }
-        }
-      }
-      @if (auth.user()) {
-        <h2 id="modules">Modules</h2>
-        <p>
-          Parts of Mossgoblin you can switch on or off. Off hides a module's screens; its notes stay
-          as they are.
+      @case ('start-on') {
+        <p class="muted">
+          The screen the app opens on. Home and New note are one tap away from everywhere either
+          way.
         </p>
-        <ul aria-labelledby="modules" class="modules">
-          @for (m of moduleList; track m.id) {
-            <li>
+        <div role="radiogroup" aria-label="Start on" class="start-on">
+          @for (c of startChoices; track c.value) {
+            <label>
+              <input
+                type="radio"
+                name="start-on"
+                [value]="c.value"
+                [checked]="startOn.choice() === c.value"
+                (change)="startOn.set(c.value)"
+              />
+              <span>
+                {{ c.label }}
+                <span class="muted">{{ startNote(c.value) ?? c.about }}</span>
+              </span>
+            </label>
+          }
+        </div>
+      }
+      @case ('modules') {
+        @if (auth.user()) {
+          <p>
+            Parts of Mossgoblin you can switch on or off. Off hides a module's screens; its notes
+            stay as they are.
+          </p>
+          <!-- Busy, and its switches disabled, until the stored switches
+               are read: until then they draw off, and a tap would write
+               over the other modules' stored choices (review on #302). -->
+          <ul
+            aria-label="Modules"
+            class="modules"
+            [attr.aria-busy]="modules.loaded() ? null : 'true'"
+          >
+            @for (m of moduleList; track m.id) {
+              <li>
+                <label>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    [checked]="modules.on(m.id)"
+                    [disabled]="!modules.loaded()"
+                    (change)="modules.set(m.id, $any($event.target).checked)"
+                  />
+                  {{ m.label }}
+                </label>
+                <span class="muted">{{ m.about }}</span>
+              </li>
+            }
+          </ul>
+          @if (modules.kitchen()) {
+            <h2 id="kitchen">Kitchen</h2>
+            <div class="kitchen">
+              <label>
+                Weeks start on
+                <select
+                  #start
+                  (change)="modules.configureKitchen({ weekStart: $any(start.value) })"
+                >
+                  @for (d of weekdays; track d) {
+                    <option [value]="d" [selected]="modules.kitchenConfig().weekStart === d">
+                      {{ d }}
+                    </option>
+                  }
+                </select>
+              </label>
+              <fieldset>
+                <legend>Meals to plan</legend>
+                @for (m of meals; track m) {
+                  <label>
+                    <input
+                      type="checkbox"
+                      [checked]="modules.kitchenConfig().meals.includes(m)"
+                      (change)="toggleMeal(m, $any($event.target).checked)"
+                    />
+                    {{ m }}
+                  </label>
+                }
+              </fieldset>
+              <label>
+                Fish of the week on
+                <select #fish (change)="modules.configureKitchen({ fishDay: $any(fish.value) })">
+                  @for (d of fishDays; track d.value) {
+                    <option
+                      [value]="d.value"
+                      [selected]="modules.kitchenConfig().fishDay === d.value"
+                    >
+                      {{ d.label }}
+                    </option>
+                  }
+                </select>
+              </label>
+              <p class="muted">Changes apply to weeks not planned yet.</p>
+              @if (planningReminder()) {
+                <p>Each week you are reminded to plan: {{ planningReminder()!.text }}.</p>
+              } @else {
+                <button type="button" (click)="remindToPlan()">
+                  Remind me each week, the day before it starts, at 4 pm
+                </button>
+              }
+              @if (grocery.listId(); as list) {
+                <p>
+                  <a [routerLink]="['/n', list]">Grocery list</a>: planned dinners add their
+                  ingredients to it.
+                </p>
+              } @else {
+                <button type="button" (click)="makeGroceryList()">Make the grocery list</button>
+              }
+              <a routerLink="/kitchen">This week’s meals</a>
+            </div>
+          }
+          @if (modules.reader()) {
+            <h2 id="reader">Reader</h2>
+            <div class="kitchen">
               <label>
                 <input
                   type="checkbox"
                   role="switch"
-                  [checked]="modules.on(m.id)"
-                  (change)="modules.set(m.id, $any($event.target).checked)"
+                  [checked]="readerSettings.images()"
+                  (change)="readerSettings.setImages($any($event.target).checked)"
                 />
-                {{ m.label }}
+                Show images in articles
               </label>
-              <span class="muted">{{ m.about }}</span>
-            </li>
-          }
-        </ul>
-        @if (modules.kitchen()) {
-          <h2 id="kitchen">Kitchen</h2>
-          <div class="kitchen">
-            <label>
-              Weeks start on
-              <select #start (change)="modules.configureKitchen({ weekStart: $any(start.value) })">
-                @for (d of weekdays; track d) {
-                  <option [value]="d" [selected]="modules.kitchenConfig().weekStart === d">
-                    {{ d }}
+              <label>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  [checked]="readerSettings.readOnScroll()"
+                  (change)="readerSettings.setReadOnScroll($any($event.target).checked)"
+                />
+                Mark articles read as I scroll past them
+              </label>
+              <label>
+                Keep articles for
+                <select #keep (change)="keepArticles(keep.value)" [disabled]="tidying()">
+                  <option value="" [selected]="!readerSettings.keepMonths()">
+                    as long as I like
                   </option>
-                }
-              </select>
-            </label>
-            <fieldset>
-              <legend>Meals to plan</legend>
-              @for (m of meals; track m) {
-                <label>
-                  <input
-                    type="checkbox"
-                    [checked]="modules.kitchenConfig().meals.includes(m)"
-                    (change)="toggleMeal(m, $any($event.target).checked)"
-                  />
-                  {{ m }}
-                </label>
-              }
-            </fieldset>
-            <label>
-              Fish of the week on
-              <select #fish (change)="modules.configureKitchen({ fishDay: $any(fish.value) })">
-                @for (d of fishDays; track d.value) {
-                  <option
-                    [value]="d.value"
-                    [selected]="modules.kitchenConfig().fishDay === d.value"
-                  >
-                    {{ d.label }}
-                  </option>
-                }
-              </select>
-            </label>
-            <p class="muted">Changes apply to weeks not planned yet.</p>
-            @if (planningReminder()) {
-              <p>Each week you are reminded to plan: {{ planningReminder()!.text }}.</p>
-            } @else {
-              <button type="button" (click)="remindToPlan()">
-                Remind me each week, the day before it starts, at 4 pm
-              </button>
-            }
-            @if (grocery.listId(); as list) {
-              <p>
-                <a [routerLink]="['/n', list]">Grocery list</a>: planned dinners add their
-                ingredients to it.
+                  @for (m of keepChoices; track m) {
+                    <option [value]="m" [selected]="readerSettings.keepMonths() === m">
+                      {{ m }} months
+                    </option>
+                  }
+                </select>
+              </label>
+              <p class="muted">
+                Saved and filed articles are always kept; unsaved ones go after that long.
               </p>
-            } @else {
-              <button type="button" (click)="makeGroceryList()">Make the grocery list</button>
-            }
-            <a routerLink="/kitchen">This week’s meals</a>
-          </div>
+              <button type="button" [disabled]="tidying()" (click)="sweepArticles()">
+                Remove unread articles older than three months
+              </button>
+              @if (retentionStatus()) {
+                <p role="status">{{ retentionStatus() }}</p>
+              }
+              <button type="button" [disabled]="indexing()" (click)="indexArticles()">
+                Index articles for search
+              </button>
+              <p class="muted">
+                New articles are indexed as they arrive; this indexes the ones stored before, once a
+                day.
+              </p>
+              @if (indexStatus()) {
+                <p role="status">{{ indexStatus() }}</p>
+              }
+              <p class="muted">
+                <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a>
+              </p>
+            </div>
+          }
+        } @else {
+          <p>Not signed in.</p>
         }
-        @if (modules.reader()) {
-          <h2 id="reader">Reader</h2>
-          <div class="kitchen">
+      }
+      @case ('templates') {
+        @if (auth.user()) {
+          <p>
+            A template is a note to start others from. Its Instructions for Claude, on the back of
+            the note, tell Claude how to fill them in.
+          </p>
+          @if (templates.templates().length) {
+            <ul aria-label="Templates" class="templates">
+              @for (t of templates.templates(); track t.id) {
+                <li>
+                  <a [routerLink]="['/n', t.id]">{{ t.title || 'Untitled' }}</a>
+                  <span class="muted">{{
+                    t.templateMode === 'living' ? 'one note, reused' : 'a new note each time'
+                  }}</span>
+                </li>
+              }
+            </ul>
+          }
+          <div class="actions">
+            <button type="button" (click)="newTemplate('entry')">New template</button>
+            <button type="button" (click)="newTemplate('living')">New living template</button>
+            @if (!hasFeelingsJournal()) {
+              <button type="button" (click)="newFeelingsJournal()">Add a feelings journal</button>
+            }
+          </div>
+        } @else {
+          <p>Not signed in.</p>
+        }
+      }
+      @case ('assistants') {
+        @if (auth.user()) {
+          <p>
+            To let Claude read and change your notes, add a custom connector in claude.ai (Settings,
+            Connectors) with this URL:
+          </p>
+          <p>
+            <code>{{ mcpUrl }}</code>
+          </p>
+          <p>
+            For Gemini CLI, or another app that takes an MCP server, add it to that app's settings;
+            for Gemini CLI, in <code>~/.gemini/settings.json</code>:
+          </p>
+          <pre><code>{{ geminiSettings }}</code></pre>
+          <p>then run <code>/mcp auth mossgoblin</code> in it and allow it here.</p>
+          <p>
+            <a routerLink="/n/context">Context for Claude</a>: what Claude should always know about
+            you and the garden, given to it at the start of every conversation.
+          </p>
+          <h2>Your API keys</h2>
+          <p>
+            Transcriptions and the assistant's on-demand work run on your own account;
+            transcriptions use your Anthropic key. Make a key just for Mossgoblin, with a spending
+            limit, so it can be capped and revoked on its own. It is checked with the provider,
+            stored encrypted, and never shown again.
+          </p>
+          @if (keys.keys(); as kept) {
+            <ul class="keys" aria-label="API keys">
+              @for (p of providers; track p) {
+                <li>
+                  <span class="provider">{{ providerName[p] }}</span>
+                  @if (kept[p]; as key) {
+                    <span class="muted">
+                      <code>{{ key.masked }}</code>
+                      @if (key.broken) {
+                        , not accepted any more
+                      } @else if (key.updatedAt !== undefined) {
+                        , added {{ keyDate(key.updatedAt) }}
+                      }
+                      @if (!key.broken && key.lastUsedAt !== undefined) {
+                        , last used {{ keyDate(key.lastUsedAt) }}
+                      }
+                    </span>
+                    <button type="button" [disabled]="keyBusy()" (click)="removeKey(p)">
+                      Remove
+                    </button>
+                  } @else {
+                    <form class="key-form" (submit)="saveKey($event, p, keyInput)">
+                      <input
+                        #keyInput
+                        type="password"
+                        autocomplete="off"
+                        [attr.aria-label]="providerName[p] + ' key'"
+                        [placeholder]="'Starts with ' + providerPrefix[p]"
+                      />
+                      <button type="submit" class="primary" [disabled]="keyBusy()">Save</button>
+                    </form>
+                  }
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="muted">Loading…</p>
+          }
+          @if (keyStatus()) {
+            <p role="status">{{ keyStatus() }}</p>
+          }
+          <h2>Ask it to look something up</h2>
+          <p>
+            End a checklist item with <code>&#64;goblin</code>, like “research good presents for my
+            nephews &#64;goblin”, and once you leave the note your assistant looks it up on the web,
+            writes what it found under the item, and ticks it. It needs your Anthropic key, and the
+            item’s words are the only instruction it takes.
+          </p>
+          <h2>Send to an assistant</h2>
+          <p>
+            A note you send (on its back, Send to an assistant) waits until your assistant checks.
+            For Claude, make a routine in Claude Code on the web that runs every hour with the
+            Mossgoblin connector, and give it this prompt; any assistant that runs on a schedule can
+            use it too.
+          </p>
+          <pre class="prompt"><code>{{ queuePrompt }}</code></pre>
+          @if (keys.keys()?.anthropic) {
+            <h2>Garden on arrival</h2>
             <label>
               <input
                 type="checkbox"
                 role="switch"
-                [checked]="readerSettings.images()"
-                (change)="readerSettings.setImages($any($event.target).checked)"
+                [checked]="keys.onArrival()"
+                (change)="keys.setOnArrival($any($event.target).checked)"
               />
-              Show images in articles
+              Garden new notes on arrival
             </label>
+            <p class="muted">
+              Once you leave a new note, it is sent to the garden’s own assistant with no ask and
+              done at once on your Anthropic key: filed, linked and tagged, your words kept as they
+              are. Only plain notes you wrote; it counts in the day’s runs.
+            </p>
+            <h2 id="arrival-skip">Never gardened on arrival</h2>
+            <p class="muted">
+              Templates, recipes, concepts, meal plans, the pantry, the context note and clippings
+              are never sent on arrival, nor is a note whose back says Leave this note alone.
+            </p>
+            @if (templates.templates().length) {
+              <ul aria-labelledby="arrival-skip" class="skip-templates">
+                @for (t of templates.templates(); track t.id) {
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        [checked]="keys.arrivalSkip().templates.includes(t.id)"
+                        (change)="skipTemplate(t.id, $any($event.target).checked)"
+                      />
+                      Notes made from {{ t.title || 'Untitled' }}
+                    </label>
+                  </li>
+                }
+              </ul>
+            }
+            <label class="skip-tags">
+              Notes with these tags (comma separated)
+              <input
+                #skipTags
+                type="text"
+                placeholder="private, journal"
+                [value]="keys.arrivalSkip().tags.join(', ')"
+                (change)="skipTagsTo(skipTags.value)"
+              />
+            </label>
+          }
+          <h2 id="digest-push">Daily digest</h2>
+          <p class="muted">
+            What assistants changed starts with yesterday in one line. It can come by push too, once
+            a day at the hour you pick, only when something changed; it needs notifications on.
+          </p>
+          <div class="digest-push">
             <label>
               <input
                 type="checkbox"
                 role="switch"
-                [checked]="readerSettings.readOnScroll()"
-                (change)="readerSettings.setReadOnScroll($any($event.target).checked)"
+                [checked]="keys.digest().push"
+                (change)="keys.setDigestPush($any($event.target).checked)"
               />
-              Mark articles read as I scroll past them
+              A daily digest by push
             </label>
             <label>
-              Keep articles for
-              <select #keep (change)="keepArticles(keep.value)" [disabled]="tidying()">
-                <option value="" [selected]="!readerSettings.keepMonths()">
-                  as long as I like
-                </option>
-                @for (m of keepChoices; track m) {
-                  <option [value]="m" [selected]="readerSettings.keepMonths() === m">
-                    {{ m }} months
+              at
+              <select
+                aria-label="Hour of the daily digest"
+                (change)="keys.setDigestHour(+$any($event.target).value)"
+              >
+                @for (h of hours; track h) {
+                  <option [value]="h" [selected]="h === keys.digest().hour">
+                    {{ hourName(h) }}
                   </option>
                 }
               </select>
             </label>
-            <p class="muted">
-              Saved and filed articles are always kept; unsaved ones go after that long.
-            </p>
-            <button type="button" [disabled]="tidying()" (click)="sweepArticles()">
-              Remove unread articles older than three months
-            </button>
-            @if (retentionStatus()) {
-              <p role="status">{{ retentionStatus() }}</p>
-            }
-            <button type="button" [disabled]="indexing()" (click)="indexArticles()">
-              Index articles for search
-            </button>
-            <p class="muted">
-              New articles are indexed as they arrive; this indexes the ones stored before, once a
-              day.
-            </p>
-            @if (indexStatus()) {
-              <p role="status">{{ indexStatus() }}</p>
-            }
-            <p class="muted">
-              <a routerLink="/reader">Reader</a> · <a routerLink="/reader/feeds">Manage feeds</a>
-            </p>
           </div>
+          <p><a routerLink="/activity">What assistants changed</a></p>
+          <button type="button" (click)="disconnect()">Disconnect all assistants</button>
+          @if (claudeStatus()) {
+            <p role="status">{{ claudeStatus() }}</p>
+          }
+        } @else {
+          <p>Not signed in.</p>
         }
+      }
+      @case ('notifications') {
+        @if (auth.user()) {
+          <p role="status">{{ pushMessage[push.state()] }}</p>
+          @if (push.state() === 'error') {
+            <p class="error">{{ push.error() }}</p>
+          }
+          @switch (push.state()) {
+            @case ('off') {
+              <button type="button" (click)="push.enable()">Turn on notifications</button>
+            }
+            @case ('error') {
+              <button type="button" (click)="push.enable()">Try again</button>
+            }
+            @case ('on') {
+              <button type="button" (click)="push.disable()">Turn off notifications</button>
+            }
+          }
+        } @else {
+          <p>Not signed in.</p>
+        }
+      }
+      @case ('device') {
         @if (modules.reader() || modules.podcasts()) {
-          <!-- An episode's downloads (#180), the Reader's and Podcasts' alike (#245). -->
+          <!-- An episode's downloads (#180), the Reader's and Podcasts' alike
+               (#245), on This device since #290. -->
           <h2 id="downloads">Downloads</h2>
           <div class="kitchen">
             <label>
@@ -270,221 +489,43 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             </p>
           </div>
         }
-        <h2 id="templates">Templates</h2>
-        <p>
-          A template is a note to start others from. Its Instructions for Claude, on the back of the
-          note, tell Claude how to fill them in.
+        <h2>Version</h2>
+        <p class="version">
+          <span>{{ build.sha }} &middot; {{ build.time }}</span>
+          <button type="button" [disabled]="checking()" (click)="checkForUpdate()">
+            {{ checking() ? 'Checking…' : 'Check for updates' }}
+          </button>
         </p>
-        @if (templates.templates().length) {
-          <ul aria-labelledby="templates" class="templates">
-            @for (t of templates.templates(); track t.id) {
-              <li>
-                <a [routerLink]="['/n', t.id]">{{ t.title || 'Untitled' }}</a>
-                <span class="muted">{{
-                  t.templateMode === 'living' ? 'one note, reused' : 'a new note each time'
-                }}</span>
-              </li>
-            }
-          </ul>
+        @if (updateStatus()) {
+          <p role="status">{{ updateStatus() }}</p>
         }
-        <div class="actions">
-          <button type="button" (click)="newTemplate('entry')">New template</button>
-          <button type="button" (click)="newTemplate('living')">New living template</button>
-          @if (!hasFeelingsJournal()) {
-            <button type="button" (click)="newFeelingsJournal()">Add a feelings journal</button>
-          }
-        </div>
       }
-      @if (auth.user()) {
-        <h2>AI assistants</h2>
-        <p>
-          To let Claude read and change your notes, add a custom connector in claude.ai (Settings,
-          Connectors) with this URL:
-        </p>
-        <p>
-          <code>{{ mcpUrl }}</code>
-        </p>
-        <p>
-          For Gemini CLI, or another app that takes an MCP server, add it to that app's settings;
-          for Gemini CLI, in <code>~/.gemini/settings.json</code>:
-        </p>
-        <pre><code>{{ geminiSettings }}</code></pre>
-        <p>then run <code>/mcp auth mossgoblin</code> in it and allow it here.</p>
-        <p>
-          <a routerLink="/n/context">Context for Claude</a>: what Claude should always know about
-          you and the garden, given to it at the start of every conversation.
-        </p>
-        <h3>Your API keys</h3>
-        <p>
-          Transcriptions and the assistant's on-demand work run on your own account; transcriptions
-          use your Anthropic key. Make a key just for Mossgoblin, with a spending limit, so it can
-          be capped and revoked on its own. It is checked with the provider, stored encrypted, and
-          never shown again.
-        </p>
-        @if (keys.keys(); as kept) {
-          <ul class="keys" aria-label="API keys">
-            @for (p of providers; track p) {
-              <li>
-                <span class="provider">{{ providerName[p] }}</span>
-                @if (kept[p]; as key) {
-                  <span class="muted">
-                    <code>{{ key.masked }}</code>
-                    @if (key.broken) {
-                      , not accepted any more
-                    } @else if (key.updatedAt !== undefined) {
-                      , added {{ keyDate(key.updatedAt) }}
-                    }
-                    @if (!key.broken && key.lastUsedAt !== undefined) {
-                      , last used {{ keyDate(key.lastUsedAt) }}
-                    }
-                  </span>
-                  <button type="button" [disabled]="keyBusy()" (click)="removeKey(p)">
-                    Remove
-                  </button>
-                } @else {
-                  <form class="key-form" (submit)="saveKey($event, p, keyInput)">
-                    <input
-                      #keyInput
-                      type="password"
-                      autocomplete="off"
-                      [attr.aria-label]="providerName[p] + ' key'"
-                      [placeholder]="'Starts with ' + providerPrefix[p]"
-                    />
-                    <button type="submit" class="primary" [disabled]="keyBusy()">Save</button>
-                  </form>
-                }
-              </li>
-            }
-          </ul>
+      @case ('account') {
+        @if (auth.user(); as user) {
+          <p>Signed in as {{ user.email }}</p>
+          <button type="button" (click)="signOut()">Sign out</button>
         } @else {
-          <p class="muted">Loading…</p>
+          <p>Not signed in.</p>
         }
-        @if (keyStatus()) {
-          <p role="status">{{ keyStatus() }}</p>
-        }
-        <h3>Ask it to look something up</h3>
-        <p>
-          End a checklist item with <code>&#64;goblin</code>, like “research good presents for my
-          nephews &#64;goblin”, and once you leave the note your assistant looks it up on the web,
-          writes what it found under the item, and ticks it. It needs your Anthropic key, and the
-          item’s words are the only instruction it takes.
-        </p>
-        <h3>Send to an assistant</h3>
-        <p>
-          A note you send (on its back, Send to an assistant) waits until your assistant checks. For
-          Claude, make a routine in Claude Code on the web that runs every hour with the Mossgoblin
-          connector, and give it this prompt; any assistant that runs on a schedule can use it too.
-        </p>
-        <pre class="prompt"><code>{{ queuePrompt }}</code></pre>
-        @if (keys.keys()?.anthropic) {
-          <h3>Garden on arrival</h3>
-          <label>
-            <input
-              type="checkbox"
-              role="switch"
-              [checked]="keys.onArrival()"
-              (change)="keys.setOnArrival($any($event.target).checked)"
-            />
-            Garden new notes on arrival
-          </label>
-          <p class="muted">
-            Once you leave a new note, it is sent to the garden’s own assistant with no ask and done
-            at once on your Anthropic key: filed, linked and tagged, your words kept as they are.
-            Only plain notes you wrote; it counts in the day’s runs.
+        @if (auth.user()) {
+          <h2 id="sealing">Sealed notes</h2>
+          <p>
+            The text of your notes is always sealed (encrypted) before it is stored, so a copy of
+            the database or a backup shows only scrambled text. The key is kept apart from the
+            notes, with Cloudflare rather than Google, and this device and the server fetch it when
+            they need it. Attachments, the links pages came from, and reminder text are not sealed.
           </p>
-          <h3 id="arrival-skip">Never gardened on arrival</h3>
-          <p class="muted">
-            Templates, recipes, concepts, meal plans, the pantry, the context note and clippings are
-            never sent on arrival, nor is a note whose back says Leave this note alone.
-          </p>
-          @if (templates.templates().length) {
-            <ul aria-labelledby="arrival-skip" class="skip-templates">
-              @for (t of templates.templates(); track t.id) {
-                <li>
-                  <label>
-                    <input
-                      type="checkbox"
-                      [checked]="keys.arrivalSkip().templates.includes(t.id)"
-                      (change)="skipTemplate(t.id, $any($event.target).checked)"
-                    />
-                    Notes made from {{ t.title || 'Untitled' }}
-                  </label>
-                </li>
-              }
-            </ul>
+          @if (noteKeys.unconfigured()) {
+            <p class="muted">{{ keyServiceMissing }}</p>
+          } @else if (!noteKeys.key()) {
+            <p class="muted">
+              This device does not have its note key yet. It gets it the next time it is online, and
+              until then what you write is kept here and saved sealed afterwards.
+            </p>
           }
-          <label class="skip-tags">
-            Notes with these tags (comma separated)
-            <input
-              #skipTags
-              type="text"
-              placeholder="private, journal"
-              [value]="keys.arrivalSkip().tags.join(', ')"
-              (change)="skipTagsTo(skipTags.value)"
-            />
-          </label>
-        }
-        <h3 id="digest-push">Daily digest</h3>
-        <p class="muted">
-          What assistants changed starts with yesterday in one line. It can come by push too, once a
-          day at the hour you pick, only when something changed; it needs notifications on.
-        </p>
-        <div class="digest-push">
-          <label>
-            <input
-              type="checkbox"
-              role="switch"
-              [checked]="keys.digest().push"
-              (change)="keys.setDigestPush($any($event.target).checked)"
-            />
-            A daily digest by push
-          </label>
-          <label>
-            at
-            <select
-              aria-label="Hour of the daily digest"
-              (change)="keys.setDigestHour(+$any($event.target).value)"
-            >
-              @for (h of hours; track h) {
-                <option [value]="h" [selected]="h === keys.digest().hour">{{ hourName(h) }}</option>
-              }
-            </select>
-          </label>
-        </div>
-        <p><a routerLink="/activity">What assistants changed</a></p>
-        <button type="button" (click)="disconnect()">Disconnect all assistants</button>
-        @if (claudeStatus()) {
-          <p role="status">{{ claudeStatus() }}</p>
         }
       }
-      @if (auth.user()) {
-        <h2 id="sealing">Sealed notes</h2>
-        <p>
-          The text of your notes is always sealed (encrypted) before it is stored, so a copy of the
-          database or a backup shows only scrambled text. The key is kept apart from the notes, with
-          Cloudflare rather than Google, and this device and the server fetch it when they need it.
-          Attachments, the links pages came from, and reminder text are not sealed.
-        </p>
-        @if (noteKeys.unconfigured()) {
-          <p class="muted">{{ keyServiceMissing }}</p>
-        } @else if (!noteKeys.key()) {
-          <p class="muted">
-            This device does not have its note key yet. It gets it the next time it is online, and
-            until then what you write is kept here and saved sealed afterwards.
-          </p>
-        }
-      }
-      <h2>Version</h2>
-      <p class="version">
-        <span>{{ build.sha }} &middot; {{ build.time }}</span>
-        <button type="button" [disabled]="checking()" (click)="checkForUpdate()">
-          {{ checking() ? 'Checking…' : 'Check for updates' }}
-        </button>
-      </p>
-      @if (updateStatus()) {
-        <p role="status">{{ updateStatus() }}</p>
-      }
-    </main>
+    }
   `,
   styles: `
     .start-on label {
@@ -608,6 +649,12 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
   `,
 })
 export class Settings {
+  /** The page to show; from the route when not given (a spec gives it). */
+  readonly page = input<SettingsPageId>();
+  private readonly routePage = inject(ActivatedRoute).snapshot.data['page'] as
+    SettingsPageId | undefined;
+  protected readonly shown = computed(() => this.page() ?? this.routePage ?? FIRST_PAGE);
+
   protected readonly auth = inject(AuthService);
   protected readonly push = inject(PushService);
   protected readonly pushMessage: Record<PushState, string> = {
@@ -702,23 +749,8 @@ export class Settings {
   }
   protected readonly moduleList = MODULES;
   protected readonly startOn = inject(StartOnService);
-  /**
-   * Start on's choices (#219), as the Settings sketch words them. `note`
-   * was A new note until 2026-11-15, when it became Where I left off
-   * (#272, Eric); New note beside the leaf gives the fresh note.
-   */
-  protected readonly startChoices: { value: StartOn; label: string; about: string }[] = [
-    { value: 'home', label: 'Home', about: 'Capture, Right Now and the modules' },
-    {
-      value: 'note',
-      label: 'Where I left off',
-      about: 'The note, article or screen open last on this device',
-    },
-    { value: 'right-now', label: 'Right Now', about: 'Reminders and what is new' },
-    { value: 'kitchen', label: 'Kitchen', about: 'This week’s meals' },
-    { value: 'reader', label: 'Reader', about: 'Unread articles' },
-    { value: 'podcasts', label: 'Podcasts', about: 'The newest episodes' },
-  ];
+  /** Start on's choices (#219, #272). */
+  protected readonly startChoices = START_CHOICES;
 
   /** A module's choice while it is off: it opens Home instead. */
   protected startNote(choice: StartOn): string | undefined {

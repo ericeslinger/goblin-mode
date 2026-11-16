@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Locator, Page } from '@playwright/test';
 import { serveEpisodes } from '../src/episodes';
-import { expect, letItSave, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, signInAs, switchModulesOn, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Podcasts, step 6 of the layout pass (#290, epic #282): an episode's
@@ -77,9 +77,7 @@ const miniHeight = (page: Page) =>
 async function twoShows(page: Page): Promise<void> {
   await serveEpisodes(page);
   await signInAs(page, OWNER);
-  await page.goto('/settings');
-  await page.getByRole('switch', { name: 'Podcasts' }).check();
-  await letItSave(page);
+  await switchModulesOn(page, 'Podcasts');
   for (const [feed, show] of [
     [FEED, SHOW],
     [FEED2, SHOW2],

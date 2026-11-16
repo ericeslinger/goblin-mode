@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test, openMore } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, openMore, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The shopping list (#39): a living template, made from Kitchen as its
@@ -17,7 +17,7 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
   // The list is Kitchen's grocery list since #130: made from there.
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();
@@ -26,8 +26,9 @@ test('Claude fills the shopping list; ticks sink to Got it; Done shopping clears
   const made = new URL(page.url()).pathname.split('/').pop();
   // Kept before the reload, as every journey that reloads does.
   await letItSave(page);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await expect(page.getByRole('link', { name: 'Grocery list' })).toBeVisible();
+  await openSettings(page, 'Templates');
   await page
     .getByRole('list', { name: 'Templates' })
     .getByRole('link', { name: 'Shopping list' })

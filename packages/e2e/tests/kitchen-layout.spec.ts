@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { editAsText, expect, letItSave, signInAs, test } from '../src/fixtures';
+import { editAsText, expect, letItSave, openSettings, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Kitchen in the layout pass, step 4 (#288): one Kitchen header over
@@ -23,7 +23,7 @@ async function noSeriousViolations(page: Page): Promise<void> {
 }
 
 async function kitchenOn(page: Page): Promise<void> {
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();

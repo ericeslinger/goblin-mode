@@ -1,6 +1,15 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
-import { expect, letItSave, prepPage, signInAs, test, openMore } from '../src/fixtures';
+import {
+  SETTINGS_PAGE_NAMES,
+  expect,
+  letItSave,
+  prepPage,
+  signInAs,
+  test,
+  openMore,
+  openSettings,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 const THEMES = ['Herbarium', 'Night Garden', 'Moss and Lantern', 'Bog Goblin', 'Pixel Mossling'];
@@ -21,6 +30,8 @@ async function expectNoSeriousViolations(page: Page, where: string): Promise<voi
 test('a theme chosen in Settings applies at once and survives a reload', async ({ page }) => {
   await signInAs(page, OWNER);
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await openSettings(page, 'Appearance');
   await expect(page.getByRole('radio', { name: /^Herbarium/ })).toBeChecked();
 
   await pick(page, 'Night Garden', 'Dark');
@@ -53,6 +64,8 @@ test('a theme chosen in Settings applies at once and survives a reload', async (
 test('a theme chosen on one device follows the gardener to another', async ({ page, browser }) => {
   await signInAs(page, OWNER);
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await openSettings(page, 'Appearance');
   await pick(page, 'Pixel Mossling', 'Dark');
 
   const other = await browser.newContext({ ...devices['Pixel 7'] });
@@ -64,14 +77,14 @@ test('a theme chosen on one device follows the gardener to another', async ({ pa
   await expect(html).toHaveAttribute('data-mode', 'dark');
 
   // And back the other way.
-  await second.goto('/settings');
+  await openSettings(second, 'Appearance');
   await pick(second, 'Moss and Lantern', 'Light');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'moss');
   await other.close();
 });
 
 test('every theme, light and dark, passes axe on the busiest screens', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(360_000);
   await signInAs(page, OWNER);
   await page.keyboard.type('Groceries for the week');
   // Past the autosave delay, so the note is written before we leave.
@@ -84,9 +97,18 @@ test('every theme, light and dark, passes axe on the busiest screens', async ({ 
 
   for (const theme of THEMES) {
     for (const mode of ['Light', 'Dark'] as const) {
+      // Settings is pages since #290: the list, then every page.
       await page.goto('/settings');
+      await expect(page.getByRole('navigation', { name: 'Settings', exact: true })).toBeVisible();
+      await openSettings(page, 'Appearance');
       await pick(page, theme, mode);
+      await page.goto('/settings');
+      await expect(page.getByRole('navigation', { name: 'Settings', exact: true })).toBeVisible();
       await expectNoSeriousViolations(page, `${theme} ${mode} Settings`);
+      for (const name of SETTINGS_PAGE_NAMES) {
+        await openSettings(page, name);
+        await expectNoSeriousViolations(page, `${theme} ${mode} Settings, ${name}`);
+      }
       await page.goto('/right-now');
       await expect(page.getByText('Water the plants')).toBeVisible();
       await expectNoSeriousViolations(page, `${theme} ${mode} Right Now`);

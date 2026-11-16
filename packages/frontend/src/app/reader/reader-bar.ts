@@ -112,7 +112,7 @@ export function folderChips(
     }
     @if (!modules.reader()) {
       <p class="muted">
-        Reader is off. Turn it on in <a routerLink="/settings">Settings</a>, Modules.
+        Reader is off. Turn it on in <a routerLink="/settings/modules">Settings, Modules</a>.
       </p>
     }
     <div id="reader-search">

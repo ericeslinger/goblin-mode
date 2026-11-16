@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, signInAs, test, openFromMore, openMore } from '../src/fixtures';
+import { expect, signInAs, test, openFromMore, openMore, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // axe over every surface, WCAG 2.1 A and AA; serious and critical
@@ -75,7 +75,10 @@ test('every screen passes axe, signed out and signed in', async ({ page }) => {
 
   await (await openMore(page)).getByRole('link', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  // Sealed notes says what is true, with no switch (always sealed, 2026-11-15).
+  await expectNoSeriousViolations(page);
+  // Sealed notes, on Account since #290, says what is true, with no
+  // switch (always sealed, 2026-11-15).
+  await openSettings(page, 'Account');
   await expect(page.getByRole('heading', { name: 'Sealed notes' })).toBeVisible();
   await expect(page.getByText('The text of your notes is always sealed')).toBeVisible();
   await expectNoSeriousViolations(page);

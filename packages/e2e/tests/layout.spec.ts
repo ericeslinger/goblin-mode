@@ -11,6 +11,9 @@ import {
   signInAs,
   test,
   typeLines,
+  openSettings,
+  SETTINGS_PAGE_NAMES,
+  switchModulesOn,
 } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
@@ -300,7 +303,7 @@ test.describe('on a phone', () => {
     );
     expect(await missedTaps(row.getByRole('button', { name: 'Add a reminder' }))).toEqual([]);
 
-    await page.goto('/settings');
+    await openSettings(page, 'Account');
     const signOut = page.getByRole('button', { name: 'Sign out' });
     await expect(signOut).toBeVisible({ timeout: 15_000 });
     expect(await missedTaps(signOut)).toEqual([]);
@@ -319,6 +322,7 @@ test.describe('on a phone', () => {
     expect(ring.width).toBeGreaterThanOrEqual(2);
 
     // A meal plan's tick box, tapped 15 px from its centre: ticked once.
+    await openSettings(page, 'Modules');
     await page.getByRole('switch', { name: 'Kitchen' }).check();
     await letItSave(page);
     await page.reload();
@@ -346,14 +350,21 @@ test.describe('on a phone', () => {
       dueAt: new Date(Date.now() - 60_000).toISOString(),
     });
 
-    await page.goto('/settings');
+    await openSettings(page, 'Account');
     const signOut = page.getByRole('button', { name: 'Sign out' });
     await expect(signOut).toBeVisible({ timeout: 15_000 });
     // The signal holds for the plain base: a themed border, not outset.
     expect(await signOut.evaluate((b) => getComputedStyle(b).borderTopStyle)).toBe('solid');
     expect(await browserDefaultButtons(page)).toEqual([]);
+    // Settings is pages since #290: each page's buttons, as the one long
+    // page's were.
+    for (const name of SETTINGS_PAGE_NAMES) {
+      await openSettings(page, name);
+      expect(await browserDefaultButtons(page), name).toEqual([]);
+    }
 
     // Reader's feed management, with a feed followed so its row shows.
+    await openSettings(page, 'Modules');
     await page.getByRole('switch', { name: 'Reader' }).check();
     await letItSave(page);
     await page.goto('/reader/feeds');
@@ -645,7 +656,7 @@ test.describe('on a narrow phone', () => {
     // More as 44 px icons (#287) it still needs about 370 px: the leaf
     // and New note 80, From template about 95, three icons 132, five
     // 12 px gaps; at 320 px the bar has 288, so Back and More wrap.
-    await page.goto('/settings');
+    await openSettings(page, 'Templates');
     await page.getByRole('button', { name: 'New template', exact: true }).click();
     await expect(page).toHaveURL(/\/n\/\w+$/);
     const editor = page.getByRole('textbox', { name: 'New note' });
@@ -706,18 +717,17 @@ test.describe('on a narrow phone', () => {
     const longNote = (await call('create_note', { body: `${long}\nclay` })) as { id: string };
 
     // The modules with a header of their own, on as other journeys do.
-    await page.goto('/settings');
-    // Podcasts comes on with the Reader (#245): waited for, never
-    // clicked, or the click can turn it off as it turns on.
-    await page.getByRole('switch', { name: 'Reader' }).check();
-    await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
-    await page.getByRole('switch', { name: 'Kitchen' }).check();
+    // Podcasts comes on with the Reader (#245): the helper waits for it
+    // and never clicks it as it turns on.
+    await switchModulesOn(page, 'Reader', 'Podcasts', 'Kitchen');
     await letItSave(page);
 
     const screens: [url: string, title: string, parent?: string][] = [
       ['/browse', 'Notes'],
       ['/right-now', 'Right Now'],
       ['/settings', 'Settings'],
+      ['/settings/modules', 'Modules', 'Settings'],
+      ['/settings/assistants', 'AI assistants', 'Settings'],
       ['/reading', 'Reading queue'],
       ['/map', 'Map'],
       [`/map/n/${id}`, 'Around Studio day', 'Note'],

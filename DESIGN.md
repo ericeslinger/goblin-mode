@@ -286,9 +286,9 @@ the cursor comes back where it was. A side panel on wide screens and
 the attachments list wait until they are missed.
 
 **Feelings journal (#40, Eric, 2026-10-08).** Moods are concepts of
-type `mood`, not tags. Settings, Add a feelings journal, makes an
-entry template (`FEELINGS_TEMPLATE`, with a `Moods:` line) and three
-daily reminders linked to it, at breakfast, lunch and dinner
+type `mood`, not tags. Settings, Templates, Add a feelings journal,
+makes an entry template (`FEELINGS_TEMPLATE`, with a `Moods:` line) and
+three daily reminders linked to it, at breakfast, lunch and dinner
 (`FEELINGS_TIMES`). A reminder's link and its push carry
 `?from=reminder`, and a reminder to a template opens a new entry from
 it, in place of the link. On a Moods line, typing a mood offers the
@@ -741,10 +741,10 @@ Dry goods (Eric, 2026-10-06), and Instructions for Claude: read the
 meal plan, add what the meals need with `add_lines` under the right
 heading, skip what is listed, keep his words, and ★ marks a staple.
 Since #130 (2026-10-18) it is Kitchen's grocery list, made from
-Settings, Kitchen (Grocery list, below); new lists have no Meal plan
-section, and the instructions say planned dinners add themselves.
-Since #207 (2026-11-08) each week has its own list, the last one
-archived, and the back of every note has Archive, or Restore on
+Settings, Modules, under Kitchen (Grocery list, below); new lists have
+no Meal plan section, and the instructions say planned dinners add
+themselves. Since #207 (2026-11-08) each week has its own list, the last
+one archived, and the back of every note has Archive, or Restore on
 an archived note (Plain lines, a list a week, below).
 
 - **List view.** A note made from a template that has checklist items
@@ -1332,6 +1332,59 @@ the Reader, Podcasts, the Reading queue, What assistants changed):
 each is a tile on Home, with the count the link carried, and a tile
 taken off Home comes back from Arrange Home.
 
+**Settings as pages (#290, step 6 of the layout pass, epic #282,
+2026-11-16).** Settings was one scroll of eleven sections, about seven
+phone screens (5,956 px), with no way to jump: Check for updates or the
+Reader's Keep articles for sat under the themes, the assistants and the
+keys. It is now a first screen of rows, each a link to a page of its
+own at `/settings/<page>`:
+
+- Appearance (`appearance`): the theme and the mode.
+- Start on (`start-on`).
+- Modules (`modules`): the switches, then Kitchen's settings and the
+  Reader's, each under its own heading while it is on.
+- Templates (`templates`): the list, New template, New living template
+  and Add a feelings journal.
+- AI assistants (`assistants`): the connector address and Gemini CLI's
+  setting, Context for Claude, Your API keys, Ask it to look something
+  up, Send to an assistant, Garden on arrival and Never gardened on
+  arrival (with an Anthropic key), Daily digest, What assistants
+  changed and Disconnect all assistants.
+- Notifications (`notifications`).
+- This device (`device`): Downloads (while the Reader or Podcasts is
+  on) and Version, with Check for updates.
+- Account (`account`): who is signed in, Sign out and Sealed notes.
+
+Each row is the page's name and one quiet line on how it stands, read
+from what the device already holds: the theme and mode, the Start on
+choice, the modules on, how many templates, whether notifications are
+on here, the build, the account's address. The line is the link's
+description; its name is the page's alone. One page header serves the
+shell (`settings/settings-shell.ts`): "Settings" over the list, and
+over a page its name and "‹ Settings". Under 900 px the list is one
+screen and a page another. From 900 px the list is a left column and
+the page shows beside it, its row marked `aria-current="page"` and no
+back link needed; `/settings` shows the first page, Appearance, beside
+the list. Which shows is CSS on the route alone, with no new state.
+The controls, their names and what they save are as they were; a
+section's heading inside its page is an `h2`, AI assistants'
+subsections included (they were `h3`).
+
+A page this version does not know falls back to the list. The long
+page's anchors go on to their page (`#modules`, `#kitchen` and
+`#reader` to Modules, `#downloads` to This device, `#templates` and
+`#start-on` to theirs, `#sealing` to Account, `#arrival-skip` and
+`#digest-push` to AI assistants), so an old link and a last place kept
+before still land where they meant. The off lines of Kitchen's tabs
+("Switch it on in Settings, Modules"), the Reader, Manage feeds,
+Podcasts and Add a podcast ("Turn it on in Settings, Modules") link
+`/settings/modules`, and Downloads links Settings, This device. The
+last place (#272) keeps a page by its address, which names only the
+page, so a launch reopens it. Where this file said Settings, Kitchen
+or Settings, Reader, it now says Settings, Modules, under Kitchen or
+Reader, and the downloads, the build and Sealed notes name their pages
+(2026-11-16).
+
 **Top bar (#78, Eric, 2026-10-07).** The bar keeps what writing needs:
 New (since 2026-11-15 New note, the icon beside the leaf, #272), From
 template (when there are templates) and List or Text (on a list).
@@ -1402,7 +1455,8 @@ measure, and nothing else moves.
 
 From 900 px the app shell (`app.ts`, `app/rail/rail.ts`) draws, once
 for every screen, a "Skip to content" link (the first thing Tab
-reaches; it focuses the screen's `main`, or the screen) and a
+reaches; it focuses the screen's `main`, or the screen, and on the
+note screen the note's text, 2026-11-16) and a
 navigation named Places, fixed at the left edge, 176 px wide, from the
 top to the mini-player. Its entries, in order: Home, Notes, Right Now
 (how many are overdue or due today), Kitchen, Reader (unread), Podcasts
@@ -1418,7 +1472,11 @@ tabs (a week's plan, the pantry, a grocery list), which is Kitchen;
 History is Notes; Downloads is Podcasts' while Podcasts is on. The
 names, icons, links, which places show and their counts come from one
 place, `home/places.ts`, which Home's tiles read too, so the two cannot
-disagree. Home's own navigation keeps its name, Modules.
+disagree. Home's own navigation keeps its name, Modules. The rail's
+counts read the same services Home's tiles do, so on a wide screen
+those listeners start on any screen, through the persistent cache, and
+the entries of modules that are on join the rail once the settings are
+read, as Home's tiles do (2026-11-16).
 
 The rail is not drawn signed out (nor on the sign-in screen any
 screen shows then), on the development sign-in or on Claude's consent
@@ -1430,7 +1488,11 @@ so every screen moves right by the rail and a 640 px column is centred
 in what is left. What is fixed to the window's edges starts at the
 rail's: the mini-player's bar and the Reader's status bar. Dialogs are
 modal, over everything. Beside the rail the leaf is not drawn, the
-rail's Home being the way home; New note stays where it was.
+rail's Home being the way home; New note stays where it was. Until the
+router's first navigation ends the rail reads the address from the
+document, not the router's `/`, so a cold load of the consent page
+draws no rail for a moment and one of `/reader` marks Reader from the
+first render (2026-11-16).
 
 The note's reading measure: from 900 px the editor's text is a column
 of 70 of its own characters (`70ch` at its 17 px), centred in the
@@ -1761,16 +1823,16 @@ went, what a delivery was. The helpers that read and write these lines
 are `packages/schema/src/mealplan.ts`, shared by the app and Claude.
 Kitchen's configuration (`settings/modules`, `kitchen.config`) sets the
 week's first day (Monday), the meals planned (dinner) and the fish's
-day (Thursday; Friday or none), set in Settings, Kitchen, for weeks not
-planned yet; the period is always a week for now. A new plan's fish
-dinner links to the placeholder recipe "Fish of the week"
-(`recipe-fish-of-the-week`, made with the first plan that needs it);
-Claude puts the real recipe there when Eric says what the fish is.
-Settings, Kitchen also makes a weekly reminder to plan, at 4 pm the
-day before a week starts.
+day (Thursday; Friday or none), set in Settings, Modules, under
+Kitchen, for weeks not planned yet; the period is always a week for now.
+A new plan's fish dinner links to the placeholder recipe "Fish of the
+week" (`recipe-fish-of-the-week`, made with the first plan that needs
+it); Claude puts the real recipe there when Eric says what the fish is.
+Settings, Modules, under Kitchen, also makes a weekly reminder to plan,
+at 4 pm the day before a week starts.
 
-In the app, `/kitchen` (This week's meals, in Settings, and in Browse
-until 2026-11-15, #286, when Home's Kitchen tile took its place)
+In the app, `/kitchen` (This week's meals, in Settings, Modules, and in
+Browse until 2026-11-15, #286, when Home's Kitchen tile took its place)
 opens this week's plan, `/kitchen/<a day>` that day's week, making the
 plan once the notes and the configuration are read. A plan opens on
 the note page with its week drawn above its text (`MealPlanHeader`;
@@ -1789,10 +1851,10 @@ plans' ticked slots, never stored. Claude reads a week with
 made, and to set a reminder when he says to ask later.
 
 **Grocery list (#130, 2026-10-18; epic #125).** The Shopping list
-template moves into Kitchen: Settings, Kitchen makes the grocery list
-(the template if missing, and its living note, named in Kitchen's
-configuration as `groceryList`), and Templates no longer offers it.
-An existing Shopping list note is untouched and is found as the
+template moves into Kitchen: Settings, Modules, under Kitchen, makes the
+grocery list (the template if missing, and its living note, named in
+Kitchen's configuration as `groceryList`), and Templates no longer
+offers it. An existing Shopping list note is untouched and is found as the
 template's living note; with Kitchen off nothing hides it. New lists
 drop the Meal plan section, the plan being its own note now.
 
@@ -1867,8 +1929,9 @@ Oct 19" (`titleSource: user`), and its id is derived from the week,
 `shopping-2026-10-19`, so the phone offline and Claude start the same
 note; Kitchen's `groceryList` names it. A list made by hand (Make the
 grocery list) is the week's of the plan it was made from, or this
-week's from Settings. The rules are in `packages/schema/src/grocery.ts`
-(`replanGrocery`, `shoppingListBody`, `listIsOlder`).
+week's from Settings, Modules. The rules are in
+`packages/schema/src/grocery.ts` (`replanGrocery`, `shoppingListBody`,
+`listIsOlder`).
 
 The back of a grocery list (Kitchen on; a note made from the Shopping
 list template, or the one Kitchen names) says "For the week of Oct
@@ -2055,8 +2118,10 @@ instead; see Right Now's rows, below.)
 **Right Now's rows (#288, step 4 of the layout pass, epic #282,
 2026-11-15).** On a 412 px phone Done and Snooze took 38% of a row,
 so most reminders wrapped. Now one row, used alike by the full screen,
-the panel on the capture screen and beside the notes, and the sheet
-over a saved note, is: a round tick at the left, a ring in the quiet
+the panel on the capture screen and beside the notes (beside them no
+longer since the rail: from 900 px Right Now is the rail's entry and
+its own screen; #289, #301, 2026-11-16), and the sheet over a saved
+note, is: a round tick at the left, a ring in the quiet
 ink with a faint tick that firms on hover or focus, which is Done
 ("Done: <text>"); the text and its time; and a clock at the right,
 Snooze ("Snooze: <text>", saying whether its choices are open), which
@@ -2196,10 +2261,11 @@ server-side mark is #164's if that grates). The article
 (`renderNoteHtml`, sanitized; its HTML is trusted into the page as it
 is, since Angular's own pass would strip the image attributes), with
 images lazy and sent with no referrer, or replaced by their words
-while the gardener has images off (Settings, Reader, one switch for
-all folders rather than one a folder as #159 first said: 2026-11-07,
-until a folder wants otherwise). Opening marks it read (Keep unread
-undoes that); Open the page is a browser tab, since sites refuse to be
+while the gardener has images off (Settings, Modules, under Reader,
+one switch for all folders rather than one a folder as #159 first said:
+2026-11-07, until a folder wants otherwise). Opening marks it read
+(Keep unread undoes that); Open the page is a browser tab, since sites
+refuse to be
 framed; links inside open in a new tab, never over the reader. Swipe
 left for the next article and right for the previous, among the
 unread ones of the shelf it was opened from (the `in` query
@@ -2231,9 +2297,9 @@ unread read "41 of 44", and Next landed on articles read hours
 before (Eric).
 
 **Retention (#171, Eric, 2026-11-07).** Everything is kept unless
-the gardener says otherwise: Settings, Reader, Keep articles for (3,
-6 or 12 months, `settings/reader.keepMonths`). With it set, the
-fetcher writes `expireAt` (`published` plus the months) on each
+the gardener says otherwise: Settings, Modules, under Reader, Keep
+articles for (3, 6 or 12 months, `settings/reader.keepMonths`). With it
+set, the fetcher writes `expireAt` (`published` plus the months) on each
 article it stores, and a Firestore TTL policy on `feedItems.expireAt`
 removes them in time; saving or filing an article clears `expireAt`
 (the one write to it the rules allow the owner, and only as a
@@ -2253,9 +2319,9 @@ the device's own echo; once every write is acknowledged the doc is
 all there is; a refused one shows no longer.
 
 **Mark read on scroll (#172, 2026-11-07).** Off unless the gardener
-switches it on: Settings, Reader, Mark articles read as I scroll past
-them (`settings/reader.readOnScroll`). In the compact list an
-IntersectionObserver follows each row; an unread row wholly above the
+switches it on: Settings, Modules, under Reader, Mark articles read as I
+scroll past them (`settings/reader.readOnScroll`). In the compact list
+an IntersectionObserver follows each row; an unread row wholly above the
 top for 600 ms counts as passed (one that comes back first is
 dropped), and the passed ones are marked read in one batch
 (`setReadMany`, which Mark all read also uses) once the page has been
@@ -2473,13 +2539,13 @@ shelf. `search_feed_items` uses the same index across every article,
 the last `days` only when asked, which changes step 4's thirty-day
 default (2026-11-07); a query of only stop words has no terms, and
 falls back to the thirty-day scan word by word. Articles stored before
-the index have no terms until Settings, Reader, Index articles for
-search calls `indexArticles` (`onCall`, once a day per gardener,
-`indexRuns` in the usage record, given back when the run fails),
-which writes `terms` where they are missing or not what the item's
-text gives now, in pages by document id as retention does, and says
-"Indexed 12 articles." After deploy, press Index articles for search
-once so the older articles join the index. While the composite
+the index have no terms until Settings, Modules, under Reader, Index
+articles for search calls `indexArticles` (`onCall`, once a day per
+gardener, `indexRuns` in the usage record, given back when the run
+fails), which writes `terms` where they are missing or not what the
+item's text gives now, in pages by document id as retention does, and
+says "Indexed 12 articles." After deploy, press Index articles for
+search once so the older articles join the index. While the composite
 index is still building (the query fails with FAILED_PRECONDITION),
 search falls back to the thirty-day scan word by word, at most 500
 articles; and until a run of Index articles for search has gone
@@ -2724,8 +2790,9 @@ the podcast, the size and Remove, and the total against the cap.
 The limits are the device's, in local storage beside the player's
 speed, not in `settings/reader` (so no schema or rules change): the
 files are this device's, and a phone and a laptop want their own. In
-Settings, Reader: keep up to 250 MB, 500 MB (the default), 1, 2 or 5
-GB, and Download new episodes on their own only on Wi-Fi (on by
+Settings (under Reader then; Downloads since #245; This device since
+#290): keep up to 250 MB, 500 MB (the default), 1, 2 or 5 GB, and
+Download new episodes on their own only on Wi-Fi (on by
 default). The Wi-Fi rule is for automatic downloads only; a tap on
 Download is the gardener's choice and works on any connection. It
 reads `navigator.connection` where there is one: cellular, Bluetooth
@@ -2950,7 +3017,8 @@ the others (`podcasts` in `TILE_IDS`, after the Reader), a Start on
 choice (`podcasts`, falling back to Home while off), a link in
 Browse, and its switch in Settings, Modules. The
 download settings moved from Settings, Reader to a Downloads section
-of their own, shown while either module is on.
+of their own, shown while either module is on (on Settings, This
+device since #290, 2026-11-16).
 
 **Screens.** `/podcasts` is Latest under the module's tabs
 (`app-podcasts-bar`: the leaf, Downloads and Add a podcast as named
@@ -4109,8 +4177,9 @@ is slow.
   callback may differ from the registered one in port only, since the
   app picks a free port each time; the token request must name the
   callback the code went to. The consent page says when the app asking
-  is on this computer. Settings shows Gemini CLI's setting
-  (`mcpServers.mossgoblin.httpUrl` in `~/.gemini/settings.json`, then
+  is on this computer. Settings, AI assistants, shows Gemini CLI's
+  setting (`mcpServers.mossgoblin.httpUrl` in
+  `~/.gemini/settings.json`, then
   `/mcp auth mossgoblin`). Hosted web clients other than claude.ai are
   added to the list one at a time, once checked.
 - **Send to an assistant (#143, 2026-10-25).** Eric: "The write a
@@ -4302,10 +4371,10 @@ is slow.
   token, and a replayed code or refresh token (spent ones are kept a
   day to spot this) revokes the whole family. Expired codes and tokens
   are swept whenever tokens are issued, so a connection that refreshes
-  hourly stays a few dozen documents. Settings, Disconnect all
-  assistants (Disconnect Claude before #142), deletes every token and
-  code, in chunks under the 500-write batch limit, and every assistant
-  must connect again.
+  hourly stays a few dozen documents. Settings, AI assistants,
+  Disconnect all assistants (Disconnect Claude before #142), deletes
+  every token and code, in chunks under the 500-write batch limit, and
+  every assistant must connect again.
 - **Registration is open** (dynamic registration needs it), but codes
   only ever go to a claude.ai or claude.com callback or a loopback
   one, and only Eric can approve. The consent page shows the name a
@@ -4404,8 +4473,9 @@ keeps the history.
   touched, named as they were (`Activity` in the schema). The uid is
   the token's, as for every tool. Runs are function-only; the rules
   already let the owner read them and nobody write them.
-- **What Claude changed** (`/activity`, linked from Settings, Claude,
-  and from Browse until 2026-11-15, #286, Home's Assistants tile
+- **What Claude changed** (`/activity`, linked from Settings, AI
+  assistants, and from Browse until 2026-11-15, #286, Home's
+  Assistants tile
   since) lists the latest 100 runs, newest first, each
   with its notes (current titles, archived ones marked), each note's
   History, and its reminders. Older runs stay stored.
@@ -4797,9 +4867,10 @@ reminder's note, or a new note from its template.
 
 **As built (2026-10-06).**
 
-- **Registering.** Settings has Turn on / Turn off notifications. On
-  asks the browser, gets an FCM token with the project's Web Push key
-  and writes `devices/{deviceId}` (the same device id notes carry).
+- **Registering.** Settings, Notifications, has Turn on / Turn off
+  notifications. On asks the browser, gets an FCM token with the
+  project's Web Push key and writes `devices/{deviceId}` (the same
+  device id notes carry).
   Once on, every sign-in refreshes the token, since FCM rotates them.
   Off deletes the device record and the token, and signing out turns
   the device off first, so a signed-out or shared browser stops getting
@@ -5807,9 +5878,10 @@ to `isValidAssistantSettings`, and the rules tests check a bool is
 taken, anything else refused, the theme's doc refused it, and another
 gardener can neither set nor read it.
 
-*Settings.* A section, Sealed notes: three sentences on what sealing
-means (the text is encrypted before it is stored; the key is kept
-apart from the notes, with Cloudflare; attachments, the links pages
+*Settings.* A section, Sealed notes (on Settings, Account since #290):
+three sentences on what sealing means (the text is encrypted before it
+is stored; the key is kept apart from the notes, with Cloudflare;
+attachments, the links pages
 came from and reminder text are not sealed), the switch, and a status
 line saying its state or how the check went. (Since 2026-11-15 the
 sentences alone, read only, and a line when this device has no key.)
@@ -6448,10 +6520,10 @@ by name, Deploy configuration); `freshDataKeyFor`; `key-check.ts` and
 `seal-all.ts` in schema; the runner's pass, cursor, dry run, report,
 page loop, and its suggestion, run and activity relabels
 (`notes/seal-all.ts`, `notes/seal-everything.ts`, `agent/seal-runs.ts`).
-Settings keeps a short, read-only Sealed notes paragraph: note text is
-always sealed before it is stored, the key is kept apart from the
-notes with Cloudflare, and attachments, the links pages came from and
-reminder text are not; and, when this device has no key, a line that
+Settings, Account, keeps a short, read-only Sealed notes paragraph: note
+text is always sealed before it is stored, the key is kept apart from
+the notes with Cloudflare, and attachments, the links pages came from
+and reminder text are not; and, when this device has no key, a line that
 says so.
 
 *Kept from the migration: the server seals a plain write.* With the
@@ -6566,8 +6638,8 @@ Worker). Gates stay local because there are not enough Actions minutes
 for CI. It needs two repository secrets: `CLOUDFLARE_API_TOKEN` and
 `FIREBASE_SERVICE_ACCOUNT`.
 
-The app shows its build sha and time in Settings so a refresh can be
-checked against the deploy.
+The app shows its build sha and time in Settings (This device since
+#290) so a refresh can be checked against the deploy.
 
 **Parallel journeys (2026-11-15).** Eric: try parallelizing the
 journeys, keep it if it runs reliably in the cloud container, and lose

@@ -1,7 +1,15 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, openCapture, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  openCapture,
+  signInAs,
+  test,
+  typeLines,
+  openSettings,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Templates (#38): made in Settings, edited like any note, with their
@@ -25,7 +33,7 @@ async function makeTemplate(
   lines: string[],
   instructions: string,
 ): Promise<string> {
-  await page.goto('/settings');
+  await openSettings(page, 'Templates');
   await page.getByRole('button', { name: button, exact: true }).click();
   await expect(page).toHaveURL(/\/n\/\w+$/);
   await expect(page.getByRole('region', { name: 'Template' })).toBeVisible();
@@ -77,7 +85,7 @@ test('templates start a new entry or reopen the living note, and Claude can use 
   await expect(note(page)).not.toContainText('Start from the meal plan');
   expect(living).toBeTruthy();
 
-  await page.goto('/settings');
+  await openSettings(page, 'Templates');
   const list = page.getByRole('list', { name: 'Templates' });
   await expect(list).toContainText('Journal entry');
   await expect(list).toContainText('one note, reused');

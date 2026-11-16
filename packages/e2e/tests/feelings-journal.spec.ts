@@ -1,6 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
-import { expect, letItSave, openMore, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  openMore,
+  signInAs,
+  test,
+  typeLines,
+  openSettings,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The feelings journal (#40): a template from Settings with three daily
@@ -11,7 +19,7 @@ const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 
 test('a feelings journal: reminders open entries, moods grow and come back', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Templates');
   await page.getByRole('button', { name: 'Add a feelings journal' }).click();
   await expect(page.getByRole('region', { name: 'Template' })).toBeVisible();
 

@@ -1,5 +1,13 @@
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, openCapture, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  expect,
+  letItSave,
+  openCapture,
+  signInAs,
+  test,
+  typeLines,
+  openSettings,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Send to an assistant (#143): Eric sends a note from its back, with an
@@ -34,7 +42,7 @@ test('a note sent to an assistant waits in its queue, and shows what it did', as
   expect(await call('list_queue', {})).toEqual([]);
 
   // Settings gives the routine's prompt to copy.
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   await expect(page.getByRole('heading', { name: 'Send to an assistant' })).toBeVisible();
   await expect(page.getByText('Call list_queue.', { exact: false })).toBeVisible();
 });
@@ -46,7 +54,7 @@ test('Do it now runs the garden’s agent on the gardener’s key, and the back 
   page,
 }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const keys = page.getByRole('list', { name: 'API keys' });
   await keys
     .getByRole('textbox', { name: 'Anthropic key' })
@@ -81,7 +89,7 @@ test('Do it now runs the garden’s agent on the gardener’s key, and the back 
 // web) and writes what it found under the item, ticked.
 test('an item ending in @goblin is researched and answered under itself', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const keys = page.getByRole('list', { name: 'API keys' });
   await keys
     .getByRole('textbox', { name: 'Anthropic key' })
@@ -119,7 +127,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
 }) => {
   test.setTimeout(180_000);
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const keys = page.getByRole('list', { name: 'API keys' });
   await keys
     .getByRole('textbox', { name: 'Anthropic key' })
@@ -174,7 +182,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await page.getByRole('button', { name: 'New' }).click();
 
   // A template whose notes Settings says are never gardened on arrival.
-  await page.goto('/settings');
+  await openSettings(page, 'Templates');
   await page.getByRole('button', { name: 'New template', exact: true }).click();
   await expect(page).toHaveURL(/\/n\/\w+$/);
   // The template's text can arrive after the page does (#226): clear it
@@ -189,7 +197,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await expect(back.getByRole('heading', { level: 2, name: 'Pottery journal' })).toBeVisible({
     timeout: 20_000,
   });
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const skip = page.getByRole('checkbox', { name: 'Notes made from Pottery journal' });
   await skip.check();
   await expect(skip).toBeChecked();
@@ -210,7 +218,7 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   // A tag Settings names, typed with a # and a stray space, kept tidy
   // across a reload; the assistant tags a note, and Eric's next line
   // settles it unsent.
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const tags = page.getByRole('textbox', { name: 'Notes with these tags' });
   await tags.fill('private, #journal ');
   await tags.press('Tab');
@@ -268,7 +276,7 @@ test('a ramble is split on arrival into a note a thought, and Put back makes it 
 }) => {
   test.setTimeout(120_000);
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const keys = page.getByRole('list', { name: 'API keys' });
   await keys
     .getByRole('textbox', { name: 'Anthropic key' })

@@ -33,7 +33,7 @@ import { KitchenTabs } from './kitchen-tabs';
       @if (!modules.kitchen()) {
         <p>
           Recipes are part of Kitchen, which is switched off.
-          <a routerLink="/settings" fragment="modules">Switch it on in Settings</a>.
+          <a routerLink="/settings/modules">Switch it on in Settings, Modules</a>.
         </p>
       } @else {
         <div class="tools">

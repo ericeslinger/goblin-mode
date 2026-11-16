@@ -3,7 +3,15 @@ import AxeBuilder from '@axe-core/playwright';
 import { type Page, devices } from '@playwright/test';
 import { connectClaude } from '../src/claude';
 import { SHOW_ART, serveEpisodes, serveProxy } from '../src/episodes';
-import { FIRESTORE_EMULATOR, expect, letItSave, prepPage, signInAs, test } from '../src/fixtures';
+import {
+  FIRESTORE_EMULATOR,
+  expect,
+  letItSave,
+  prepPage,
+  signInAs,
+  test,
+  openSettings,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Podcasts (#245, step 1 of #244): a module of its own, out of the
@@ -70,7 +78,7 @@ async function addThePodcast(
   page: Page,
   { podcastsOnly = false, second = false } = {},
 ): Promise<void> {
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   // Podcasts alone was switched on by the journey already: only wait
   // for Settings to read it (a click before then would switch it off).
   if (!podcastsOnly) await page.getByRole('switch', { name: 'Reader' }).check();
@@ -113,7 +121,7 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   // The module follows the Reader until switched itself: both off, no tile.
   await page.goto('/home');
   await expect(page.getByRole('link', { name: /^Podcasts/ })).toHaveCount(0);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await expect(page.getByRole('switch', { name: 'Reader' })).not.toBeChecked();
   await expect(page.getByRole('switch', { name: 'Podcasts' })).not.toBeChecked();
 
@@ -225,7 +233,7 @@ test('add a podcast, its episodes in Latest, new until heard; move it to the Rea
   await expect(page.getByText('No shows yet.')).toBeVisible();
   await expect(shows.getByRole('listitem')).toHaveCount(0);
   expect(await call('list_feed_items', { podcasts: true, includeRead: true })).toEqual([]);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
   await page.goto('/reader');
@@ -477,7 +485,7 @@ test('download an episode, play it offline, remove it', async ({ page }) => {
     .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 20_000 })
     .toBe(true);
   await addThePodcast(page);
-  await page.goto('/settings');
+  await openSettings(page, 'This device');
   await expect(
     page.getByRole('combobox', { name: 'Downloaded episodes kept on this device, at most' }),
   ).toHaveValue('500');
@@ -574,7 +582,7 @@ test('the listening queue: add, arrange, play next, remove, play through, new ep
   await serveEpisodes(page);
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
   await letItSave(page);
@@ -755,7 +763,7 @@ test('podcasts from an OPML list and back out, the tile’s line, Right Now, a m
   test.setTimeout(180_000);
   await serveEpisodes(page);
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
   await letItSave(page);

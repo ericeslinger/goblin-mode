@@ -24,7 +24,7 @@ import { KitchenTabs } from './kitchen-tabs';
       @if (!modules.kitchen()) {
         <p>
           The meal plan is part of Kitchen, which is switched off.
-          <a routerLink="/settings" fragment="modules">Switch it on in Settings</a>.
+          <a routerLink="/settings/modules">Switch it on in Settings, Modules</a>.
         </p>
       } @else {
         <p role="status">Opening the week…</p>

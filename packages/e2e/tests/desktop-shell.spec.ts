@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { type CallTool, connectClaude } from '../src/claude';
-import { expect, letItSave, openCapture, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, openCapture, signInAs, switchModulesOn, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The desktop shell, its first part (#289, epic #282; Eric, 2026-11-15):
@@ -48,14 +48,10 @@ const LONG =
 
 /** Kitchen, the Reader and Podcasts on, as other journeys switch them. */
 async function modulesOn(page: Page): Promise<void> {
-  await page.goto('/settings');
-  // Podcasts follows the Reader until it is switched itself (#245), so
-  // it comes on with the Reader: wait for that, never click it, or the
-  // click can land as it turns on and turn it off again.
-  await page.getByRole('switch', { name: 'Reader' }).check();
-  await expect(page.getByRole('switch', { name: 'Podcasts' })).toBeChecked();
-  await page.getByRole('switch', { name: 'Kitchen' }).check();
-  await letItSave(page);
+  // Podcasts follows the Reader until it is switched itself (#245): the
+  // helper waits for it to come on with the Reader, never clicking it as
+  // it turns on, which could turn it off again.
+  await switchModulesOn(page, 'Reader', 'Podcasts', 'Kitchen');
   await page.reload();
   await expect(page.getByRole('switch', { name: 'Kitchen' })).toBeChecked();
 }
@@ -72,6 +68,7 @@ function screens(id: string): [url: string, lands: RegExp, current: string][] {
     ['/browse', /\/browse/, 'Notes'],
     ['/right-now', /\/right-now$/, 'Right Now'],
     ['/settings', /\/settings$/, 'Settings'],
+    ['/settings/modules', /\/settings\/modules$/, 'Settings'],
     ['/map', /\/map$/, 'Map'],
     ['/kitchen', /\/n\/meals-\d{4}-\d{2}-\d{2}$/, 'Kitchen'],
     ['/kitchen/recipes', /\/kitchen\/recipes$/, 'Kitchen'],
@@ -281,6 +278,18 @@ test.describe('on a wide screen', () => {
     await page.keyboard.press('Enter');
     await expect(page.locator('main')).toBeFocused();
     await expect(page).toHaveURL(/\/home$/);
+
+    // The capture screen has no main: Skip to content puts the cursor in
+    // the note, so what is typed next is the note's.
+    await openCapture(page);
+    const note = page.getByRole('textbox', { name: 'New note' });
+    await expect(note).toBeVisible();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await skip.focus();
+    await page.keyboard.press('Enter');
+    await expect(note).toBeFocused();
+    await page.keyboard.type('Skipped straight in');
+    await expect(note).toContainText('Skipped straight in');
   });
 
   test('not on the sign-in screens, nor signed out', async ({ page }) => {

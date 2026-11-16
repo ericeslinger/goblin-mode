@@ -10,11 +10,13 @@ import { UndoBar } from './undo-bar';
 export const PANEL_ITEMS = 3;
 
 /**
- * Right Now on the launch screen, beside the notes and in the sheet over
- * a saved note: what is overdue or due today, at most three, the rest
- * one tap away on the full list; then what has waited in the reading
- * queue, and one quiet line on what is new in the Reader (#173) and in
- * Podcasts (#251), under the reminders (#288).
+ * Right Now on the launch screen under 900 px, under the capture note
+ * and in the sheet over a saved note (from 900 px it is the rail's
+ * entry and its own screen, #289): what is overdue or due today, at
+ * most three, the rest one tap away on the full list; then what has
+ * waited in the reading queue, and one quiet line on what is new in
+ * the Reader (#173) and in Podcasts (#251), under the reminders
+ * (#288).
  */
 @Component({
   selector: 'app-right-now-panel',

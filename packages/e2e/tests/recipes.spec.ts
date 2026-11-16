@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, typeLines, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Recipes (#127): with Kitchen on, a recipe is started from Browse,
@@ -13,7 +13,7 @@ const note = (page: Page) => page.getByRole('textbox', { name: 'New note' });
 test('a recipe is started, written, linked and made by Claude', async ({ page }) => {
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   // Kept: the switch survives a reload before anything relies on it.
   await letItSave(page);
@@ -74,7 +74,7 @@ test('a recipe is started, written, linked and made by Claude', async ({ page })
 // the import fails, says why, and offers to try again.
 test('a recipe imported from a link is made at once and says how it went', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();
@@ -135,7 +135,7 @@ test('a recipe imported from a link is made at once and says how it went', async
 // licensing site does, and a scripted reader stands in for Claude.
 test('a recipe a site refused is made from the page pasted instead', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();
@@ -190,7 +190,7 @@ test('a recipe a site refused is made from the page pasted instead', async ({ pa
 // ordinary recipe, his text intact. An assistant names it when he asks.
 test('a refused import typed in by hand is dismissed, its text kept', async ({ page }) => {
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Kitchen' }).check();
   await letItSave(page);
   await page.reload();

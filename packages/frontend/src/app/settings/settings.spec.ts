@@ -15,6 +15,7 @@ import { KEY_SERVICE_MISSING } from '../notes/key-wait-notice';
 import { NoteKeyService } from '../notes/note-key.service';
 import { TEST_NOTE_KEY } from '../testing/sealed';
 import { Settings } from './settings';
+import { type SettingsPageId } from './settings-pages';
 
 function fakePush(state: PushState = 'off') {
   return {
@@ -56,6 +57,7 @@ const noteKeys = {
 
 async function render(
   auth: FakeAuthService,
+  page: SettingsPageId,
   push = fakePush(),
   notes = new FakeNotes(),
   modules = new FakeModules(),
@@ -76,7 +78,13 @@ async function render(
       { provide: NoteKeyService, useValue: noteKeys },
     ],
   }).compileComponents();
+  return show(page);
+}
+
+/** One page of Settings (#290), as its route shows it. */
+async function show(page: SettingsPageId) {
   const fixture = TestBed.createComponent(Settings);
+  fixture.componentRef.setInput('page', page);
   await fixture.whenStable();
   return fixture.nativeElement as HTMLElement;
 }
@@ -85,25 +93,49 @@ const button = (el: HTMLElement, text: string) =>
   [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
 
 describe('Settings', () => {
+  it('shows each section on its own page only (#290)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const modules = new FakeModules();
+    modules.set('reader', true);
+    // Set by hand: unset, Podcasts would follow the Reader's switch (#245).
+    modules.set('podcasts', false);
+    const el = await render(auth, 'modules', fakePush(), new FakeNotes(), modules);
+    expect(el.querySelector('[aria-label="Modules"]')).not.toBeNull();
+    expect(el.textContent).toContain('Keep articles for');
+    expect(el.textContent).not.toContain('Sign out');
+    expect(el.textContent).not.toContain('Keep up to');
+    const device = await show('device');
+    expect(device.textContent).toContain('of episodes on this device');
+    expect(button(device, 'Check for updates')).toBeDefined();
+    expect(device.querySelector('[aria-label="Modules"]')).toBeNull();
+    const appearance = await show('appearance');
+    expect(appearance.querySelectorAll('input[name="theme"]').length).toBe(5);
+    expect(appearance.querySelector('[role="radiogroup"]')).toBeNull();
+  });
+
   it('shows who is signed in and the build stamp', async () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
-    const el = await render(auth);
+    const el = await render(auth, 'account');
     expect(el.textContent).toContain('Signed in as eric@example.com');
-    expect(el.textContent).toContain('Version');
-    expect(el.textContent).toContain('dev');
+    // The build stamp is on This device since #290.
+    const device = await show('device');
+    expect(device.textContent).toContain('Version');
+    expect(device.textContent).toContain('dev');
   });
 
   it('says so when signed out', async () => {
-    const el = await render(new FakeAuthService());
+    const el = await render(new FakeAuthService(), 'account');
     expect(el.textContent).toContain('Not signed in.');
+    expect(button(el, 'Sign out')).toBeUndefined();
   });
 
   it('turns notifications on and off', async () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
     const push = fakePush('off');
-    const el = await render(auth, push);
+    const el = await render(auth, 'notifications', push);
     expect(el.textContent).toContain('Reminders are not sent to this device.');
     button(el, 'Turn on notifications')!.click();
     expect(push.enable).toHaveBeenCalled();
@@ -122,7 +154,7 @@ describe('Settings', () => {
     const order: string[] = [];
     push.beforeSignOut.mockImplementation(async () => void order.push('push'));
     auth.signOut.mockImplementation(async () => void order.push('auth'));
-    const el = await render(auth, push);
+    const el = await render(auth, 'account', push);
     button(el, 'Sign out')!.click();
     await vi.waitFor(() => expect(order).toEqual(['push', 'auth']));
   });
@@ -130,21 +162,23 @@ describe('Settings', () => {
   it('explains when notifications cannot be turned on', async () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
-    const el = await render(auth, fakePush('blocked'));
+    const el = await render(auth, 'notifications', fakePush('blocked'));
     expect(el.textContent).toContain('Notifications are blocked for this site.');
     expect(button(el, 'Turn on notifications')).toBeUndefined();
   });
 
   it('shows no notification controls when signed out', async () => {
-    const el = await render(new FakeAuthService());
+    const el = await render(new FakeAuthService(), 'notifications');
     expect(el.textContent).not.toContain('Notifications');
+    expect(el.textContent).toContain('Not signed in.');
+    expect(el.querySelector('button')).toBeNull();
   });
 
   it('saves a pasted provider key, shows the masked one, and removes it (#144)', async () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
     keys.keys.set({});
-    const el = await render(auth);
+    const el = await render(auth, 'assistants');
     const input = el.querySelector<HTMLInputElement>('input[aria-label="Anthropic key"]')!;
     input.value = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123';
     input.closest('form')!.dispatchEvent(new Event('submit'));
@@ -174,7 +208,7 @@ describe('Settings', () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
     keys.keys.set({});
-    const el = await render(auth);
+    const el = await render(auth, 'assistants');
     const toggle = () =>
       [...el.querySelectorAll('label')]
         .find((l) => l.textContent?.includes('Garden new notes on arrival'))
@@ -199,7 +233,7 @@ describe('Settings', () => {
       { ...noteRecord('t2', 'Journal'), kind: 'template' },
       noteRecord('n1', 'Not a template'),
     ]);
-    const el = await render(auth, fakePush(), notes);
+    const el = await render(auth, 'assistants', fakePush(), notes);
     expect(el.textContent).toContain('Never gardened on arrival');
     expect(el.textContent).toContain('the pantry, the context note and clippings');
     const list = el.querySelector('[aria-labelledby="arrival-skip"]')!;
@@ -237,7 +271,7 @@ describe('Settings', () => {
     keys.keys.set({});
     keys.setDigestPush.mockClear();
     keys.setDigestHour.mockClear();
-    const el = await render(auth);
+    const el = await render(auth, 'assistants');
     expect(el.textContent).toContain('Daily digest');
     const toggle = [...el.querySelectorAll<HTMLInputElement>('input[role="switch"]')].find((i) =>
       i.parentElement?.textContent?.includes('A daily digest by push'),
@@ -270,7 +304,7 @@ describe('Settings', () => {
   it('shows the connector URL and disconnects Claude', async () => {
     const auth = new FakeAuthService();
     auth.user.set({ email: 'e@x.test', getIdToken: async () => 'id-token' } as never);
-    const el = await render(auth);
+    const el = await render(auth, 'assistants');
     expect(el.querySelector('code')?.textContent).toBe(`${location.origin}/mcp`);
     button(el, 'Disconnect all assistants')!.click();
     await vi.waitFor(() => expect(claude.revoke).toHaveBeenCalledWith('id-token'));
@@ -285,14 +319,27 @@ describe('Settings', () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
     const modules = new FakeModules();
-    const el = await render(auth, fakePush(), new FakeNotes(), modules);
-    const list = el.querySelector('[aria-labelledby="modules"]')!;
+    const el = await render(auth, 'modules', fakePush(), new FakeNotes(), modules);
+    const list = el.querySelector('[aria-label="Modules"]')!;
     const projects = list.querySelector<HTMLInputElement>('input[role="switch"]')!;
     expect(list.textContent).toContain('Projects');
     expect(projects.checked).toBe(true);
     projects.checked = false;
     projects.dispatchEvent(new Event('change'));
     expect(modules.set).toHaveBeenCalledWith('projects', false);
+  });
+
+  it('says the switches are busy until the stored modules are read (#290)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const modules = new FakeModules();
+    modules.loaded.set(false);
+    const el = await render(auth, 'modules', fakePush(), new FakeNotes(), modules);
+    const list = el.querySelector('[aria-label="Modules"]')!;
+    expect(list.getAttribute('aria-busy')).toBe('true');
+    modules.loaded.set(true);
+    TestBed.tick();
+    expect(list.hasAttribute('aria-busy')).toBe(false);
   });
 
   it('indexes the Reader’s articles for search, and says how many (#175)', async () => {
@@ -302,7 +349,7 @@ describe('Settings', () => {
     modules.set('reader', true);
     const reader = new FakeReader();
     reader.indexArticles.mockResolvedValueOnce('Indexed 12 articles.');
-    const el = await render(auth, fakePush(), new FakeNotes(), modules, reader);
+    const el = await render(auth, 'modules', fakePush(), new FakeNotes(), modules, reader);
     button(el, 'Index articles for search')!.click();
     await new Promise((r) => setTimeout(r));
     TestBed.inject(ApplicationRef).tick();
@@ -320,8 +367,8 @@ describe('Settings', () => {
       { ...noteRecord('t2', 'Journal'), kind: 'template' },
       noteRecord('n1', 'Not a template'),
     ]);
-    const el = await render(auth, fakePush(), notes);
-    const list = el.querySelector('[aria-labelledby="templates"]')!;
+    const el = await render(auth, 'templates', fakePush(), notes);
+    const list = el.querySelector('[aria-label="Templates"]')!;
     const rows = [...list.querySelectorAll('li')].map((li) => [
       li.querySelector('a')!.textContent!.trim(),
       li.querySelector('a')!.getAttribute('href'),
@@ -346,7 +393,7 @@ describe('Settings', () => {
     auth.signInAs('eric@example.com');
     const notes = new FakeNotes();
     notes.signIn([{ ...noteRecord('t1', 'Journal\nMood: one'), kind: 'template' }]);
-    const el = await render(auth, fakePush(), notes);
+    const el = await render(auth, 'templates', fakePush(), notes);
     expect(button(el, 'Add a feelings journal')).toBeDefined();
     // Renamed, it is still the journal.
     notes.notes.set([{ ...noteRecord('t2', 'How I feel\nMoods: '), kind: 'template' }]);
@@ -357,7 +404,7 @@ describe('Settings', () => {
   it('checks for updates: without a managed worker it says to reload (2026-11-07)', async () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
-    const el = await render(auth);
+    const el = await render(auth, 'device');
     button(el, 'Check for updates')!.click();
     await vi.waitFor(() => expect(el.textContent).toContain('Updates are not managed here'));
   });
@@ -366,7 +413,7 @@ describe('Settings', () => {
     localStorage.removeItem(START_ON_KEY);
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');
-    const el = await render(auth);
+    const el = await render(auth, 'start-on');
     const radio = (value: string) =>
       el.querySelector<HTMLInputElement>(`input[type="radio"][value="${value}"]`)!;
     expect(el.querySelectorAll('[role="radiogroup"] input[type="radio"]')).toHaveLength(6);
@@ -386,7 +433,7 @@ describe('Settings', () => {
     async function signedIn() {
       const auth = new FakeAuthService();
       auth.signInAs('eric@example.com');
-      const el = await render(auth);
+      const el = await render(auth, 'account');
       return el;
     }
     afterEach(() => {
@@ -421,7 +468,7 @@ describe('Settings', () => {
     });
 
     it('is not shown signed out', async () => {
-      const el = await render(new FakeAuthService());
+      const el = await render(new FakeAuthService(), 'account');
       expect(el.querySelector('#sealing')).toBeNull();
     });
   });

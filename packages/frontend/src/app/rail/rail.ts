@@ -1,5 +1,14 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  InjectionToken,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -15,6 +24,20 @@ import { PLACES, PlacesService, type PlaceId, RAIL_PLACES, placeLabel } from '..
 export const RAIL_QUERY = '(min-width: 900px)';
 /** The class on `<html>` while the rail is drawn; styles.css gives `--rail-width` by it. */
 export const RAIL_CLASS = 'has-rail';
+
+/**
+ * The address the page was opened at, path and query, from the document
+ * (#289): the rail's URL until the router's first navigation ends, when
+ * `router.url` is still `/`. Without it a cold load of a screen off the
+ * rail drew the rail for a moment, and one of `/reader` marked Notes.
+ */
+export const OPENED_AT = new InjectionToken<string>('rail-opened-at', {
+  providedIn: 'root',
+  factory: () => {
+    const location = inject(DOCUMENT).location;
+    return location ? location.pathname + location.search : '/';
+  },
+});
 
 /** Screens that are not the garden's: sign-in for development, and Claude's consent page. */
 const OFF_RAIL = ['dev-sign-in', 'oauth'];
@@ -241,7 +264,7 @@ export class Rail {
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
       map((e) => e.urlAfterRedirects),
     ),
-    { initialValue: this.router.url },
+    { initialValue: this.router.navigated ? this.router.url : inject(OPENED_AT) },
   );
   /**
    * Signed in, or restoring on a device signed in before, as the note
@@ -267,12 +290,25 @@ export class Rail {
   }
 
   /**
-   * To the screen's content: its `main` where it has one, else the
-   * screen itself, focused without a stop in the Tab order.
+   * To the screen's content: on the note screen (`/`, `/n/<id>`) the
+   * note's text, so what is typed next goes into the note (it has no
+   * `main`, and its host would put the next Tab on the bar); elsewhere
+   * the screen's `main` where it has one, else the screen itself,
+   * focused without a stop in the Tab order.
    */
   protected skip(event: Event): void {
     event.preventDefault();
     const screen = this.doc.querySelector('app-root > router-outlet')?.nextElementSibling;
+    const [first = ''] = segments(this.url());
+    const note =
+      first === '' || first === 'n'
+        ? screen?.querySelector<HTMLElement>('app-note-editor .cm-content')
+        : null;
+    if (note) {
+      // CodeMirror's own content element: focusing it is the editor's focus().
+      note.focus();
+      return;
+    }
     const target = screen?.querySelector('main') ?? screen;
     if (!(target instanceof HTMLElement)) return;
     if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');

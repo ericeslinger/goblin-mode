@@ -27,7 +27,7 @@ import {
   fakeFirebase,
   noteRecord,
 } from '../testing/fakes';
-import { RAIL_CLASS, Rail, RailNav, currentPlace, offRail } from './rail';
+import { OPENED_AT, RAIL_CLASS, Rail, RailNav, currentPlace, offRail } from './rail';
 
 @Component({ template: '' })
 class Blank {}
@@ -218,6 +218,9 @@ describe('the rail (#289)', () => {
       ['/map/n/n1', 'Map'],
       ['/activity', 'Assistants'],
       ['/settings', 'Settings'],
+      // Settings as pages (#290): a page, and an old anchor, are Settings.
+      ['/settings/modules', 'Settings'],
+      ['/settings#downloads', 'Settings'],
     ];
     for (const [url, name] of cases) {
       const el = await nav(url, {
@@ -334,6 +337,25 @@ describe('where the rail is drawn (#289)', () => {
     }
   });
 
+  it('is right from the first render, before the first navigation ends', async () => {
+    // A cold load: the router still says `/`; the document says where.
+    configure();
+    TestBed.overrideProvider(OPENED_AT, { useValue: '/oauth/authorize?client_id=x' });
+    let fixture = TestBed.createComponent(Rail);
+    fixture.detectChanges();
+    expect(TestBed.inject(Router).navigated).toBe(false);
+    expect(fixture.nativeElement.querySelector('nav, a')).toBeNull();
+    expect(document.documentElement.classList).not.toContain(RAIL_CLASS);
+    TestBed.resetTestingModule();
+
+    configure({ reader: true });
+    TestBed.overrideProvider(OPENED_AT, { useValue: '/reader' });
+    fixture = TestBed.createComponent(Rail);
+    fixture.detectChanges();
+    expect(TestBed.inject(Router).navigated).toBe(false);
+    expect(current(fixture.nativeElement)).toEqual(['Reader']);
+  });
+
   it('goes when the gardener signs out', async () => {
     const { auth } = configure();
     const fixture = TestBed.createComponent(Rail);
@@ -357,6 +379,7 @@ describe('currentPlace and offRail', () => {
 
   it('puts History under Notes, and an unknown path under nothing', () => {
     expect(currentPlace('/history?note=n1', plain)).toBe('notes');
+    expect(currentPlace('/settings/assistants', plain)).toBe('settings');
     expect(currentPlace('/somewhere/new', plain)).toBeUndefined();
   });
 

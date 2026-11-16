@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test, typeLines } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, typeLines, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // What assistants changed (#34): Claude organizes through MCP, and the app
@@ -231,7 +231,7 @@ test('the day in one line tops What assistants changed, and the digest push is k
     'Added 2 lines to a sealed note',
   );
 
-  await page.goto('/settings');
+  await openSettings(page, 'AI assistants');
   const toggle = page.getByRole('switch', { name: 'A daily digest by push' });
   const hour = page.getByRole('combobox', { name: 'Hour of the daily digest' });
   await expect(toggle).not.toBeChecked();

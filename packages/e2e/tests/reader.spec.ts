@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { crc32 } from 'node:zlib';
 import type { Page } from '@playwright/test';
 import { connectClaude } from '../src/claude';
-import { expect, letItSave, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, signInAs, test, openSettings } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The Reader (#159): the module switched on, an OPML file imported into
@@ -77,7 +77,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
     .getByRole('link', { name: /^Reader/ });
   await page.goto('/home');
   await expect(readerTile).toHaveCount(0);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
   await page.goto('/home');
@@ -168,7 +168,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   // Mark read on scroll (#172): the switch on, All in a short window
   // scrolled to its end, the rows passed marked in one batch and kept in
   // the list, the count down by as many, then Undo puts them back.
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   const onScroll = page.getByRole('switch', { name: 'Mark articles read as I scroll past them' });
   await expect(onScroll).not.toBeChecked();
   await onScroll.check();
@@ -202,7 +202,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   expect(await call('list_feed_items', {})).toHaveLength(7);
   // Off again, so the lists below are only what the swipes and taps do.
   await page.setViewportSize(tall);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   // Once the setting has been read (it draws off until then), a click,
   // and the switch off once it settles: uncheck() reads the switch the
   // instant after its click, and failed once on a state the page was
@@ -425,7 +425,7 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   expect(again.id).toBe(clipped.id);
 
   // Images are a setting of the gardener's, kept across devices.
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   const images = page.getByRole('switch', { name: 'Show images in articles' });
   await expect(images).toBeChecked();
   await images.uncheck();
@@ -539,7 +539,7 @@ test('a feed whose address stopped working: needs attention, found, switched; it
 }) => {
   test.setTimeout(60_000);
   await signInAs(page, OWNER);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
   await page.goto('/reader/feeds');
@@ -685,7 +685,7 @@ test('import Feedly’s full export: the feeds, the saves, boards as tags', asyn
   test.setTimeout(60_000);
   await signInAs(page, OWNER);
   const call = await connectClaude(page);
-  await page.goto('/settings');
+  await openSettings(page, 'Modules');
   await page.getByRole('switch', { name: 'Reader' }).check();
   await letItSave(page);
   await page.goto('/reader/feeds');
