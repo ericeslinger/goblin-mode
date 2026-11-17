@@ -60,7 +60,7 @@ export const INSTRUCTIONS = [
     'recipe named Recipe from <site> carries the name its import gave it, not his: when he ' +
     'asks, name it with update_note title.',
   'The meal plan (Kitchen) is a note a week, one line per meal slot: get_meal_plan reads a ' +
-    'week, plan_meal sets a slot (a recipe link, delivery, out, or empty). A new week has a ' +
+    'week, plan_meal sets a slot (a recipe link, delivery, out, his own words, or empty). A new week has a ' +
     '"Fish of the week" placeholder dinner; when Eric says what the fish is, plan its recipe ' +
     "there. plan_meal also feeds the grocery list, so do not add a planned recipe's " +
     'ingredients to it yourself. Its lines name only the item; the back of the list says ' +
@@ -366,15 +366,24 @@ export function buildServer(
     {
       title: 'Plan a meal',
       description:
-        'Sets one slot of the meal plan to the text after its colon: "[[Recipe name]]" (a ' +
-        'recipe that exists), optionally with a ratio ("[[Dal]] (half recipe)"), "delivery" ' +
-        '(with anything after it), "out", or "" to clear it. Makes the week\'s plan if ' +
-        'missing; a change unticks the slot. A planned recipe adds its ingredients to the ' +
-        'grocery list, each line only the item, scaled by its ratio, skipping what is listed ' +
-        "(the list's back says which dinner wants it); changing the slot takes the old " +
-        "dinner's untouched lines it wrote off. The first recipe planned into a week newer " +
-        "than the list's starts that week its own list, archiving the old one. Kitchen only.",
-      inputSchema: { date, meal, slot: z.string() },
+        'Sets the date\'s slot for one meal to the text after its colon: "[[Recipe name]]" ' +
+        '(a recipe that exists, by name; an unknown one is refused), optionally with a ratio ' +
+        '("[[Dal]] (half recipe)"), "delivery" (with anything after it), "out", free text ' +
+        'for a meal that is no recipe ("leftovers", kept as written, feeding no list), or "" ' +
+        'to clear it. Replaces whatever the slot held, keeping the notes under it; a change ' +
+        "unticks the slot. Makes the week's plan if missing. A planned recipe adds its " +
+        'ingredients to the grocery list, each line only the item, scaled by its ratio, ' +
+        "skipping what is listed (the list's back says which dinner wants it); changing the " +
+        "slot takes the old dinner's untouched lines it wrote off. The first recipe planned " +
+        "into a week newer than the list's starts that week its own list, archiving the old " +
+        'one. Kitchen only.',
+      inputSchema: {
+        date,
+        meal,
+        slot: z
+          .string()
+          .describe('The slot\'s new text: a [[recipe]] link, delivery, out, free text, or ""'),
+      },
       annotations: write,
     },
     run((a) => tools.planMeal(a)),

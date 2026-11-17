@@ -196,6 +196,9 @@ describe('the MCP server', () => {
     expect(passage).toMatch(/leaving a slot he has already filled unless he asks/);
     expect(passage).toMatch(/add nothing to it unless he asks/);
     expect(passage).toMatch(/never say ids or links/);
+    // A slot can hold his own words, not only a recipe (#115, 2026-11-17).
+    const planMeal = (await client.listTools()).tools.find((t) => t.name === 'plan_meal');
+    expect(planMeal?.description).toMatch(/free text for a meal that is no recipe/);
   });
 
   it('passes validated arguments to the tools and returns their result as JSON', async () => {
