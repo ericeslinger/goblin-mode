@@ -746,13 +746,19 @@ test('on a phone a wide table scrolls in its own box, not the page (#313, 2026-1
   await expect(headless.getByRole('cell', { name: 'left | words' })).toBeVisible();
   // The page does not scroll sideways; the wide table does, in its box.
   expect(await noSidewaysScroll(page)).toBe(true);
-  const box = await wide.evaluate((t) => ({
-    scroll: t.scrollWidth,
-    client: t.clientWidth,
-    right: t.getBoundingClientRect().right,
-  }));
-  expect(box.scroll).toBeGreaterThan(box.client);
-  expect(box.right).toBeLessThanOrEqual(page.viewportSize()!.width);
+  // Measured until it holds: one full run read every width as 0
+  // (2026-11-17), as a table would give that was taken just before the
+  // article was drawn again. That reading of it is not proven.
+  await expect(async () => {
+    const box = await wide.evaluate((t) => ({
+      scroll: t.scrollWidth,
+      client: t.clientWidth,
+      right: t.getBoundingClientRect().right,
+    }));
+    expect(box.client).toBeGreaterThan(0);
+    expect(box.scroll).toBeGreaterThan(box.client);
+    expect(box.right).toBeLessThanOrEqual(page.viewportSize()!.width);
+  }).toPass({ timeout: 5000 });
   await wide.evaluate((t) => t.scrollTo({ left: 200 }));
   await expect.poll(() => wide.evaluate((t) => t.scrollLeft)).toBeGreaterThan(0);
   expect(await noSidewaysScroll(page)).toBe(true);
