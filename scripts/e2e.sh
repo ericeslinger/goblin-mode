@@ -84,7 +84,10 @@ cleanup() {
   while [ "$busy" = 1 ] && [ "$tries" -lt 60 ]; do
     busy=0
     for stack in $(seq 0 $((WORKERS - 1))); do
-      ports=$(stack_ports "$stack" | cut -d' ' -f1-5)
+      # The same ports the guard above checks: stack 0's first five,
+      # every one of a later stack's.
+      ports=$(stack_ports "$stack")
+      if [ "$stack" = 0 ]; then ports=$(echo "$ports" | cut -d' ' -f1-5); fi
       for port in $ports; do
         if port_in_use "$port"; then busy=1; fi
       done

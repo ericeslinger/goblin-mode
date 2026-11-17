@@ -192,6 +192,8 @@ describe('the MCP server', () => {
     );
     expect(named.filter((name) => !registered.has(name))).toEqual([]);
     expect(passage).toMatch(/save it at once with plan_meal/);
+    // His own entry in a slot is his: not planned over unasked.
+    expect(passage).toMatch(/leaving a slot he has already filled unless he asks/);
     expect(passage).toMatch(/add nothing to it unless he asks/);
     expect(passage).toMatch(/never say ids or links/);
   });
