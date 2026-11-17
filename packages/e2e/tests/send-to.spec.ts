@@ -104,6 +104,9 @@ test('an item ending in @goblin is researched and answered under itself', async 
   await letItSave(page);
   // New settles the note, which is when assigned items are picked up.
   await page.getByRole('button', { name: 'New' }).click();
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
   await page.goto('/browse');
   await page
     .getByRole('list', { name: 'Notes' })
@@ -180,6 +183,9 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await letItSave(page);
   await page.getByRole('button', { name: 'Front', exact: true }).click();
   await page.getByRole('button', { name: 'New' }).click();
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
 
   // A template whose notes Settings says are never gardened on arrival.
   await openSettings(page, 'Templates');
@@ -214,6 +220,9 @@ test('a new note is gardened on arrival once it settles, and its back says so', 
   await page.keyboard.type('bisque, cone 04');
   await letItSave(page);
   await page.getByRole('button', { name: 'New' }).click();
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
 
   // A tag Settings names, typed with a # and a stray space, kept tidy
   // across a reload; the assistant tags a note, and Eric's next line

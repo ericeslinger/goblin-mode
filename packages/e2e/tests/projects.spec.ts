@@ -56,6 +56,9 @@ test('a project files under another, with its kind, status and tasks', async ({ 
   expect(serious.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
   await tasks.getByRole('button', { name: 'Done: Write the guide' }).click();
   await expect(concept.getByRole('list', { name: 'Tasks' })).toHaveCount(0);
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
 
   // The parent lists it, with its status.
   await page.goto('/n/c-sprout');

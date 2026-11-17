@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // The reading queue (#48): links saved to read later, newest first,
@@ -32,6 +32,9 @@ test('save a link to read later, then mark it read', async ({ page }) => {
 
   await queue.getByRole('button', { name: /^Mark read:/ }).click();
   await expect(queue.getByRole('button', { name: /^Mark unread:/ })).toBeVisible();
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
   await page.goto('/home');
   await expect(tile).toContainText('Nothing waiting');
 });
