@@ -806,7 +806,8 @@ export class Launch {
     if (!note) return;
     this.capture.openNote(note.id, note.text);
     this.editor()?.load(note.id, note.text);
-    this.editor()?.focus();
+    // As New does: the editor may be hidden at the click (review on #317).
+    this.focusFresh();
     await this.router.navigate(['/n', note.id], { replaceUrl });
   }
 

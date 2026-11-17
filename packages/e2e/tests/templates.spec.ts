@@ -174,3 +174,27 @@ test('a note set to Log on its back takes Claude’s lines under today’s date'
     new RegExp(`First firing of the year[\\s\\S]*${today}[\\s\\S]*Glazed the bowls, cone 6\\.`),
   );
 });
+
+// The editor is hidden while a note's back shows; From template gives
+// the cursor to the entry once it shows (2026-11-17, as New does).
+test('From template from the back of a note takes typing as soon as it shows', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await makeTemplate(page, 'New template', ['Journal entry', 'Mood: '], 'Ask how the day went.');
+  await openCapture(page);
+  await typeLines(page, ['A thought']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Back of the note' })).toBeVisible();
+  await expect(note(page)).toBeHidden();
+
+  await page.getByRole('button', { name: 'From template' }).click();
+  await page
+    .getByRole('list', { name: 'Templates' })
+    .getByRole('button', { name: 'Journal entry' })
+    .click();
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  await expect(note(page)).toContainText('Mood:');
+  // No click into the note first: the cursor is already there.
+  await page.keyboard.type('typed at once');
+  await expect(note(page)).toContainText('typed at once');
+});
