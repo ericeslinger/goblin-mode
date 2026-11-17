@@ -28,6 +28,9 @@ test('switching Projects off hides it everywhere, and on brings it back', async 
   // Its items fold to one line until opened (#287).
   await openProjectHeader(page);
   await expect(concept.getByRole('textbox', { name: 'Add a task' })).toBeVisible();
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
 
   await openSettings(page, 'Modules');
   const projects = page.getByRole('switch', { name: 'Projects' });

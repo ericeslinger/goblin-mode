@@ -94,6 +94,9 @@ test('every theme, light and dark, passes axe on the busiest screens', async ({ 
   await page.getByRole('textbox', { name: 'Reminder', exact: true }).fill('Water the plants');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByText('Water the plants')).toBeVisible();
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
 
   for (const theme of THEMES) {
     for (const mode of ['Light', 'Dark'] as const) {

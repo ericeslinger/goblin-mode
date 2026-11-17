@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, signInAs, test } from '../src/fixtures';
+import { expect, letItSave, signInAs, test } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 /** A datetime-local value `minutes` from now, in the browser's own zone. */
@@ -53,6 +53,9 @@ test('add a reminder, see it in Right Now, then done and undo', async ({ page })
   await rightNow(page).getByRole('button', { name: 'Undo' }).click();
   await expect(rightNow(page)).toContainText('Call the bank');
 
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
   // Still there for a fresh load: it was written, not just shown.
   await page.reload();
   await expect(rightNow(page)).toContainText('Call the bank');

@@ -350,6 +350,9 @@ test('import feeds, refresh, read through a folder with swipes and keys, save, m
   await expect(page.getByRole('heading', { name: 'Three chairs', level: 1 })).toBeVisible();
   await pageSwipe(-140);
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
   // And after a reload: this tab kept them.
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Celadon glazes', level: 1 })).toBeVisible();
@@ -746,6 +749,9 @@ test('import Feedly’s full export: the feeds, the saves, boards as tags', asyn
     'nothing to look at',
   );
   await axe(page);
+  // The write lands before the page goes (2026-11-17, #312): a reload
+  // within milliseconds of the tap lost such a write under load.
+  await letItSave(page);
 
   // Saved: both, read, the board's name a chip; the page's brackets stay words.
   await page.goto('/reader/f/saved');
