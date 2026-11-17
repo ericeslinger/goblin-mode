@@ -1026,6 +1026,24 @@ leaf (the neighborhood map, Manage feeds, Downloads, the caught-up page)
 had none; since 2026-11-15 (#286) they have the page header, so the
 leaf and New note too.
 
+*New from a note that cannot be typed in (2026-11-17).* The editor's
+read-only rule for a note not here yet (`Launch.waiting`) read the URL
+alone, while New opens the fresh note before the URL changes. From
+`/n/<id>` for a note not here (not synced, or a sealed note opened
+cold before the notes loaded), the fresh note showed, empty, its
+placeholder up, and stayed read-only, the cursor nowhere, until the
+navigation to `/` ended; a key typed in that window was dropped (the
+sealed-notes journey, once, under load: "yped while the key is away").
+The rule now: a note waits only while it is the note open, so whatever
+opens another note ahead of its URL (New, From template, a share)
+gives one that takes typing in the same render that shows it. And New
+puts the cursor in the editor again once that render is done, since an
+editor hidden behind the note's back, a sealed note, a list or
+Kitchen's week cannot take it before (`Launch.focusFresh`). Typing as
+the stored text of the note open arrives later is unchanged: it
+merges (#37), and a note the URL names is still read-only until it
+arrives.
+
 **Saving (as built, 2026-10-06).** `CaptureService` writes 300 ms after
 typing pauses, and at once when the app is hidden. `NotesService`
 writes a new note's full shape (what the rules require), then merged

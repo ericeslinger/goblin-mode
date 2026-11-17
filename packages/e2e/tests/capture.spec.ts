@@ -114,3 +114,35 @@ test('wide screens show all notes beside the open one', async ({ page }) => {
   // The notes list is beside the note: Browse is not needed in More.
   await expect((await openMore(page)).getByRole('link', { name: 'Browse' })).toBeHidden();
 });
+
+// New gives a note that takes typing as soon as it shows, whatever was
+// on the screen (2026-11-17): the editor hidden behind a note's back,
+// or read-only for a note that has not reached this device.
+test('New from the back of a note takes typing as soon as it shows', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await typeLines(page, ['First thought']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Back of the note' })).toBeVisible();
+  await expect(note(page)).toBeHidden();
+
+  await page.getByRole('button', { name: 'New' }).click();
+  await expect(note(page).getByText('Plant a thought')).toBeVisible();
+  // No click into the note first: the cursor is already there.
+  await page.keyboard.type('Typed at once');
+  await expect(note(page)).toHaveText('Typed at once');
+  await letItSave(page);
+  await page.reload();
+  await expect(note(page)).toHaveText('Typed at once');
+});
+
+test('New from a note that has not arrived takes typing as soon as it shows', async ({ page }) => {
+  await signInAs(page, OWNER);
+  await page.goto('/n/notarrivedyet0000001');
+  await expect(page.getByText('This note hasn’t reached this device yet.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'New' }).click();
+  await expect(note(page).getByText('Plant a thought')).toBeVisible();
+  await page.keyboard.type('Typed at once');
+  await expect(note(page)).toHaveText('Typed at once');
+});
