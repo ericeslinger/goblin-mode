@@ -4513,7 +4513,7 @@ it, one backticked tool name per row.
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
 | `import_recipe` | Asks the server to import a link's recipe, as the app does (Claude never reads the page); returns the new recipe's id; Kitchen only | Importing a recipe (#128) |
 | `get_meal_plan` | A week's slots (day, date, meal, what is planned, made, ratio, notes under it) for a date; Kitchen only | Meal plan (#129) |
-| `plan_meal` | Sets one slot to a recipe link, delivery, out or empty, making the week's plan if missing, and feeds the grocery list (a recipe planned into a newer week starts its own list, #207); Kitchen only | Meal plan (#129), Grocery list (#130) |
+| `plan_meal` | Sets one slot to a recipe link, delivery, out, free text (kind `other`, such as leftovers, feeding no list; 2026-11-17) or empty, replacing what it held, making the week's plan if missing, and feeds the grocery list (a recipe planned into a newer week starts its own list, #207); Kitchen only | Meal plan (#129), Grocery list (#130) |
 | `log_meal` | Eric's words on how a meal went, under its slot and in the recipe's Notes; Kitchen only | Meal plan (#129) |
 | `get_pantry` | What is on hand: each item, its amount as written, always, its section; Kitchen only | On hand (#131) |
 | `update_pantry` | Adds, removes or marks items always on hand, changing only those lines; Kitchen only | On hand (#131) |
