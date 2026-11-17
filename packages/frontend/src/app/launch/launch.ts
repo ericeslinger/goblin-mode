@@ -1,4 +1,5 @@
 import {
+  ApplicationRef,
   Component,
   DestroyRef,
   type ElementRef,
@@ -208,6 +209,7 @@ export class Launch {
   private readonly entryFrom = signal<string | undefined>(undefined);
   private readonly shareInbox = inject(SHARE_INBOX);
   private readonly injector = inject(Injector);
+  private readonly app = inject(ApplicationRef);
   private readonly doc = inject(DOCUMENT);
   /** The note the latest share went into. */
   private shareNote?: string;
@@ -463,7 +465,10 @@ export class Launch {
       if (!note) return;
       untracked(() => {
         this.entryFrom.set(undefined);
-        if (note.kind === 'template') void this.fromTemplate(id, { replaceUrl: true });
+        // In an effect, so during a render: it must not render again.
+        if (note.kind === 'template') {
+          void this.fromTemplate(id, { replaceUrl: true, rendering: true });
+        }
       });
     });
 
@@ -786,20 +791,31 @@ export class Launch {
   }
 
   /**
-   * The cursor in the editor at once, and again once it is drawn
-   * (2026-11-17): hidden behind the note's back, a sealed note, a list
-   * or Kitchen's week, it cannot take the cursor until the render that
-   * shows it, and nothing else gives it then.
+   * The note just opened shown, editable and holding the cursor before
+   * the handler returns (2026-11-17), so the very next key lands in it.
+   * Hidden behind the note's back, a sealed note, a list or Kitchen's
+   * week, or read-only for a note not here yet, the editor changes only
+   * when this screen renders, and the render the click schedules waits
+   * for the next frame: a key typed before it went to a focused editor
+   * that took no text. So the app renders now, synchronously, and then
+   * the editor takes the cursor: the whole app, since the effects that
+   * turn a note to its front run in the view above this one. Called
+   * during a render (a reminder's template, from an effect), it may
+   * not start another: the cursor waits for that render's end instead.
    */
-  private focusFresh(): void {
+  private focusFresh({ rendering = false }: { rendering?: boolean } = {}): void {
+    if (rendering) {
+      afterNextRender(() => this.editor()?.focus(), { injector: this.injector });
+      return;
+    }
+    this.app.tick();
     this.editor()?.focus();
-    afterNextRender(() => this.editor()?.focus(), { injector: this.injector });
   }
 
   /** Opens a template's note: its living note, or a fresh entry (#38). */
   protected async fromTemplate(
     templateId: string,
-    { replaceUrl = false }: { replaceUrl?: boolean } = {},
+    { replaceUrl = false, rendering = false }: { replaceUrl?: boolean; rendering?: boolean } = {},
   ): Promise<void> {
     this.templatesOpen.set(false);
     const note = this.templates.use(templateId);
@@ -807,7 +823,7 @@ export class Launch {
     this.capture.openNote(note.id, note.text);
     this.editor()?.load(note.id, note.text);
     // As New does: the editor may be hidden at the click (review on #317).
-    this.focusFresh();
+    this.focusFresh({ rendering });
     await this.router.navigate(['/n', note.id], { replaceUrl });
   }
 
