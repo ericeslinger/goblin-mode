@@ -33,10 +33,11 @@ import { Icon } from '../home/icon';
  * The article's HTML for the page (#162): the stored markdown rendered
  * as a note is (`renderNoteHtml`, sanitized, http and https sources
  * only), images lazy and sent with no referrer, or replaced by their
- * words when the gardener has images off.
+ * words when the gardener has images off. A table scrolls in its own
+ * box, so it takes the focus, for the keys to scroll it (2026-11-17).
  */
 export function articleHtml(markdown: string, images: boolean): string {
-  const html = renderNoteHtml(markdown);
+  const html = renderNoteHtml(markdown).replace(/<table>/g, '<table tabindex="0">');
   return images
     ? html.replace(/<img\b/g, '<img loading="lazy" referrerpolicy="no-referrer"')
     : html.replace(/<img\b[^>]*?(?:\salt="([^"]*)")?[^>]*>/g, (_, alt: string | undefined) =>
@@ -354,9 +355,26 @@ export function articleHtml(markdown: string, images: boolean): string {
       max-width: 100%;
       height: auto;
     }
+    /*
+     * A wide table scrolls in its own box, never the page; its cells
+     * keep their words whole (2026-11-17, #313), and the empty header
+     * row the converter writes for a table without one is not drawn.
+     */
     :host ::ng-deep .body table {
       display: block;
       overflow-x: auto;
+      border-collapse: collapse;
+      margin: 0.8em 0;
+    }
+    :host ::ng-deep .body :is(th, td) {
+      padding: var(--space-1) var(--space-2);
+      border-bottom: 1px solid var(--rule);
+      text-align: start;
+      vertical-align: top;
+      overflow-wrap: break-word;
+    }
+    :host ::ng-deep .body thead:not(:has(th:not(:empty))) {
+      display: none;
     }
     :host ::ng-deep .body pre {
       overflow-x: auto;

@@ -60,8 +60,9 @@ export const INSTRUCTIONS = [
     'recipe named Recipe from <site> carries the name its import gave it, not his: when he ' +
     'asks, name it with update_note title.',
   'The meal plan (Kitchen) is a note a week, one line per meal slot: get_meal_plan reads a ' +
-    'week, plan_meal sets a slot (a recipe link, delivery, out, his own words, or empty). A new week has a ' +
-    '"Fish of the week" placeholder dinner; when Eric says what the fish is, plan its recipe ' +
+    'week, plan_meal sets a slot (a recipe link, delivery, out, his own words, or empty). ' +
+    'A new week has a "Fish of the week" placeholder dinner; when Eric says what the fish ' +
+    'is, plan its recipe ' +
     "there. plan_meal also feeds the grocery list, so do not add a planned recipe's " +
     'ingredients to it yourself. Its lines name only the item; the back of the list says ' +
     'which dinner wants each. Each week has its own list: the first dinner planned into a ' +

@@ -693,3 +693,74 @@ test('on a phone the Reader is as it was: a row opens the article full screen', 
   await expect(page.getByRole('region', { name: 'Article', exact: true })).toHaveCount(0);
   await noSeriousViolations(page);
 });
+
+/** An article's stored text holding two tables, as the converter writes them (#313). */
+const TABLES = [
+  'A wide table first.',
+  '',
+  `| ${Array.from({ length: 8 }, (_, i) => `Heading ${i}`).join(' | ')} |`,
+  `| ${Array.from({ length: 8 }, () => '---').join(' | ')} |`,
+  `| ${Array.from({ length: 8 }, (_, i) => `unbreakablelongword${i}xxxxxxxx`).join(' | ')} |`,
+  '',
+  'Then one the page gave no header row.',
+  '',
+  '|  |  |',
+  '| --- | --- |',
+  '| left \\| words | right |',
+].join('\n');
+
+test('on a phone a wide table scrolls in its own box, not the page (#313, 2026-11-17)', async ({
+  page,
+}) => {
+  await readerWithFixtures(page);
+  // A copy of Three chairs as the fetcher stored it, its text the tables.
+  const res = await fetch(`${ITEMS}?pageSize=300`, { headers: { authorization: 'Bearer owner' } });
+  const { documents = [] } = (await res.json()) as {
+    documents?: { fields: Record<string, { stringValue?: string }> }[];
+  };
+  const model = documents.find((d) => d.fields['title']?.stringValue === 'Three chairs');
+  expect(model, 'Three chairs is stored').toBeDefined();
+  const fields: Record<string, unknown> = { ...model!.fields };
+  for (const name of ['readerState', 'readerContent', 'readerError', 'terms', 'readAt']) {
+    delete fields[name];
+  }
+  Object.assign(fields, {
+    title: { stringValue: 'Chair tables' },
+    link: { stringValue: 'https://design.invalid/chair-tables' },
+    summary: { stringValue: 'A wide table first.' },
+    content: { stringValue: TABLES },
+    read: { booleanValue: false },
+  });
+  const put = await fetch(`${ITEMS}/chair-tables`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+    body: JSON.stringify({ fields }),
+  });
+  expect(put.ok).toBe(true);
+
+  await page.goto('/reader/a/chair-tables?in=f:Design');
+  await expect(page.getByRole('heading', { name: 'Chair tables', level: 1 })).toBeVisible();
+  const [wide, headless] = [page.locator('.body table').nth(0), page.locator('.body table').nth(1)];
+  await expect(wide).toBeVisible();
+  await expect(wide.getByRole('columnheader', { name: 'Heading 7' })).toHaveCount(1);
+  await expect(headless.getByRole('cell', { name: 'left | words' })).toBeVisible();
+  // The page does not scroll sideways; the wide table does, in its box.
+  expect(await noSidewaysScroll(page)).toBe(true);
+  const box = await wide.evaluate((t) => ({
+    scroll: t.scrollWidth,
+    client: t.clientWidth,
+    right: t.getBoundingClientRect().right,
+  }));
+  expect(box.scroll).toBeGreaterThan(box.client);
+  expect(box.right).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await wide.evaluate((t) => t.scrollTo({ left: 200 }));
+  await expect.poll(() => wide.evaluate((t) => t.scrollLeft)).toBeGreaterThan(0);
+  expect(await noSidewaysScroll(page)).toBe(true);
+  // The empty header row the converter wrote is not drawn; the real one is.
+  await expect(headless.locator('thead')).toBeHidden();
+  await expect(wide.locator('thead')).toBeVisible();
+  // It takes the focus, so the keys can scroll it too.
+  await wide.focus();
+  await expect(wide).toBeFocused();
+  await noSeriousViolations(page);
+});

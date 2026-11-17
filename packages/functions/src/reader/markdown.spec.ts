@@ -96,6 +96,59 @@ describe('htmlToMarkdown (#161)', () => {
     ).toBe('Title Some bold link item');
     expect(summaryOf('word '.repeat(100))).toMatch(/^(word ){50,60}word…$/);
   });
+
+  it('cuts inside a table at a row, or before the table when no body row is left (2026-11-17)', () => {
+    const html = `<p>${'Intro words. '.repeat(40)}</p><table><tr><th>Name</th><th>Note</th></tr>${Array.from(
+      { length: 20 },
+      (_, i) => `<tr><td>row ${i}</td><td>some words for row ${i}</td></tr>`,
+    ).join('')}</table>`;
+    const full = htmlToMarkdown(html, BASE, Infinity);
+    const tableAt = full.indexOf('| Name');
+    const delimiterAt = full.indexOf('| ---');
+    const bodyAt = full.indexOf('| row 0');
+    const pipes = (l: string) => l.replace(/\\./g, '').split('|').length;
+    /** What the cut leaves: the intro, and a valid table or none. */
+    const check = (max: number) => {
+      const md = htmlToMarkdown(html, BASE, max);
+      expect(md.endsWith('\n\n…')).toBe(true);
+      expect(md.startsWith('Intro words.')).toBe(true);
+      const rows = md.split('\n').filter((l) => l.startsWith('|'));
+      if (rows.length) {
+        expect(rows.length).toBeGreaterThanOrEqual(3);
+        expect(rows[1]).toBe('| --- | --- |');
+        for (const r of rows) {
+          expect(r.endsWith(' |')).toBe(true);
+          expect(pipes(r)).toBe(4);
+        }
+        expect(full.includes(rows.join('\n'))).toBe(true);
+      }
+      return rows.length;
+    };
+    // Between the header and the delimiter, in the delimiter, or just
+    // after it: no body row, so the table goes.
+    expect(check(tableAt + 6)).toBe(0);
+    expect(check(delimiterAt)).toBe(0);
+    expect(check(delimiterAt + 6)).toBe(0);
+    expect(check(bodyAt)).toBe(0);
+    // In the first body row: it goes, and with it the table.
+    expect(check(bodyAt + 8)).toBe(0);
+    // At a row's end, or in the row after: the rows before, whole.
+    const second = full.indexOf('| row 1');
+    expect(check(second)).toBe(3);
+    expect(check(second + 12)).toBe(3);
+    expect(check(full.indexOf('| row 9') + 3)).toBe(11);
+  });
+
+  it('writes a feed’s data table as a pipe table, summarised as its words (2026-11-17)', () => {
+    const md = htmlToMarkdown(
+      '<p>A | B stays.</p><table><tr><th>Chair</th><th>Price</th></tr><tr><td>Eames | lounge</td><td>$ 400</td></tr></table>',
+      BASE,
+    );
+    expect(md).toBe(
+      'A | B stays.\n\n| Chair | Price |\n| --- | --- |\n| Eames \\| lounge | $ 400 |',
+    );
+    expect(summaryOf(md)).toBe('A | B stays. Chair Price Eames | lounge $ 400');
+  });
 });
 
 describe('htmlToMarkdown for reader mode (2026-11-16)', () => {
