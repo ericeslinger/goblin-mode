@@ -601,6 +601,11 @@ test.describe('in three panes', () => {
     await listPane(page).getByRole('button', { name: 'Undo' }).click();
     await expect(listPane(page).getByRole('status')).toContainText(`${passed} unread again.`);
     await expect(foldersPane(page).getByRole('link', { name: /^All/ })).toHaveText('All 35 unread');
+    // The count shows the undo at once, but its write is still on its
+    // way to the persistent cache: a reload within milliseconds of the
+    // click, quicker than any gardener's, lost it under load
+    // (2026-11-17). The writes land first, as before any reload here.
+    await letItSave(page);
 
     // An article opened stays in the list, read, while it is open;
     // Escape closes it, the run is over, and it leaves the list.
