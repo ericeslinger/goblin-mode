@@ -2812,8 +2812,9 @@ table is data when it has two or more rows and columns, at most 12
 columns, no `role` of presentation or none, and no cell holding a
 table, a list, a heading, a quote, code or another block, or over
 400 characters; anything else lays out a page and reads as its
-cells, each a paragraph, a table inside it judged on its own. Rows are read flat,
-a cell running to the next cell or row however the page left its
+cells, each a paragraph, a table inside it judged on its own. Rows
+are read flat, a cell running to the next cell or row however the
+page left its
 tags open, so each is read once; a span leaves the places it covers
 empty, ragged rows are padded, the header row is the `<thead>` or a
 row all of `<th>` (else an empty one, which the view does not draw),
@@ -2824,8 +2825,14 @@ words are escaped as all page text is, and its `|` too, in a link's
 address or code as well, so nothing in a cell splits it, and
 hidden cells are gone before, with the rest of hidden text. Feed
 content gets the same, and a summary reads a table as its words.
-Still wrong: embedded players are lost; the comic's panels are found by the page's
-structure (its og:image), not by knowing comics; text hidden only by
+The article view draws an article's text once per text (2026-11-17):
+it was drawn again whenever the article's record changed, as when
+opening it marked it read, which sent a table or code scrolled
+sideways back to its start and lost a selection; the wide-table
+journey found it.
+Still wrong: embedded players are lost; the comic's panels are found
+by the page's structure (its og:image), not by knowing comics; text
+hidden only by
 a stylesheet class still gets through, as before. **File in
 the garden** makes a note of kind `clipping` (`NotesService.clip`,
 offline too): titled as the article is (`titleSource: 'user'`, so no

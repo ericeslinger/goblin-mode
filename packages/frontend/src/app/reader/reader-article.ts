@@ -562,22 +562,32 @@ export class ReaderArticle {
   });
   /** The slide to the caught-up page finished; it shows here until its route is in. */
   protected readonly pendingDone = signal(false);
-  protected readonly prevHtml = computed(() => this.htmlOf(this.prev()));
-  protected readonly nextHtml = computed(() => this.htmlOf(this.next()));
-
-  private htmlOf(it: ItemRecord | undefined): SafeHtml | undefined {
-    if (!it) return undefined;
-    return this.sanitizer.bypassSecurityTrustHtml(
-      articleHtml(it.readerContent || it.content || '', this.reader.images()),
-    );
+  /**
+   * An article's text drawn once per text (2026-11-17): made from the
+   * text alone, so a change to the article that leaves its text as it
+   * was (opened, so read; saved) does not draw it again. Drawn again,
+   * a table or code scrolled sideways went back to its start and a
+   * selection was lost. Undefined for no article.
+   */
+  private htmlOf(item: () => ItemRecord | undefined) {
+    const text = computed(() => {
+      const it = item();
+      return it ? it.readerContent || it.content || '' : undefined;
+    });
+    return computed<SafeHtml | undefined>(() => {
+      const markdown = text();
+      if (markdown === undefined) return undefined;
+      // Sanitized by renderNoteHtml (rehype-sanitize); Angular's own pass
+      // would strip the image attributes, so it is trusted as it is.
+      return this.sanitizer.bypassSecurityTrustHtml(articleHtml(markdown, this.reader.images()));
+    });
   }
-  protected readonly html = computed<SafeHtml>(() => {
-    const it = this.item();
-    const markdown = it?.readerContent || it?.content || '';
-    // Sanitized by renderNoteHtml (rehype-sanitize); Angular's own pass
-    // would strip the image attributes, so it is trusted as it is.
-    return this.sanitizer.bypassSecurityTrustHtml(articleHtml(markdown, this.reader.images()));
-  });
+  protected readonly prevHtml = this.htmlOf(() => this.prev());
+  protected readonly nextHtml = this.htmlOf(() => this.next());
+  private readonly ownHtml = this.htmlOf(() => this.item());
+  protected readonly html = computed<SafeHtml>(
+    () => this.ownHtml() ?? this.sanitizer.bypassSecurityTrustHtml(''),
+  );
   private readonly swipe = viewChild(Swipe);
   private readonly main = viewChild<ElementRef<HTMLElement>>('main');
   protected readonly dragging = computed(() => (this.swipe()?.dx() ?? 0) !== 0);
