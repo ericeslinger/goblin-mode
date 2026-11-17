@@ -207,7 +207,22 @@ export class CaptureService {
         } else if (pending) {
           const waited = this.draftWaited || pending.forLocked === true;
           const note = waited ? list.find((n) => n.id === pending.id) : undefined;
-          if (note && pending.body.trim()) {
+          // The open note, new here: its editor holds the draft and
+          // whatever came since (a shared photo inside the typing
+          // pause), so that is what is written, as the editor's own
+          // save. The older draft written alone came back as news and
+          // merged in as a second copy of its words (2026-11-17). An
+          // editor holding nothing never stands in for a draft that
+          // holds words: then the draft is written, as before.
+          const fresh = !list.some((n) => n.id === pending.id);
+          if (!waited && fresh && pending.id === this.open().id && this.body.trim()) {
+            const text = this.body;
+            clearTimeout(this.timer);
+            this.dirty = false;
+            this.notes.save(pending.id, text);
+            this.synced = text;
+            this.sent = [...this.sent, text].slice(-SENT_KEPT);
+          } else if (note && pending.body.trim()) {
             const text = merge3('', pending.body, note.body);
             if (text !== note.body) this.notes.save(pending.id, text, { base: note.body });
           } else if (pending.body.trim()) this.notes.save(pending.id, pending.body);

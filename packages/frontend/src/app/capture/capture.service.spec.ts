@@ -54,6 +54,27 @@ describe('CaptureService', () => {
     expect(capture.open()).toEqual({ id: 'new1', text: '' });
   });
 
+  it('a draft of the open note, older than its editor, is never saved and merged back as a second copy (2026-11-17)', () => {
+    const { capture, notes } = setup();
+    // A share, before the notes load: its words kept as a draft at once...
+    capture.newNote();
+    const { id } = capture.open();
+    capture.replace('the whiteboard');
+    capture.flush();
+    // ...then its photo goes in, inside the typing pause.
+    const shown = 'the whiteboard\n![board](attachment:a1)\n';
+    capture.onText(shown);
+    notes.signIn([]);
+    TestBed.tick();
+    // The write lands, and comes back as the note's text.
+    notes.notes.set([note(id, notes.save.mock.lastCall![1])]);
+    TestBed.tick();
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(capture.current()).toBe(shown);
+    expect(notes.save).toHaveBeenLastCalledWith(id, shown);
+    expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+  });
+
   it('resumes the last note within five minutes, loading its text when it arrives', () => {
     const { capture, notes } = setup({
       [LAST_SEEN_KEY]: { hiddenAt: clock - 4 * MIN, noteId: 'n1' },
