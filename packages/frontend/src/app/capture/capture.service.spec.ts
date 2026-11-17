@@ -75,6 +75,26 @@ describe('CaptureService', () => {
     expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
   });
 
+  it('a draft written from the editor while held for the key still merges a change from elsewhere (review of #323)', () => {
+    const { capture, notes } = setup();
+    capture.newNote();
+    const { id } = capture.open();
+    capture.replace('the whiteboard');
+    capture.flush();
+    const shown = 'the whiteboard\n![board](attachment:a1)\n';
+    capture.onText(shown);
+    // The key is away: the save is held on the device, not sent.
+    (notes as unknown as { heldForKey: (id: string) => boolean }).heldForKey = () => true;
+    notes.signIn([]);
+    TestBed.tick();
+    expect(notes.save).toHaveBeenLastCalledWith(id, shown);
+    // Another device's words for the same note arrive: both are kept.
+    notes.notes.set([note(id, 'from the other device\n')]);
+    TestBed.tick();
+    expect(capture.current()).toContain('the whiteboard');
+    expect(capture.current()).toContain('from the other device');
+  });
+
   it('resumes the last note within five minutes, loading its text when it arrives', () => {
     const { capture, notes } = setup({
       [LAST_SEEN_KEY]: { hiddenAt: clock - 4 * MIN, noteId: 'n1' },

@@ -217,11 +217,20 @@ export class CaptureService {
           const fresh = !list.some((n) => n.id === pending.id);
           if (!waited && fresh && pending.id === this.open().id && this.body.trim()) {
             const text = this.body;
+            const base = this.synced;
             clearTimeout(this.timer);
             this.dirty = false;
+            const heldBefore = this.notes.heldForKey(pending.id);
             this.notes.save(pending.id, text);
             this.synced = text;
             this.sent = [...this.sent, text].slice(-SENT_KEPT);
+            // Held on the device for the key, as in `flush`: the server
+            // has none of it, so a change from elsewhere merges against
+            // what it had, not against these words (review of #323).
+            if (heldBefore || this.notes.heldForKey(pending.id)) {
+              this.synced = base;
+              this.heldShown = pending.id;
+            }
           } else if (note && pending.body.trim()) {
             const text = merge3('', pending.body, note.body);
             if (text !== note.body) this.notes.save(pending.id, text, { base: note.body });
