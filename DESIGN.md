@@ -1044,6 +1044,31 @@ the stored text of the note open arrives later is unchanged: it
 merges (#37), and a note the URL names is still read-only until it
 arrives.
 
+That still lost the first key under load (2026-11-17, the same day:
+both journeys again, "yped at once" and "yped while the key is
+away"). Traced in the browser, both start from a note not here yet,
+the editor drawn, empty and read-only (the sealed journey's `/` is
+Start on's way back to the sealed note, opened cold), so its
+placeholder shows before New is tapped and the journey types as soon
+as the click returns. New moved the cursor into the editor at once,
+but the render that makes it editable, or shows it from behind the
+back, is only scheduled by the click, and the app has no zone: it
+waits for the next frame, 5 to 22 ms after the handler on the loaded
+container, and a key in between reached a focused editor that took
+no text. So New and From template now render the app synchronously
+in their handler (`ApplicationRef.tick`), then give the cursor: when
+the handler returns the editor is shown, editable and focused, and
+the second focus after the render is gone. The whole app, not this
+screen's view: the effects that turn a note to its front run in the
+view above it. A template a reminder opened is begun from an effect,
+inside a render, which may not start another; it keeps the focus
+after that render, and no click races it. What holds now: a key the
+browser delivers after New's or From template's handler has run
+lands in the fresh note. A key typed between the tap and the handler
+is the browser's, and it delivers events in order, so the click runs
+first. A share opens its note on arrival, with no tap to race, and
+is unchanged.
+
 **Saving (as built, 2026-10-06).** `CaptureService` writes 300 ms after
 typing pauses, and at once when the app is hidden. `NotesService`
 writes a new note's full shape (what the rules require), then merged

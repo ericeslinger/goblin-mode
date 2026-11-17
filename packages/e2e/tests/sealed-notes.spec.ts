@@ -139,11 +139,15 @@ test('a sealed note opens with the key, and without it shows as sealed, untouche
   // device (always sealed, 2026-11-15), and the line under the editor
   // says why. The service answered its own 503, as with no master, so
   // it says the service is not set up rather than that a connection is
-  // wanted (a fork's owner, README).
+  // wanted (a fork's owner, README). Start on takes `/` back to the
+  // sealed note, opened cold: its editor is drawn read-only, the
+  // placeholder up before New, so the typing starts the instant the
+  // click returns (2026-11-17).
   await page.goto('/');
   await page.getByRole('button', { name: 'New' }).click();
   await expect(editor.getByText('Plant a thought')).toBeVisible();
   await typeLines(page, ['Typed while the key is away']);
+
   await letItSave(page);
   await expect(page.getByText("This garden's note key service is not set up yet")).toBeVisible();
   const held = await page.evaluate(() => localStorage.getItem('goblin.pendingSaves'));

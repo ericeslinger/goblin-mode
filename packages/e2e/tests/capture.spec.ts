@@ -136,6 +136,10 @@ test('New from the back of a note takes typing as soon as it shows', async ({ pa
   await expect(note(page)).toHaveText('Typed at once');
 });
 
+// Here the editor is drawn before New, empty and read-only, so the
+// placeholder is already up and its wait is no wait: the typing starts
+// the instant the click returns. That is the test (2026-11-17): New's
+// handler leaves the editor editable and focused before it returns.
 test('New from a note that has not arrived takes typing as soon as it shows', async ({ page }) => {
   await signInAs(page, OWNER);
   await page.goto('/n/notarrivedyet0000001');
@@ -144,5 +148,6 @@ test('New from a note that has not arrived takes typing as soon as it shows', as
   await page.getByRole('button', { name: 'New' }).click();
   await expect(note(page).getByText('Plant a thought')).toBeVisible();
   await page.keyboard.type('Typed at once');
+
   await expect(note(page)).toHaveText('Typed at once');
 });

@@ -377,6 +377,86 @@ describe('Launch', () => {
       expect(text).toBe('Typed');
       expect(capture.current()).toBe('Typed');
     });
+
+    /**
+     * The click alone, with no render after it (2026-11-17): a key the
+     * browser delivers the moment the handler returns, ahead of any
+     * scheduled render, must land in a shown, editable, focused editor.
+     */
+    async function typeAtOnce(
+      el: HTMLElement,
+      fixture: { whenStable(): Promise<void> },
+      click: () => void,
+    ) {
+      click();
+      const shown = !el.querySelector('app-note-editor')!.classList.contains('hidden');
+      const first = press(el, 'T');
+      await fixture.whenStable();
+      for (const key of 'yped') press(el, key);
+      await fixture.whenStable();
+      return { shown, first, text: doc(el), current: TestBed.inject(CaptureService).current() };
+    }
+    const typed = { shown: true, first: true, text: 'Typed', current: 'Typed' };
+
+    it('takes a key typed the instant New returns, from a note not here', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([]);
+      const { el, fixture } = await render({ notes, url: '/n/later' });
+      newNote(el).focus();
+      expect(await typeAtOnce(el, fixture, () => newNote(el).click())).toEqual(typed);
+    });
+
+    it('takes a key typed the instant New returns, from a sealed note opened cold', async () => {
+      const notes = new FakeNotes();
+      const { el, fixture } = await render({ notes, url: '/n/s1' });
+      newNote(el).focus();
+      const sealed = { ...noteRecord('s1', ''), title: SEALED_TITLE, locked: true as const };
+      const result = await typeAtOnce(el, fixture, () => newNote(el).click());
+      notes.signIn([sealed]);
+      await fixture.whenStable();
+      expect(result).toEqual(typed);
+    });
+
+    it('takes a key typed the instant New returns, from a sealed note', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([{ ...noteRecord('s1', ''), title: SEALED_TITLE, locked: true as const }]);
+      const { el, fixture } = await render({ notes, url: '/n/s1' });
+      expect(el.querySelector('app-note-editor')!.classList.contains('hidden')).toBe(true);
+      newNote(el).focus();
+      expect(await typeAtOnce(el, fixture, () => newNote(el).click())).toEqual(typed);
+    });
+
+    it('takes a key typed the instant New returns, from the back of a note', async () => {
+      // The back's flip is undone by an effect, which a render of this
+      // screen's own view alone does not run: the whole app renders.
+      const notes = new FakeNotes();
+      notes.signIn([noteRecord('n1', 'Kiln day')]);
+      const { el, fixture } = await render({ notes, url: '/n/n1' });
+      buttonNamed(el, 'Back')!.click();
+      await fixture.whenStable();
+      expect(el.querySelector('app-note-editor')!.classList.contains('hidden')).toBe(true);
+      newNote(el).focus();
+      expect(await typeAtOnce(el, fixture, () => newNote(el).click())).toEqual(typed);
+    });
+
+    it('takes a key typed the instant From template returns, from the back of a note', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([
+        noteRecord('n1', 'Kiln day'),
+        { ...noteRecord('t1', ''), title: 'Journal', kind: 'template' },
+      ]);
+      const { el, fixture } = await render({ notes, url: '/n/n1' });
+      buttonNamed(el, 'Back')!.click();
+      await fixture.whenStable();
+      buttonNamed(el, 'From template')!.click();
+      await fixture.whenStable();
+      const journal = [...el.querySelectorAll('[aria-label="Templates"] button')].find(
+        (b) => b.textContent?.trim() === 'Journal',
+      ) as HTMLButtonElement;
+      expect(el.querySelector('app-note-editor')!.classList.contains('hidden')).toBe(true);
+      journal.focus();
+      expect(await typeAtOnce(el, fixture, () => journal.click())).toEqual(typed);
+    });
   });
 
   it('keeps a note typed a moment before New reachable by back', async () => {
