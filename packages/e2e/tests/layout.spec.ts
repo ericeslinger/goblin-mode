@@ -660,6 +660,10 @@ test.describe('on a narrow phone', () => {
     await page.getByRole('button', { name: 'New template', exact: true }).click();
     await expect(page).toHaveURL(/\/n\/\w+$/);
     const editor = page.getByRole('textbox', { name: 'New note' });
+    // The template's text can arrive after the page does (#226): clear
+    // it only once the template header shows, or it comes back under
+    // the typing (failed once so, #312).
+    await expect(page.getByRole('region', { name: 'Template' })).toBeVisible();
     await editor.click();
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.press('Delete');

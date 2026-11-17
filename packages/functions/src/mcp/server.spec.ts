@@ -177,6 +177,27 @@ describe('the MCP server', () => {
     expect(INSTRUCTIONS).toMatch(/linked to no project.*list_notes or search_notes/);
   });
 
+  it('carries the meal-planning conversation, naming only tools it has (#115)', async () => {
+    const passage = INSTRUCTIONS.split('\n').find((line) =>
+      line.startsWith('When Eric says it is time for meal planning'),
+    );
+    expect(passage).toBeDefined();
+    // Sent to every client: kept short.
+    expect(passage!.split(/\s+/).length).toBeLessThanOrEqual(220);
+    const { client } = await connect();
+    const registered = new Set((await client.listTools()).tools.map((t) => t.name));
+    const named = [...new Set(passage!.match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? [])];
+    expect(named).toEqual(
+      expect.arrayContaining(['get_meal_plan', 'plan_meal', 'get_pantry', 'get_note']),
+    );
+    expect(named.filter((name) => !registered.has(name))).toEqual([]);
+    expect(passage).toMatch(/save it at once with plan_meal/);
+    // His own entry in a slot is his: not planned over unasked.
+    expect(passage).toMatch(/leaving a slot he has already filled unless he asks/);
+    expect(passage).toMatch(/add nothing to it unless he asks/);
+    expect(passage).toMatch(/never say ids or links/);
+  });
+
   it('passes validated arguments to the tools and returns their result as JSON', async () => {
     const { client, tools } = await connect();
     const result = await client.callTool({ name: 'search_notes', arguments: { query: 'milk' } });
