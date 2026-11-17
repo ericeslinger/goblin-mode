@@ -7,7 +7,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { FakeDownloads } from '../testing/fakes';
 import { DownloadsService } from './downloads.service';
 import { type ItemRecord, ItemsService, type Shelf2, shelfParam } from './items.service';
-import { ReaderArticle } from './reader-article';
+import { ReaderArticle, articleHtml } from './reader-article';
 import { ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 
@@ -144,5 +144,44 @@ describe('ReaderArticle', () => {
     await harness.fixture.whenStable();
     expect(TestBed.inject(Location).path()).toBe('/reader/a/a?in=f:Design');
     expect(harness.routeNativeElement?.querySelector('h1')?.textContent).toBe('First');
+  });
+});
+
+describe('ReaderArticle text', () => {
+  it('is not drawn again when the article changes and its text does not (2026-11-17)', async () => {
+    const { harness, el, items } = await open('a');
+    const drawn = el.querySelector(':not([aria-hidden]) > .body');
+    const paragraph = drawn?.querySelector('p');
+    expect(paragraph?.textContent).toContain('The text of First.');
+    // Read, as opening it writes: a new record, the same text.
+    items.update((l) => l.map((i) => (i.id === 'a' ? { ...i, read: true, saved: true } : i)));
+    harness.detectChanges();
+    expect(paragraph?.isConnected).toBe(true);
+    // A new text is drawn.
+    items.update((l) => l.map((i) => (i.id === 'a' ? { ...i, content: 'Other words.' } : i)));
+    harness.detectChanges();
+    expect(paragraph?.isConnected).toBe(false);
+    expect(el.textContent).toContain('Other words.');
+  });
+});
+
+describe('articleHtml', () => {
+  it('draws a pipe table the converter wrote as a table, its page text as words (#313)', () => {
+    const md = [
+      '| Chair | Note |',
+      '| --- | --- |',
+      '| Eames \\| lounge | \\[\\[name\\]\\] - \\[ \\] do this @goblin \\#tag |',
+      '| *Total* | [link](https://x.test/a\\|b) |',
+    ].join('\n');
+    const html = articleHtml(md, true);
+    // It scrolls in its own box, so the keys can reach it.
+    expect(html).toContain('<table tabindex="0">');
+    expect(html).toContain('<th>Chair</th>');
+    expect(html).toContain('<td>Eames | lounge</td>');
+    expect(html).toContain('<td>[[name]] - [ ] do this @goblin #tag</td>');
+    expect(html).toContain('<td><strong>Total</strong></td>');
+    expect(html).toContain('href="https://x.test/a%7Cb"');
+    expect(html).not.toContain('wikilink');
+    expect(html).not.toContain('checkbox');
   });
 });

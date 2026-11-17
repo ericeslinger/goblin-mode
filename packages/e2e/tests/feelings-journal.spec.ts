@@ -23,7 +23,12 @@ test('a feelings journal: reminders open entries, moods grow and come back', asy
   await page.getByRole('button', { name: 'Add a feelings journal' }).click();
   await expect(page.getByRole('region', { name: 'Template' })).toBeVisible();
 
-  // A reminder opens a new entry, not the template.
+  // A reminder opens a new entry, not the template. The template and
+  // its three reminders are written at the tap; a reload within
+  // milliseconds of it, quicker than any gardener's, lost the reminders
+  // under load (2026-11-17, as the Reader's undo in #319), so the
+  // writes land first.
+  await letItSave(page);
   await page.goto('/right-now');
   await page.getByRole('link', { name: 'Feelings journal: breakfast' }).click();
   await expect(page).toHaveURL(/\/n\/[A-Za-z0-9]+$/);

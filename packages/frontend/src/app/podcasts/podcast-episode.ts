@@ -256,6 +256,12 @@ import { episodeState, stateText } from './episodes';
       max-width: 100%;
       height: auto;
     }
+    /* A table in the notes scrolls in its own box, as an article's does (2026-11-17). */
+    :host ::ng-deep .body table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+    }
   `,
 })
 export class PodcastEpisode {
