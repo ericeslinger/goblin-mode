@@ -157,11 +157,17 @@ export class Launch {
    * A linked note this device does not have yet (not synced, or opened
    * before the notes load): shown read-only until it arrives, so typing
    * can never land on top of it.
+   *
+   * Only while it is the note open (2026-11-17): New, From template and
+   * a share open another note before the URL changes, and that note
+   * takes typing at once. Read off the URL alone, the editor stayed
+   * read-only until the navigation ended, and a key typed as the empty
+   * note showed was lost (the sealed-notes journey, its first letter).
    */
   protected readonly waiting = computed(() => {
     this.notes.notes();
     const id = this.routeId();
-    return !!id && !this.notes.exists(id);
+    return !!id && id === this.capture.open().id && !this.notes.exists(id);
   });
 
   protected readonly linkStatus = signal('');
@@ -755,7 +761,7 @@ export class Launch {
     this.templatesOpen.set(false);
     if (!this.routeId() && !this.locked() && !this.capture.current().trim()) {
       this.back.set(false);
-      this.editor()?.focus();
+      this.focusFresh();
       return;
     }
     // Saved first, so a note typed a moment ago exists and keeps its URL.
@@ -766,7 +772,7 @@ export class Launch {
     // so typing straight after New lands in it (never a keystroke lost).
     this.capture.newNote();
     this.editor()?.load(this.capture.open().id, '');
-    this.editor()?.focus();
+    this.focusFresh();
     if (rewrite) {
       // Only the history entry changes; the open note stays the new one.
       this.holdRoute = old;
@@ -777,6 +783,17 @@ export class Launch {
       }
     }
     await this.router.navigate(['/']);
+  }
+
+  /**
+   * The cursor in the editor at once, and again once it is drawn
+   * (2026-11-17): hidden behind the note's back, a sealed note, a list
+   * or Kitchen's week, it cannot take the cursor until the render that
+   * shows it, and nothing else gives it then.
+   */
+  private focusFresh(): void {
+    this.editor()?.focus();
+    afterNextRender(() => this.editor()?.focus(), { injector: this.injector });
   }
 
   /** Opens a template's note: its living note, or a fresh entry (#38). */

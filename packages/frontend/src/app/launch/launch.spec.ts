@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { EditorView } from '@codemirror/view';
 import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { launchMatcher } from '../app.routes';
@@ -295,6 +296,87 @@ describe('Launch', () => {
     expect(url()).toBe('/');
     expect(content().textContent).not.toContain('Old');
     expect(document.activeElement).toBe(content());
+  });
+
+  describe('New from a note that cannot be typed in (2026-11-17)', () => {
+    /**
+     * A key as a browser delivers it: into the editor only while it has
+     * the focus and is editable; anywhere else, it is not text.
+     */
+    const press = (el: HTMLElement, key: string): boolean => {
+      const content = el.querySelector<HTMLElement>('.cm-content')!;
+      if (
+        document.activeElement !== content ||
+        content.getAttribute('contenteditable') !== 'true'
+      ) {
+        return false;
+      }
+      const view = EditorView.findFromDOM(content)!;
+      const at = view.state.selection.main.head;
+      view.dispatch({
+        changes: { from: at, insert: key },
+        selection: { anchor: at + key.length },
+        userEvent: 'input.type',
+      });
+      return true;
+    };
+    const doc = (el: HTMLElement) =>
+      EditorView.findFromDOM(el.querySelector<HTMLElement>('.cm-content')!)!.state.doc.toString();
+
+    /**
+     * The journey's order (sealed-notes.spec.ts): New, the editor seen
+     * with its placeholder, then typing at once, before anything settles.
+     */
+    async function typeAfterNew(url: string, notes: FakeNotes, load?: () => void) {
+      const { el, fixture } = await render({ notes, url });
+      const capture = TestBed.inject(CaptureService);
+      newNote(el).focus();
+      newNote(el).click();
+      // The first render after New: the editor shows, empty, as the
+      // gardener (or Playwright) sees its placeholder and types.
+      TestBed.tick();
+      const editorEl = el.querySelector('app-note-editor')!;
+      expect(editorEl.classList.contains('hidden')).toBe(false);
+      expect(doc(el)).toBe('');
+      const first = press(el, 'T');
+      load?.();
+      await fixture.whenStable();
+      for (const key of 'yped') press(el, key);
+      await fixture.whenStable();
+      return { first, text: doc(el), capture };
+    }
+
+    it('takes the first key typed after New from a note that has not arrived', async () => {
+      const notes = new FakeNotes();
+      notes.signIn([]);
+      const { first, text, capture } = await typeAfterNew('/n/later', notes);
+      expect(first).toBe(true);
+      expect(text).toBe('Typed');
+      expect(capture.current()).toBe('Typed');
+    });
+
+    it('takes the first key typed after New from a sealed note opened cold', async () => {
+      // The notes have not loaded yet when New is tapped (a reload onto
+      // a sealed note, a slow device): the note is "not here yet" then.
+      const notes = new FakeNotes();
+      const sealed = { ...noteRecord('s1', ''), title: SEALED_TITLE, locked: true as const };
+      const { first, text, capture } = await typeAfterNew('/n/s1', notes, () =>
+        notes.signIn([sealed]),
+      );
+      expect(first).toBe(true);
+      expect(text).toBe('Typed');
+      expect(capture.current()).toBe('Typed');
+    });
+
+    it('takes the first key typed after New from a sealed note', async () => {
+      const notes = new FakeNotes();
+      const sealed = { ...noteRecord('s1', ''), title: SEALED_TITLE, locked: true as const };
+      notes.signIn([sealed]);
+      const { first, text, capture } = await typeAfterNew('/n/s1', notes);
+      expect(first).toBe(true);
+      expect(text).toBe('Typed');
+      expect(capture.current()).toBe('Typed');
+    });
   });
 
   it('keeps a note typed a moment before New reachable by back', async () => {
