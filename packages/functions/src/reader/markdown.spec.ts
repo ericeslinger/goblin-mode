@@ -151,6 +151,17 @@ describe('htmlToMarkdown (#161)', () => {
   });
 });
 
+describe('htmlToMarkdown on a very long table (review of #321)', () => {
+  it('reads 200,000 rows without overflowing the stack, cut at the cap', () => {
+    const html = `<table>${'<tr><td>a</td><td>c</td></tr>'.repeat(200_000)}</table>`;
+    const started = Date.now();
+    const md = htmlToMarkdown(html, BASE);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(md.length).toBeLessThanOrEqual(CONTENT_MAX + 10);
+    expect(md.split('\n')[2]).toBe('| a | c |');
+  });
+});
+
 describe('htmlToMarkdown for reader mode (2026-11-16)', () => {
   it('settles the spaces around marks inside link text too, leaving no marker', () => {
     const md = htmlToMarkdown(

@@ -243,7 +243,10 @@ function pipeTable(s: string, table: El, words: (html: string) => string): strin
     }
     grid.push(out);
   }
-  const columns = Math.max(...grid.map((r) => r.length));
+  // A loop, not a spread: a table of 150,000 rows overflowed the call
+  // stack as arguments (review of #321).
+  let columns = 0;
+  for (const r of grid) columns = Math.max(columns, r.length);
   if (columns < 2 || columns > TABLE_COLUMNS) return undefined;
   // A header row when the page has one (in a <thead>, or all <th>);
   // else an empty one, since a pipe table must open with a header.
