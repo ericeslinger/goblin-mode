@@ -20,17 +20,22 @@
       // of it runs and the page stays blank. Chromium was seen aborting
       // such a chunk (net::ERR_ABORTED) on pages the service worker
       // served, about one load in 500 in a loop of loads. A second load
-      // gets it, so a first failure reloads; another within 10 s does
-      // not, so a copy missing a file offline never loops. Nothing has
-      // been typed yet: the app, capture included, never started.
+      // gets it, so a first failure reloads. Never more than once a
+      // minute (review of #325: the mark is made when the failure
+      // shows, so a load that hangs before failing still waits out the
+      // minute), so a copy missing a file offline tries again slowly
+      // and never spins. Never once the app has drawn anything: only a
+      // boot is retried, so nothing typed can be lost to it.
       addEventListener(
         'error',
         function (event) {
           var el = event.target;
           if (!el || el.tagName !== 'SCRIPT' || el.type !== 'module') return;
+          var root = document.querySelector('app-root');
+          if (root && root.firstChild) return;
           var key = 'goblin.bootRetry';
           try {
-            if (Date.now() - Number(sessionStorage.getItem(key)) < 10000) return;
+            if (Date.now() - Number(sessionStorage.getItem(key)) < 60000) return;
             sessionStorage.setItem(key, String(Date.now()));
           } catch (e) {
             return;

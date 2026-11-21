@@ -22,3 +22,20 @@ test('a first load that loses a chunk reloads and comes up', async ({ page }) =>
   // It came up by loading again, not by doing without the chunk.
   expect(askedAgain).toBe(true);
 });
+
+// It retries once, not in a spin (review of #325): with every chunk
+// lost the page is asked for twice, and not a third time while the
+// minute's mark holds.
+test('a load that keeps losing its chunks is retried once, not in a loop', async ({ page }) => {
+  let pages = 0;
+  page.on('request', (request) => {
+    if (request.isNavigationRequest()) pages += 1;
+  });
+  await page.route(/\/chunk-[^/]+\.js$/, (route) => route.abort('aborted'));
+  await page.goto('/dev-sign-in');
+  await expect.poll(() => pages).toBe(2);
+  // Long enough for a third load to have shown, had one been coming.
+  await page.waitForTimeout(2000);
+  expect(pages).toBe(2);
+  await expect(page.getByRole('heading', { name: 'Dev sign-in' })).toHaveCount(0);
+});

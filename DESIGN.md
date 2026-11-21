@@ -796,9 +796,11 @@ before it reached the network), about one load in 500 in a loop of
 loads and never with no worker or a plain one; why is not known, and
 whether a phone meets it is not shown. An inline script in
 `index.html` reloads on the first module script that fails, and not
-again within 10 s (a mark in sessionStorage), so a copy missing a file
-offline cannot loop. Nothing typed is at risk: the app, capture
-included, has not started. Lazy route chunks are not covered.
+again within a minute (a mark in sessionStorage, made when the failure
+shows), so a copy missing a file offline tries again slowly and never
+spins. It acts only while `app-root` is empty: only a boot is retried,
+so nothing typed can be lost to it (review of #325, 2026-11-21). Lazy
+route chunks are not covered.
 
 **Note URLs (#27, 2026-10-07).** Every note lives at `/n/<id>`, with
 no slug (Eric, 2026-10-06); `/` is the capture note, the one the
