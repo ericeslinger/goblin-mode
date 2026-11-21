@@ -8,6 +8,7 @@ import {
   Device,
   Feed,
   Habit,
+  HabitEntry,
   HabitLog,
   ModuleSettings,
   Note,
@@ -32,9 +33,17 @@ export const CLIENT_WRITTEN: ValidatedCollection[] = [
   { name: 'HabitLog', schema: HabitLog },
 ];
 
+/**
+ * Shapes stored inside a client-written document, as a map value the
+ * generated validator only types as `map`, that the hand-written rules
+ * check one by one with their own generated validator (2026-11-21,
+ * review of #327): a habit log's day entries, `isHabitEntry`.
+ */
+export const NESTED: ValidatedCollection[] = [{ name: 'HabitEntry', schema: HabitEntry }];
+
 /** The generated block for firestore.rules, plus any warnings. */
 export function renderRulesBlock(): { block: string; warnings: string[] } {
   const warnings: string[] = [];
-  const block = generatedBlock(CLIENT_WRITTEN, Timestamp, (w) => warnings.push(w));
+  const block = generatedBlock([...CLIENT_WRITTEN, ...NESTED], Timestamp, (w) => warnings.push(w));
   return { block, warnings };
 }

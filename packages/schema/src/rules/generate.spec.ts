@@ -79,5 +79,7 @@ describe('renderRulesBlock', () => {
     expect(block).toContain('function isValidReminder(data)');
     expect(block).toContain('function isValidDevice(data)');
     expect(block).toContain('data.updatedAt is timestamp');
+    // A nested shape the hand-written rules apply per value (#327).
+    expect(block).toContain('function isValidHabitEntry(data)');
   });
 });

@@ -4276,21 +4276,49 @@ habit or user and still open, and no other record's value opens as
 one. The schema refuses a plain answer. The habit's name, choices,
 schedule and time stay plain, for the push.
 
-**What the rules check (2026-11-21).** The generated `isValidHabit`
-and `isValidHabitLog` check every field's type and that no other
-field is there; around them, by hand: a habit's id has no underscore;
-its name is 1 to 80 and its zone 1 to 64; a time is `HH:MM`; choices
-number 2 to 12 and are there exactly when the answer is a choice; a
-template is there exactly when it opens a note; a nudge has a time. A
-log's id is its `habit`, an underscore and its `month`; the month is
-`YYYY-MM`; the days' keys are "01" to "31" only, so at most 31. What
-the rules cannot read is the schema's alone, parsed by the app and the
-functions before every write: each choice's length and that none
-repeats, a day the month lacks (February 30), and each entry's shape
-(its state, its stamp, a sealed answer, a skip holding none). The
-rules check no element of a list or value of a map, as the generator
-says of every collection, and a log is not checked against its habit
-(a read on every tick, for owner-only data).
+**What the rules check (2026-11-21; revised the same day, review of
+#327).** The generated `isValidHabit` and `isValidHabitLog` check every
+field's type and that no other field is there; `isValidHabitEntry`,
+generated from `HabitEntry` (registered as a nested shape, `NESTED` in
+`rules/registry.ts`), does the same for one day's entry. Around them,
+by hand, mirroring the schema: a habit's id has no underscore; its
+name is 1 to 80, its zone 1 to 64 and its agent 1 to 100; a time is
+`HH:MM`; choices are there exactly when the answer is a choice, number
+2 to 12, each a string of 1 to 40, none twice (read index by index, as
+the rules have no loop); a template is there exactly when it opens a
+note, and is not empty; a nudge has a time. A log's id is its `habit`,
+an underscore and its `month`; the month is `YYYY-MM`; the days' keys
+are "01" to "31" and only days the month has (no 31st of a 30-day
+month, no February 30, February 29 only in a leap year). Each entry a
+write adds or changes is a map of only `state`, `at`, `answer` and
+`noteId`; the state is done or skipped; `at` is a timestamp; an answer
+is a string of at most 4,000, a note id a string of at least 1; a skip
+holds neither, and no entry holds both.
+
+A request may evaluate 1,000 rules expressions, and a checked entry
+costs about 150, so a write checks only the entries it adds or changes
+(a create: all it holds), and a write may add or change at most four
+days. The emulator took five answered entries on a full month and
+refused a sixth. A full month is built a few days a write, as ticks
+build it, never in one write; a tick on it carries all 31 entries and
+is allowed. An entry left as it was passed the check when it was
+written. Functions write with the admin SDK, past the rules, and parse
+against the schema.
+
+What the rules cannot read stays the schema's alone, parsed by the app
+and the functions before every write: that an answer is sealed (these
+rules check no sealed form anywhere, so an answer is checked as a
+string and a size only), and a log against its habit (a read on every
+tick, for owner-only data). Lengths agree: the emulator counts a
+string's size in UTF-16 units, as zod does, so 40 emoji fill an
+80-character name and 41 are refused. A note id has no upper bound in
+the schema, so none in the rules; an entry's size is held only by the
+document's.
+
+For step 2: the app reads a month log leniently, entry by entry,
+dropping an entry it cannot parse rather than losing the month, and
+writes a tick as one day (`days.<DD>`), within the four a write the
+rules take.
 
 **For later steps, not decided (2026-11-21).**
 
