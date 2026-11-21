@@ -18,6 +18,7 @@ import { HABITS_API, type HabitsApi } from '../habits/habits.service';
 import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
+import { type PushState, PushService } from '../push/push.service';
 import {
   ITEMS_API,
   type ItemRecord,
@@ -388,8 +389,18 @@ export class FakeRuns {
   watch = vi.fn((_runId: string, _next: (run: unknown) => void) => () => undefined);
 }
 
+/** This device's notifications, as a habit's Nudge me sees them (step 4 of #324). */
+export class FakePush {
+  readonly state = signal<PushState>('on');
+  readonly error = signal('');
+  enable = vi.fn(async () => this.state.set('on'));
+  disable = vi.fn(async () => this.state.set('off'));
+  beforeSignOut = vi.fn(async () => undefined);
+}
+
 export function remindersTestProviders(api: FakeRemindersApi, now: () => number) {
   return [
+    { provide: PushService, useValue: new FakePush() },
     { provide: ModulesService, useValue: new FakeModules() },
     { provide: KeysService, useValue: new FakeKeys() },
     { provide: RunsService, useValue: new FakeRuns() },

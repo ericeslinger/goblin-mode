@@ -209,7 +209,7 @@ describe('the MCP server', () => {
     expect(planMeal?.description).toMatch(/free text for a meal that is no recipe/);
   });
 
-  it('carries the Habits passage, naming only tools it has, and says nudges wait (#324)', async () => {
+  it('carries the Habits passage, naming only tools it has, and says what nudges do (#324)', async () => {
     const passage = INSTRUCTIONS.split('\n').find((line) => line.startsWith('Habits (a module)'));
     expect(passage).toBeDefined();
     const { client } = await connect();
@@ -220,11 +220,18 @@ describe('the MCP server', () => {
     );
     expect(named.filter((name) => !registered.has(name))).toEqual([]);
     expect(passage).toMatch(/named in his own words/);
-    expect(passage).toMatch(/nudge is stored but not sent yet/);
+    expect(passage).toMatch(/one push at its time on a day it is not yet logged, never a second/);
+    expect(passage).toMatch(/weekly and monthly habits are not nudged yet/);
+    expect(passage).not.toMatch(/not sent yet/);
+    expect(passage).toMatch(/can differ from where Eric is when he travels/);
     const tools = (await client.listTools()).tools;
     expect(tools.find((t) => t.name === 'create_habit')?.description).toMatch(
       /done or not for now/,
     );
+    for (const name of ['create_habit', 'update_habit'])
+      expect(tools.find((t) => t.name === name)?.description).not.toMatch(/not sent yet/);
+    for (const name of ['list_habits', 'log_habit'])
+      expect(tools.find((t) => t.name === name)?.description).toMatch(/differ from where Eric is/);
     for (const name of ['create_habit', 'list_habits', 'update_habit', 'log_habit'])
       expect(tools.find((t) => t.name === name)?.description).toMatch(/Habits only\.$/);
   });

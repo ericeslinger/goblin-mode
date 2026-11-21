@@ -301,6 +301,77 @@ test('habits: a refused tick is said, and Try again sends it again', async ({ pa
   await expect.poll(async () => (await storedLogs())[logId]?.[today]).toBe('done');
 });
 
+/** The owner's stored habits, as admin: each one's `nudge`, by name. */
+async function storedNudges(): Promise<Record<string, boolean>> {
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents/users/${OWNER.uid}/habits`,
+    { headers: { authorization: 'Bearer owner' } },
+  );
+  const { documents = [] } = (await res.json()) as {
+    documents?: {
+      fields?: { name?: { stringValue?: string }; nudge?: { booleanValue?: boolean } };
+    }[];
+  };
+  return Object.fromEntries(
+    documents.map((d) => [
+      d.fields?.name?.stringValue ?? '',
+      d.fields?.nudge?.booleanValue ?? false,
+    ]),
+  );
+}
+
+/** The owner's registered devices' tokens, as admin. */
+async function deviceTokens(): Promise<string[]> {
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents/users/${OWNER.uid}/devices`,
+    { headers: { authorization: 'Bearer owner' } },
+  );
+  const { documents = [] } = (await res.json()) as {
+    documents?: { fields?: { token?: { stringValue?: string } } }[];
+  };
+  return documents.map((d) => d.fields?.token?.stringValue ?? '');
+}
+
+// Nudges (step 4 of #324, 2026-11-21): Nudge me in Edit needs a time,
+// and switched on the first time it turns this device's notifications
+// on, through Settings' own path (on localhost a stand-in token, as
+// the notifications journey has). No push is sent here: the emulator
+// has no FCM, and the sender's specs cover what is sent.
+test('habits: Nudge me needs a time and turns notifications on', async ({ page, context }) => {
+  test.setTimeout(90_000);
+  await context.grantPermissions(['notifications']);
+  await signInAs(page, OWNER);
+  await switchModulesOn(page, 'Habits');
+  await page.goto('/habits');
+  await addHabit(page, 'Floss');
+  await letItSave(page);
+
+  const floss = card(page, 'Floss');
+  await floss.getByRole('button', { name: 'Edit Floss' }).click();
+  const form = page.getByRole('form', { name: 'Edit Floss' });
+  const nudge = form.getByRole('switch', { name: 'Nudge me' });
+  await expect(nudge).toBeDisabled();
+  await expect(form).toContainText('A nudge needs a time of day.');
+  await form.getByLabel(/Time of day/).fill('21:00');
+  await expect(nudge).toBeEnabled();
+  await expect(form).toContainText('One push at 21:00 if not logged by then.');
+  await noSeriousViolations(page);
+  await nudge.check();
+  await expect.poll(deviceTokens).toEqual(['emulator-token']);
+  await form.getByRole('button', { name: 'Save' }).click();
+  await expect(floss.getByText('21:00 · Nudge on')).toBeVisible();
+  await letItSave(page);
+  await expect.poll(storedNudges).toEqual({ Floss: true });
+
+  // Its time cleared, the nudge goes with it.
+  await floss.getByRole('button', { name: 'Edit Floss' }).click();
+  await form.getByLabel(/Time of day/).fill('');
+  await expect(nudge).toBeDisabled();
+  await form.getByRole('button', { name: 'Save' }).click();
+  await letItSave(page);
+  await expect.poll(storedNudges).toEqual({ Floss: false });
+});
+
 for (const { label, viewport, rail } of [
   { label: 'a tablet', viewport: { width: 768, height: 1024 }, rail: true },
   { label: 'a desktop', viewport: { width: 1440, height: 900 }, rail: true },

@@ -474,11 +474,39 @@ describe('HabitsService (#324)', () => {
       merge: true,
     });
     habits.setTime('floss', '21:00');
-    expect(lastWrite(api).data).toEqual({ time: '21:00', tz: 'America/New_York', updatedAt: NOW });
-    habits.setTime('floss', undefined);
-    expect(lastWrite(api).data).toMatchObject({ time: 'DELETE' });
+    expect(lastWrite(api).data).toEqual({
+      time: '21:00',
+      tz: 'America/New_York',
+      nudge: false,
+      updatedAt: NOW,
+    });
+    habits.setTime('floss', '21:00', true);
+    expect(lastWrite(api).data).toMatchObject({ time: '21:00', nudge: true });
+    // A nudge needs a time: with none, it goes off with it.
+    habits.setTime('floss', undefined, true);
+    expect(lastWrite(api).data).toMatchObject({ time: 'DELETE', nudge: false });
     habits.archive('floss', true);
     expect(lastWrite(api).data).toEqual({ archived: true, updatedAt: NOW });
+  });
+
+  it('turns a nudge on only for a habit with a time, its time and zone left alone', () => {
+    const { habits, api, push } = setup();
+    push([
+      habitDoc('floss', { name: 'Floss', time: '21:00', tz: 'Europe/London' }),
+      habitDoc('run', { name: 'Run' }),
+    ]);
+    expect(habits.placed().find((h) => h.id === 'floss')?.nudge).toBe(false);
+    api.set.mockClear();
+    habits.setNudge('run', true);
+    expect(api.set).not.toHaveBeenCalled();
+    habits.setNudge('floss', true);
+    expect(lastWrite(api)).toEqual({
+      path: 'users/u1/habits/floss',
+      data: { nudge: true, updatedAt: NOW },
+      merge: true,
+    });
+    habits.setNudge('run', false);
+    expect(lastWrite(api).data).toEqual({ nudge: false, updatedAt: NOW });
   });
 
   it('takes an archived habit off Right Now', () => {

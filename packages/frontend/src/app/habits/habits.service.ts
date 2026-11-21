@@ -23,12 +23,12 @@ import {
   autoId,
   canLogHabitDay,
   habitDayKey,
+  habitDayLoggable,
   habitDue,
   habitEntries,
   habitLogId,
   habitLogMonths,
   habitMonth,
-  habitPeriod,
   habitPeriodState,
   habitStreak,
   habitStrip,
@@ -57,6 +57,8 @@ export interface HabitRecord {
   schedule: HabitSchedule;
   /** "HH:MM", local; none: any time. */
   time?: string;
+  /** One push at its time on a day not yet logged (step 4 of #324). */
+  nudge: boolean;
   answer: HabitAnswer;
   archived: boolean;
   createdAt?: number;
@@ -198,6 +200,7 @@ function toRecord(id: string, data: Record<string, unknown>): HabitRecord | unde
     name: h.name,
     schedule: h.schedule,
     ...(h.time !== undefined ? { time: h.time } : {}),
+    nudge: h.nudge,
     answer: h.answer,
     archived: h.archived,
     createdAt: millis(data['createdAt']),
@@ -375,11 +378,8 @@ export class HabitsService {
         const base = habitLogMonths(h.schedule, today, weekStart).length;
         const read = run.length >= base;
         const createdOn = h.createdAt === undefined ? undefined : zonedDay(h.createdAt, this.tz);
-        const yesterdayLoggable =
-          canLogHabitDay(yesterday, today) &&
-          habitPeriod(h.schedule, yesterday, weekStart).start !==
-            habitPeriod(h.schedule, today, weekStart).start &&
-          (createdOn === undefined || createdOn <= yesterday);
+        // The one test of a loggable day, the assistant's too (review of #329).
+        const yesterdayLoggable = habitDayLoggable(h, yesterday, today, { weekStart, createdOn });
         const firstMonth = run[0];
         const loadedFrom =
           firstMonth && !(createdOn && habitMonth(createdOn) >= firstMonth)
@@ -520,10 +520,28 @@ export class HabitsService {
     this.update(id, { name: trimmed });
   }
 
-  /** A time of day, "HH:MM", or none (any time); the zone becomes the device's. */
-  setTime(id: string, time: string | undefined): void {
+  /**
+   * A time of day, "HH:MM", or none (any time); the zone becomes the
+   * device's. The nudge is written with it, as a nudge needs a time:
+   * with none, it is off.
+   */
+  setTime(id: string, time: string | undefined, nudge = false): void {
     if (time !== undefined && !TIME.test(time)) return;
-    this.update(id, { time: time ?? this.api.remove(), tz: this.tz });
+    this.update(id, {
+      time: time ?? this.api.remove(),
+      tz: this.tz,
+      nudge: time !== undefined && nudge,
+    });
+  }
+
+  /**
+   * The nudge on or off (step 4 of #324), its time and zone as they are;
+   * on only with a time, as the rules hold.
+   */
+  setNudge(id: string, nudge: boolean): void {
+    const h = this.habits().find((x) => x.id === id);
+    if (nudge && h?.time === undefined) return;
+    this.update(id, { nudge });
   }
 
   archive(id: string, archived: boolean): void {

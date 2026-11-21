@@ -1,4 +1,9 @@
-import type { HabitDayState, HabitSchedule } from '@mossgoblin/schema';
+import {
+  type HabitDayState,
+  type HabitSchedule,
+  type HabitsConfig,
+  habitNudgeTime,
+} from '@mossgoblin/schema';
 
 // The words and marks the Habits screen and Right Now put on a habit
 // (#324, step 2): pure, so the specs can read them.
@@ -24,13 +29,15 @@ export function streakLine(schedule: HabitSchedule, count: number, complete = tr
 
 /**
  * What a habit's row says under its name: a weekly or monthly one's
- * period ("This week"), and its time of day if it has one ("07:30");
- * nothing for a daily habit at any time.
+ * period ("This week"), its time of day if it has one ("07:30"), and
+ * "Nudge on" when it nudges (step 4 of #324); nothing for a daily habit
+ * at any time.
  */
-export function habitWhen(h: { schedule: HabitSchedule; time?: string }): string {
+export function habitWhen(h: { schedule: HabitSchedule; time?: string; nudge?: boolean }): string {
   const parts = [
     ...(h.schedule === 'weekly' ? ['This week'] : h.schedule === 'monthly' ? ['This month'] : []),
     ...(h.time ? [h.time] : []),
+    ...(h.time && h.nudge ? ['Nudge on'] : []),
   ];
   return parts.join(' · ');
 }
@@ -74,4 +81,20 @@ export function dayState(
     case 'before':
       return { mark: '', words: 'before the habit began' };
   }
+}
+
+/**
+ * What the Edit form says under Nudge me (step 4 of #324): that a nudge
+ * needs a time; when a daily habit's goes, held through the quiet hours
+ * or not sent at all for a time in them before midnight; and that a
+ * weekly or monthly habit is not nudged yet.
+ */
+export function nudgeHint(schedule: HabitSchedule, time: string, config: HabitsConfig): string {
+  if (!time) return 'A nudge needs a time of day.';
+  if (schedule !== 'daily') return 'Nudges are for daily habits for now.';
+  const quiet = `quiet hours (${config.quietFrom} to ${config.quietTo})`;
+  const at = habitNudgeTime(time, config);
+  if (at === undefined) return `No push: ${time} is in the ${quiet}, which end after its day does.`;
+  if (at !== time) return `One push at ${at}, when the ${quiet} end, if not logged by then.`;
+  return `One push at ${time} if not logged by then.`;
 }

@@ -447,6 +447,17 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(owner().doc('users/owner/usage/digest').set({ sentFor: '2026-11-09' }));
   });
 
+  it('keeps the habit nudges’ sent marks server-only (#324 step 4)', async () => {
+    await seed('users/owner/usage/habitNudges', { sent: { floss: '2026-11-21' } });
+    await assertFails(owner().doc('users/owner/usage/habitNudges').get());
+    await assertFails(
+      owner()
+        .doc('users/owner/usage/habitNudges')
+        .set({ sent: { floss: '2026-11-20' } }),
+    );
+    await assertFails(owner().doc('users/owner/usage/habitNudges').delete());
+  });
+
   it('keeps the switch that seals note text in settings/assistant, a bool only, the owner’s (2026-11-15)', async () => {
     const ref = owner().doc('users/owner/settings/assistant');
     const assistant = valid['users/owner/settings/assistant'];

@@ -4335,7 +4335,9 @@ rules take.
   more, one month at a time (`complete: false`). Not stored, as
   decided.
 - When a weekly or monthly habit's nudge goes: every day of the
-  period at its time until done, or on one day (step 4 or 5).
+  period at its time until done, or on one day (step 4 or 5). Left to
+  step 5 (2026-11-21, step 4): until then such a habit's nudge is
+  stored and not sent, and the app and the assistant say so.
 - A sealed value shows its length, so a choice can be told from
   another of a different length; step 6 may pad a choice before
   sealing it.
@@ -4500,7 +4502,23 @@ his overruling; nothing decided above changed.
 - *Reading* is lenient, as the app's: a habit that does not parse, or
   a log entry that does not, is passed over.
 - *Nudges* are stored, not sent, until step 4: the descriptions, the
-  instructions and a result with a nudge on say so.
+  instructions and a result with a nudge on say so. *Changed
+  2026-11-21, with step 4:* they say what is sent (Nudges, below),
+  and `nudgeNote` on a result with a nudge on says when this one goes:
+  at its time, held to the end of the quiet hours, none for a time in
+  them before midnight, or none yet for a weekly or monthly habit.
+- *A loggable day* (review of #329, 2026-11-21). `log_habit` took
+  today or yesterday (`canLogHabitDay`) alone, looser than the app.
+  It now takes the app's own test, moved into `habits.ts` as
+  `habitDayLoggable` and used by both: never a day before the habit
+  began (its `createdAt` in its zone), and yesterday for a weekly or
+  monthly habit only when yesterday ended a week or month (within one,
+  today's tick settles it), as the app's Yesterday? does. The rule of
+  which day is today is unchanged; the descriptions of `list_habits`
+  and `log_habit`, and the instructions, now say that a habit's today
+  is the day in the zone it was made or last timed in, which can
+  differ from where Eric is when he travels, so the assistant says
+  which day it logged.
 - *What assistants changed.* An entry lists notes and reminders only,
   so a habit's entry names it in its summary ("Made the habit Floss",
   "Logged Floss: done today") with no item to open or put back; a
@@ -4508,6 +4526,102 @@ his overruling; nothing decided above changed.
 - *get_context* carries `habits`, today's due habits each `due`, `done`
   or `skipped`, while Habits is on; the instructions read on connecting
   do not, so connecting reads no habits.
+
+**Nudges (step 4, 2026-11-21).** Built: one push at a daily habit's
+time, as Eric decided (Nudges, above). The choices below are this
+step's own, not Eric's, and open to his overruling; nothing decided
+above changed.
+
+- *When one is due* (`habitNudgeDue`, `habits.ts`, beside the rest of
+  the habit rules): the Habits module is on; the habit is unarchived,
+  `nudge: true`, has a time and is daily; its moment today, in the
+  habit's own `tz` (Days and weeks), has come; no nudge was sent for
+  today or a later day; and today holds no entry, done or skipped.
+  Only today in its zone is ever looked at, so a nudge late past
+  midnight is never sent for the day that ended. Two bounds of this
+  step's own: a moment at or before the habit's `updatedAt` brings no
+  push (a time set to one already past, or a nudge switched on after
+  it, waits for tomorrow), and a nudge more than 65 minutes late
+  (`HABIT_NUDGE_LATE_MS`, the hourly run's reach) is let go. A time a
+  clock change skips goes just after the gap, one it repeats the first
+  time, as a reminder's (`zonedTimeOn` in `reminders.ts`).
+- *Quiet hours* are one setting for every nudge, `quietFrom` and
+  `quietTo` in `HabitsConfig` (`settings/modules` habits.config, as
+  `weekStart` is), 22:00 to 06:00 unless set; a start equal to its
+  end means none. A nudge whose time falls in them is held, not
+  dropped, to their end on the same day: 03:00 goes at 06:00, still
+  only if not logged by then (`habitNudgeTime`). *Did not fit, said
+  for Eric:* a time in them before midnight (22:00 to 23:59) would
+  be held to 06:00 the next morning, when its day has ended, and a
+  late nudge is never sent for a day that has ended; so such a habit
+  sends no nudge at all, and Edit and the assistant say so. Sending
+  it at 22:00 instead, early, or the next morning for yesterday, are
+  his to choose. No screen sets the quiet hours in this step: the
+  config takes them, and nothing writes them but by hand.
+- *Where "sent" is marked:* `users/{uid}/usage/habitNudges`,
+  `sent.<habitId>` the last day (YYYY-MM-DD in the habit's zone) a
+  nudge was sent for that habit, as the digest marks `usage/digest`.
+  Server only: the rules match nothing under `usage`, so a client can
+  neither read nor write it (a rules test says so), and no stored
+  shape of `Habit` or `HabitLog` changed, nor any rule. One document
+  per gardener, one field per habit ever nudged.
+- *Once only.* The claim, in one transaction, reads the habit, the
+  day's month log and the marks again, checks the nudge is still due
+  on them, and marks the day; only then is the push sent, as reminders
+  claim before sending. A failed send loses one nudge; a rerun, an
+  overlapping run or a duplicate wake finds the day marked and sends
+  nothing. A tick made after the claim and before the push arrives
+  cannot stop it.
+- *Waking,* as reminders wake (Push, Waking): a habit's write
+  (`habitNudgeScheduled`) queues a Cloud Task for its next nudge,
+  named by habit and moment so the same one never queues twice; the
+  task (`habitNudgeWake`, three tries) runs `sendNudges`; and an
+  hourly run (`habitNudgePush`, no retries) sends whatever a task
+  missed and queues the wakes for the next 65 minutes, which covers
+  the module switched on, the quiet hours changed and a lost task.
+  The functions emulator queues nothing, as for reminders.
+- *What a run reads:* the habits with `nudge` on, every gardener's,
+  in one collection-group query (its index in
+  `firestore.indexes.json`); for each gardener with one, the modules
+  document and the marks, two documents; and only for a nudge whose
+  moment has come, the three documents of the claim and the devices.
+  No month log is read for any other habit. With Eric's few habits, a
+  run is a handful of reads, 24 hourly runs a day and one wake per
+  nudge.
+- *The push,* through the reminders' sender (`fcmSender`): the
+  habit's name as its title (readable by design; never an answer),
+  "Right Now · not logged yet today" as its body, tagged
+  `habit-<id>` so a later one for the habit replaces it, and a tap
+  opens Right Now, where the habit's tick is, as a reminder without a
+  note opens it. No action buttons: reminders have none either. It
+  goes to every device registered (`devices`), dead tokens dropped,
+  as a reminder's.
+- *In the app.* Edit on the Habits screen has Nudge me, a switch,
+  disabled without a time, with a line under it saying what it will
+  do ("A nudge needs a time of day."; "One push at 21:00 if not
+  logged by then."; held, or none, by the quiet hours; "Nudges are
+  for daily habits for now."). Switched on while this device's
+  notifications are off, it asks for them through the same path as
+  Settings, Notifications (`PushService.enable`); blocked or not set
+  up, a line points to Settings, Notifications. Saved with the form:
+  a time set writes the nudge with it (`setTime`), a time cleared
+  turns it off (a nudge needs a time), and the switch alone writes
+  only `nudge` (`setNudge`), keeping the time and zone. A habit's line
+  on the screen and on Right Now says "21:00 · Nudge on".
+- *The assistant* is told what is now true (`INSTRUCTIONS`, and
+  `create_habit` and `update_habit`): one push at its time on a day
+  not yet logged, never a second, held through the quiet hours, none
+  for a time in them before midnight, daily habits only for now.
+- *Not done:* weekly and monthly nudges (step 5, For later, above); a
+  screen for the quiet hours; a tick from the notification itself.
+  *Not tried on a real device:* the push arriving, its words and tag
+  replacing an older one, and the tap opening Right Now (the
+  emulator has no FCM, as for reminders, so no journey sends one); the
+  Cloud Tasks queue for `habitNudgeWake` on the real project, which
+  is created on deploy like `reminderWake`'s; and the
+  collection-group index on `habits.nudge`, built on deploy. The TTL
+  is the reminders' hour, so a nudge at 21:30 to a phone offline
+  could still arrive at 22:20, inside the quiet hours.
 
 **Build order (#324).**
 
@@ -4517,7 +4631,7 @@ his overruling; nothing decided above changed.
    above).
 3. The assistant's tools. Done 2026-11-21 (The assistant's tools,
    above).
-4. Nudges.
+4. Nudges. Done 2026-11-21, daily habits only (Nudges, below).
 5. Weekly and monthly.
 6. Answers.
 7. The feelings journal's reminders become habits.
@@ -4997,10 +5111,10 @@ it, one backticked tool name per row.
 | `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |
 | `create_reminder` | A reminder, with a time, a repeat or Someday; a project task's stage and tags | Right Now (as built), Stages and items |
 | `update_reminder` | Changes, moves, snoozes or finishes a reminder; a project task's stage and tags | Right Now (as built), Stages and items |
-| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in his zone, a nudge (stored, not sent until step 4); done or not only; a name an unarchived habit has is refused; Habits only | Habits (#324), step 3 |
-| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind, whether due today, today's and yesterday's state and its streak, in its own zone; Habits only | Habits (#324), step 3 |
-| `update_habit` | Renames, reschedules, retimes, nudges or archives a habit, by id or name; never deletes; Habits only | Habits (#324), step 3 |
-| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; Habits only | Habits (#324), step 3 |
+| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in his zone, a nudge (one push at its time if not logged, held through quiet hours; daily habits only, since step 4); done or not only; a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3 and 4 |
+| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind, whether due today, today's and yesterday's state and its streak, in its own zone (which can differ from where Eric is); Habits only | Habits (#324), step 3 |
+| `update_habit` | Renames, reschedules, retimes, nudges (as `create_habit`) or archives a habit, by id or name; never deletes; Habits only | Habits (#324), steps 3 and 4 |
+| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); Habits only | Habits (#324), step 3 |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it
@@ -5790,6 +5904,12 @@ reminder's note, or a new note from its template.
   clock, only when the day had changes; a tap opens What assistants
   changed. Its claim is `usage/digest` (`sentFor`, the local date).
   See The daily digest, under the Trust sections.
+- **Habit nudges (#324 step 4, 2026-11-21)** go the same way: one push
+  at a daily habit's time on a day not yet logged, woken by its own
+  Cloud Task (`habitNudgeWake`) with an hourly safety net
+  (`habitNudgePush`); a tap opens Right Now. Its claim is
+  `usage/habitNudges` (`sent.<habitId>`, the habit's local date). See
+  Habits, Nudges.
 
 ## Deploy configuration (Eric, 2026-10-06)
 

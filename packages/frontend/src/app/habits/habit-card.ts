@@ -1,5 +1,8 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
-import { dayInitial, dayName, dayState, habitWhen, streakLine } from './habit-lines';
+import { RouterLink } from '@angular/router';
+import { ModulesService } from '../modules/modules.service';
+import { PushService } from '../push/push.service';
+import { dayInitial, dayName, dayState, habitWhen, nudgeHint, streakLine } from './habit-lines';
 import { type PlacedHabit, HabitsService } from './habits.service';
 
 /**
@@ -8,12 +11,16 @@ import { type PlacedHabit, HabitsService } from './habits.service';
  * a mark and words (never colour alone); today's Done and Skip, each
  * pressed while it is so, and pressed again to clear it; yesterday's
  * too, while it can still be logged; and Edit, for its name, its time
- * and Archive. An archived habit keeps its strip and has Unarchive.
+ * and Archive. Edit has Nudge me too (step 4 of #324), a switch that
+ * needs a time, turning this device's notifications on the first time
+ * it is used, through Settings' own path (PushService.enable). An
+ * archived habit keeps its strip and has Unarchive.
  * Archived or unarchived, it says so (`moved`), so the screen can put
  * the focus where the habit went (review of #328, 2026-11-21).
  */
 @Component({
   selector: 'app-habit-card',
+  imports: [RouterLink],
   template: `
     @let h = habit();
     <div class="head">
@@ -113,6 +120,25 @@ import { type PlacedHabit, HabitsService } from './habits.service';
           Time of day <span class="hint">(leave empty for any time)</span>
           <input type="time" name="time" [value]="time()" (input)="time.set(value($event))" />
         </label>
+        <label class="nudge">
+          <input
+            type="checkbox"
+            role="switch"
+            name="nudge"
+            [attr.aria-describedby]="'nudge-hint-' + h.id"
+            [checked]="nudge() && !!time()"
+            [disabled]="!time()"
+            (change)="nudgeTo($any($event.target).checked)"
+          />
+          Nudge me
+        </label>
+        <p class="hint" [id]="'nudge-hint-' + h.id">{{ hint() }}</p>
+        @if (nudge() && time() && pushOff()) {
+          <p class="hint">
+            This device gets no notifications:
+            <a routerLink="/settings/notifications">Settings, Notifications</a>.
+          </p>
+        }
         <div class="actions">
           <button type="submit" class="primary" [disabled]="!name().trim()">Save</button>
           <button type="button" (click)="archive()">Archive</button>
@@ -236,6 +262,21 @@ import { type PlacedHabit, HabitsService } from './habits.service';
       font-size: 13px;
       color: var(--quiet);
     }
+    p.hint {
+      margin: 4px 0 0;
+    }
+    .nudge {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      min-height: 44px;
+      margin-top: var(--space-2);
+    }
+    .edit .nudge input {
+      display: inline-block;
+      width: auto;
+      margin: 0;
+    }
     .actions {
       display: flex;
       flex-wrap: wrap;
@@ -252,10 +293,23 @@ export class HabitCard {
   /** The habit is archived (true) or back (false); this card goes. */
   readonly moved = output<boolean>();
   protected readonly habits = inject(HabitsService);
+  private readonly modules = inject(ModulesService);
+  private readonly push = inject(PushService);
 
   protected readonly editing = signal(false);
   protected readonly name = signal('');
   protected readonly time = signal('');
+  protected readonly nudge = signal(false);
+
+  /** What a nudge at the time in the form would do. */
+  protected readonly hint = computed(() =>
+    nudgeHint(this.habit().schedule, this.time(), this.modules.habitsConfig()),
+  );
+
+  /** This device cannot be sent a nudge as things stand. */
+  protected readonly pushOff = computed(() =>
+    ['off', 'blocked', 'unsupported', 'unconfigured', 'error'].includes(this.push.state()),
+  );
 
   protected readonly meta = computed(() => {
     const h = this.habit();
@@ -287,7 +341,18 @@ export class HabitCard {
   protected edit(): void {
     this.name.set(this.habit().name);
     this.time.set(this.habit().time ?? '');
+    this.nudge.set(this.habit().nudge);
     this.editing.set(true);
+  }
+
+  /**
+   * Nudge me switched: on, the first time, this device's notifications
+   * are asked for, as Settings turns them on; the switch is saved with
+   * the form.
+   */
+  protected nudgeTo(on: boolean): void {
+    this.nudge.set(on);
+    if (on && ['off', 'error'].includes(this.push.state())) void this.push.enable();
   }
 
   protected value(event: Event): string {
@@ -307,7 +372,9 @@ export class HabitCard {
     if (!name) return;
     if (name !== h.name) this.habits.rename(h.id, name);
     const time = this.time() || undefined;
-    if (time !== h.time) this.habits.setTime(h.id, time);
+    const nudge = this.nudge() && time !== undefined;
+    if (time !== h.time) this.habits.setTime(h.id, time, nudge);
+    else if (nudge !== h.nudge) this.habits.setNudge(h.id, nudge);
     this.editing.set(false);
   }
 

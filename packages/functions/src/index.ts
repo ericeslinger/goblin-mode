@@ -35,6 +35,7 @@ export { rerouteRun, revertRun } from './putback/callable';
 export { sendDuePush } from './push/send-due-push';
 export { digestPush } from './push/digest-push';
 export { reminderScheduled, reminderWake } from './push/reminder-wake';
+export { habitNudgePush, habitNudgeScheduled, habitNudgeWake } from './push/habit-nudge-push';
 export {
   attachmentCreated,
   attachmentDeleted,
