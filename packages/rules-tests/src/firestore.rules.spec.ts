@@ -85,6 +85,24 @@ const valid: Record<string, () => object> = {
     updatedAt: now(),
   }),
   'users/owner/settings/assistant': () => ({ gardenOnArrival: true, updatedAt: now() }),
+  'users/owner/habits/h1': () => ({
+    name: 'Stretch',
+    schedule: 'daily',
+    time: '11:00',
+    tz: 'America/Los_Angeles',
+    answer: 'done',
+    nudge: true,
+    archived: false,
+    createdAt: now(),
+    updatedAt: now(),
+    createdBy: 'user',
+  }),
+  'users/owner/habitLogs/h1_2026-11': () => ({
+    habit: 'h1',
+    month: '2026-11',
+    days: { '21': { state: 'done', at: now() } },
+    updatedAt: now(),
+  }),
 };
 
 describe('client-written collections: notes, reminders, devices, settings, attachments', () => {
@@ -345,6 +363,12 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     // Podcasts (#245), a map like the rest.
     await assertSucceeds(ref.set({ ...modules(), podcasts: { enabled: false } }));
     await assertFails(ref.set({ ...modules(), podcasts: true }));
+    // Habits (#324), a map like the rest.
+    await assertSucceeds(ref.set({ ...modules(), habits: { enabled: true } }));
+    await assertSucceeds(
+      ref.set({ ...modules(), habits: { enabled: false, config: { weekStart: 'Sun' } } }),
+    );
+    await assertFails(ref.set({ ...modules(), habits: true }));
     await assertFails(ref.set({ ...modules(), garden: { enabled: true } }));
     // Each doc keeps its own shape.
     await assertFails(ref.set(valid['users/owner/settings/app']()));
@@ -800,6 +824,249 @@ describe('the Reader (#159): feeds are the gardener’s, articles the fetcher’
       ref.set({ folderOrder: [], images: true, keepMonths: '3', updatedAt: now() }),
     );
     await assertFails(ref.set(valid['users/owner/settings/app']()));
+  });
+});
+
+describe('habits (#324): the gardener’s habits and their month logs', () => {
+  const habit = valid['users/owner/habits/h1'];
+  const habitLog = valid['users/owner/habitLogs/h1_2026-11'];
+
+  it('takes each schedule and answer kind, with what each needs', async () => {
+    const ref = owner().doc('users/owner/habits/h1');
+    await assertSucceeds(ref.set({ ...habit(), schedule: 'weekly' }));
+    await assertSucceeds(ref.set({ ...habit(), schedule: 'monthly' }));
+    await assertSucceeds(ref.set({ ...habit(), answer: 'text' }));
+    await assertSucceeds(ref.set({ ...habit(), answer: 'choice', choices: ['calm', 'tense'] }));
+    await assertSucceeds(ref.set({ ...habit(), answer: 'note', template: 'feelings' }));
+    const { time: _time, ...untimed } = habit() as Record<string, unknown>;
+    await assertSucceeds(ref.set({ ...untimed, nudge: false }));
+    await assertSucceeds(ref.set({ ...habit(), archived: true }));
+    await assertSucceeds(ref.set({ ...habit(), createdBy: 'claude', agent: 'Claude' }));
+    // A derived id, as the feelings journal's may be (step 7).
+    await assertSucceeds(owner().doc('users/owner/habits/feelings-lunch').set(habit()));
+  });
+
+  it('refuses a habit out of shape or out of bounds', async () => {
+    const ref = owner().doc('users/owner/habits/h1');
+    await assertFails(ref.set({ ...habit(), schedule: 'fortnightly' }));
+    await assertFails(ref.set({ ...habit(), answer: 'number' }));
+    await assertFails(ref.set({ ...habit(), nudge: 'yes' }));
+    await assertFails(ref.set({ ...habit(), archived: 0 }));
+    await assertFails(ref.set({ ...habit(), choices: 'calm' }));
+    await assertFails(ref.set({ ...habit(), name: '' }));
+    await assertSucceeds(ref.set({ ...habit(), name: 'x'.repeat(80) }));
+    await assertFails(ref.set({ ...habit(), name: 'x'.repeat(81) }));
+    await assertFails(ref.set({ ...habit(), tz: '' }));
+    await assertFails(ref.set({ ...habit(), tz: 'x'.repeat(65) }));
+    await assertFails(ref.set({ ...habit(), time: '24:00' }));
+    await assertFails(ref.set({ ...habit(), time: '9:00' }));
+    await assertFails(ref.set({ ...habit(), time: '11:00 am' }));
+    // A nudge needs a time.
+    const { time: _time, ...untimed } = habit() as Record<string, unknown>;
+    await assertFails(ref.set(untimed));
+    // Choices with, and only with, a choice answer: two to twelve.
+    await assertFails(ref.set({ ...habit(), answer: 'choice' }));
+    await assertFails(ref.set({ ...habit(), choices: ['calm', 'tense'] }));
+    await assertFails(ref.set({ ...habit(), answer: 'choice', choices: ['calm'] }));
+    const twelve = Array.from({ length: 12 }, (_, i) => `mood ${i}`);
+    await assertSucceeds(ref.set({ ...habit(), answer: 'choice', choices: twelve }));
+    await assertFails(ref.set({ ...habit(), answer: 'choice', choices: [...twelve, 'more'] }));
+    // A template with, and only with, a note answer.
+    await assertFails(ref.set({ ...habit(), answer: 'note' }));
+    await assertFails(ref.set({ ...habit(), template: 'feelings' }));
+    // An id with an underscore would not join a month unambiguously.
+    await assertFails(owner().doc('users/owner/habits/h_1').set(habit()));
+  });
+
+  it('merges a day into a month’s log, as two devices ticking offline do', async () => {
+    const ref = owner().doc('users/owner/habitLogs/h1_2026-11');
+    await assertSucceeds(ref.set(habitLog()));
+    await assertSucceeds(
+      ref.set(
+        { days: { '20': { state: 'skipped', at: now() } }, updatedAt: now() },
+        { merge: true },
+      ),
+    );
+    await assertSucceeds(ref.update({ 'days.19': { state: 'done', at: now() }, updatedAt: now() }));
+    const days = (await ref.get()).data()?.['days'] as Record<string, unknown>;
+    if (Object.keys(days).sort().join() !== '19,20,21') throw new Error('days did not merge');
+    await assertSucceeds(ref.update({ 'days.21': firebase.firestore.FieldValue.delete() }));
+  });
+
+  it('keeps a log at the id its habit and month derive, at most 31 days', async () => {
+    const ref = owner().doc('users/owner/habitLogs/h1_2026-11');
+    await assertFails(owner().doc('users/owner/habitLogs/h2_2026-11').set(habitLog()));
+    await assertFails(owner().doc('users/owner/habitLogs/h1-2026-11').set(habitLog()));
+    await assertFails(owner().doc('users/owner/habitLogs/h1_2026-12').set(habitLog()));
+    await assertFails(ref.set({ ...habitLog(), month: '2026-13' }));
+    await assertFails(
+      owner()
+        .doc('users/owner/habitLogs/h1_2026-1')
+        .set({ ...habitLog(), month: '2026-1' }),
+    );
+    await assertFails(ref.set({ ...habitLog(), month: 202611 }));
+    await assertFails(ref.set({ ...habitLog(), days: [] }));
+    await assertFails(ref.set({ ...habitLog(), days: { '32': { state: 'done', at: now() } } }));
+    await assertFails(ref.set({ ...habitLog(), days: { '1': { state: 'done', at: now() } } }));
+    await assertFails(ref.set({ ...habitLog(), days: { '2026-11-21': { state: 'done' } } }));
+    const all = Object.fromEntries(
+      Array.from({ length: 31 }, (_, i) => [
+        String(i + 1).padStart(2, '0'),
+        { state: 'done', at: now() },
+      ]),
+    );
+    await assertFails(
+      ref.set({ ...habitLog(), days: { ...all, '00': { state: 'done', at: now() } } }),
+    );
+    const { days: _days, ...dayless } = habitLog() as Record<string, unknown>;
+    await assertFails(ref.set(dayless));
+  });
+
+  // Review of #327 (2026-11-21): the bounds the schema keeps that the
+  // first rules missed, and each day's entry.
+  it('refuses an empty template, a bad choice, a repeated one and a bad agent', async () => {
+    const ref = owner().doc('users/owner/habits/h1');
+    await assertFails(ref.set({ ...habit(), answer: 'note', template: '' }));
+    const choice = (choices: unknown[]) => ref.set({ ...habit(), answer: 'choice', choices });
+    await assertSucceeds(choice(['x'.repeat(40), 'calm']));
+    await assertFails(choice(['x'.repeat(41), 'calm']));
+    await assertFails(choice(['calm', '']));
+    await assertFails(choice(['calm', 3]));
+    await assertFails(choice(['calm', { mood: 'calm' }]));
+    await assertFails(choice(['calm', 'tense', 'calm']));
+    const eleven = Array.from({ length: 11 }, (_, i) => `mood ${i}`);
+    await assertFails(choice([...eleven, 'x'.repeat(41)]));
+    await assertFails(choice([...eleven, '']));
+    await assertFails(ref.set({ ...habit(), createdBy: 'claude', agent: '' }));
+    await assertSucceeds(ref.set({ ...habit(), createdBy: 'claude', agent: 'a'.repeat(100) }));
+    await assertFails(ref.set({ ...habit(), createdBy: 'claude', agent: 'a'.repeat(101) }));
+  });
+
+  /** A sealed-looking answer of exactly `size` characters. */
+  const sealed = (size: number) => '\uE000mg1.' + 'A'.repeat(size - 5);
+
+  it('checks each day’s entry against HabitEntry', async () => {
+    const ref = owner().doc('users/owner/habitLogs/h1_2026-11');
+    const day = (entry: unknown) => ref.set({ ...habitLog(), days: { '21': entry } });
+    await assertSucceeds(day({ state: 'skipped', at: now() }));
+    await assertSucceeds(day({ state: 'done', at: now(), answer: sealed(4000) }));
+    await assertSucceeds(day({ state: 'done', at: now(), noteId: 'n1' }));
+    // Not a map.
+    await assertFails(day('done'));
+    await assertFails(day(true));
+    await assertFails(day(['done']));
+    // An unknown key, or nested data under the day.
+    await assertFails(day({ state: 'done', at: now(), mood: 'calm' }));
+    await assertFails(day({ state: 'done', at: now(), extra: { deep: { deeper: 'x' } } }));
+    await assertFails(day({ state: { done: true }, at: now() }));
+    await assertFails(day({ state: 'done', at: now(), answer: { text: 'calm' } }));
+    // A missing or mistyped field.
+    await assertFails(day({ state: 'done' }));
+    await assertFails(day({ state: 'done', at: '2026-11-21T11:00:00Z' }));
+    // A bad state.
+    await assertFails(day({ state: 'missed', at: now() }));
+    // A skip holds no answer and no note.
+    await assertFails(day({ state: 'skipped', at: now(), answer: sealed(100) }));
+    await assertFails(day({ state: 'skipped', at: now(), noteId: 'n1' }));
+    // An answer or a note, not both.
+    await assertFails(day({ state: 'done', at: now(), answer: sealed(100), noteId: 'n1' }));
+    // An answer over the stored bound; a note id empty or not a string.
+    await assertFails(day({ state: 'done', at: now(), answer: sealed(4001) }));
+    await assertFails(day({ state: 'done', at: now(), noteId: '' }));
+    await assertFails(day({ state: 'done', at: now(), noteId: 7 }));
+    // One bad day among good ones, written by a merge as a tick is.
+    await assertSucceeds(ref.set(habitLog()));
+    await assertFails(ref.update({ 'days.20': { state: 'done', at: now(), x: 1 } }));
+    await assertFails(ref.update({ 'days.21.answer': 'x'.repeat(4001) }));
+  });
+
+  it('refuses a day the month lacks', async () => {
+    const log = (month: string, day: string) =>
+      owner()
+        .doc(`users/owner/habitLogs/h1_${month}`)
+        .set({ ...habitLog(), month, days: { [day]: { state: 'done', at: now() } } });
+    await assertSucceeds(log('2026-12', '31'));
+    await assertFails(log('2026-11', '31'));
+    await assertSucceeds(log('2026-11', '30'));
+    await assertFails(log('2026-02', '30'));
+    await assertFails(log('2026-02', '29'));
+    await assertSucceeds(log('2026-02', '28'));
+    await assertSucceeds(log('2028-02', '29'));
+    await assertSucceeds(log('2000-02', '29'));
+    await assertFails(log('2100-02', '29'));
+  });
+
+  // An entry's check costs the rules about 150 of the 1,000 expressions
+  // a request may evaluate, so a write checks only the entries it adds
+  // or changes, at most four. A full month is the log nearest the
+  // limits: every tick on it carries all 31 entries.
+  it('takes a full month of 31 entries, answers at the bound, four days a write', async () => {
+    const ref = owner().doc('users/owner/habitLogs/h1_2026-12');
+    const key = (i: number) => String(i + 1).padStart(2, '0');
+    const entry = (i: number) =>
+      i % 4 === 0
+        ? { state: 'done', at: now(), answer: sealed(4000) }
+        : i % 4 === 1
+          ? { state: 'done', at: now(), noteId: `n${i}` }
+          : i % 4 === 2
+            ? { state: 'skipped', at: now() }
+            : { state: 'done', at: now() };
+    const span = (from: number, to: number, make = entry) =>
+      Object.fromEntries(
+        Array.from({ length: Math.min(to, 31) - from }, (_, j) => [key(from + j), make(from + j)]),
+      );
+    const answered = () => ({ state: 'done', at: now(), answer: sealed(4000) });
+    // Created with four days, every one answered at the bound.
+    await assertSucceeds(ref.set({ ...habitLog(), month: '2026-12', days: span(0, 4, answered) }));
+    // Then four days a write, by merge, to the end of the month.
+    for (let from = 4; from < 31; from += 4) {
+      await assertSucceeds(
+        ref.set({ days: span(from, from + 4), updatedAt: now() }, { merge: true }),
+      );
+    }
+    const stored = (await ref.get()).data()?.['days'] as Record<string, unknown>;
+    if (Object.keys(stored).length !== 31) throw new Error('the month is not full');
+    // A tick on the full month: the request holds all 31 entries.
+    await assertSucceeds(
+      ref.update({
+        'days.06': { state: 'done', at: now(), answer: sealed(4000) },
+        updatedAt: now(),
+      }),
+    );
+    // The whole map written back, four of its days changed, each
+    // answered at the bound: only those four are checked.
+    const read = async () => (await ref.get()).data()?.['days'] as Record<string, unknown>;
+    await assertSucceeds(
+      ref.update({ days: { ...(await read()), ...span(10, 14, answered) }, updatedAt: now() }),
+    );
+    await assertSucceeds(
+      ref.set({
+        ...habitLog(),
+        month: '2026-12',
+        days: { ...(await read()), ...span(20, 24, answered) },
+      }),
+    );
+    // Five days in one write are over the cap, on update and on create.
+    await assertFails(ref.update({ days: { ...(await read()), ...span(25, 30, answered) } }));
+    await assertFails(
+      owner()
+        .doc('users/owner/habitLogs/h1_2027-01')
+        .set({ ...habitLog(), month: '2027-01', days: span(0, 5) }),
+    );
+    // So a full month cannot be written in one go: built a few days a
+    // write, as ticks build it.
+    await assertFails(
+      owner()
+        .doc('users/owner/habitLogs/h1_2027-01')
+        .set({ ...habitLog(), month: '2027-01', days: span(0, 31) }),
+    );
+    // A bad day among the full month's is still caught.
+    await assertFails(
+      ref.update({ 'days.31': { state: 'skipped', at: now(), noteId: 'n' }, updatedAt: now() }),
+    );
+    await assertFails(ref.update({ 'days.31': 'done', updatedAt: now() }));
+    // A day removed is not an entry to check.
+    await assertSucceeds(ref.update({ 'days.31': firebase.firestore.FieldValue.delete() }));
   });
 });
 

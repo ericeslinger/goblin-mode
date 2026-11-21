@@ -79,6 +79,11 @@ users/{uid}
                               queue, an episode's place in the
                               listening queue, the gardener's and
                               the fetcher's (#249)
+  habits/{habitId}            habits (#324): schedule, time, answer kind,
+                              nudge, archived; name plain
+  habitLogs/{habitId}_{YYYY-MM}
+                              a habit's check-ins for a month, by day,
+                              answers sealed (#324)
   usage/{day}                 a day's metered calls, server-only;
                               usage/digest the last digest pushed (#237)
 oauth/...                     MCP auth state, server-only
@@ -1875,7 +1880,9 @@ on a project, `capture`, a task's stage or tags), saying it is off in
 Settings, Modules. The modules are Projects, Kitchen (#125), the
 Reader (#159) and, since 2026-11-10, Podcasts (#245), which follows
 the Reader's switch until it is switched itself (Podcasts, a module
-of its own, below).
+of its own, below). Habits (#324) has its place in `settings/modules`
+since 2026-11-21 and joins `MODULES` with its first screen (Habits,
+below).
 
 **Recipes (#127, Eric, 2026-10-18; epic #125, Kitchen module).** A
 recipe is a note of kind `recipe`, its name Eric's own (`titleSource:
@@ -4120,6 +4127,226 @@ of the content's width with its times at its ends, and the arrow keys
 moving it; a show's page with the address hidden until About this
 show is opened. axe on each. The other journeys kept every name, so
 none changed.
+
+### Habits (#324, Eric, 2026-11-21)
+
+Eric agreed on #324, 2026-11-21, to the shape, the build order and the
+small proposals there. What is decided:
+
+- **Schedules:** daily, weekly or monthly. Weekly means once a week at
+  some point: the habit shows on every day of the week until it is
+  done. Monthly likewise for the month.
+- **Answers,** four kinds and no more: done; one of a short list of
+  strings (a mood); one line of text; opens a note (a template's
+  entry).
+- **Misses:** yesterday can be logged after the fact, one day back and
+  no further. A deliberate skip does not break a streak. The day ends
+  at midnight local time.
+- **Nudges:** per habit, one push at the habit's time, only if it is
+  not logged yet, never a second; quiet hours 22:00 to 06:00, one
+  setting for all nudges. They ride the push reminders use
+  (`functions/src/push`).
+- **Sealing:** answers are sealed like note text; a habit's name stays
+  readable, so a push can name it.
+- **Streaks** exist, computed, never stored; a delight layer comes
+  later.
+- The feelings journal keeps its template and entries; its three daily
+  reminders become habits of the "opens a note" kind (step 7).
+- A Habits module switched on in Settings like Kitchen; today's habits
+  a section of Right Now; the module's own screen; a Home tile; the
+  assistant's tools `create_habit`, `list_habits`, `update_habit` and
+  `log_habit`. An archived habit's history stays visible.
+
+**Stored shapes (step 1, 2026-11-21).** Both are written by the client
+directly, so a habit made and a tick logged offline are kept offline;
+the assistant's tools (step 3) write through functions against the
+same schemas (`Habit`, `HabitEntry`, `HabitLog` in `model.ts`). Both
+are shaped now for all eight steps, so no later step needs a data
+migration.
+
+`users/{uid}/habits/{id}`, the id generated on the device (`autoId`)
+or, for a habit the app makes itself (the feelings journal's, step 7),
+derived; letters, digits and hyphens, at most 64, never an underscore:
+
+```ts
+interface Habit {
+  name: string;          // 1 to 80 (HABIT_NAME_MAX), plain, never sealed
+  schedule: 'daily' | 'weekly' | 'monthly';
+  time?: string;         // "HH:MM", local, as a recurrence's; none: any
+  tz: string;            // IANA zone `time` is in, 1 to 64; the device's
+                         // when made or its time last set
+  answer: 'done' | 'choice' | 'text' | 'note';
+  choices?: string[];    // only with choice: 2 to 12, each 1 to 40, once
+  template?: string;     // only with note: the template's note id
+  nudge: boolean;        // true needs a time
+  archived: boolean;     // never due; its history stays
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: 'user' | 'claude';
+  agent?: string;        // which assistant, as on reminders (#142)
+}
+```
+
+`users/{uid}/habitLogs/{habitId}_{YYYY-MM}`, one document per habit
+per month, its id derived (`habitLogId`), so a tick made offline on
+two devices is the same document and the two merge day by day (a
+merge write of `days.<DD>`):
+
+```ts
+interface HabitLog {
+  habit: string;         // the habit's id
+  month: string;         // YYYY-MM
+  days: {                // keyed "01" to "31", only days the month has
+    [day: string]: {
+      state: 'done' | 'skipped';
+      at: Timestamp;     // when logged, on the device's clock
+      answer?: string;   // choice or text: always sealed, at most 4,000
+                         // stored; a text is one line of at most 500
+                         // (HABIT_TEXT_MAX), cut by its writer first
+      noteId?: string;   // note: the note the check-in made
+    };
+  };
+  updatedAt: Timestamp;
+}
+```
+
+A skip holds no answer or note, and an entry holds an answer or a
+note, not both. A month holds at most 31 entries, so a log stays far
+below Firestore's document limit (31 sealed answers are under
+130 KB).
+
+**Days and weeks (2026-11-21).** A day is a calendar date, written
+YYYY-MM-DD as the meal plan and the Reader write them; a log keys it
+by its day of the month, "01" to "31" (`habitDayKey`). Today is the
+day on the device's own clock, in its own zone (`zonedDay(now, tz)`
+with the platform zone, as Right Now decides today for reminders).
+The server, which has no device, takes the habit's `tz` (nudges, the
+assistant's tools). So a gardener away from home logs by the clock he
+is under, while his nudge keeps the zone the habit was set in until he
+sets its time again. Everything in `habits.ts` is calendar arithmetic
+on those strings (`addDays`, `periodStartFor` from `mealplan.ts`), so
+a clock change never moves, doubles or drops a day. A weekly or
+monthly habit's check-in sits under the day it was done; its period
+is derived: the week holding that day, or its month. A week starts on
+the Habits module's own `weekStart` (`HabitsConfig`, in
+`settings/modules` habits.config), Monday unless set, as the Kitchen's
+does; a week that spans two months reads both months' logs.
+
+**Due, and the strip (2026-11-21).** `habitDue`: an archived habit
+never; a daily one every day; a weekly or monthly one on every day of
+its period up to and including the day it is done or skipped, and not
+after. A skip of a weekly or monthly habit settles its period, as a
+done does: it skips the week or the month (Eric, 2026-11-21:
+decided). `canLogHabitDay`: today,
+or yesterday. `habitStrip` gives the seven days ending today, each
+`done` or `skipped` as logged that day, `covered` (a weekly or monthly
+habit's day in a period settled on another day), `missed` (a day of a
+period that ended with nothing logged), `open` (the current period,
+nothing yet), or `before` (before the habit began, unless logged). An
+archived habit's strip reads the same. The strip and the period it
+starts in need at most two month logs (`habitLogMonths`): seven days,
+and a week starting at most twelve days back.
+
+**The streak (2026-11-21).** `habitStreak` counts periods (days,
+weeks or months by the schedule) back from the one holding today. A
+period is done when any day in it is done, else skipped when any day
+is skipped, else empty. Done counts one; skipped is passed over,
+neither counted nor breaking; the first empty period ends the streak,
+with two exceptions. The current period is not counted against it
+until it ends. And the period before it is spared while it can still
+be logged, that is while yesterday is in it (Eric, 2026-11-21): an
+empty one is passed over, neither counted nor breaking, and a done
+one counts. For a daily habit that is always yesterday, so the streak
+passes over today and an empty yesterday and ends at the first empty
+day older than that. For a weekly or monthly habit, whose check-ins
+also go back one day only, it is the last week or month only on the
+first day of the next (a Monday, weeks from Monday; the 1st), when
+yesterday was its last day; on any later day an empty last period
+ends the streak. A day logged after the fact counts as any other.
+Nothing is stored. The function is given the logs read and the first day they
+cover; a streak still running at that day comes back
+`complete: false`, and the caller reads the month before and asks
+again.
+
+**Sealing (2026-11-21).** An answer is sealed with the note key and
+the `mg1` format, under `habitAnswerAadFor(uid, logId, day)`, a record
+field's authenticated data naming `habitLogs`, the log and
+`days.<DD>.answer`: an answer cannot move to another day, month,
+habit or user and still open, and no other record's value opens as
+one. The schema refuses a plain answer. The habit's name, choices,
+schedule and time stay plain, for the push.
+
+**What the rules check (2026-11-21; revised the same day, review of
+#327).** The generated `isValidHabit` and `isValidHabitLog` check every
+field's type and that no other field is there; `isValidHabitEntry`,
+generated from `HabitEntry` (registered as a nested shape, `NESTED` in
+`rules/registry.ts`), does the same for one day's entry. Around them,
+by hand, mirroring the schema: a habit's id has no underscore; its
+name is 1 to 80, its zone 1 to 64 and its agent 1 to 100; a time is
+`HH:MM`; choices are there exactly when the answer is a choice, number
+2 to 12, each a string of 1 to 40, none twice (read index by index, as
+the rules have no loop); a template is there exactly when it opens a
+note, and is not empty; a nudge has a time. A log's id is its `habit`,
+an underscore and its `month`; the month is `YYYY-MM`; the days' keys
+are "01" to "31" and only days the month has (no 31st of a 30-day
+month, no February 30, February 29 only in a leap year). Each entry a
+write adds or changes is a map of only `state`, `at`, `answer` and
+`noteId`; the state is done or skipped; `at` is a timestamp; an answer
+is a string of at most 4,000, a note id a string of at least 1; a skip
+holds neither, and no entry holds both.
+
+A request may evaluate 1,000 rules expressions, and a checked entry
+costs about 150, so a write checks only the entries it adds or changes
+(a create: all it holds), and a write may add or change at most four
+days. The emulator took five answered entries on a full month and
+refused a sixth. A full month is built a few days a write, as ticks
+build it, never in one write; a tick on it carries all 31 entries and
+is allowed. An entry left as it was passed the check when it was
+written. Functions write with the admin SDK, past the rules, and parse
+against the schema.
+
+What the rules cannot read stays the schema's alone, parsed by the app
+and the functions before every write: that an answer is sealed (these
+rules check no sealed form anywhere, so an answer is checked as a
+string and a size only), and a log against its habit (a read on every
+tick, for owner-only data). Lengths agree: the emulator counts a
+string's size in UTF-16 units, as zod does, so 40 emoji fill an
+80-character name and 41 are refused. A note id has no upper bound in
+the schema, so none in the rules; an entry's size is held only by the
+document's.
+
+For step 2: the app reads a month log leniently, entry by entry,
+dropping an entry it cannot parse rather than losing the month, and
+writes a tick as one day (`days.<DD>`), within the four a write the
+rules take.
+
+**For later steps, not decided (2026-11-21).**
+
+- The issue said a streak or a week strip needs at most two reads per
+  habit. The strip does; a streak longer than the months read needs
+  more, one month at a time (`complete: false`). Not stored, as
+  decided.
+- When a weekly or monthly habit's nudge goes: every day of the
+  period at its time until done, or on one day (step 4 or 5).
+- A sealed value shows its length, so a choice can be told from
+  another of a different length; step 6 may pad a choice before
+  sealing it.
+- The Habits switch: `settings/modules` takes `habits` now, so
+  switching it on needs no rules change; the entry in `MODULES`, which
+  shows the switch in Settings and tells the assistant the module
+  exists, comes with step 2, when there is something behind it.
+
+**Build order (#324).**
+
+1. Design: this section, the stored schemas with generated rules and
+   rules tests, the pure logic (`habits.ts`); no UI. Done 2026-11-21.
+2. Daily done-only habits in the app.
+3. The assistant's tools.
+4. Nudges.
+5. Weekly and monthly.
+6. Answers.
+7. The feelings journal's reminders become habits.
+8. Delight.
 
 ## Themes (#23, 2026-10-06)
 
@@ -7166,6 +7393,7 @@ Later epics each carry their own build order on their issue: modules
 and the Kitchen (#125), other assistants (#142), send to an assistant
 (#143), the gardener's keys and the garden's own agent (#144), and the
 Reader (#159, 2026-11-07: schema and import, the fetcher, reading, the
-gestures of intent and the assistant's tools, then the rest).
+gestures of intent and the assistant's tools, then the rest), and
+Habits (#324, 2026-11-21; Habits, above).
 
 First deploy to mossgoblin.garden: done 2026-10-06.

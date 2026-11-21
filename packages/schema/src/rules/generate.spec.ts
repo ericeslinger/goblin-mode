@@ -19,6 +19,7 @@ describe('validatorFor', () => {
           at: Stamp,
           note: z.string().optional(),
           extra: z.object({ x: z.string() }).optional(),
+          byDay: z.record(z.string(), z.number()).optional(),
         }),
       },
       Stamp,
@@ -27,7 +28,7 @@ describe('validatorFor', () => {
       [
         'function isValidThing(data) {',
         "  return data.keys().hasAll(['title', 'done', 'count', 'tags', 'kind', 'at'])",
-        "    && data.keys().hasOnly(['title', 'done', 'count', 'tags', 'kind', 'at', 'note', 'extra'])",
+        "    && data.keys().hasOnly(['title', 'done', 'count', 'tags', 'kind', 'at', 'note', 'extra', 'byDay'])",
         '    && data.title is string',
         '    && data.done is bool',
         '    && data.count is number',
@@ -35,7 +36,8 @@ describe('validatorFor', () => {
         "    && (data.kind is string && data.kind in ['a', 'b'])",
         '    && data.at is timestamp',
         "    && (!('note' in data) || data.note is string)",
-        "    && (!('extra' in data) || data.extra is map);",
+        "    && (!('extra' in data) || data.extra is map)",
+        "    && (!('byDay' in data) || data.byDay is map);",
         '}',
       ].join('\n'),
     );
@@ -77,5 +79,7 @@ describe('renderRulesBlock', () => {
     expect(block).toContain('function isValidReminder(data)');
     expect(block).toContain('function isValidDevice(data)');
     expect(block).toContain('data.updatedAt is timestamp');
+    // A nested shape the hand-written rules apply per value (#327).
+    expect(block).toContain('function isValidHabitEntry(data)');
   });
 });
