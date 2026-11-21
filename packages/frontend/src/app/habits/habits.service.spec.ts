@@ -12,7 +12,7 @@ import {
   remindersTestProviders,
   stamp,
 } from '../testing/fakes';
-import { HABITS_API, HabitsService } from './habits.service';
+import { FRESH_MS, HABITS_API, HabitsService } from './habits.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 // 2026-10-06 10:00 in New York, a Tuesday.
@@ -334,12 +334,113 @@ describe('HabitsService (#324)', () => {
     const stop = habits.showStreaks();
     TestBed.tick();
     expect([...api.logs.keys()]).toContain('floss_2026-09');
-    // Unknown until September is heard.
-    expect(habits.placed()[0].streak).toBeUndefined();
+    // While September is read, the streak stays as known, at least 9
+    // (review of #328), and no further month is asked for yet.
+    expect(habits.placed()[0].streak).toEqual({ count: 9, complete: false });
+    expect([...api.logs.keys()]).not.toContain('floss_2026-08');
     api.pushLog('floss_2026-09', { '30': { state: 'done' } });
     TestBed.tick();
     expect(habits.placed()[0].streak).toEqual({ count: 10, complete: true });
     stop();
+  });
+
+  it('lets the months read for a streak go once no screen shows it (review of #328)', () => {
+    const { habits, api, push } = setup({ now: NOW + 4 * DAY });
+    const days = Object.fromEntries(
+      ['01', '02', '03', '04', '05', '06', '07', '08', '09'].map((d) => [
+        d,
+        { state: 'done' as const },
+      ]),
+    );
+    push([habitDoc('floss', { name: 'Floss', createdAt: NOW - 90 * DAY })], {
+      'floss_2026-10': days,
+    });
+    const stop = habits.showStreaks();
+    TestBed.tick();
+    api.pushLog('floss_2026-09', { '30': { state: 'done' } });
+    TestBed.tick();
+    expect([...api.logs.keys()]).toEqual(['floss_2026-10', 'floss_2026-09']);
+    stop();
+    TestBed.tick();
+    expect(api.stopped).toContain('floss_2026-09');
+    expect([...api.logs.keys()]).toEqual(['floss_2026-10']);
+  });
+
+  describe('a stale clock (review of #328)', () => {
+    // 23:59:50 on Saturday 31 October in New York.
+    const late = Date.parse('2026-11-01T03:59:50Z');
+    const visible = (hidden: boolean) =>
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    afterEach(() => delete (document as { hidden?: boolean }).hidden);
+
+    it('reads the day again when the app comes back after midnight', () => {
+      const { habits, api, setNow, push } = setup({ now: late });
+      push([habitDoc('floss', { name: 'Floss', createdAt: late - 9 * DAY })]);
+      expect(habits.today()).toBe('2026-10-31');
+      visible(true);
+      document.dispatchEvent(new Event('visibilitychange'));
+      // Away all night: the tick does not run in the background.
+      setNow(late + 7 * 60 * 60_000);
+      visible(false);
+      document.dispatchEvent(new Event('visibilitychange'));
+      TestBed.tick();
+      expect(habits.today()).toBe('2026-11-01');
+      habits.log(habits.toDo()[0], habits.today(), 'done');
+      expect(lastWrite(api)).toMatchObject({
+        path: 'users/u1/habitLogs/floss_2026-11',
+        data: { month: '2026-11', days: { '01': { state: 'done' } } },
+      });
+    });
+
+    it('puts a tick made on a screen drawn before the app went away on today', () => {
+      const { habits, api, setNow, push } = setup({ now: late });
+      push([habitDoc('floss', { name: 'Floss', createdAt: late - 9 * DAY })]);
+      const floss = habits.toDo()[0];
+      // Back after the night, tapped before anything has redrawn.
+      setNow(late + 7 * 60 * 60_000);
+      habits.log(floss, '2026-10-31', 'done');
+      expect(lastWrite(api)).toMatchObject({
+        path: 'users/u1/habitLogs/floss_2026-11',
+        data: { days: { '01': { state: 'done' } } },
+      });
+      expect(habits.undoable()?.message).toBe('Floss: done');
+      expect(habits.today()).toBe('2026-11-01');
+    });
+
+    it('puts a Yesterday? from a screen drawn before the app went away on yesterday', () => {
+      const { habits, api, setNow, push } = setup({ now: late });
+      push([habitDoc('floss', { name: 'Floss', createdAt: late - 9 * DAY })]);
+      // The screen said yesterday of the 31st, the 30th; one tick more
+      // than fresh, it is yesterday of the 1st.
+      setNow(late + FRESH_MS + 1);
+      habits.log(habits.toDo()[0], '2026-10-30', 'done');
+      expect(lastWrite(api)).toMatchObject({
+        path: 'users/u1/habitLogs/floss_2026-10',
+        data: { days: { '31': { state: 'done' } } },
+      });
+      expect(habits.undoable()?.message).toBe('Floss: done yesterday');
+    });
+
+    it('means the day the screen showed when midnight comes between drawing and the tap', () => {
+      const { habits, api, setNow, push } = setup({ now: late });
+      push([habitDoc('floss', { name: 'Floss', createdAt: late - 9 * DAY })]);
+      const floss = habits.toDo()[0];
+      expect(habits.today()).toBe('2026-10-31');
+      // Shown at 23:59:50 as today, tapped at 00:00:05.
+      setNow(late + 15_000);
+      habits.log(floss, '2026-10-31', 'done');
+      expect(lastWrite(api)).toMatchObject({
+        path: 'users/u1/habitLogs/floss_2026-10',
+        data: { days: { '31': { state: 'done' } } },
+      });
+      // Yesterday now, and said so; the screen moves on to the 1st.
+      expect(habits.undoable()?.message).toBe('Floss: done yesterday');
+      expect(habits.today()).toBe('2026-11-01');
+      // A Yesterday? shown for the 30th is two days back now: let go.
+      api.set.mockClear();
+      habits.log(floss, '2026-10-30', 'done');
+      expect(api.set).not.toHaveBeenCalled();
+    });
   });
 
   it('adds a daily, done-only habit with a generated id, offline as ever', () => {

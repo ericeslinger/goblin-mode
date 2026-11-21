@@ -1,10 +1,20 @@
-import { Component, computed, inject } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Icon } from '../home/icon';
 import { ModulesService } from '../modules/modules.service';
 import { habitWhen } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
-import { type PlacedHabit, HabitsService } from './habits.service';
+import { type HabitUndoable, type PlacedHabit, HabitsService } from './habits.service';
 
 /**
  * Right Now's Habits (#324, step 2): today's habits not yet logged, a
@@ -16,6 +26,10 @@ import { type PlacedHabit, HabitsService } from './habits.service';
  * screen. A write the server refused is said under them, with Try
  * again (2026-11-21). Nothing shows while the module is off or there
  * is nothing of habits to show today.
+ *
+ * The row ticked goes, so the focus goes to its Undo; when Undo is
+ * pressed or lapses with the focus on it, to the section's heading
+ * (review of #328, 2026-11-21), never to the page.
  */
 @Component({
   selector: 'app-right-now-habits',
@@ -23,7 +37,9 @@ import { type PlacedHabit, HabitsService } from './habits.service';
   template: `
     @if (shown()) {
       <section aria-labelledby="section-habits">
-        <h2 id="section-habits"><a routerLink="/habits" class="title">Habits</a></h2>
+        <h2 id="section-habits">
+          <a #heading routerLink="/habits" class="title">Habits</a>
+        </h2>
         @if (habits.toDo().length) {
           <ul aria-labelledby="section-habits">
             @for (h of habits.toDo(); track h.id) {
@@ -33,7 +49,7 @@ import { type PlacedHabit, HabitsService } from './habits.service';
                   class="tick touch-target"
                   [attr.aria-label]="'Done: ' + h.name"
                   title="Done"
-                  (click)="habits.log(h, habits.today(), 'done')"
+                  (click)="log(h, habits.today(), 'done')"
                 >
                   <app-icon name="check" [size]="16" />
                 </button>
@@ -48,7 +64,7 @@ import { type PlacedHabit, HabitsService } from './habits.service';
                     type="button"
                     class="quiet"
                     [attr.aria-label]="'Yesterday? Mark ' + h.name + ' done yesterday'"
-                    (click)="habits.log(h, habits.yesterday(), 'done')"
+                    (click)="log(h, habits.yesterday(), 'done')"
                   >
                     Yesterday?
                   </button>
@@ -57,7 +73,7 @@ import { type PlacedHabit, HabitsService } from './habits.service';
                   type="button"
                   class="quiet"
                   [attr.aria-label]="'Skip: ' + h.name"
-                  (click)="habits.log(h, habits.today(), 'skipped')"
+                  (click)="log(h, habits.today(), 'skipped')"
                 >
                   Skip
                 </button>
@@ -71,7 +87,7 @@ import { type PlacedHabit, HabitsService } from './habits.service';
         <div role="status" class="status">
           @if (habits.undoable(); as last) {
             <span>{{ last.message }}</span>
-            <button type="button" class="link" (click)="habits.undo()">Undo</button>
+            <button #undoButton type="button" class="link" (click)="undo()">Undo</button>
           }
         </div>
         <app-habit-refusals />
@@ -166,6 +182,26 @@ import { type PlacedHabit, HabitsService } from './habits.service';
 export class RightNowHabits {
   protected readonly habits = inject(HabitsService);
   private readonly modules = inject(ModulesService);
+  private readonly injector = inject(Injector);
+  private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
+  private readonly heading = viewChild<ElementRef<HTMLAnchorElement>>('heading');
+  /** The Undo offered when last looked, to see it go. */
+  private offered: HabitUndoable | null = null;
+
+  constructor() {
+    // Undo lapses (or a refusal takes it back) while it has the focus:
+    // seen before the view drops the button.
+    effect(() => {
+      const now = this.habits.undoable();
+      untracked(() => {
+        const had = this.offered;
+        this.offered = now;
+        if (had && !now && this.undoButton()?.nativeElement === document.activeElement) {
+          this.focus(() => this.heading());
+        }
+      });
+    });
+  }
 
   /** Something due today, logged or not, an Undo still offered, or a refusal. */
   protected readonly shown = computed(
@@ -192,6 +228,23 @@ export class RightNowHabits {
       ...(skipped ? [`Skipped today: ${skipped}`] : []),
     ].join(' · ');
   });
+
+  /** Logs the day; the row goes with it, so the focus goes to Undo. */
+  protected log(h: PlacedHabit, day: string, state: 'done' | 'skipped'): void {
+    this.habits.log(h, day, state);
+    this.focus(() => this.undoButton() ?? this.heading());
+  }
+
+  protected undo(): void {
+    this.offered = null;
+    this.habits.undo();
+    this.focus(() => this.heading());
+  }
+
+  /** Focus to `target`, once the view has drawn what took it away. */
+  private focus(target: () => ElementRef<HTMLElement> | undefined): void {
+    afterNextRender(() => target()?.nativeElement.focus(), { injector: this.injector });
+  }
 
   protected when(h: PlacedHabit): string {
     return habitWhen(h);

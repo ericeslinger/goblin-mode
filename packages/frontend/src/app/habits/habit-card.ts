@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { dayInitial, dayName, dayState, habitWhen, streakLine } from './habit-lines';
 import { type PlacedHabit, HabitsService } from './habits.service';
 
@@ -9,6 +9,8 @@ import { type PlacedHabit, HabitsService } from './habits.service';
  * pressed while it is so, and pressed again to clear it; yesterday's
  * too, while it can still be logged; and Edit, for its name, its time
  * and Archive. An archived habit keeps its strip and has Unarchive.
+ * Archived or unarchived, it says so (`moved`), so the screen can put
+ * the focus where the habit went (review of #328, 2026-11-21).
  */
 @Component({
   selector: 'app-habit-card',
@@ -247,6 +249,8 @@ export class HabitCard {
   readonly habit = input.required<PlacedHabit>();
   /** Its heading's level: 2 among the habits, 3 under Archived. */
   readonly level = input(2);
+  /** The habit is archived (true) or back (false); this card goes. */
+  readonly moved = output<boolean>();
   protected readonly habits = inject(HabitsService);
 
   protected readonly editing = signal(false);
@@ -255,7 +259,10 @@ export class HabitCard {
 
   protected readonly meta = computed(() => {
     const h = this.habit();
-    return [habitWhen(h), ...(h.streak ? [streakLine(h.schedule, h.streak.count)] : [])]
+    return [
+      habitWhen(h),
+      ...(h.streak ? [streakLine(h.schedule, h.streak.count, h.streak.complete)] : []),
+    ]
       .filter(Boolean)
       .join(' · ');
   });
@@ -307,9 +314,11 @@ export class HabitCard {
   protected archive(): void {
     this.habits.archive(this.habit().id, true);
     this.editing.set(false);
+    this.moved.emit(true);
   }
 
   protected unarchive(): void {
     this.habits.archive(this.habit().id, false);
+    this.moved.emit(false);
   }
 }

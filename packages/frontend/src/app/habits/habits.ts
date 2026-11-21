@@ -1,4 +1,16 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  afterRenderEffect,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { PageHeader } from '../home/page-header';
@@ -6,7 +18,7 @@ import { ModulesService } from '../modules/modules.service';
 import { SignIn } from '../sign-in/sign-in';
 import { HabitCard } from './habit-card';
 import { HabitRefusals } from './habit-refusals';
-import { HabitsService } from './habits.service';
+import { type HabitUndoable, HabitsService } from './habits.service';
 
 /**
  * The Habits screen (`/habits`, #324 step 2): each habit with its week
@@ -16,7 +28,13 @@ import { HabitsService } from './habits.service';
  * Unarchive. A write the server refused is said under the Undo line,
  * with Try again (2026-11-21). Streaks are read back as far as they
  * run while this screen is open. Off, it says where to switch the
- * module on; signed out, only sign-in.
+ * module on; until the modules are read, only that it is loading
+ * (review of #328, 2026-11-21); signed out, only sign-in.
+ *
+ * Focus (review of #328): Undo pressed, or lapsing with the focus on
+ * it, puts the focus on the Done of the day it undid; a habit archived
+ * or unarchived takes the focus with it, to its Unarchive or its Edit
+ * once it shows there.
  */
 @Component({
   selector: 'app-habits',
@@ -33,7 +51,9 @@ import { HabitsService } from './habits.service';
             </button>
           }
         </app-page-header>
-        @if (!modules.habits()) {
+        @if (!modules.loaded()) {
+          <p class="muted" role="status">Loading…</p>
+        } @else if (!modules.habits()) {
           <p>
             Habits is a module that is switched off.
             <a routerLink="/settings/modules">Switch it on in Settings, Modules</a>.
@@ -67,7 +87,7 @@ import { HabitsService } from './habits.service';
           <div role="status" class="status">
             @if (habits.undoable(); as last) {
               <span>{{ last.message }}</span>
-              <button type="button" class="link" (click)="habits.undo()">Undo</button>
+              <button #undoButton type="button" class="link" (click)="undo()">Undo</button>
             }
           </div>
           <app-habit-refusals />
@@ -86,7 +106,7 @@ import { HabitsService } from './habits.service';
           @if (habits.active().length) {
             <ul class="habits" aria-label="Habits">
               @for (h of habits.active(); track h.id) {
-                <li><app-habit-card [habit]="h" /></li>
+                <li><app-habit-card [habit]="h" (moved)="follow(h.name, $event)" /></li>
               }
             </ul>
           }
@@ -95,7 +115,9 @@ import { HabitsService } from './habits.service';
               <h2 id="habits-archived">Archived</h2>
               <ul class="habits" aria-labelledby="habits-archived">
                 @for (h of habits.archived(); track h.id) {
-                  <li><app-habit-card [habit]="h" [level]="3" /></li>
+                  <li>
+                    <app-habit-card [habit]="h" [level]="3" (moved)="follow(h.name, $event)" />
+                  </li>
                 }
               </ul>
             </section>
@@ -162,6 +184,9 @@ import { HabitsService } from './habits.service';
       font-size: 14px;
       color: var(--quiet);
     }
+    .muted {
+      color: var(--quiet);
+    }
     .empty p {
       color: var(--quiet);
     }
@@ -184,9 +209,64 @@ export class Habits {
   protected readonly adding = signal(false);
   protected readonly name = signal('');
   protected readonly time = signal('');
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+  private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
+  /** The button a habit archived or unarchived will have where it goes. */
+  private readonly moving = signal<{ label: string } | null>(null);
+  /** The Undo offered when last looked, to see it go. */
+  private offered: HabitUndoable | null = null;
 
   constructor() {
     inject(DestroyRef).onDestroy(this.habits.showStreaks());
+    // Undo lapses (or a refusal takes it back) while it has the focus:
+    // seen before the view drops the button.
+    effect(() => {
+      const now = this.habits.undoable();
+      untracked(() => {
+        const had = this.offered;
+        this.offered = now;
+        if (had && !now && this.undoButton()?.nativeElement === document.activeElement) {
+          this.focusDay(had);
+        }
+      });
+    });
+    // A habit moved, once it shows where it went.
+    afterRenderEffect(() => {
+      const m = this.moving();
+      this.habits.placed();
+      if (!m) return;
+      const button = this.button(m.label);
+      if (!button) return;
+      untracked(() => this.moving.set(null));
+      button.focus();
+    });
+  }
+
+  protected undo(): void {
+    const had = this.habits.undoable();
+    this.offered = null;
+    this.habits.undo();
+    if (had) this.focusDay(had);
+  }
+
+  protected follow(name: string, archived: boolean): void {
+    this.moving.set({ label: `${archived ? 'Unarchive' : 'Edit'} ${name}` });
+  }
+
+  /** Focus to the Done of the day undone, once drawn. */
+  private focusDay(u: HabitUndoable): void {
+    const which = u.day === this.habits.yesterday() ? 'yesterday' : 'today';
+    const name = this.habits.placed().find((h) => h.id === u.habit)?.name;
+    afterNextRender(() => (name ? this.button(`Done ${which}: ${name}`) : undefined)?.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  private button(label: string): HTMLButtonElement | undefined {
+    return [...this.host.nativeElement.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === label,
+    );
   }
 
   protected value(event: Event): string {

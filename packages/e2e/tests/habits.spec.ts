@@ -126,7 +126,11 @@ test('habits: on, added, ticked with Undo, skipped, logged for yesterday, archiv
   await expect(section.getByRole('button', { name: 'Done: Floss' })).toHaveCount(0);
   await expect(section).toContainText('Done today: Floss');
   await expect(section.getByRole('status')).toContainText('Floss: done');
+  // The row ticked went; the focus is on its Undo, then on the heading
+  // (review of #328, 2026-11-21).
+  await expect(section.getByRole('button', { name: 'Undo' })).toBeFocused();
   await section.getByRole('button', { name: 'Undo' }).click();
+  await expect(section.getByRole('link', { name: 'Habits' })).toBeFocused();
   await expect(section.getByRole('button', { name: 'Done: Floss' })).toBeVisible();
   await expect(section).not.toContainText('Done today');
   await section.getByRole('button', { name: 'Done: Floss' }).click();
@@ -183,7 +187,7 @@ test('habits: on, added, ticked with Undo, skipped, logged for yesterday, archiv
   const archived = page.getByRole('region', { name: 'Archived' });
   await expect(archived.getByRole('heading', { name: 'Run', level: 3 })).toBeVisible();
   await expect(archived.getByRole('list', { name: 'The last seven days of Run' })).toBeVisible();
-  await expect(archived.getByRole('button', { name: 'Unarchive Run' })).toBeVisible();
+  await expect(archived.getByRole('button', { name: 'Unarchive Run' })).toBeFocused();
   await letItSave(page);
   await page.goto('/right-now');
   await expect(section.getByRole('button', { name: 'Done: Read a page' })).toBeVisible();
@@ -254,7 +258,11 @@ async function storedHabitIds(): Promise<string[]> {
 // A tick the server refuses (review of #327, 2026-11-21): the month's
 // log is given a field the rules do not allow, as admin, so the rules
 // refuse every write to it, as production would refuse one past its
-// limits. The tick goes, and the refusal is said, with Try again.
+// limits. The tick goes, and the refusal is said, with Try again. Each
+// write meant to be refused is waited out (`letItSave`: Firestore's
+// pending writes settle on a refusal too) before the line is read or
+// the log put right, so a retry still in flight cannot land on the
+// repaired log (2026-11-21).
 test('habits: a refused tick is said, and Try again sends it again', async ({ page }) => {
   test.setTimeout(90_000);
   await signInAs(page, OWNER);
@@ -270,6 +278,7 @@ test('habits: a refused tick is said, and Try again sends it again', async ({ pa
   await page.goto('/right-now');
   const section = habitsOnRightNow(page);
   await section.getByRole('button', { name: 'Done: Floss' }).click();
+  await letItSave(page);
   const alert = section.getByRole('alert');
   await expect(alert).toHaveText(/Floss could not be saved for today\./);
   // The cache is put back: Floss is still to do, and no Undo claims it.
@@ -280,6 +289,7 @@ test('habits: a refused tick is said, and Try again sends it again', async ({ pa
 
   // Refused again while the log is as it was.
   await alert.getByRole('button', { name: 'Try again: Floss' }).click();
+  await letItSave(page);
   await expect(alert).toHaveText(/Floss could not be saved for today\./);
 
   // Put right, Try again saves it, and the line goes.

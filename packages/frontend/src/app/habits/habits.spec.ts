@@ -8,8 +8,11 @@ import { HABITS_API } from './habits.service';
 
 const DAY = 24 * HOUR;
 
-async function render({ on = true } = {}) {
-  const r = await renderWithReminders(Habits);
+async function render({ on = true, loaded = true } = {}) {
+  const r = await renderWithReminders(Habits, () => {
+    const modules = TestBed.inject(ModulesService) as unknown as FakeModules;
+    modules.loaded.set(loaded);
+  });
   const modules = TestBed.inject(ModulesService) as unknown as FakeModules;
   if (on) modules.set('habits', true);
   await r.fixture.whenStable();
@@ -17,6 +20,7 @@ async function render({ on = true } = {}) {
   return {
     ...r,
     api,
+    modules,
     async habits(
       docs: ReturnType<typeof habitDoc>[],
       logs: Record<string, Record<string, { state: 'done' | 'skipped' }>> = {},
@@ -46,6 +50,73 @@ describe('The Habits screen (#324)', () => {
     expect(r.el.textContent).toContain('Habits is a module that is switched off.');
     expect(r.el.querySelector('a[href="/settings/modules"]')).not.toBeNull();
     expect(buttonNamed(r.el, 'Add a habit')).toBeUndefined();
+  });
+
+  it('says nothing of the switch until the modules are read (review of #328)', async () => {
+    const r = await render({ on: false, loaded: false });
+    expect(r.el.textContent).not.toContain('switched off');
+    expect(r.el.querySelector('[role="status"]')?.textContent).toBe('Loading…');
+    expect(buttonNamed(r.el, 'Add a habit')).toBeUndefined();
+    r.modules.set('habits', true);
+    r.modules.loaded.set(true);
+    await r.fixture.whenStable();
+    expect(r.el.textContent).not.toContain('Loading…');
+    expect(buttonNamed(r.el, 'Add a habit')).toBeDefined();
+  });
+
+  it('keeps the focus on the screen after Undo, Archive and Unarchive (review of #328)', async () => {
+    const r = await render();
+    await r.habits([habitDoc('floss', { name: 'Floss', createdAt: NOW - 3 * DAY })]);
+    buttonNamed(r.el, 'Skip yesterday: Floss')!.click();
+    await r.fixture.whenStable();
+    const undo = buttonNamed(r.el, 'Undo')!;
+    undo.focus();
+    undo.click();
+    await r.fixture.whenStable();
+    expect(buttonNamed(r.el, 'Undo')).toBeUndefined();
+    expect(document.activeElement).toBe(buttonNamed(r.el, 'Done yesterday: Floss'));
+
+    buttonNamed(r.el, 'Edit Floss')!.click();
+    await r.fixture.whenStable();
+    buttonNamed(r.el, 'Archive')!.click();
+    await r.fixture.whenStable();
+    r.api.pushHabits([habitDoc('floss', { name: 'Floss', archived: true })]);
+    await r.fixture.whenStable();
+    expect(document.activeElement).toBe(buttonNamed(r.el, 'Unarchive Floss'));
+    buttonNamed(r.el, 'Unarchive Floss')!.click();
+    await r.fixture.whenStable();
+    r.api.pushHabits([habitDoc('floss', { name: 'Floss' })]);
+    await r.fixture.whenStable();
+    expect(document.activeElement).toBe(buttonNamed(r.el, 'Edit Floss'));
+  });
+
+  it('shows the streak known while a further month is read, as at least (review of #328)', async () => {
+    const r = await render();
+    const days = Object.fromEntries(
+      ['01', '02', '03', '04', '05', '06'].map((d) => [d, { state: 'done' as const }]),
+    );
+    r.api.pushHabits([habitDoc('floss', { name: 'Floss', createdAt: NOW - 90 * DAY })]);
+    await r.fixture.whenStable();
+    // NOW is Tuesday the 6th: the strip reaches September, which is
+    // heard; the streak runs past its first day, so August is read.
+    r.api.pushLog('floss_2026-10', days);
+    r.api.pushLog(
+      'floss_2026-09',
+      Object.fromEntries(
+        Array.from({ length: 30 }, (_, i) => [
+          String(i + 1).padStart(2, '0'),
+          { state: 'done' as const },
+        ]),
+      ),
+    );
+    await r.fixture.whenStable();
+    expect([...r.api.logs.keys()]).toContain('floss_2026-08');
+    expect(card(r.el, 'Floss').querySelector('.meta')?.textContent).toBe(
+      'Streak: at least 36 days',
+    );
+    r.api.pushLog('floss_2026-08');
+    await r.fixture.whenStable();
+    expect(card(r.el, 'Floss').querySelector('.meta')?.textContent).toBe('Streak: 36 days');
   });
 
   it('says what a habit is with none yet, and adds the first', async () => {
@@ -168,6 +239,7 @@ describe('habit lines', () => {
     expect(streakLine('daily', 1)).toBe('Streak: 1 day');
     expect(streakLine('daily', 5)).toBe('Streak: 5 days');
     expect(streakLine('weekly', 2)).toBe('Streak: 2 weeks');
+    expect(streakLine('daily', 30, false)).toBe('Streak: at least 30 days');
   });
 
   it('gives every strip state a mark or words of its own', () => {

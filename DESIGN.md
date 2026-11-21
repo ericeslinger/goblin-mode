@@ -4434,6 +4434,29 @@ overruling; nothing in this section above them changed.
   functions: on Right Now each day of its period until settled, on the
   screen "Done this week" once settled on another day, and can be
   ticked done or skipped (an answer it would ask for is not asked).
+- *The day a tick means* (review of #328, 2026-11-21). The clock is
+  read again when the app comes back to the screen (`visibilitychange`,
+  `pageshow`), and afresh at every tick, clear and Yesterday?: with the
+  clock under a minute old (`FRESH_MS`, two ticks) the tap means the
+  day the screen showed, so a row that said today at 23:59:50 and is
+  tapped at 00:00:05 logs that day, yesterday by then ("done
+  yesterday"); with an older clock (the app was away, not yet redrawn)
+  the screen's today means today and its yesterday yesterday. A day
+  shown that can no longer be logged is let go as the screen moves on.
+- *Streak months* (review of #328, 2026-11-21). The months read back
+  for a streak are let go once no screen shows streaks; while a further
+  month is read the streak stays as counted on the newest months heard,
+  "Streak: at least 30 days" (`complete: false`), and none is read
+  further until that month is heard.
+- *Cold open* (review of #328, 2026-11-21). Until the modules are read
+  the Habits screen says only "Loading…", never that it is switched
+  off, and has no +.
+- *Focus* (review of #328, 2026-11-21). On Right Now a tick, skip or
+  Yesterday? takes its row away, so the focus goes to Undo; Undo
+  pressed, or lapsing with the focus on it, puts it on the section's
+  heading. On the Habits screen Undo puts it on the Done of the day it
+  undid, and a habit archived or unarchived takes it to its Unarchive
+  or its Edit once it shows there. Reminders do none of this yet.
 
 **Build order (#324).**
 

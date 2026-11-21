@@ -8,6 +8,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import {
   HABIT_DAY_KEYS,
   HABIT_ID,
@@ -170,6 +171,14 @@ export interface NewHabit {
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/**
+ * How old the clock may be and still be what the screen shows now: two
+ * of its ticks. An older one stopped while the app was away (in the
+ * background, or the device asleep), so the day on the screen is not
+ * today's (review of #328, 2026-11-21).
+ */
+export const FRESH_MS = 2 * TICK_MS;
+
 function millis(v: unknown): number | undefined {
   return (v as { toMillis?: () => number } | undefined)?.toMillis?.();
 }
@@ -230,7 +239,9 @@ interface Waiting {
  * never awaited, so a tick works offline. Only while the module is on:
  * off, nothing is read. Today is the device's own day (`zonedDay` in
  * its zone, as Right Now decides today), rechecked as Right Now's clock
- * ticks, so a day that ends while the app is open moves on with it.
+ * ticks, so a day that ends while the app is open moves on with it,
+ * and again whenever the app comes back to the screen. A tick reads the
+ * clock afresh as it is made (`dayOf`, review of #328, 2026-11-21).
  *
  * A habit reads the month logs `habitLogMonths` names, at most two;
  * where a screen shows the streak (`showStreaks`) and it ran past the
@@ -284,6 +295,21 @@ export class HabitsService {
 
   private readonly weekStart = computed(() => this.modules.habitsConfig().weekStart);
 
+  /**
+   * Of the months each habit needs, the newest run of them heard, oldest
+   * first; empty while the newest is not (review of #328, 2026-11-21).
+   */
+  private readonly heard = computed(() => {
+    const logs = this.logs();
+    const out = new Map<string, { months: string[]; all: boolean }>();
+    for (const [habit, months] of this.months()) {
+      let i = months.length;
+      while (i > 0 && habitLogId(habit, months[i - 1]) in logs) i--;
+      out.set(habit, { months: months.slice(i), all: i === 0 });
+    }
+    return out;
+  });
+
   /** The months each habit needs, oldest first. */
   private readonly months = computed(() => {
     const today = this.today();
@@ -329,10 +355,10 @@ export class HabitsService {
     const weekStart = this.weekStart();
     const logs = this.logs();
     const months = this.months();
+    const heard = this.heard();
     return this.habits()
       .map((h) => {
         const ids = (months.get(h.id) ?? []).map((m) => habitLogId(h.id, m));
-        const read = ids.every((id) => id in logs);
         const entries = habitEntries(
           ids
             .filter((id) => id in logs)
@@ -341,13 +367,20 @@ export class HabitsService {
               days: logs[id] as unknown as Record<string, HabitEntry>,
             })),
         );
+        // The streak is counted on the newest months heard, so while a
+        // further month is read back it stays as it was, `complete:
+        // false` ("at least"); unknown only while the months the strip
+        // needs are not all heard (review of #328, 2026-11-21).
+        const run = heard.get(h.id)?.months ?? [];
+        const base = habitLogMonths(h.schedule, today, weekStart).length;
+        const read = run.length >= base;
         const createdOn = h.createdAt === undefined ? undefined : zonedDay(h.createdAt, this.tz);
         const yesterdayLoggable =
           canLogHabitDay(yesterday, today) &&
           habitPeriod(h.schedule, yesterday, weekStart).start !==
             habitPeriod(h.schedule, today, weekStart).start &&
           (createdOn === undefined || createdOn <= yesterday);
-        const firstMonth = months.get(h.id)?.[0];
+        const firstMonth = run[0];
         const loadedFrom =
           firstMonth && !(createdOn && habitMonth(createdOn) >= firstMonth)
             ? `${firstMonth}-01`
@@ -398,7 +431,10 @@ export class HabitsService {
     // A streak that ran past what is read, on a screen that shows it.
     effect(() => {
       if (this.streakViewers() === 0) return;
-      const more = this.placed().filter((h) => h.streak && !h.streak.complete);
+      const heard = this.heard();
+      const more = this.placed().filter(
+        (h) => h.streak && !h.streak.complete && heard.get(h.id)?.all,
+      );
       if (!more.length) return;
       untracked(() =>
         this.extra.update((e) => {
@@ -417,14 +453,28 @@ export class HabitsService {
       });
     });
     const tick = setInterval(() => this.clock.set(this.now()), TICK_MS);
+    // Back on the screen, the day is read again at once: the tick above
+    // does not run while the app is away (review of #328, 2026-11-21).
+    const doc = inject(DOCUMENT);
+    const back = () => {
+      if (!doc.hidden) this.clock.set(this.now());
+    };
+    doc.addEventListener('visibilitychange', back);
+    doc.defaultView?.addEventListener('pageshow', back);
     inject(DestroyRef).onDestroy(() => {
+      doc.removeEventListener('visibilitychange', back);
+      doc.defaultView?.removeEventListener('pageshow', back);
       this.follow(undefined);
       clearInterval(tick);
       clearTimeout(this.undoTimer);
     });
   }
 
-  /** A screen showing streaks; call the result when it goes. */
+  /**
+   * A screen showing streaks; call the result when it goes. Once none
+   * does, the months read back for them are let go (review of #328,
+   * 2026-11-21).
+   */
   showStreaks(): () => void {
     this.streakViewers.update((n) => n + 1);
     let done = false;
@@ -432,6 +482,7 @@ export class HabitsService {
       if (done) return;
       done = true;
       this.streakViewers.update((n) => n - 1);
+      if (this.streakViewers() === 0) this.extra.set({});
     };
   }
 
@@ -480,11 +531,13 @@ export class HabitsService {
   }
 
   /**
-   * Logs `day` (today, or yesterday after the fact) as done or skipped,
-   * with Undo; a merged write of that one day to the month's log.
+   * Logs `shown` (the screen's today, or its yesterday after the fact)
+   * as done or skipped, with Undo; a merged write of that one day to the
+   * month's log, on the day `dayOf` makes of it.
    */
-  log(habit: HabitRecord, day: string, state: 'done' | 'skipped'): void {
-    if (!canLogHabitDay(day, this.today())) return;
+  log(habit: HabitRecord, shown: string, state: 'done' | 'skipped'): void {
+    const day = this.dayOf(shown);
+    if (!day) return;
     const before = this.entry(habit.id, day);
     const at = this.now();
     this.writeDay(habit.id, day, {
@@ -502,9 +555,10 @@ export class HabitsService {
     });
   }
 
-  /** Clears a day's check-in. */
-  clear(habit: HabitRecord, day: string): void {
-    if (!canLogHabitDay(day, this.today())) return;
+  /** Clears a day's check-in, the day as `dayOf` makes it. */
+  clear(habit: HabitRecord, shown: string): void {
+    const day = this.dayOf(shown);
+    if (!day) return;
     const before = this.entry(habit.id, day);
     if (!before) return;
     this.writeDay(habit.id, day, undefined);
@@ -541,6 +595,32 @@ export class HabitsService {
   /** Puts a refused write's line away; the write is not sent again. */
   dismiss(key: string): void {
     this.refused.update((list) => list.filter((r) => r.about.key !== key));
+  }
+
+  /**
+   * The day a tap means, the clock read afresh as it is made (review of
+   * #328, 2026-11-21); none when that day can no longer be logged. With
+   * the clock still fresh (`FRESH_MS`), the screen was showing the day
+   * it was tapped on, so it means that day, even if midnight came
+   * between: a tick at 00:00:05 on a row that said today at 23:59:50
+   * goes to that day, yesterday now and still loggable. With a stale
+   * clock (the app was away, and the screen not yet redrawn) the screen
+   * showed a day that has gone, so its today means today and its
+   * yesterday yesterday.
+   */
+  private dayOf(shown: string): string | undefined {
+    const now = this.now();
+    const fresh = now - this.clock() <= FRESH_MS;
+    const was = { today: this.today(), yesterday: this.yesterday() };
+    this.clock.set(now);
+    const day = fresh
+      ? shown
+      : shown === was.today
+        ? this.today()
+        : shown === was.yesterday
+          ? this.yesterday()
+          : shown;
+    return canLogHabitDay(day, this.today()) ? day : undefined;
   }
 
   /** The stored entry for a habit's day, as it was heard. */

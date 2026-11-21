@@ -10,11 +10,16 @@ const UNIT: Record<HabitSchedule, [string, string]> = {
   monthly: ['month', 'months'],
 };
 
-/** "Streak: 5 days", "Streak: 1 week"; none yet says so. */
-export function streakLine(schedule: HabitSchedule, count: number): string {
+/**
+ * "Streak: 5 days", "Streak: 1 week"; none yet says so. One still
+ * running where the months read begin (`complete` false, a further month
+ * not read yet) is "Streak: at least 30 days" (review of #328,
+ * 2026-11-21).
+ */
+export function streakLine(schedule: HabitSchedule, count: number, complete = true): string {
   if (count <= 0) return 'No streak yet';
   const [one, many] = UNIT[schedule];
-  return `Streak: ${count} ${count === 1 ? one : many}`;
+  return `Streak: ${complete ? '' : 'at least '}${count} ${count === 1 ? one : many}`;
 }
 
 /**

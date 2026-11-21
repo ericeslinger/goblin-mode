@@ -3,7 +3,7 @@ import { ModulesService } from '../modules/modules.service';
 import { RightNow } from '../reminders/right-now';
 import { type FakeHabitsApi, type FakeModules, habitDoc, reminderDoc } from '../testing/fakes';
 import { HOUR, NOW, buttonNamed, renderWithReminders } from '../testing/reminders';
-import { HABITS_API } from './habits.service';
+import { HABITS_API, HabitsService } from './habits.service';
 
 const DAY = 24 * HOUR;
 
@@ -17,6 +17,7 @@ async function render({ on = true } = {}) {
     ...r,
     modules,
     api,
+    habitsService: TestBed.inject(HabitsService),
     async habits(
       docs: ReturnType<typeof habitDoc>[],
       logs: Record<string, Record<string, { state: 'done' | 'skipped' }>> = {},
@@ -101,6 +102,32 @@ describe('Right Now’s Habits (#324)', () => {
     expect(section(r.el)!.querySelector('[role="status"]')?.textContent).toContain(
       'Floss: done yesterday',
     );
+  });
+
+  it('puts the focus on Undo after a tick, and on the heading after Undo (review of #328)', async () => {
+    const r = await render();
+    await r.push([]);
+    await r.habits([habitDoc('floss', { name: 'Floss' }), habitDoc('run', { name: 'Run' })]);
+    buttonNamed(r.el, 'Done: Floss')!.focus();
+    buttonNamed(r.el, 'Done: Floss')!.click();
+    await r.fixture.whenStable();
+    r.api.pushLog('floss_2026-10', { '06': { state: 'done' } });
+    await r.fixture.whenStable();
+    expect(buttonNamed(r.el, 'Done: Floss')).toBeUndefined();
+    expect(document.activeElement).toBe(buttonNamed(r.el, 'Undo'));
+    buttonNamed(r.el, 'Undo')!.click();
+    await r.fixture.whenStable();
+    const heading = section(r.el)!.querySelector('h2 a');
+    expect(document.activeElement).toBe(heading);
+
+    // Undo lapsing with the focus on it leaves it on the heading too.
+    buttonNamed(r.el, 'Skip: Run')!.click();
+    await r.fixture.whenStable();
+    expect(document.activeElement).toBe(buttonNamed(r.el, 'Undo'));
+    r.habitsService.undoable.set(null);
+    await r.fixture.whenStable();
+    expect(buttonNamed(r.el, 'Undo')).toBeUndefined();
+    expect(document.activeElement).toBe(heading);
   });
 
   it('leaves an archived habit off', async () => {
