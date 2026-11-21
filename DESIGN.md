@@ -2055,7 +2055,9 @@ since #288, 2026-11-15, the week is the screen and the text is behind
 Edit as text): tap a slot to plan a recipe (one that exists, by name),
 delivery or out, or to clear it; tick it made; Previous and Next week.
 Every change is an edit of the text, through the editor, so typing
-there is kept. A made dinner with nothing under it asks how it went (a
+there is kept, and taps inside one typing pause are saved together; a
+late snapshot of the text before them is not taken for news
+(2026-11-21, under The open editor merges). A made dinner with nothing under it asks how it went (a
 delivery: what it was and from where); the answer goes under its slot
 and, for a recipe, as a dated line in its Notes. Ask me later makes a
 reminder an hour on that opens the plan. A recipe's back says how
@@ -5620,6 +5622,20 @@ when Eric and Claude (or two devices) edit one note at once:
   showed before and after his fix. The same text from another device,
   Claude or a merge is a real change (a laptop unticking an item) and
   merges in.
+- **Nor is the text a save was built on (2026-11-21).** A save reaches
+  the persistent cache a moment after it is made, and a snapshot raised
+  in that moment still carries the text the save replaced, whoever
+  wrote it: the server's answer to the write that made the note is
+  one. Merged as news, it put that text back in the editor over the
+  save, and the save's own echo was then ignored, so the screen kept
+  the old text while the server had the new (a meal plan made on
+  /kitchen, a slot set to Delivery and ticked made within a second of
+  opening it, came back unplanned and unticked). The capture loop
+  remembers the texts its saves were built on and ignores a snapshot
+  carrying one of them until a snapshot with any other text arrives,
+  its own echo included. Firestore shows a device its own writes before
+  anything the server sends after them, so a real change is never one
+  of these texts by then.
 - **Writes say what they were written over.** Each body write carries
   `baseHash`, the `textHash` of the text it replaced as the writer had
   it ('' when not known, e.g. a draft from before sign-in). When
