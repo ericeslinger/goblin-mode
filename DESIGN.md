@@ -4460,13 +4460,63 @@ overruling; nothing in this section above them changed.
   undid, and a habit archived or unarchived takes it to its Unarchive
   or its Edit once it shows there. Reminders do none of this yet.
 
+**The assistant's tools (step 3, 2026-11-21).** Built: `create_habit`,
+`list_habits`, `update_habit` and `log_habit` (`mcp/tools.ts`, the pure
+parts in `mcp/habits.ts`), and today's habits in `get_context`. As in
+step 2, the choices below are this step's own, not Eric's, and open to
+his overruling; nothing decided above changed.
+
+- *Habits only.* Every one of the four refuses while the module is off,
+  reads included, as the Kitchen tools do (`requireModule`).
+- *Making one.* A name in Eric's words, trimmed, 1 to 80; daily unless
+  weekly or monthly is asked; a time "HH:MM" or none; `timeZone` is
+  required, as every habit has a zone; `answer: done` only (a habit is
+  done or not in this step); `nudge` off unless asked, and on only with
+  a time. The id is generated on the server (`autoId`, the `HABIT_ID`
+  form), `createdBy: claude` and `agent` as a reminder's. A name an
+  unarchived habit already has (case and spacing aside, `normalizeName`)
+  is refused, pointing at `update_habit`; an archived one's is free.
+- *Naming one.* `update_habit` and `log_habit` take `habit`, an id or
+  a name, as `capture` takes a project: the id first, else the name, an
+  unarchived habit before an archived one; two habits of the name are
+  refused, asking for the id.
+- *Today* is each habit's own, in its `tz`, as decided (Days and
+  weeks); so no tool takes a zone for today, and `log_habit` takes a
+  `date` that must be today or yesterday there (`canLogHabitDay`).
+  Setting a time with `update_habit` needs `timeZone`, which becomes
+  the habit's zone, as a time set in the app takes the device's;
+  clearing it keeps the zone.
+- *A tick* is one day of the month log, merged, exactly as the app
+  writes it: `habit`, `month`, `updatedAt` and `days.<DD>` holding
+  `state` and `at`, with `answer` and `noteId` removed; `none` removes
+  the day. It is read and written in a transaction with the habit, so
+  an archived habit is refused there. The same state again writes
+  nothing. A habit of another kind (choice, text, note) is logged done
+  or skipped with no answer, and the result says so.
+- *The streak* is `habitStreak` over the months the day needs, read
+  back six months at a time while it comes back `complete: false`,
+  never before the month the habit began, and at most 24 months in all
+  (`HABIT_STREAK_MONTHS`); a streak still running there says `capped`.
+- *Reading* is lenient, as the app's: a habit that does not parse, or
+  a log entry that does not, is passed over.
+- *Nudges* are stored, not sent, until step 4: the descriptions, the
+  instructions and a result with a nudge on say so.
+- *What assistants changed.* An entry lists notes and reminders only,
+  so a habit's entry names it in its summary ("Made the habit Floss",
+  "Logged Floss: done today") with no item to open or put back; a
+  habit list in the record would be a stored-schema change, Eric's.
+- *get_context* carries `habits`, today's due habits each `due`, `done`
+  or `skipped`, while Habits is on; the instructions read on connecting
+  do not, so connecting reads no habits.
+
 **Build order (#324).**
 
 1. Design: this section, the stored schemas with generated rules and
    rules tests, the pure logic (`habits.ts`); no UI. Done 2026-11-21.
 2. Daily done-only habits in the app. Done 2026-11-21 (In the app,
    above).
-3. The assistant's tools.
+3. The assistant's tools. Done 2026-11-21 (The assistant's tools,
+   above).
 4. Nudges.
 5. Weekly and monthly.
 6. Answers.
@@ -4921,7 +4971,7 @@ it, one backticked tool name per row.
 | `update_note` | Replaces a note's text; `add_lines` is preferred for lists; renames any note when Eric asks, his own title too (2026-11-15); Instructions for Claude, a template's or any note's that takes them; `dismissImport` clears a failed recipe import (2026-11-15) | Safe co-editing (#37), Templates (#111), Document modes (#231), MCP server, Importing a recipe (#128) |
 | `list_concepts` | Concepts with type, other names and link counts | Organize tools (#34) |
 | `get_backlinks` | Notes linking to a note, each with its sentence | Organize tools (#34) |
-| `get_context` | Eric's Context for Claude, the context note's text, with his put backs and reroutes under Corrections | Context for Claude (#113), Learn from the correction (#239) |
+| `get_context` | Eric's Context for Claude, the context note's text, with his put backs and reroutes under Corrections; with Habits on, today's habits, each due, done or skipped (2026-11-21) | Context for Claude (#113), Learn from the correction (#239), Habits (#324) |
 | `link_notes` | Adds a `See also [[...]]` line at the end of a note | Organize tools (#34) |
 | `split_note` | Cuts a note into pieces, refusing any rewording | Organize tools (#34) |
 | `merge_notes` | Joins notes into a new one, archiving the originals | Organize tools (#34) |
@@ -4947,6 +4997,10 @@ it, one backticked tool name per row.
 | `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |
 | `create_reminder` | A reminder, with a time, a repeat or Someday; a project task's stage and tags | Right Now (as built), Stages and items |
 | `update_reminder` | Changes, moves, snoozes or finishes a reminder; a project task's stage and tags | Right Now (as built), Stages and items |
+| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in his zone, a nudge (stored, not sent until step 4); done or not only; a name an unarchived habit has is refused; Habits only | Habits (#324), step 3 |
+| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind, whether due today, today's and yesterday's state and its streak, in its own zone; Habits only | Habits (#324), step 3 |
+| `update_habit` | Renames, reschedules, retimes, nudges or archives a habit, by id or name; never deletes; Habits only | Habits (#324), step 3 |
+| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; Habits only | Habits (#324), step 3 |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it

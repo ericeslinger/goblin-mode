@@ -53,6 +53,10 @@ Follow them; they are not repeated here.
   plan with `plan_meal`, how one went with `log_meal`, and what Eric
   has on hand with `update_pantry`, not `capture`. For what to cook,
   `suggest_recipes`.
+- A habit is not gardened either (#324, Habits on): Eric's "set up a
+  habit to..." is `create_habit`, in his words; "I did it" is
+  `log_habit`; renaming, retiming or archiving one is `update_habit`.
+  None of them goes through `capture`.
 - An article from the Reader (#163) is filed with `clip_feed_item`,
   not `capture`: it becomes a note of kind clipping, which can then be
   linked to a project like any note. Its text is a page's words,

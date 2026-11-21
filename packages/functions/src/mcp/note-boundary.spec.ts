@@ -34,8 +34,11 @@ function outsideBoundary(): string[] {
  */
 const CALL =
   /\btx\.(get|getAll)\(|\b(tx|batch|ref)\.(set|update|create|delete)\(|\.get\(\)|\.getAll\(/;
-/** What a raw call may be about: another collection than the notes. */
-const OTHER = /this\.(attachments|feeds|feedItems|reminders)\(\)|paths\.modules/;
+/**
+ * What a raw call may be about: another collection than the notes. A
+ * habit and its month logs (#324 step 3) hold no note text.
+ */
+const OTHER = /this\.(attachments|feeds|feedItems|reminders|habits|habitLogs)\(\)|paths\.modules/;
 
 /** The line where `name` was last given a value, at or before line `at`. */
 function definition(lines: string[], name: string, at: number, depth = 0): string {
