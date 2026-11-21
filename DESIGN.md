@@ -7076,8 +7076,10 @@ left to age out on their own schedule, not rewritten (Eric,
 
 Per the playbook: `npm run gate` before each commit, `npm run e2e`
 before a PR, the PR review agent on every PR, and the coding agent
-merges when review approves, both gates are green on the head, and the
-change touches no schema. Schema or data migrations wait for Eric.
+merges when review approves and both gates are green on the head.
+Until 2026-11-21 schema changes and data migrations waited for Eric;
+since then the coding agent merges those too and says on the PR what
+to read (CLAUDE.md, PRs, review and merging).
 
 **Deploy-only workflow (2026-10-05).** The playbook has no GitHub
 Actions at all. Mossgoblin adds one workflow, `deploy.yml`, that runs
