@@ -54,7 +54,10 @@ test('a link to a new name makes a concept, waiting offline until it can', async
   await expect(note(page)).toHaveAttribute('contenteditable', 'false');
 
   await page.context().setOffline(false);
-  await expect(note(page)).toHaveAttribute('contenteditable', 'true');
+  // The concept is made by a transaction with the server: given 20 s
+  // (2026-11-21, #312), since 5 s was not always enough on a machine
+  // the other worker's axe sweeps had starved.
+  await expect(note(page)).toHaveAttribute('contenteditable', 'true', { timeout: 20_000 });
   await typeLines(page, ['Needs a new element']);
   await letItSave(page);
 
@@ -70,6 +73,8 @@ test('leaving a note makes concepts for the new names it links', async ({ page }
   await letItSave(page);
   await newNote(page);
   await page.goto('/n/c-aunt-ruth');
-  await expect(note(page)).toHaveAttribute('contenteditable', 'true');
+  // As above: the concept kept on the device is made on this load, by
+  // a transaction with the server (20 s, 2026-11-21, #312).
+  await expect(note(page)).toHaveAttribute('contenteditable', 'true', { timeout: 20_000 });
   await expect(page.getByText('reached this device')).toHaveCount(0);
 });

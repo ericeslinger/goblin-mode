@@ -14,6 +14,37 @@
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
+    <script>
+      // A boot that lost a script reloads once (2026-11-17). The app is
+      // one module graph: if any of its first chunks fails to load, none
+      // of it runs and the page stays blank. Chromium was seen aborting
+      // such a chunk (net::ERR_ABORTED) on pages the service worker
+      // served, about one load in 500 in a loop of loads. A second load
+      // gets it, so a first failure reloads. Never more than once a
+      // minute (review of #325: the mark is made when the failure
+      // shows, so a load that hangs before failing still waits out the
+      // minute), so a copy missing a file offline tries again slowly
+      // and never spins. Never once the app has drawn anything: only a
+      // boot is retried, so nothing typed can be lost to it.
+      addEventListener(
+        'error',
+        function (event) {
+          var el = event.target;
+          if (!el || el.tagName !== 'SCRIPT' || el.type !== 'module') return;
+          var root = document.querySelector('app-root');
+          if (root && root.firstChild) return;
+          var key = 'goblin.bootRetry';
+          try {
+            if (Date.now() - Number(sessionStorage.getItem(key)) < 60000) return;
+            sessionStorage.setItem(key, String(Date.now()));
+          } catch (e) {
+            return;
+          }
+          location.reload();
+        },
+        true,
+      );
+    </script>
   </head>
   <body>
     <app-root></app-root>
