@@ -21,6 +21,8 @@
 // | settings/reader | client, direct | the Reader's folder order and switches (#159) |
 // | settings/assistant | client, direct | the assistant's switches, e.g. garden on arrival (#214) |
 // | settings/readerServer | function only | items stamped by module, so the app may filter (#248) |
+// | habits | client, direct | a habit made or changed offline (#324); the assistant's through functions |
+// | habitLogs | client, direct | a tick must work offline (#324); one doc per habit per month, id derived |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 // | secrets (top level) | function only | a gardener's encrypted provider keys (#144), never client-readable |
 //
@@ -423,6 +425,8 @@ export const ModuleSettings = z.object({
   kitchen: ModuleSetting.optional(),
   reader: ModuleSetting.optional(),
   podcasts: ModuleSetting.optional(),
+  /** Habits (#324): its switch and `HabitsConfig` (habits.ts). */
+  habits: ModuleSetting.optional(),
   updatedAt: Timestamp,
 });
 export type ModuleSettings = z.infer<typeof ModuleSettings>;
@@ -841,6 +845,153 @@ export const AssistantSettings = z.object({
 });
 export type AssistantSettings = z.infer<typeof AssistantSettings>;
 
+// Habits (#324, Eric 2026-11-21; DESIGN.md, Habits). A habit is its own
+// document, not a reminder; its check-ins are one document per habit
+// per month. The pure logic (what is due, streaks, the week strip) is
+// in `habits.ts`.
+
+/** A habit's name, plain (never sealed, so a push can name it): 1 to this. */
+export const HABIT_NAME_MAX = 80;
+/** A choice habit's list (a mood): this many choices at least and at most. */
+export const HABIT_CHOICES_MIN = 2;
+export const HABIT_CHOICES_MAX = 12;
+/** One choice, plain, 1 to this many characters. */
+export const HABIT_CHOICE_MAX = 40;
+/**
+ * A text answer, one line of plain text, at most this many characters,
+ * cut so by its writer before it is sealed.
+ */
+export const HABIT_TEXT_MAX = 500;
+/**
+ * A stored answer, always sealed, at most this many characters: a sealed
+ * value is longer than its text (HABIT_TEXT_MAX characters of UTF-8 seal
+ * to under 2,800).
+ */
+export const HABIT_ANSWER_STORED_MAX = 4000;
+/** A habit's id: generated (`autoId`) or derived, never an underscore. */
+export const HABIT_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+/** How often (#324): every day, once a week, or once a month. */
+export const HabitSchedule = z.enum(['daily', 'weekly', 'monthly']);
+export type HabitSchedule = z.infer<typeof HabitSchedule>;
+
+/**
+ * What a check-in holds (#324, four and no more): done; one of the
+ * habit's `choices` (a mood); one line of text; or a note opened from
+ * the habit's `template` (an entry).
+ */
+export const HabitAnswer = z.enum(['done', 'choice', 'text', 'note']);
+export type HabitAnswer = z.infer<typeof HabitAnswer>;
+
+export const Habit = z
+  .object({
+    name: z.string().min(1).max(HABIT_NAME_MAX),
+    schedule: HabitSchedule,
+    /**
+     * Local time of day, "HH:MM", the habit is for ("around 11am"): the
+     * nudge's time, and an order for the day's list. None: any time.
+     */
+    time: Recurrence.shape.time.optional(),
+    /**
+     * IANA time zone `time` is in: the device's when the habit was made
+     * or its time last set, as a recurrence's `tz`. Read by the server
+     * (nudges, the assistant's tools); the app reads its own zone.
+     */
+    tz: z.string().min(1).max(64),
+    answer: HabitAnswer,
+    /** Only on `choice`: the choices in order, plain, each once. */
+    choices: z
+      .array(z.string().min(1).max(HABIT_CHOICE_MAX))
+      .min(HABIT_CHOICES_MIN)
+      .max(HABIT_CHOICES_MAX)
+      .optional(),
+    /** Only on `note`: the id of the template a check-in opens a note from. */
+    template: z.string().min(1).optional(),
+    /** One push at `time` on a day not yet logged (step 4 of #324). */
+    nudge: z.boolean(),
+    /** Off the lists and never due; its history stays visible. */
+    archived: z.boolean(),
+    createdAt: Timestamp,
+    updatedAt: Timestamp,
+    createdBy: Author,
+    agent: AgentName.optional(),
+  })
+  .superRefine((h, ctx) => {
+    const problem = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if ((h.answer === 'choice') !== (h.choices !== undefined)) {
+      problem('choices go with, and only with, a choice answer');
+    }
+    if (h.choices && new Set(h.choices).size !== h.choices.length) {
+      problem('each choice once');
+    }
+    if ((h.answer === 'note') !== (h.template !== undefined)) {
+      problem('a template goes with, and only with, a note answer');
+    }
+    if (h.nudge && h.time === undefined) problem('a nudge needs a time');
+  });
+export type Habit = z.infer<typeof Habit>;
+
+/** The days of a month as a log keys them: "01" to "31". */
+export const HABIT_DAY_KEYS: readonly string[] = Array.from({ length: 31 }, (_, i) =>
+  String(i + 1).padStart(2, '0'),
+);
+const HabitDayKey = z.string().regex(/^(0[1-9]|[12]\d|3[01])$/);
+
+/**
+ * One day's check-in. `done` or `skipped` (a deliberate skip, which
+ * never breaks a streak); `at` is when it was logged, on the writing
+ * device's clock, so yesterday logged today says so. A done check-in
+ * of a `choice` or `text` habit holds its `answer`, always sealed
+ * (`habitAnswerAadFor`); of a `note` habit, the id of the note it made.
+ */
+export const HabitEntry = z
+  .object({
+    state: z.enum(['done', 'skipped']),
+    at: Timestamp,
+    answer: z
+      .string()
+      .max(HABIT_ANSWER_STORED_MAX)
+      .refine((v) => isSealed(v), 'an answer is stored sealed')
+      .optional(),
+    noteId: z.string().min(1).optional(),
+  })
+  .superRefine((e, ctx) => {
+    if (e.answer !== undefined && e.noteId !== undefined) {
+      ctx.addIssue({ code: 'custom', message: 'an answer or a note, not both' });
+    }
+    if (e.state === 'skipped' && (e.answer !== undefined || e.noteId !== undefined)) {
+      ctx.addIssue({ code: 'custom', message: 'a skip holds no answer' });
+    }
+  });
+export type HabitEntry = z.infer<typeof HabitEntry>;
+
+/**
+ * A habit's check-ins for one calendar month, at the derived id
+ * `{habit}_{month}` (`habitLogId`), so a tick made offline on two
+ * devices is the same document and merges day by day. `days` is keyed
+ * by the day of the month, "01" to "31", a key only for a day the
+ * month has. A weekly or monthly habit's check-in is under the day it
+ * was done; its period is derived.
+ */
+export const HabitLog = z
+  .object({
+    habit: z.string().regex(HABIT_ID),
+    /** YYYY-MM. */
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    days: z.partialRecord(HabitDayKey, HabitEntry),
+    updatedAt: Timestamp,
+  })
+  .superRefine((log, ctx) => {
+    const [y, m] = log.month.split('-').map(Number);
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    for (const key of Object.keys(log.days)) {
+      if (Number(key) > last) {
+        ctx.addIssue({ code: 'custom', message: `${log.month} has no day ${key}` });
+      }
+    }
+  });
+export type HabitLog = z.infer<typeof HabitLog>;
+
 /** Firestore paths, all under the owner's uid. */
 export const paths = {
   user: (uid: string) => `users/${uid}`,
@@ -871,6 +1022,11 @@ export const paths = {
   keys: (uid: string) => `users/${uid}/settings/keys`,
   /** Server only: the gardener's encrypted provider keys (#144). */
   secrets: (uid: string) => `secrets/${uid}`,
+  /** Habits (#324): the habits, and each one's check-ins by month. */
+  habits: (uid: string) => `users/${uid}/habits`,
+  habit: (uid: string, id: string) => `users/${uid}/habits/${id}`,
+  habitLogs: (uid: string) => `users/${uid}/habitLogs`,
+  habitLog: (uid: string, id: string) => `users/${uid}/habitLogs/${id}`,
   /** Server only: a day's metered calls, e.g. transcriptions (#47). */
   usage: (uid: string, day: string) => `users/${uid}/usage/${day}`,
   /** Server only: the texts recent writes replaced, for merges. */

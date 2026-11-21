@@ -212,6 +212,30 @@ export function recordAadFor<C extends SealedRecordCollection>(
 }
 
 /**
+ * The authenticated data for a habit check-in's answer (#324,
+ * 2026-11-21): a choice or a line of text, sealed like note text, under
+ * `days.<DD>.answer` of the log `logId` (`habitLogId`). A record field
+ * as `recordAadFor` binds one, with the day in the field's name, so an
+ * answer cannot move to another day, another month's log, another
+ * habit or another user and still open. `habitLogs` is not a
+ * collection `recordAadFor` takes, so no other record's value opens as
+ * an answer, nor the other way round. The habit's name and choices are
+ * not sealed: a push names the habit.
+ */
+export function habitAnswerAadFor(
+  uid: string,
+  logId: string,
+  day: string,
+): Uint8Array<ArrayBuffer> {
+  if (!uid) throw new RangeError('habitAnswerAadFor needs a uid');
+  if (!logId) throw new RangeError('habitAnswerAadFor needs a log id');
+  if (!/^(0[1-9]|[12]\d|3[01])$/.test(day)) {
+    throw new RangeError(`not a day of the month: ${day}`);
+  }
+  return lengthPrefixed(['mossgoblin/record-field', uid, 'habitLogs', logId, `days.${day}.answer`]);
+}
+
+/**
  * HKDF's info for a data key's text-hash key (keyed hashes, 2026-11-14):
  * length-prefixed `mossgoblin/text-hash` and `v1`. Its own info, so the
  * hash key is not the AES key and the AES key is never used as a MAC

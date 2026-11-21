@@ -7,6 +7,8 @@ import {
   Attachment,
   Device,
   Feed,
+  Habit,
+  HabitLog,
   ModuleSettings,
   Note,
   ReaderSettings,
@@ -26,6 +28,8 @@ export const CLIENT_WRITTEN: ValidatedCollection[] = [
   { name: 'Feed', schema: Feed },
   { name: 'ReaderSettings', schema: ReaderSettings },
   { name: 'AssistantSettings', schema: AssistantSettings },
+  { name: 'Habit', schema: Habit },
+  { name: 'HabitLog', schema: HabitLog },
 ];
 
 /** The generated block for firestore.rules, plus any warnings. */

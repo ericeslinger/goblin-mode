@@ -36,6 +36,8 @@ function typeCheck(
     case 'array':
       return `${ref} is list`;
     case 'object':
+    // A record (#324, a habit log's days) is a map whose keys are data.
+    case 'record':
       return `${ref} is map`;
     case 'enum': {
       const options = (schema as unknown as { options: string[] }).options;
