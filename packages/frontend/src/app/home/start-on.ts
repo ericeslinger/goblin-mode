@@ -9,10 +9,9 @@ import { LocalStore } from '../platform/local-store';
  * Start on (#219), kept on this device so a cold open lands before auth
  * and offline, as the theme is; the gardener's `settings/app` doc is
  * the source of truth once signed in (ThemeSync carries it). With it,
- * whether Kitchen, the Reader and Podcasts (#245) were on when last
- * known, so a choice
- * of a module that is off falls back to Home without waiting for the
- * modules doc.
+ * whether Kitchen, the Reader, Podcasts (#245) and Habits (#324) were
+ * on when last known, so a choice, or a last place, of a module that
+ * is off falls back to Home without waiting for the modules doc.
  */
 export const START_ON_KEY = 'goblin.startOn';
 
@@ -21,13 +20,16 @@ interface Stored {
   kitchen?: boolean;
   reader?: boolean;
   podcasts?: boolean;
+  habits?: boolean;
 }
 
-/** Which of the modules Start on can open are on. */
+/** Which of the modules Start on, or the last place, can open are on. */
 export interface StartModules {
   kitchen: boolean;
   reader: boolean;
   podcasts: boolean;
+  /** Not a Start on choice: the last place can be its screen (#324). */
+  habits: boolean;
 }
 
 /**
@@ -86,7 +88,13 @@ export class StartOnService {
   /** The modules as last read, for the next cold open. */
   remember(on: StartModules): void {
     const s = this.stored;
-    if (on.kitchen === s.kitchen && on.reader === s.reader && on.podcasts === s.podcasts) return;
+    if (
+      on.kitchen === s.kitchen &&
+      on.reader === s.reader &&
+      on.podcasts === s.podcasts &&
+      on.habits === s.habits
+    )
+      return;
     this.keep(on);
   }
 
@@ -98,11 +106,17 @@ export class StartOnService {
   /** Which modules are on: as read, else as last known on this device. */
   on(modules: ModulesService): StartModules {
     return modules.loaded()
-      ? { kitchen: modules.kitchen(), reader: modules.reader(), podcasts: modules.podcasts() }
+      ? {
+          kitchen: modules.kitchen(),
+          reader: modules.reader(),
+          podcasts: modules.podcasts(),
+          habits: modules.habits(),
+        }
       : {
           kitchen: !!this.stored.kitchen,
           reader: !!this.stored.reader,
           podcasts: !!this.stored.podcasts,
+          habits: !!this.stored.habits,
         };
   }
 
@@ -125,6 +139,7 @@ export function rememberModules(): void {
         kitchen: modules.kitchen(),
         reader: modules.reader(),
         podcasts: modules.podcasts(),
+        habits: modules.habits(),
       });
   });
 }

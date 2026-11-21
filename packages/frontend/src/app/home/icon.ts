@@ -20,6 +20,8 @@ const PATHS = {
     'M4 16a2 2 0 0 1 2-2h1v6H6a2 2 0 0 1-2-2z',
     'M20 16a2 2 0 0 0-2-2h-1v6h1a2 2 0 0 0 2-2z',
   ],
+  // Habits (#324): a ring with a tick in it, a day's check-in.
+  habits: ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z', 'M8 12.5l2.7 2.7L16 9.5'],
   'right-now': [
     'M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z',
     'M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',

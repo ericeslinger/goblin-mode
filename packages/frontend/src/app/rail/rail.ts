@@ -100,6 +100,8 @@ export function currentPlace(
       return 'home';
     case 'right-now':
       return 'right-now';
+    case 'habits':
+      return 'habits';
     case 'kitchen':
       return 'kitchen';
     case 'reader':

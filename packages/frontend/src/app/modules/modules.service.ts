@@ -4,6 +4,7 @@ import {
   MODULES,
   type ModuleId,
   ModuleSetting,
+  habitsConfig,
   kitchenConfig,
   moduleOn,
   paths,
@@ -39,8 +40,12 @@ export class ModulesService {
   readonly reader = computed(() => moduleOn(this.stored(), 'reader'));
   /** Podcasts: shows, their newest episodes, the player (#245); follows the Reader until set. */
   readonly podcasts = computed(() => moduleOn(this.stored(), 'podcasts'));
+  /** Habits: things to do each day, ticked in Right Now (#324). */
+  readonly habits = computed(() => moduleOn(this.stored(), 'habits'));
   /** Kitchen's configuration (#129): week start, meals, the fish's day. */
   readonly kitchenConfig = computed(() => kitchenConfig(this.stored()?.kitchen?.config));
+  /** Habits' configuration (#324): the day its weeks start on. */
+  readonly habitsConfig = computed(() => habitsConfig(this.stored()?.habits?.config));
   /** Whether the stored settings have been read, so a plan is made to them. */
   readonly loaded = computed(() => this.read());
   private readonly read = signal(false);

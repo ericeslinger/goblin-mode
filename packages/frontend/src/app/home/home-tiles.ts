@@ -12,6 +12,7 @@ export const HOME_TILES_KEY = 'goblin.homeTiles';
 /** Every tile, in the fixed default order a missing one joins in. */
 export const TILE_IDS = [
   'notes',
+  'habits',
   'kitchen',
   'reader',
   'podcasts',

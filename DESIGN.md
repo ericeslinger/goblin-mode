@@ -1881,8 +1881,8 @@ Settings, Modules. The modules are Projects, Kitchen (#125), the
 Reader (#159) and, since 2026-11-10, Podcasts (#245), which follows
 the Reader's switch until it is switched itself (Podcasts, a module
 of its own, below). Habits (#324) has its place in `settings/modules`
-since 2026-11-21 and joins `MODULES` with its first screen (Habits,
-below).
+since 2026-11-21 and joined `MODULES` the same day with its first
+screen (Habits, below), off unless switched on.
 
 **Recipes (#127, Eric, 2026-10-18; epic #125, Kitchen module).** A
 recipe is a note of kind `recipe`, its name Eric's own (`titleSource:
@@ -4241,8 +4241,14 @@ decided). `canLogHabitDay`: today,
 or yesterday. `habitStrip` gives the seven days ending today, each
 `done` or `skipped` as logged that day, `covered` (a weekly or monthly
 habit's day in a period settled on another day), `missed` (a day of a
-period that ended with nothing logged), `open` (the current period,
-nothing yet), or `before` (before the habit began, unless logged). An
+period that ended with nothing logged and can no longer be logged),
+`open` (a period with nothing yet that can still be logged: the
+current one, or the one before while yesterday is in it), or `before`
+(before the habit began, unless logged). *Changed 2026-11-21, with
+step 2:* an empty yesterday read `missed` until then; the strip now
+agrees with the streak, which spares a period while it can still be
+logged (Eric, 2026-11-21), and it reads `missed` only once that
+chance has passed. An
 archived habit's strip reads the same. The strip and the period it
 starts in need at most two month logs (`habitLogMonths`): seven days,
 and a week starting at most twelve days back.
@@ -4334,13 +4340,98 @@ rules take.
 - The Habits switch: `settings/modules` takes `habits` now, so
   switching it on needs no rules change; the entry in `MODULES`, which
   shows the switch in Settings and tells the assistant the module
-  exists, comes with step 2, when there is something behind it.
+  exists, comes with step 2, when there is something behind it. Done
+  with step 2, 2026-11-21.
+
+**In the app (step 2, 2026-11-21).** Built: daily, done-only habits.
+The choices below are this step's own, not Eric's, and open to his
+overruling; nothing in this section above them changed.
+
+- *The module.* `MODULES` has Habits, off by default; Settings,
+  Modules shows its switch from the list. Off, nothing of it shows:
+  no rail entry, no Home tile, no key, no Right Now section, and its
+  screen says it is switched off and links to Settings, Modules;
+  `HabitsService` reads nothing. The assistant is told Habits is on or
+  off with the others; its tools come with step 3, so `INSTRUCTIONS`
+  is unchanged.
+- *Reading.* `HabitsService` (`app/habits/`) listens to every habit,
+  archived ones too, and to each habit's month logs by their derived
+  ids, one document listener each, exactly the months
+  `habitLogMonths` names (at most two). While the Habits screen is
+  open (`showStreaks`), a streak that comes back `complete: false`
+  has its habit read one month further back, and again, never before
+  the month the habit began; Right Now and Home show no streak and
+  read no more. Everything goes through the persistent cache. A
+  document is read leniently: a habit that does not parse against
+  `Habit` (or whose id is not a habit's) is passed over, and a month
+  log is read entry by entry, each day kept that the month has and
+  that parses as a `HabitEntry`, a bad one dropped, never the month
+  with it (from the review of step 1; the rules are tightened
+  separately so a bad entry cannot be written).
+- *Today.* `zonedDay` of the device clock in the device zone, rechecked
+  on Right Now's 30-second tick, so a day that ends while the app is
+  open moves the list on (and a month that begins starts its log).
+- *Writes,* never awaited. A habit is made at a generated id
+  (`autoId`), daily, `answer: done`, `nudge: false`, the device's zone
+  as `tz`, `createdAt` and `updatedAt` on the device's clock (so the
+  day it began is known offline). Rename, a time set or cleared (the
+  zone becomes the device's, as decided), and archive are merged
+  writes of those fields. A tick is a merged write of the habit's
+  month log at its derived id: `habit`, `month`, `updatedAt` and
+  `days.<DD>` with `state` and `at`, and `answer` and `noteId` marked
+  for removal, so two devices merge day by day and a day's entry is
+  never half old, half new. Undo writes back the entry that was there,
+  or removes the day. A write made while sign-in is still being
+  restored is held and written once the gardener is known, signed out
+  it is let go; offline it waits in the cache like any other.
+- *Right Now.* A Habits section, its heading a link to the Habits
+  screen, after Overdue and Today and before Soon and Someday: habits
+  are today's. It lists the habits due (`habitDue`) with nothing in
+  their period yet, by time of day then name; each has the round tick
+  at the left (Done, as a reminder's), and Skip at the right. One done
+  or skipped leaves the list for a quiet line under it ("Done today:
+  Floss · Skipped today: Run"), with the logged one and Undo in a
+  status line for six seconds. "Nothing to tend" shows only with no
+  reminder and no habit due. The launch screen's Right Now panel and
+  the rail's count carry no habits.
+- *Yesterday.* Where yesterday can still be logged
+  (`canLogHabitDay`), is a period of its own (a daily habit, or the
+  first day of a week or month) and holds nothing, and the habit was
+  there yesterday (made then or before), its row on Right Now has a
+  quiet text button, "Yesterday?", which logs yesterday done with
+  Undo. It goes with the row when today is ticked. Skipping
+  yesterday, or changing it, is on the Habits screen, which has a
+  Yesterday row of Done and Skip on each habit while yesterday can be
+  logged. The quietest that is still found: no group, no prompt, a
+  word on the row it is about.
+- *The Habits screen* (`/habits`, in the rail after Right Now, `g`
+  then `b`). Each habit: its name, its time and streak as one plain
+  line ("21:00 · Streak: 5 days", "No streak yet"; weeks and months
+  for those schedules); the seven-day strip, oldest first, each day a
+  ring with its weekday's initial over it and a mark in it (done ✓ on
+  the accent; skipped –; covered ·, dashed; missed ×; open, dashed and
+  empty; before, faint and empty), its words ("Tue 6 Oct: done") read
+  out and in its title, never colour alone; Today's Done and Skip,
+  pressed while so, pressed again to clear; Yesterday's likewise; and
+  Edit (name, time of day, Save, Archive). Archived, under them, keeps
+  each one's strip, with Unarchive. With no habit, a line says what a
+  habit is and Add your first habit makes one; + in the header adds
+  one (a name, a time of day if any).
+- *Home.* A Habits tile after Notes: "2 of 5 today", done or skipped
+  of those due; with none, "Something to do each day". Quiet when
+  nothing is left to do.
+- *Not offered, but shown:* a weekly or monthly habit, or one with
+  another kind of answer, made elsewhere, shows by the shared
+  functions: on Right Now each day of its period until settled, on the
+  screen "Done this week" once settled on another day, and can be
+  ticked done or skipped (an answer it would ask for is not asked).
 
 **Build order (#324).**
 
 1. Design: this section, the stored schemas with generated rules and
    rules tests, the pure logic (`habits.ts`); no UI. Done 2026-11-21.
-2. Daily done-only habits in the app.
+2. Daily done-only habits in the app. Done 2026-11-21 (In the app,
+   above).
 3. The assistant's tools.
 4. Nudges.
 5. Weekly and monthly.

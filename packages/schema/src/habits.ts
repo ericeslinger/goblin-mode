@@ -224,7 +224,10 @@ export function habitStreak(
  * A day on the seven-day strip: `done` or `skipped` that day;
  * `covered`, a weekly or monthly habit's day in a period settled on
  * another day; `missed`, a day of a period that ended with nothing
- * logged; `open`, a day of the current period with nothing logged yet;
+ * logged and can no longer be logged; `open`, a day of a period with
+ * nothing logged that can still be: the current one, or the one before
+ * while yesterday is in it (spared, as the streak spares it, Eric
+ * 2026-11-21);
  * `before`, a day before the habit began.
  */
 export type HabitDayState = 'done' | 'skipped' | 'covered' | 'missed' | 'open' | 'before';
@@ -263,5 +266,6 @@ function dayState(
   if (createdOn !== undefined && day < createdOn) return 'before';
   const period = habitPeriod(habit.schedule, day, weekStart);
   if (stateBetween(entries, period.start, period.end) !== 'none') return 'covered';
-  return period.end < today ? 'missed' : 'open';
+  // Still loggable (its last day is yesterday): open, not yet missed.
+  return period.end < today && !canLogHabitDay(period.end, today) ? 'missed' : 'open';
 }

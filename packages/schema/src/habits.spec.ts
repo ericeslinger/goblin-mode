@@ -425,6 +425,19 @@ describe('habitStrip (#324)', () => {
     ]);
   });
 
+  it('reads an empty day as open while it can still be logged, then missed', () => {
+    const entries = doneOn('2026-11-18');
+    // Yesterday (the 20th) is empty but can still be logged.
+    expect(states(habitStrip(daily, entries, today)).slice(-3)).toEqual(['missed', 'open', 'open']);
+    // A day on, the 20th can no longer be logged.
+    expect(states(habitStrip(daily, entries, '2026-11-22')).slice(-4)).toEqual([
+      'missed',
+      'missed',
+      'open',
+      'open',
+    ]);
+  });
+
   it('shows the days before a habit began as before, unless logged', () => {
     const entries = doneOn('2026-11-19');
     expect(states(habitStrip(daily, entries, today, { createdOn: '2026-11-20' }))).toEqual([
@@ -433,7 +446,7 @@ describe('habitStrip (#324)', () => {
       'before',
       'before',
       'done', // yesterday, logged after the fact on the day it was made
-      'missed',
+      'open', // yesterday, empty, can still be logged
       'open',
     ]);
   });
@@ -458,6 +471,27 @@ describe('habitStrip (#324)', () => {
       'missed',
       'missed',
       'open',
+      'open',
+      'open',
+    ]);
+    // On Monday the 16th, last week (to Sunday the 15th) can still be
+    // logged through yesterday: its empty days are open, not missed.
+    expect(states(habitStrip(weekly, log({}), '2026-11-16'))).toEqual([
+      'open',
+      'open',
+      'open',
+      'open',
+      'open',
+      'open',
+      'open',
+    ]);
+    // On the Tuesday it can no longer be: missed; this week's are open.
+    expect(states(habitStrip(weekly, log({}), '2026-11-17'))).toEqual([
+      'missed',
+      'missed',
+      'missed',
+      'missed',
+      'missed',
       'open',
       'open',
     ]);

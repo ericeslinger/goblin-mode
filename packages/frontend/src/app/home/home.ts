@@ -22,6 +22,7 @@ import { AuthService } from '../auth.service';
 import { inLens } from '../browse/lenses';
 import { ACTIVITY_API } from '../claude/activity';
 import { FIREBASE } from '../firebase';
+import { HabitsService } from '../habits/habits.service';
 import { GroceryService } from '../kitchen/grocery.service';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
@@ -494,6 +495,7 @@ export class Home {
   private readonly fresh = inject(FreshCounts);
   private readonly places = inject(PlacesService);
   private readonly grocery = inject(GroceryService);
+  private readonly habits = inject(HabitsService);
   private readonly activity = inject(ACTIVITY_API);
   private readonly fb = inject(FIREBASE);
   private readonly now = inject(NOW);
@@ -579,6 +581,8 @@ export class Home {
     switch (id) {
       case 'notes':
         return { status: this.notesLine(), empty: this.liveNotes().length === 0 };
+      case 'habits':
+        return this.habitsLine();
       case 'kitchen':
         return this.kitchenLine();
       case 'reader': {
@@ -813,6 +817,18 @@ export class Home {
     if (parts.length) return { status: parts.join(' · '), empty: false };
     const shows = this.reader.podcastFeeds().length;
     return { status: shows ? plural(shows, 'show', 'shows') : 'Shows and the queue', empty: true };
+  }
+
+  /**
+   * The Habits tile's line (#324): how many of today's habits are done
+   * or skipped, of those due ("2 of 5 today"); with none, what a habit
+   * is. Empty (#288) when there is nothing left to do today.
+   */
+  private habitsLine(): { status: string; empty: boolean } {
+    const due = this.habits.placed().filter((h) => h.due);
+    if (!due.length) return { status: 'Something to do each day', empty: true };
+    const settled = due.filter((h) => h.state !== 'none').length;
+    return { status: `${settled} of ${due.length} today`, empty: settled === due.length };
   }
 
   /** Every note Browse's Recent lists, and how many were written in today. */

@@ -1,12 +1,15 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { SECTIONS } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
+import { HabitsService } from '../habits/habits.service';
+import { RightNowHabits } from '../habits/right-now-habits';
+import { ModulesService } from '../modules/modules.service';
 import { PodcastsNew } from '../podcasts/podcasts-new';
 import { ReaderNew } from '../reader/reader-new';
 import { SignIn } from '../sign-in/sign-in';
 import { AddReminder } from './add-reminder';
 import { ReminderRow } from './reminder-row';
-import { RemindersService } from './reminders.service';
+import { type PlacedReminder, RemindersService } from './reminders.service';
 import { UndoBar } from './undo-bar';
 import { PageHeader } from '../home/page-header';
 
@@ -14,11 +17,22 @@ import { PageHeader } from '../home/page-header';
  * Right Now, full screen: every open reminder by section, Overdue
  * tinted, and +; then what is new in the Reader (#173), a line per
  * folder, and in Podcasts (#251), under the reminders since #288.
- * Signed out, only sign-in.
+ * With Habits on (#324), today's habits after what is overdue or due
+ * today and before what comes later: they are today's too. Signed
+ * out, only sign-in.
  */
 @Component({
   selector: 'app-right-now',
-  imports: [PageHeader, AddReminder, PodcastsNew, ReaderNew, ReminderRow, SignIn, UndoBar],
+  imports: [
+    PageHeader,
+    AddReminder,
+    PodcastsNew,
+    ReaderNew,
+    ReminderRow,
+    RightNowHabits,
+    SignIn,
+    UndoBar,
+  ],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
@@ -41,15 +55,21 @@ import { PageHeader } from '../home/page-header';
         }
         <app-undo-bar />
         @for (s of sections(); track s.id) {
-          <section [attr.aria-labelledby]="'section-' + s.id">
-            <h2 [id]="'section-' + s.id" [class.overdue]="s.id === 'overdue'">{{ s.label }}</h2>
-            <ul [attr.aria-labelledby]="'section-' + s.id">
-              @for (r of s.items; track r.id) {
-                <li><app-reminder-row [reminder]="r" /></li>
-              }
-            </ul>
-          </section>
-        } @empty {
+          @if (s.items) {
+            <section [attr.aria-labelledby]="'section-' + s.id">
+              <h2 [id]="'section-' + s.id" [class.overdue]="s.id === 'overdue'">{{ s.label }}</h2>
+              <ul [attr.aria-labelledby]="'section-' + s.id">
+                @for (r of s.items; track r.id) {
+                  <li><app-reminder-row [reminder]="r" /></li>
+                }
+              </ul>
+            </section>
+          } @else {
+            <!-- Habits (#324): today's, so after Overdue and Today. -->
+            <app-right-now-habits />
+          }
+        }
+        @if (quiet()) {
           <p class="muted">Nothing to tend. The garden is quiet.</p>
         }
         <!-- Under the reminders (#288): a line per folder, here only. -->
@@ -105,13 +125,30 @@ import { PageHeader } from '../home/page-header';
 export class RightNow {
   protected readonly auth = inject(AuthService);
   private readonly reminders = inject(RemindersService);
+  private readonly habits = inject(HabitsService);
+  private readonly modules = inject(ModulesService);
   protected readonly adding = signal(false);
 
-  /** Only sections with something in them. */
+  /**
+   * Only sections with something in them, and the habits' place among
+   * them (an entry with no items): after what is overdue or due today,
+   * before what comes later.
+   */
   protected readonly sections = computed(() => {
     const placed = this.reminders.placed();
-    return SECTIONS.map((s) => ({ ...s, items: placed.filter((r) => r.section === s.id) })).filter(
-      (s) => s.items.length > 0,
-    );
+    const all: { id: string; label: string; items?: PlacedReminder[] }[] = SECTIONS.map((s) => ({
+      ...s,
+      items: placed.filter((r) => r.section === s.id),
+    })).filter((s) => s.items.length > 0);
+    const later = all.findIndex((s) => s.id !== 'overdue' && s.id !== 'today');
+    all.splice(later < 0 ? all.length : later, 0, { id: 'habits', label: 'Habits' });
+    return all;
   });
+
+  /** No reminder, and no habit due today. */
+  protected readonly quiet = computed(
+    () =>
+      this.reminders.placed().length === 0 &&
+      !(this.modules.habits() && this.habits.placed().some((h) => h.due)),
+  );
 }

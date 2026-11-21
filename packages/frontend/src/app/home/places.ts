@@ -19,6 +19,7 @@ export type PlaceId =
   | 'home'
   | 'notes'
   | 'right-now'
+  | 'habits'
   | 'kitchen'
   | 'reader'
   | 'podcasts'
@@ -37,6 +38,7 @@ export const PLACES: Record<PlaceId, Place> = {
   home: { name: 'Home', icon: 'leaf', link: '/home' },
   notes: { name: 'Notes', icon: 'notes', link: '/browse' },
   'right-now': { name: 'Right Now', icon: 'right-now', link: '/right-now' },
+  habits: { name: 'Habits', icon: 'habits', link: '/habits' },
   kitchen: { name: 'Kitchen', icon: 'kitchen', link: '/kitchen' },
   reader: { name: 'Reader', icon: 'reader', link: '/reader' },
   podcasts: { name: 'Podcasts', icon: 'podcasts', link: '/podcasts' },
@@ -51,6 +53,7 @@ export const RAIL_PLACES: readonly PlaceId[] = [
   'home',
   'notes',
   'right-now',
+  'habits',
   'kitchen',
   'reader',
   'podcasts',
@@ -59,8 +62,12 @@ export const RAIL_PLACES: readonly PlaceId[] = [
   'assistants',
 ];
 
+/** The modules that have a place of their own. */
+export type PlaceModuleId = 'kitchen' | 'reader' | 'podcasts' | 'habits';
+
 /** The module a place belongs to, where it is one; the rest are always there. */
-const PLACE_MODULE: Partial<Record<PlaceId, 'kitchen' | 'reader' | 'podcasts'>> = {
+const PLACE_MODULE: Partial<Record<PlaceId, PlaceModuleId>> = {
+  habits: 'habits',
   kitchen: 'kitchen',
   reader: 'reader',
   podcasts: 'podcasts',
@@ -71,10 +78,7 @@ const PLACE_MODULE: Partial<Record<PlaceId, 'kitchen' | 'reader' | 'podcasts'>> 
  * has no tile, no entry and no key (#289). A pure function, so the
  * keys can ask without starting the counts' listeners.
  */
-export function placeOn(
-  id: PlaceId,
-  modules: Record<'kitchen' | 'reader' | 'podcasts', () => boolean>,
-): boolean {
+export function placeOn(id: PlaceId, modules: Record<PlaceModuleId, () => boolean>): boolean {
   const module = PLACE_MODULE[id];
   return !module || modules[module]();
 }

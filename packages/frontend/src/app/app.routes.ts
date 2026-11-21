@@ -30,6 +30,11 @@ export const routes: Routes = [
     path: 'right-now',
     loadComponent: () => import('./reminders/right-now').then((m) => m.RightNow),
   },
+  // Habits (#324), a module: its one screen.
+  {
+    path: 'habits',
+    loadComponent: () => import('./habits/habits').then((m) => m.Habits),
+  },
   {
     path: 'map',
     loadComponent: () => import('./map/garden-map').then((m) => m.GardenMap),
