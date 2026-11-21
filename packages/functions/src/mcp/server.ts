@@ -93,6 +93,14 @@ export const INSTRUCTIONS = [
     'the list (get_note on grocery.list); add nothing to it unless he asks. ' +
     'Aloud, never say ids or links: name days, meals and recipes, and summarise a long list, ' +
     'offering the rest.',
+  'Habits (a module) are things Eric means to do every day, week or month, each at a time ' +
+    'of day or any time, shown in Right Now until done or skipped: create_habit makes one ' +
+    '("a habit to drink metamucil for fiber every day around 11am": daily, 11:00, his zone), ' +
+    'named in his own words; list_habits shows each with today, yesterday and its streak; ' +
+    'update_habit renames, reschedules, retimes or archives one; log_habit marks today or ' +
+    'yesterday done or skipped, or clears it. When he says he did one, log it with ' +
+    'log_habit, never a reminder; a reminder is for a one-off or a repeat he wants pushed. ' +
+    "A habit's nudge is stored but not sent yet: promise him no push for one.",
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
     'itemTags). Its items are its sub-projects (parent) and its tasks (reminders with its ' +
     'noteId), each with a stage from that list (refile or update_reminder: stage) and tags. ' +
@@ -467,11 +475,11 @@ export function buildServer(
         "Eric's Context for Claude (the note with id context): what to always know about him and " +
         'the garden, as given after the server instructions, with his past put backs and ' +
         'reroutes under Corrections. Add to it with add_lines when he asks you to remember ' +
-        'something.',
+        "something. With Habits on, habits lists today's habits, each due, done or skipped.",
       inputSchema: {},
       annotations: read,
     },
-    run(() => tools.getContext({})),
+    run(() => tools.getContext({ habits: true })),
   );
 
   server.registerTool(
@@ -1010,6 +1018,104 @@ export function buildServer(
       annotations: write,
     },
     run((a) => tools.updateReminder(a)),
+  );
+
+  // Habits (#324 step 3, 2026-11-21): a habit is named by its id or its
+  // name, as capture names a project.
+  const habit = z
+    .string()
+    .min(1)
+    .describe("The habit's id, or its name as list_habits gives it (case aside)");
+  const schedule = z
+    .enum(['daily', 'weekly', 'monthly'])
+    .describe('daily: every day; weekly or monthly: once in the week or month, any day');
+  const habitTime = z
+    .string()
+    .describe('A local time of day, HH:MM on a 24-hour clock, e.g. 11:00');
+  const timeZone = z.string().min(1).describe("Eric's IANA time zone, e.g. America/Los_Angeles");
+
+  server.registerTool(
+    'create_habit',
+    {
+      title: 'Make a habit',
+      description:
+        'A habit in the Habits module: something Eric means to do daily (the default), weekly ' +
+        'or monthly, shown in Right Now and on the Habits screen until done or skipped. Name ' +
+        'it in his own words. time is the time of day it is for ("around 11am" is 11:00), in ' +
+        'timeZone; nudge asks for one push at that time when it is not yet logged, and needs ' +
+        'a time, but nudges are not sent yet, so the nudge is only stored: promise no push. A ' +
+        'habit is done or not for now: no answer, mood or note. A name an unarchived habit ' +
+        'already has is refused: change that one with update_habit. Habits only.',
+      inputSchema: {
+        name: z.string().min(1),
+        schedule: schedule.optional(),
+        time: habitTime.optional(),
+        timeZone,
+        nudge: z.boolean().optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.createHabit(a)),
+  );
+
+  server.registerTool(
+    'list_habits',
+    {
+      title: 'List habits',
+      description:
+        'The habits, archived ones too when includeArchived, by time of day: each with its ' +
+        'schedule, time, timeZone, nudge and answer (its kind), whether it is due today, ' +
+        "today's and yesterday's state (done, skipped or none) in its own zone, thisPeriod for " +
+        'a weekly or monthly one, and its streak (days, weeks or months done in a row, skips ' +
+        'passed over, today and a yesterday still open not counted against it; capped when ' +
+        'read back no further). Habits only.',
+      inputSchema: { includeArchived: z.boolean().optional() },
+      annotations: read,
+    },
+    run((a) => tools.listHabits(a)),
+  );
+
+  server.registerTool(
+    'update_habit',
+    {
+      title: 'Change a habit',
+      description:
+        "Renames a habit, changes its schedule, its time (null: any time; a time needs Eric's " +
+        'timeZone), its nudge (needs a time; stored only, as nudges are not sent yet), or ' +
+        'archives it (archived false brings it back). An archived habit keeps its history; ' +
+        'nothing deletes one. A name another unarchived habit has is refused. Habits only.',
+      inputSchema: {
+        habit,
+        name: z.string().min(1).optional(),
+        schedule: schedule.optional(),
+        time: habitTime.nullable().optional(),
+        timeZone: timeZone.optional(),
+        nudge: z.boolean().optional(),
+        archived: z.boolean().optional(),
+      },
+      annotations: write,
+    },
+    run((a) => tools.updateHabit(a)),
+  );
+
+  server.registerTool(
+    'log_habit',
+    {
+      title: 'Log a habit',
+      description:
+        'Marks a habit done or skipped for today, or for yesterday after the fact, and no ' +
+        "further back, in the habit's own time zone; none clears that day. date is " +
+        'YYYY-MM-DD (list_habits gives today and yesterday); today when left out. A skip ' +
+        'never breaks a streak. Refused for an archived habit. Gives back the day, its state ' +
+        'and the streak. Habits only.',
+      inputSchema: {
+        habit,
+        state: z.enum(['done', 'skipped', 'none']),
+        date: z.string().optional().describe("YYYY-MM-DD, today or yesterday in the habit's zone"),
+      },
+      annotations: write,
+    },
+    run((a) => tools.logHabit(a)),
   );
 
   return server;

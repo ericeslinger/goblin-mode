@@ -105,6 +105,23 @@ import {
   formsFound,
   recordForm,
   SEALED_FORMS,
+  Habit,
+  HabitLog,
+  HABIT_ID,
+  HABIT_NAME_MAX,
+  type HabitsConfig,
+  addDays,
+  canLogHabitDay,
+  habitDayKey,
+  habitDue,
+  habitEntries,
+  habitLogId,
+  habitLogMonths,
+  habitMonth,
+  habitPeriodState,
+  habitsConfig,
+  type Weekday,
+  zonedDay,
 } from '@mossgoblin/schema';
 import {
   type CollectionReference,
@@ -126,6 +143,17 @@ import { storeSuggestions } from '../organize/store';
 import { searchItems } from '../reader/firestore-store';
 import { queryTerms } from '../reader/terms';
 import { dataKeyFor } from '../note-keys/client';
+import {
+  HABIT_STREAK_MONTHS,
+  type HabitMonthRead,
+  dayState,
+  findHabit,
+  habitNameKey,
+  habitToday,
+  readHabitDays,
+  streakReadBack,
+  streakUnit,
+} from './habits';
 import { addLines, setItem } from './lines';
 import {
   type KeyFor,
@@ -571,6 +599,59 @@ function reminderView(id: string, d: Data) {
     tags: d['tags'],
     createdBy: d['createdBy'],
   };
+}
+
+/** A stored habit that parses (#324), with its id and when it was made. */
+interface StoredHabit {
+  id: string;
+  habit: Habit;
+  createdAt?: number;
+}
+
+/** A habit's own fields, as every Habits tool gives them back. */
+function habitFields(id: string, h: Habit) {
+  return {
+    id,
+    name: h.name,
+    schedule: h.schedule,
+    ...(h.time !== undefined ? { time: h.time } : {}),
+    timeZone: h.tz,
+    answer: h.answer,
+    nudge: h.nudge,
+    archived: h.archived,
+    createdBy: h.createdBy,
+    ...(h.agent !== undefined ? { agent: h.agent } : {}),
+  };
+}
+
+/** A habit's streak as the tools give it; capped when read back no further. */
+interface HabitStreakView {
+  count: number;
+  unit: 'days' | 'weeks' | 'months';
+  capped?: true;
+  readBack?: string;
+}
+
+/** A time of day, as a habit keeps it: "HH:MM", 24-hour. */
+const HABIT_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Said with a habit whose nudge is on, until nudges are sent (step 4 of #324). */
+const NUDGE_NOT_SENT =
+  'The nudge is stored, but Mossgoblin does not send habit nudges yet: promise Eric no push.';
+
+/** A habit's name as given, trimmed; refused when empty or too long. */
+function habitName(name: string): string {
+  const out = name.trim();
+  if (!out) throw new ToolError("a habit's name must not be empty");
+  if (out.length > HABIT_NAME_MAX)
+    throw new ToolError(`a habit's name is at most ${HABIT_NAME_MAX} characters`);
+  return out;
+}
+
+/** A time of day for a habit; refused unless HH:MM. */
+function habitTime(time: string): string {
+  if (!HABIT_TIME.test(time)) throw new ToolError('time is HH:MM on a 24-hour clock, e.g. 11:00');
+  return time;
 }
 
 /** A project's stages or item tags: trimmed, each once, none empty (2026-10-17). */
@@ -2600,16 +2681,23 @@ export class NotesTools {
    * Eric's Context for Claude (#113): the context note's text as Claude
    * is given it, cut at CONTEXT_MAX; empty when there is none yet.
    */
-  async getContext(_args: object = {}) {
+  async getContext(args: { habits?: boolean } = {}) {
     const doc = await this.readNote(CONTEXT_ID);
     const live = doc.exists && doc.get('archived') !== true && !inTrash(doc.known());
     const body = live ? String(doc.get('body') ?? '') : '';
+    // Today's habits (#324 step 3) for the get_context tool only, not for
+    // the instructions read on connecting, and only with Habits on.
+    const habits =
+      args.habits && (await this.getModules()).includes('habits')
+        ? { habits: await this.todaysHabits() }
+        : {};
     return {
       id: CONTEXT_ID,
       exists: doc.exists,
       text: contextForClaude(body),
       length: body.trim().length,
       max: CONTEXT_MAX,
+      ...habits,
     };
   }
 
@@ -3516,6 +3604,360 @@ export class NotesTools {
       if (!result.changed) return undefined;
       return { body: result.body, summary: `${done ? 'Ticked' : 'Unticked'} ${result.text}` };
     });
+  }
+
+  // Habits (#324 step 3, 2026-11-21; DESIGN.md, Habits). A habit's name
+  // is plain, never sealed, and its log holds no answer from here, so
+  // nothing here meets the note codec. Today is each habit's own, in
+  // its `tz`, the server having no device. Every write records an
+  // activity entry naming the habit in its summary: an entry lists notes
+  // and reminders only, so it names no habit to put back.
+
+  private habits() {
+    return this.db.collection(paths.habits(this.uid));
+  }
+
+  private habitLogs() {
+    return this.db.collection(paths.habitLogs(this.uid));
+  }
+
+  /** The Habits module's configuration (`settings/modules` habits.config). */
+  private async habitsSettings(): Promise<HabitsConfig> {
+    const doc = await this.db.doc(paths.modules(this.uid)).get();
+    return habitsConfig(doc.get('habits.config'));
+  }
+
+  /**
+   * Every habit that parses, archived ones too, in `tx` when given; one
+   * that does not parse, or whose id is not a habit's, is passed over,
+   * as the app passes it over.
+   */
+  private async allHabits(tx?: Transaction): Promise<StoredHabit[]> {
+    const snap = tx ? await tx.get(this.habits()) : await this.habits().get();
+    return snap.docs.flatMap((d) => {
+      if (!HABIT_ID.test(d.id)) return [];
+      const parsed = Habit.safeParse(d.data());
+      return parsed.success
+        ? [{ id: d.id, habit: parsed.data, createdAt: millis(d.get('createdAt')) }]
+        : [];
+    });
+  }
+
+  /** Month logs by id, each read leniently; a missing one has no days. */
+  private async habitLogDays(ids: readonly string[]): Promise<Map<string, HabitMonthRead>> {
+    const out = new Map<string, HabitMonthRead>();
+    if (!ids.length) return out;
+    const docs = await this.db.getAll(...ids.map((id) => this.habitLogs().doc(id)));
+    for (const doc of docs) {
+      const month = doc.id.slice(-7);
+      out.set(doc.id, { month, days: readHabitDays(doc.data(), month) });
+    }
+    return out;
+  }
+
+  /**
+   * Each habit as it stands today, in its own zone: due, today's and
+   * yesterday's own state, its period's for a weekly or monthly one,
+   * and with `streaks` its streak, read back as far as it runs (at most
+   * HABIT_STREAK_MONTHS). The months the day needs are read in one go.
+   */
+  private async placeHabits(habits: readonly StoredHabit[], weekStart: Weekday, streaks: boolean) {
+    const now = this.now();
+    const days = habits.map((h) => {
+      const own = habitToday(now, h.habit.tz);
+      const today = own ?? zonedDay(now, 'UTC');
+      return { ...h, today, zoneKnown: own !== undefined };
+    });
+    const months = days.map((h) => habitLogMonths(h.habit.schedule, h.today, weekStart));
+    const logs = await this.habitLogDays(
+      days.flatMap((h, i) => months[i].map((m) => habitLogId(h.id, m))),
+    );
+    return Promise.all(
+      days.map(async (h, i) => {
+        const read = months[i].map((m) => logs.get(habitLogId(h.id, m)) ?? { month: m, days: {} });
+        const entries = habitEntries(read);
+        const yesterday = addDays(h.today, -1);
+        const view = {
+          ...habitFields(h.id, h.habit),
+          ...(h.zoneKnown ? {} : { timeZoneUnknown: true, todayIn: 'UTC' }),
+          due: habitDue(h.habit, entries, h.today, weekStart),
+          today: { date: h.today, state: dayState(entries, h.today) },
+          yesterday: { date: yesterday, state: dayState(entries, yesterday) },
+          ...(h.habit.schedule === 'daily'
+            ? {}
+            : { thisPeriod: habitPeriodState(h.habit, entries, h.today, weekStart) }),
+        };
+        if (!streaks) return { ...view, streak: undefined as HabitStreakView | undefined };
+        const createdOn =
+          h.createdAt === undefined ? undefined : habitToday(h.createdAt, h.habit.tz);
+        const streak = await streakReadBack(h.habit, h.today, {
+          weekStart,
+          createdOn,
+          read,
+          readMore: async (more) => {
+            const got = await this.habitLogDays(more.map((m) => habitLogId(h.id, m)));
+            return more.map((m) => got.get(habitLogId(h.id, m)) ?? { month: m, days: {} });
+          },
+        });
+        const shown: HabitStreakView = {
+          count: streak.count,
+          unit: streakUnit(h.habit.schedule),
+          ...(streak.capped ? { capped: true, readBack: `${HABIT_STREAK_MONTHS} months` } : {}),
+        };
+        return { ...view, streak: shown };
+      }),
+    );
+  }
+
+  /**
+   * Makes a habit (#324): daily unless said, done-or-not (the only kind
+   * this step offers), at a time of day if any, in Eric's zone. A name
+   * an unarchived habit already has is refused, pointing at update_habit.
+   */
+  async createHabit(args: {
+    name: string;
+    schedule?: Habit['schedule'];
+    time?: string;
+    timeZone: string;
+    nudge?: boolean;
+  }) {
+    await this.requireModule('habits', 'making a habit');
+    const name = habitName(args.name);
+    const time = args.time === undefined ? undefined : habitTime(args.time);
+    if (habitToday(this.now(), args.timeZone) === undefined)
+      throw new ToolError(`unknown time zone ${args.timeZone}`);
+    if (args.nudge && time === undefined)
+      throw new ToolError('a nudge needs a time of day: give time, or leave nudge off');
+    const now = Timestamp.fromMillis(this.now());
+    const data = Habit.parse({
+      name,
+      schedule: args.schedule ?? 'daily',
+      ...(time !== undefined ? { time } : {}),
+      tz: args.timeZone,
+      answer: 'done',
+      nudge: args.nudge ?? false,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: 'claude',
+      agent: this.agent,
+    });
+    const id = newId();
+    if (!HABIT_ID.test(id)) throw new Error(`generated habit id ${id} is not a habit's`);
+    await this.db.runTransaction(async (tx) => {
+      const taken = (await this.allHabits(tx)).find(
+        (h) => !h.habit.archived && habitNameKey(h.habit.name) === habitNameKey(name),
+      );
+      if (taken)
+        throw new ToolError(
+          `Eric already has a habit named ${taken.habit.name} (${taken.id}); ` +
+            'change it with update_habit instead',
+        );
+      tx.set(this.habits().doc(id), data);
+      tx.set(...this.activity('create_habit', `Made the habit ${name}`, []));
+    });
+    return { ...habitFields(id, data), ...(data.nudge ? { nudgeNote: NUDGE_NOT_SENT } : {}) };
+  }
+
+  /**
+   * The habits (#324), archived ones only when asked, by time of day
+   * then name: each with its schedule, time, nudge, whether it is due
+   * today, today's and yesterday's state and its streak, in its own zone.
+   */
+  async listHabits(args: { includeArchived?: boolean }) {
+    await this.requireModule('habits', 'reading the habits');
+    const { weekStart } = await this.habitsSettings();
+    const habits = (await this.allHabits()).filter(
+      (h) => args.includeArchived || !h.habit.archived,
+    );
+    const placed = await this.placeHabits(habits, weekStart, true);
+    return placed.sort(
+      (a, b) =>
+        Number(a.archived) - Number(b.archived) ||
+        (a.time ?? '99:99').localeCompare(b.time ?? '99:99') ||
+        a.name.localeCompare(b.name) ||
+        a.id.localeCompare(b.id),
+    );
+  }
+
+  /**
+   * Changes a habit (#324), by id or name: its name, schedule, time of
+   * day (null: any time) and zone, nudge, or archived. Never deletes. A
+   * name another unarchived habit has is refused, renamed or unarchived.
+   */
+  async updateHabit(args: {
+    habit: string;
+    name?: string;
+    schedule?: Habit['schedule'];
+    time?: string | null;
+    timeZone?: string;
+    nudge?: boolean;
+    archived?: boolean;
+  }) {
+    await this.requireModule('habits', 'changing a habit');
+    const asked = ['name', 'schedule', 'time', 'timeZone', 'nudge', 'archived'] as const;
+    if (!asked.some((k) => args[k] !== undefined))
+      throw new ToolError('say what to change: name, schedule, time, timeZone, nudge or archived');
+    const name = args.name === undefined ? undefined : habitName(args.name);
+    const time = typeof args.time === 'string' ? habitTime(args.time) : args.time;
+    if (args.timeZone !== undefined && habitToday(this.now(), args.timeZone) === undefined)
+      throw new ToolError(`unknown time zone ${args.timeZone}`);
+    if (typeof time === 'string' && args.timeZone === undefined)
+      throw new ToolError(
+        "timeZone (Eric's IANA zone) is required with time: a habit's time is local to it",
+      );
+    return this.db.runTransaction(async (tx) => {
+      const all = await this.allHabits(tx);
+      const found = findHabit(all, args.habit);
+      const was = found.habit;
+      const update: Data = {};
+      if (name !== undefined && name !== was.name) update['name'] = name;
+      if (args.schedule !== undefined && args.schedule !== was.schedule)
+        update['schedule'] = args.schedule;
+      if (time === null && was.time !== undefined) update['time'] = FieldValue.delete();
+      if (typeof time === 'string' && time !== was.time) update['time'] = time;
+      if (args.timeZone !== undefined && args.timeZone !== was.tz) update['tz'] = args.timeZone;
+      if (args.nudge !== undefined && args.nudge !== was.nudge) update['nudge'] = args.nudge;
+      if (args.archived !== undefined && args.archived !== was.archived)
+        update['archived'] = args.archived;
+      if (!Object.keys(update).length) return { changed: false, ...habitFields(found.id, was) };
+      const merged: Data = { ...was, ...update };
+      if (update['time'] instanceof FieldValue) delete merged['time'];
+      if (merged['nudge'] === true && merged['time'] === undefined)
+        throw new ToolError(
+          'a nudge needs a time of day: keep its time, give a new one, or set nudge false',
+        );
+      const next = Habit.parse(merged);
+      if (!next.archived && ('name' in update || update['archived'] === false)) {
+        const taken = all.find(
+          (h) =>
+            h.id !== found.id &&
+            !h.habit.archived &&
+            habitNameKey(h.habit.name) === habitNameKey(next.name),
+        );
+        if (taken)
+          throw new ToolError(
+            `Eric already has a habit named ${taken.habit.name} (${taken.id}); ` +
+              'rename or archive one of them first',
+          );
+      }
+      update['updatedAt'] = Timestamp.fromMillis(this.now());
+      tx.update(this.habits().doc(found.id), update);
+      const summary =
+        update['archived'] === true
+          ? `Archived the habit ${was.name}`
+          : update['archived'] === false
+            ? `Unarchived the habit ${next.name}`
+            : 'name' in update
+              ? `Renamed the habit ${was.name} to ${next.name}`
+              : `Changed the habit ${next.name}`;
+      tx.set(...this.activity('update_habit', summary, []));
+      return {
+        changed: true,
+        ...habitFields(found.id, next),
+        ...(next.nudge ? { nudgeNote: NUDGE_NOT_SENT } : {}),
+      };
+    });
+  }
+
+  /**
+   * Logs a habit (#324), by id or name, for today or yesterday in its own
+   * zone (`canLogHabitDay`): done, skipped, or none to clear the day. One
+   * day of its month log, merged in the shape the app writes (`habit`,
+   * `month`, `updatedAt`, `days.<DD>` with `state` and `at`, `answer` and
+   * `noteId` removed), so the two never fight over a month. An archived
+   * habit is refused. Gives back the day's new state and the streak.
+   */
+  async logHabit(args: { habit: string; state: 'done' | 'skipped' | 'none'; date?: string }) {
+    await this.requireModule('habits', 'logging a habit');
+    const { weekStart } = await this.habitsSettings();
+    const logged = await this.db.runTransaction(async (tx) => {
+      const found = findHabit(await this.allHabits(tx), args.habit);
+      const h = found.habit;
+      if (h.archived)
+        throw new ToolError(`${h.name} is archived; unarchive it with update_habit to log it`);
+      const today = habitToday(this.now(), h.tz);
+      if (today === undefined)
+        throw new ToolError(`${h.name}'s time zone ${h.tz} is not one the server knows`);
+      const date = args.date ?? today;
+      if (!isIsoDate(date)) throw new ToolError('date must be a calendar date, YYYY-MM-DD');
+      const yesterday = addDays(today, -1);
+      if (!canLogHabitDay(date, today))
+        throw new ToolError(
+          `${h.name} can be logged for today (${today}) or yesterday (${yesterday}) only, ` +
+            `in its own time zone (${h.tz})`,
+        );
+      const month = habitMonth(date);
+      const key = habitDayKey(date);
+      const ref = this.habitLogs().doc(habitLogId(found.id, month));
+      const had = readHabitDays((await tx.get(ref)).data(), month)[key]?.state ?? 'none';
+      if (had === args.state) return { found, date, changed: false };
+      const at = Timestamp.fromMillis(this.now());
+      HabitLog.parse({
+        habit: found.id,
+        month,
+        days: args.state === 'none' ? {} : { [key]: { state: args.state, at } },
+        updatedAt: at,
+      });
+      const entry =
+        args.state === 'none'
+          ? FieldValue.delete()
+          : {
+              state: args.state,
+              at,
+              answer: FieldValue.delete(),
+              noteId: FieldValue.delete(),
+            };
+      const day = { habit: found.id, month, days: { [key]: entry }, updatedAt: at };
+      tx.set(ref, day, { merge: true });
+      const when = date === today ? 'today' : 'yesterday';
+      const what = args.state === 'none' ? `cleared ${when}` : `${args.state} ${when}`;
+      tx.set(...this.activity('log_habit', `Logged ${h.name}: ${what}`, []));
+      return { found, date, changed: true };
+    });
+    const [view] = await this.placeHabits([logged.found], weekStart, true);
+    const kind = logged.found.habit.answer;
+    return {
+      id: view.id,
+      name: view.name,
+      date: logged.date,
+      state: args.state,
+      changed: logged.changed,
+      today: view.today,
+      yesterday: view.yesterday,
+      ...('thisPeriod' in view ? { thisPeriod: view.thisPeriod } : {}),
+      streak: view.streak,
+      ...(kind !== 'done' && args.state === 'done'
+        ? {
+            note:
+              `${view.name} asks for ${kind === 'choice' ? 'a choice' : kind === 'text' ? 'a line of text' : 'a note'} ` +
+              'in the app; it is logged done without one, which this tool cannot give',
+          }
+        : {}),
+    };
+  }
+
+  /** Today's habits for get_context (#324): those due, each due, done or skipped. */
+  private async todaysHabits() {
+    const { weekStart } = await this.habitsSettings();
+    const live = (await this.allHabits()).filter((h) => !h.habit.archived);
+    const placed = await this.placeHabits(live, weekStart, false);
+    return placed
+      .filter((h) => h.due)
+      .sort(
+        (a, b) =>
+          (a.time ?? '99:99').localeCompare(b.time ?? '99:99') || a.name.localeCompare(b.name),
+      )
+      .map((h) => {
+        // A weekly or monthly habit stands as its period does.
+        const settled = 'thisPeriod' in h ? h.thisPeriod : h.today.state;
+        return {
+          id: h.id,
+          name: h.name,
+          ...(h.time !== undefined ? { time: h.time } : {}),
+          state: settled === 'none' ? ('due' as const) : settled,
+        };
+      });
   }
 
   async listReminders(args: { includeDone?: boolean }) {

@@ -51,6 +51,10 @@ function fakeTools() {
     searchFeedItems: vi.fn(async () => []),
     clipFeedItem: vi.fn(async () => ({})),
     finishQueued: vi.fn(async () => ({ id: 'n1', done: true })),
+    createHabit: vi.fn(async () => ({})),
+    listHabits: vi.fn(async () => []),
+    updateHabit: vi.fn(async () => ({})),
+    logHabit: vi.fn(async () => ({})),
   } satisfies ToolsApi;
 }
 
@@ -74,6 +78,7 @@ describe('the MCP server', () => {
       'check_item',
       'clip_feed_item',
       'create_concept',
+      'create_habit',
       'create_note',
       'create_recipe',
       'create_reminder',
@@ -89,11 +94,13 @@ describe('the MCP server', () => {
       'link_notes',
       'list_concepts',
       'list_feed_items',
+      'list_habits',
       'list_notes',
       'list_queue',
       'list_reading_queue',
       'list_reminders',
       'list_templates',
+      'log_habit',
       'log_meal',
       'merge_notes',
       'plan_meal',
@@ -105,6 +112,7 @@ describe('the MCP server', () => {
       'suggest_changes',
       'suggest_recipes',
       'uncheck_item',
+      'update_habit',
       'update_note',
       'update_pantry',
       'update_reminder',
@@ -199,6 +207,47 @@ describe('the MCP server', () => {
     // A slot can hold his own words, not only a recipe (#115, 2026-11-17).
     const planMeal = (await client.listTools()).tools.find((t) => t.name === 'plan_meal');
     expect(planMeal?.description).toMatch(/free text for a meal that is no recipe/);
+  });
+
+  it('carries the Habits passage, naming only tools it has, and says nudges wait (#324)', async () => {
+    const passage = INSTRUCTIONS.split('\n').find((line) => line.startsWith('Habits (a module)'));
+    expect(passage).toBeDefined();
+    const { client } = await connect();
+    const registered = new Set((await client.listTools()).tools.map((t) => t.name));
+    const named = [...new Set(passage!.match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? [])];
+    expect(named).toEqual(
+      expect.arrayContaining(['create_habit', 'list_habits', 'update_habit', 'log_habit']),
+    );
+    expect(named.filter((name) => !registered.has(name))).toEqual([]);
+    expect(passage).toMatch(/named in his own words/);
+    expect(passage).toMatch(/nudge is stored but not sent yet/);
+    const tools = (await client.listTools()).tools;
+    expect(tools.find((t) => t.name === 'create_habit')?.description).toMatch(
+      /done or not for now/,
+    );
+    for (const name of ['create_habit', 'list_habits', 'update_habit', 'log_habit'])
+      expect(tools.find((t) => t.name === name)?.description).toMatch(/Habits only\.$/);
+  });
+
+  it('asks get_context for today’s habits, and passes log_habit its day (#324)', async () => {
+    const { client, tools } = await connect();
+    await client.callTool({ name: 'get_context', arguments: {} });
+    expect(tools.getContext).toHaveBeenCalledWith({ habits: true });
+    await client.callTool({
+      name: 'log_habit',
+      arguments: { habit: 'Metamucil', state: 'skipped', date: '2026-11-20' },
+    });
+    expect(tools.logHabit).toHaveBeenCalledWith({
+      habit: 'Metamucil',
+      state: 'skipped',
+      date: '2026-11-20',
+    });
+    const missingZone = await client.callTool({
+      name: 'create_habit',
+      arguments: { name: 'Drink metamucil for fiber' },
+    });
+    expect(missingZone.isError).toBe(true);
+    expect(tools.createHabit).not.toHaveBeenCalled();
   });
 
   it('passes validated arguments to the tools and returns their result as JSON', async () => {
