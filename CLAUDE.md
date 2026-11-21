@@ -133,8 +133,9 @@ Dated, and deliberate; everything else follows the plugin.
    gates after any push, then ask the same agent to re-review.
 5. **Merge** with a merge commit only when all hold: the latest summary
    says approved; every comment is answered; gate and e2e are green on
-   the exact head after the last push; and main has not moved since.
-   If main moved, merge it in and go back to 4.
+   the exact head after the last push (a prose-only change skips both,
+   as under Gates); and main has not moved since. If main moved, merge
+   it in and go back to 4.
 6. **Delete the merged branch** on origin and locally, then **start
    fresh from main** for the next change. Never stack new work on a
    merged branch, and never delete a branch with unmerged commits.
