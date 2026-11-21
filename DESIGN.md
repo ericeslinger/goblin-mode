@@ -348,6 +348,14 @@ those; that, and the move of every installed copy from
 `ngsw-worker.js` to `sw.js` (same scope, caches and push
 subscription), want a check on the phone after the deploy.
 
+*Words and files, one copy (2026-11-17).* A share's words are kept as
+the pending draft at once, and its files go in a moment later, inside
+the typing pause. When the notes loaded in that gap, the draft alone
+was written, came back as news, and merged in as a second copy of the
+words under the photo (the files journey, 3 runs in 36). The open
+note's draft, for a note new here, is now written as the editor's own
+save of everything it holds, so it never returns as a change.
+
 **Share to Mossgoblin (Eric, 2026-11-14).** Eric shares from Android's
 share sheet (Share, Mossgoblin) on his phone, where the app is
 installed, so a page that will not let the server read it can reach

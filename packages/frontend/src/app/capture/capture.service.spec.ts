@@ -54,6 +54,47 @@ describe('CaptureService', () => {
     expect(capture.open()).toEqual({ id: 'new1', text: '' });
   });
 
+  it('a draft of the open note, older than its editor, is never saved and merged back as a second copy (2026-11-17)', () => {
+    const { capture, notes } = setup();
+    // A share, before the notes load: its words kept as a draft at once...
+    capture.newNote();
+    const { id } = capture.open();
+    capture.replace('the whiteboard');
+    capture.flush();
+    // ...then its photo goes in, inside the typing pause.
+    const shown = 'the whiteboard\n![board](attachment:a1)\n';
+    capture.onText(shown);
+    notes.signIn([]);
+    TestBed.tick();
+    // The write lands, and comes back as the note's text.
+    notes.notes.set([note(id, notes.save.mock.lastCall![1])]);
+    TestBed.tick();
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(capture.current()).toBe(shown);
+    expect(notes.save).toHaveBeenLastCalledWith(id, shown);
+    expect(localStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+  });
+
+  it('a draft written from the editor while held for the key still merges a change from elsewhere (review of #323)', () => {
+    const { capture, notes } = setup();
+    capture.newNote();
+    const { id } = capture.open();
+    capture.replace('the whiteboard');
+    capture.flush();
+    const shown = 'the whiteboard\n![board](attachment:a1)\n';
+    capture.onText(shown);
+    // The key is away: the save is held on the device, not sent.
+    (notes as unknown as { heldForKey: (id: string) => boolean }).heldForKey = () => true;
+    notes.signIn([]);
+    TestBed.tick();
+    expect(notes.save).toHaveBeenLastCalledWith(id, shown);
+    // Another device's words for the same note arrive: both are kept.
+    notes.notes.set([note(id, 'from the other device\n')]);
+    TestBed.tick();
+    expect(capture.current()).toContain('the whiteboard');
+    expect(capture.current()).toContain('from the other device');
+  });
+
   it('resumes the last note within five minutes, loading its text when it arrives', () => {
     const { capture, notes } = setup({
       [LAST_SEEN_KEY]: { hiddenAt: clock - 4 * MIN, noteId: 'n1' },
