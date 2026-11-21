@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import { isSealed } from '@mossgoblin/schema';
+import { isSealed, kitchenConfig, planBody, setMade, setSlot } from '@mossgoblin/schema';
 import { TestBed } from '@angular/core/testing';
 import type { User } from 'firebase/auth';
 import { AuthService } from '../auth.service';
@@ -333,6 +333,63 @@ describe('CaptureService', () => {
     );
   });
 
+  it('keeps a slot planned and ticked when a snapshot from before its save arrives late (2026-11-21)', () => {
+    const { capture, notes } = setup();
+    // A plan this device just made (ensurePlan, not the editor), opened.
+    const start = '2026-10-19';
+    const id = 'meals-2026-10-19';
+    const plan = (body: string, deviceId: string): NoteRecord[] => [
+      { ...note(id, body), kind: 'mealplan', deviceId },
+    ];
+    const made = planBody(start, kitchenConfig({}));
+    notes.signIn(plan(made, 'here'));
+    capture.openNote(id);
+    // Delivery, then Made, inside one typing pause: one save of both.
+    const delivery = setSlot(made, start, 'Tue', 'dinner', 'delivery');
+    capture.replace(delivery);
+    const ticked = setMade(delivery, start, 'Tue', 'dinner', true);
+    capture.replace(ticked);
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    expect(notes.save).toHaveBeenLastCalledWith(id, ticked, { base: made });
+    // The server acknowledges the plan's creation before the cache has
+    // taken the save in: a snapshot of the text the save was built on.
+    notes.notes.set(plan(made, 'here'));
+    TestBed.tick();
+    expect(capture.current()).toBe(ticked);
+    // Then the save itself, and a change from elsewhere still merges in.
+    notes.notes.set(plan(ticked, 'here'));
+    TestBed.tick();
+    expect(capture.current()).toBe(ticked);
+    const laptop = setSlot(ticked, start, 'Wed', 'dinner', 'out');
+    notes.notes.set(plan(laptop, 'laptop'));
+    TestBed.tick();
+    expect(capture.current()).toBe(laptop);
+  });
+
+  it('hears another writer after two saves that end where they began (review of #328)', () => {
+    const { capture, notes } = setup();
+    const at = (body: string, deviceId: string): NoteRecord[] => [
+      { ...note('n1', body), deviceId },
+    ];
+    notes.signIn(at('List', 'here'));
+    capture.openNote('n1');
+    // Two saves before the cache has the first, back to the first text.
+    capture.onText('List\n- [ ] milk');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    capture.onText('List');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    // This device's own two snapshots, in order.
+    notes.notes.set(at('List\n- [ ] milk', 'here'));
+    TestBed.tick();
+    notes.notes.set(at('List', 'here'));
+    TestBed.tick();
+    expect(capture.current()).toBe('List');
+    // The laptop writes the very text the first save held: it is news.
+    notes.notes.set(at('List\n- [ ] milk', 'laptop'));
+    TestBed.tick();
+    expect(capture.current()).toBe('List\n- [ ] milk');
+  });
+
   it('merges an earlier text of its own when another writer put it back', () => {
     const { capture, notes } = setup();
     notes.signIn([note('n1', 'List')]);
@@ -341,6 +398,11 @@ describe('CaptureService', () => {
     vi.advanceTimersByTime(SAVE_DELAY_MS);
     capture.onText('List\n- [x] milk');
     vi.advanceTimersByTime(SAVE_DELAY_MS);
+    // The phone's save reaches its cache first: Firestore shows a device
+    // its own writes before anything the server sends after them, and
+    // until then the unticked text is the stale base (2026-11-21).
+    notes.notes.set([{ ...note('n1', 'List\n- [x] milk'), deviceId: 'here' }]);
+    TestBed.tick();
     // The laptop unticks it: the text this phone saved first, but news.
     notes.notes.set([{ ...note('n1', 'List\n- [ ] milk'), deviceId: 'laptop' }]);
     TestBed.tick();

@@ -11,13 +11,15 @@ import { type PlaceId, RAIL_PLACES } from '../home/places';
 
 /**
  * `g` then one of these goes to the place, from its name: Reader is f
- * (its feeds), r being Right Now's, and Reading queue is q. Every place
- * has one, and no two share a letter (the spec checks).
+ * (its feeds), r being Right Now's, Reading queue is q, and Habits is
+ * b (#324, 2026-11-21), h being Home's. Every place has one, and no
+ * two share a letter (the spec checks).
  */
 export const GO_KEYS: Readonly<Record<PlaceId, string>> = {
   home: 'h',
   notes: 'n',
   'right-now': 'r',
+  habits: 'b',
   kitchen: 'k',
   reader: 'f',
   podcasts: 'p',

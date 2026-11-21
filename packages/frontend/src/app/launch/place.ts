@@ -25,7 +25,7 @@ export interface LastPlace extends Spot {
 }
 
 /** The modules a place can need. */
-export type PlaceModule = 'kitchen' | 'reader' | 'podcasts';
+export type PlaceModule = 'kitchen' | 'reader' | 'podcasts' | 'habits';
 
 const pathOf = (url: string) => url.split(/[?#]/, 1)[0];
 
@@ -61,7 +61,7 @@ export function noteOf(url: string): string | undefined {
 export function moduleOf(url: string): PlaceModule | undefined {
   const path = pathOf(url);
   if (path === '/reader/downloads') return undefined;
-  const top = /^\/(kitchen|reader|podcasts)(\/|$)/.exec(path)?.[1];
+  const top = /^\/(kitchen|reader|podcasts|habits)(\/|$)/.exec(path)?.[1];
   return top as PlaceModule | undefined;
 }
 

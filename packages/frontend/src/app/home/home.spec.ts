@@ -6,6 +6,7 @@ import { AuthService } from '../auth.service';
 import { ACTIVITY_API } from '../claude/activity';
 import { ProposalsService } from '../claude/proposals.service';
 import { FIREBASE } from '../firebase';
+import { HabitsService } from '../habits/habits.service';
 import { GroceryService } from '../kitchen/grocery.service';
 import { ModulesService } from '../modules/modules.service';
 import { type NoteRecord, NotesService } from '../notes/notes.service';
@@ -35,6 +36,8 @@ interface Setup {
   notes?: NoteRecord[];
   kitchen?: boolean;
   reader?: boolean;
+  /** Habits on (#324), and each habit's standing today. */
+  habits?: { due: boolean; state: 'done' | 'skipped' | 'none' }[];
   /** The reminders overdue or due today, as the service's `due` has them. */
   reminders?: string[];
   listId?: string;
@@ -56,6 +59,7 @@ async function render(setup: Setup = {}) {
   const modules = new FakeModules();
   if (setup.kitchen) modules.set('kitchen', true);
   if (setup.reader) modules.set('reader', true);
+  if (setup.habits) modules.set('habits', true);
   const items = new FakeItems();
   items.unreadCounts.set({ all: 14, saved: 0 });
   const ep = (id: string, more: Partial<ItemRecord> = {}): ItemRecord => ({
@@ -136,6 +140,9 @@ async function render(setup: Setup = {}) {
         },
       },
       { provide: GroceryService, useValue: { listId: signal(setup.listId) } },
+      ...(setup.habits
+        ? [{ provide: HabitsService, useValue: { placed: signal(setup.habits) } }]
+        : []),
       { provide: ACTIVITY_API, useValue: activity },
       { provide: FIREBASE, useValue: fakeFirebase(true) },
       { provide: NOW, useValue: () => NOW_MS },
@@ -199,6 +206,23 @@ describe('Home (#219)', () => {
     expect(tile(el, 'Podcasts')?.getAttribute('href')).toBe('/podcasts');
     // New until heard: notes read is still new (#251: and the queue, not Started).
     expect(tile(el, 'Podcasts')?.textContent?.trim()).toMatch(/Podcasts\s*2 new$/);
+  });
+
+  it('shows Habits once it is on, with how many of today’s are done (#324)', async () => {
+    const none = await render({ habits: [] });
+    expect(names(none)).toEqual(['Notes', 'Habits', 'Reading queue', 'Assistants', 'Map']);
+    expect(tile(none, 'Habits')?.getAttribute('href')).toBe('/habits');
+    expect(tile(none, 'Habits')?.textContent).toContain('Something to do each day');
+    TestBed.resetTestingModule();
+    const some = await render({
+      habits: [
+        { due: true, state: 'done' },
+        { due: true, state: 'skipped' },
+        { due: true, state: 'none' },
+        { due: false, state: 'none' },
+      ],
+    });
+    expect(tile(some, 'Habits')?.textContent).toContain('2 of 3 today');
   });
 
   describe('the Podcasts tile’s line (#251)', () => {

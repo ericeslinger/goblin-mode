@@ -94,6 +94,17 @@ export class CaptureService {
    * his edit). The same text from another writer is a real change.
    */
   private sent: string[] = [];
+  /**
+   * The texts this editor's saves were built on, until a snapshot with
+   * any other text arrives (2026-11-21). A save reaches the cache a
+   * moment after it is made; a snapshot raised in that moment (the
+   * server's answer to the write that made the note) still carries the
+   * text it replaced, whoever wrote it, and merged as news it put that
+   * text back over the save. Firestore shows a device its own writes
+   * before anything the server sends after them, so once a snapshot
+   * moves past these texts, one of them is real news again.
+   */
+  private passed: string[] = [];
   /** The text a restore just replaced, until a newer snapshot arrives. */
   private replaced?: { id: string; text: string };
   private dirty = false;
@@ -264,7 +275,18 @@ export class CaptureService {
   }
 
   private merge(id: string, remote: string, writer?: string): void {
-    if (remote === this.synced) return;
+    // The synced text back in a snapshot: the cache has the save, so
+    // nothing older is on its way and the texts it passed are news
+    // again. Checked first (review of #328): with two saves in the gap
+    // and the text back where it began, both of this device's own
+    // snapshots were in `passed`, which then never cleared, and another
+    // writer's change to one of those texts was ignored for good.
+    if (remote === this.synced) {
+      this.passed = [];
+      return;
+    }
+    if (this.passed.includes(remote)) return;
+    this.passed = [];
     if (writer?.startsWith(this.notes.deviceId()) && this.sent.includes(remote)) return;
     if (this.replaced?.id === id && this.replaced.text === remote) return;
     this.replaced = undefined;
@@ -358,6 +380,9 @@ export class CaptureService {
         this.synced = base;
         // Held from this editor's own text: it is what shows already.
         this.heldShown = id;
+      } else if (base !== this.body) {
+        // Written: a snapshot of its base is stale until one moves past it.
+        this.passed = [...this.passed, base].slice(-SENT_KEPT);
       }
     } else if (this.notes.exists(id)) this.notes.remove(id);
   }
@@ -523,6 +548,7 @@ export class CaptureService {
     this.body = note.text;
     this.synced = note.text;
     this.sent = [];
+    this.passed = [];
     this.dirty = false;
     this.untouched = true;
   }

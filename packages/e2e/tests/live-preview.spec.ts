@@ -1,5 +1,5 @@
 import { connectClaude } from '../src/claude';
-import { expect, signInAs, test, typeLines, openMore } from '../src/fixtures';
+import { expect, letItSave, openMore, signInAs, test, typeLines } from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // Live preview draws tasks and wiki links as widgets off the line being
@@ -44,7 +44,11 @@ test('writing a task list in live preview, then checking it in source', async ({
   await expect(note).toContainText('- [x] eggs for [[Vikas]]');
   await expect(note.locator('input[type=checkbox]')).toHaveCount(0);
 
-  // The choice is remembered on the device.
+  // The choice is remembered on the device. The note's writes land
+  // first (2026-11-21, #312): reloaded within milliseconds of the tick,
+  // one full run found the note not yet stored, and the launch took it
+  // for gone and went Home.
+  await letItSave(page);
   await page.reload();
   await (await openMore(page)).getByRole('button', { name: 'Preview' }).click();
   await expect((await openMore(page)).getByRole('button', { name: 'Source' })).toBeVisible();

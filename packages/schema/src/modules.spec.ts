@@ -8,7 +8,15 @@ describe('moduleOn (#126)', () => {
     expect(moduleOn({}, 'projects')).toBe(true);
     expect(moduleOn({ projects: { enabled: false } }, 'projects')).toBe(false);
     expect(moduleOn({ projects: { enabled: 'no' } }, 'projects')).toBe(true);
-    expect(MODULES.map((m) => m.id)).toEqual(['projects', 'kitchen', 'reader', 'podcasts']);
+    expect(MODULES.map((m) => m.id)).toEqual([
+      'projects',
+      'kitchen',
+      'reader',
+      'podcasts',
+      'habits',
+    ]);
+    expect(moduleOn(undefined, 'habits')).toBe(false);
+    expect(moduleOn({ habits: { enabled: true } }, 'habits')).toBe(true);
     expect(moduleOn(undefined, 'kitchen')).toBe(false);
     expect(moduleOn({ kitchen: { enabled: true } }, 'kitchen')).toBe(true);
     expect(moduleOn(undefined, 'reader')).toBe(false);

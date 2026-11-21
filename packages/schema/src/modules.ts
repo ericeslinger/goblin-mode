@@ -32,6 +32,13 @@ export const MODULES = [
     // there keeps them, and a Reader never switched on brings none.
     follows: 'reader',
   },
+  {
+    id: 'habits',
+    label: 'Habits',
+    about:
+      'Things you mean to do each day, ticked in Right Now, with a week strip and a streak (#324).',
+    defaultOn: false,
+  },
 ] as const;
 export type ModuleId = (typeof MODULES)[number]['id'];
 

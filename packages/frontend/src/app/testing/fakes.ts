@@ -4,6 +4,7 @@ import {
   type KitchenConfig,
   type ModuleId,
   conceptId,
+  habitsConfig,
   kitchenConfig,
   madeHistory,
   moduleOn,
@@ -13,6 +14,7 @@ import {
 import type { User } from 'firebase/auth';
 import { RunsService } from '../agent/runs.service';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
+import { HABITS_API, type HabitsApi } from '../habits/habits.service';
 import { KeysService } from '../keys/keys.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
@@ -213,6 +215,99 @@ export class FakeRemindersApi implements RemindersApi {
   }
 }
 
+/**
+ * A stand-in Firestore seam for HabitsService (#324): `pushHabits` is a
+ * snapshot of the habits, `pushLog` one of a month log by its id; the
+ * logs listened to are in `logs`, and writes in `set`.
+ */
+export class FakeHabitsApi implements HabitsApi {
+  private nextHabits: (docs: { id: string; data: Record<string, unknown> }[]) => void = () =>
+    undefined;
+  readonly logs = new Map<string, (data: Record<string, unknown> | undefined) => void>();
+  readonly stopped: string[] = [];
+  listenHabits = vi.fn(
+    (
+      _db: unknown,
+      _path: string,
+      next: (docs: { id: string; data: Record<string, unknown> }[]) => void,
+    ) => {
+      this.nextHabits = next;
+      return vi.fn();
+    },
+  );
+  listenLog = vi.fn(
+    (_db: unknown, path: string, next: (data: Record<string, unknown> | undefined) => void) => {
+      const id = path.split('/').pop()!;
+      this.logs.set(id, next);
+      return () => {
+        this.stopped.push(id);
+        this.logs.delete(id);
+      };
+    },
+  );
+  set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
+    Promise.resolve(),
+  );
+  remove = () => 'DELETE';
+  timestamp = (ms: number) => stamp(ms);
+
+  pushHabits(docs: { id: string; data: Record<string, unknown> }[]): void {
+    this.nextHabits(docs);
+  }
+
+  /** A month log's snapshot, its days as given; undefined: it does not exist. */
+  pushLog(id: string, days?: Record<string, { state: 'done' | 'skipped'; at?: number }>): void {
+    const next = this.logs.get(id);
+    if (!next) throw new Error(`not listening to ${id}`);
+    next(
+      days && {
+        days: Object.fromEntries(
+          Object.entries(days).map(([k, e]) => [k, { state: e.state, at: stamp(e.at ?? 0) }]),
+        ),
+      },
+    );
+  }
+
+  /** Every month log listened to that has not been heard yet, heard as empty. */
+  pushEmptyLogs(): void {
+    for (const next of this.logs.values()) next(undefined);
+  }
+}
+
+/**
+ * A stored habit as a snapshot doc: daily and done-only unless given,
+ * made at `createdAt` (milliseconds; the epoch unless given).
+ */
+export function habitDoc(
+  id: string,
+  fields: { name: string; createdAt?: number; [k: string]: unknown },
+): { id: string; data: Record<string, unknown> } {
+  const { createdAt = 0, ...rest } = fields;
+  return {
+    id,
+    data: {
+      schedule: 'daily',
+      answer: 'done',
+      tz: 'America/New_York',
+      nudge: false,
+      archived: false,
+      createdBy: 'user',
+      createdAt: stamp(createdAt),
+      updatedAt: stamp(createdAt),
+      ...rest,
+    },
+  };
+}
+
+/** A Firestore Timestamp as a snapshot gives one: its parts, and toMillis. */
+export function stamp(ms: number) {
+  return {
+    seconds: Math.floor(ms / 1000),
+    nanoseconds: (ms % 1000) * 1e6,
+    toMillis: () => ms,
+  };
+}
+
 /** A stored reminder as a snapshot doc; times in milliseconds. */
 export function reminderDoc(
   id: string,
@@ -237,6 +332,8 @@ export class FakeModules {
   readonly kitchen = computed(() => this.on('kitchen'));
   readonly reader = computed(() => this.on('reader'));
   readonly podcasts = computed(() => this.on('podcasts'));
+  readonly habits = computed(() => this.on('habits'));
+  readonly habitsConfig = computed(() => habitsConfig({}));
   readonly config = signal<Partial<KitchenConfig>>({});
   readonly kitchenConfig = computed(() => kitchenConfig(this.config()));
   readonly loaded = signal(true);
@@ -302,6 +399,7 @@ export function remindersTestProviders(api: FakeRemindersApi, now: () => number)
     { provide: ITEMS_API, useValue: new FakeItemsApi() },
     { provide: SETTINGS_API, useValue: new FakeSettingsApi() },
     { provide: REMINDERS_API, useValue: api },
+    { provide: HABITS_API, useValue: new FakeHabitsApi() },
     { provide: NOW, useValue: now },
     { provide: TIME_ZONE, useValue: 'America/New_York' },
   ];

@@ -178,7 +178,7 @@ export async function openSettings(page: Page, name: SettingsPageName): Promise<
 }
 
 /** The modules, as their switches in Settings, Modules name them. */
-export type ModuleName = 'Projects' | 'Kitchen' | 'Reader' | 'Podcasts';
+export type ModuleName = 'Projects' | 'Kitchen' | 'Reader' | 'Podcasts' | 'Habits';
 
 /**
  * Switches modules on in Settings, Modules (#290), from any screen, and

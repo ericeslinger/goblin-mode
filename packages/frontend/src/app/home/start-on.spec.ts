@@ -32,7 +32,7 @@ describe('Start on (#219)', () => {
   afterEach(() => localStorage.clear());
 
   it('maps each choice to its screen, a module that is off to Home', () => {
-    const on = { kitchen: true, reader: true, podcasts: true };
+    const on = { kitchen: true, reader: true, podcasts: true, habits: true };
     expect(startPath('note', on)).toBe('/');
     expect(startPath('home', on)).toBe('/home');
     expect(startPath('right-now', on)).toBe('/right-now');
@@ -97,12 +97,13 @@ describe('Start on (#219)', () => {
     expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toEqual({ choice: 'right-now' });
     startOn.adopt('home');
     expect(startOn.chosen()).toBe(1);
-    startOn.remember({ kitchen: true, reader: false, podcasts: true });
+    startOn.remember({ kitchen: true, reader: false, podcasts: true, habits: true });
     expect(JSON.parse(localStorage.getItem(START_ON_KEY)!)).toEqual({
       choice: 'home',
       kitchen: true,
       reader: false,
       podcasts: true,
+      habits: true,
     });
   });
 });
