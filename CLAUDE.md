@@ -133,29 +133,43 @@ Dated, and deliberate; everything else follows the plugin.
    gates after any push, then ask the same agent to re-review.
 5. **Merge** with a merge commit only when all hold: the latest summary
    says approved; every comment is answered; gate and e2e are green on
-   the exact head after the last push; main has not moved since; and the
-   change has no schema change or data migration. If main moved, merge
+   the exact head after the last push (a prose-only change skips both,
+   as under Gates); and main has not moved since. If main moved, merge
    it in and go back to 4.
 6. **Delete the merged branch** on origin and locally, then **start
    fresh from main** for the next change. Never stack new work on a
    merged branch, and never delete a branch with unmerged commits.
 
-This is the house-style rule (Eric, 2026-10-05), hardened here: also
-wait for Eric, with a PR comment saying why, when the change touches
-`packages/schema`'s stored-document schemas, `firestore.rules` or
-`storage.rules`, a data migration, auth, the merge policy itself, or
-the reviewer flags it for Eric to read.
+**The coding agent merges; nothing waits for Eric's approval (Eric,
+2026-11-21).** This replaces the house-style rule (Eric, 2026-10-05)
+as it was hardened here, under which a change to `packages/schema`'s
+stored-document schemas, `firestore.rules` or `storage.rules`, a data
+migration, auth or the merge policy itself, or one the reviewer
+flagged, waited for him, and the 2026-11-15 rule that an assigned PR
+was one waiting on him. Every PR that meets step 5 is merged by the
+coding agent, those included. What the old rule protected is kept
+another way: when a merged change touches one of those, or the
+reviewer's summary has a line for Eric to read, the agent says so in a
+comment on the PR at the merge, naming what to look at, so he can read
+it afterwards. PRs are not assigned to Eric to ask for a merge. The
+agent still stops and asks when it cannot go on without a decision
+that is his (a product choice, a setup step only he can do, a change
+it judges too risky to ship unseen), and says why; a push notification
+saying what and where is welcome then.
 
-**Assigned means it waits for Eric (Eric, 2026-11-15).** A PR is
-assigned to Eric only when it needs his own approval or his merge
-(the cases above), and only once it is ready for him: the review
-agent's latest summary says approved, every comment is answered, and
-both gates are green on its head, or it is a prose-only change that
-skips them. It is assigned then, with the comment saying why it
-waits. Until then, and for any PR the coding agent may merge itself,
-it stays unassigned, so Eric can take an assigned PR as his to act
-on and leave the rest alone. When something does wait on him, a push
-notification saying what and where is welcome.
+**What was merged stays findable (Eric, 2026-11-21).** A long stretch
+of coding and merging buries its own news in the scrollback, so each
+PR is summed up in three places. On the PR, a comment at the merge
+says in plain words what changed for Eric and what is worth reading
+afterwards; his weekly digest is made from GitHub, so GitHub must be
+enough on its own. In the merge log, a page kept as a Claude artifact
+(https://claude.ai/artifact/RwC7bvBmcoJBT7wMFdF3cS, "Mossgoblin Merge
+Log"): what is in flight, what is still unexplained, and every merged
+PR newest first with a line or two each, updated when a PR is opened
+and when it merges. A session that did not make the page reads it
+first and publishes to that address. And in the chat: after several
+merges, the report restates the short list of what merged rather than
+leaving it to the scrollback.
 
 ## Cloud sessions
 
