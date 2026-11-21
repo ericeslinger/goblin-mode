@@ -366,6 +366,30 @@ describe('CaptureService', () => {
     expect(capture.current()).toBe(laptop);
   });
 
+  it('hears another writer after two saves that end where they began (review of #328)', () => {
+    const { capture, notes } = setup();
+    const at = (body: string, deviceId: string): NoteRecord[] => [
+      { ...note('n1', body), deviceId },
+    ];
+    notes.signIn(at('List', 'here'));
+    capture.openNote('n1');
+    // Two saves before the cache has the first, back to the first text.
+    capture.onText('List\n- [ ] milk');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    capture.onText('List');
+    vi.advanceTimersByTime(SAVE_DELAY_MS);
+    // This device's own two snapshots, in order.
+    notes.notes.set(at('List\n- [ ] milk', 'here'));
+    TestBed.tick();
+    notes.notes.set(at('List', 'here'));
+    TestBed.tick();
+    expect(capture.current()).toBe('List');
+    // The laptop writes the very text the first save held: it is news.
+    notes.notes.set(at('List\n- [ ] milk', 'laptop'));
+    TestBed.tick();
+    expect(capture.current()).toBe('List\n- [ ] milk');
+  });
+
   it('merges an earlier text of its own when another writer put it back', () => {
     const { capture, notes } = setup();
     notes.signIn([note('n1', 'List')]);

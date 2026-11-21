@@ -275,9 +275,18 @@ export class CaptureService {
   }
 
   private merge(id: string, remote: string, writer?: string): void {
+    // The synced text back in a snapshot: the cache has the save, so
+    // nothing older is on its way and the texts it passed are news
+    // again. Checked first (review of #328): with two saves in the gap
+    // and the text back where it began, both of this device's own
+    // snapshots were in `passed`, which then never cleared, and another
+    // writer's change to one of those texts was ignored for good.
+    if (remote === this.synced) {
+      this.passed = [];
+      return;
+    }
     if (this.passed.includes(remote)) return;
     this.passed = [];
-    if (remote === this.synced) return;
     if (writer?.startsWith(this.notes.deviceId()) && this.sent.includes(remote)) return;
     if (this.replaced?.id === id && this.replaced.text === remote) return;
     this.replaced = undefined;
