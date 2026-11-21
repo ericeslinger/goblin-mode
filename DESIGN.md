@@ -4384,6 +4384,15 @@ overruling; nothing in this section above them changed.
   or removes the day. A write made while sign-in is still being
   restored is held and written once the gardener is known, signed out
   it is let go; offline it waits in the cache like any other.
+- *A refused write* (review of #327, 2026-11-21). A write the server
+  refuses is undone in the cache, so a tick would quietly go; instead
+  the refusal is said on Right Now's Habits and on the Habits screen
+  ("Floss could not be saved for today.", role alert) with Try again,
+  which sends the same write again, and Dismiss, never retried by
+  itself, its Undo taken back, and cleared once the same thing is next
+  saved; a write waiting offline never settles and says nothing. Still
+  open: one tick on a full month against the real project, since the
+  four-day cap and the 1,000-expression measure are the emulator's.
 - *Right Now.* A Habits section, its heading a link to the Habits
   screen, after Overdue and Today and before Soon and Someday: habits
   are today's. It lists the habits due (`habitDue`) with nothing in

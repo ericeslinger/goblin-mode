@@ -5,6 +5,7 @@ import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { SignIn } from '../sign-in/sign-in';
 import { HabitCard } from './habit-card';
+import { HabitRefusals } from './habit-refusals';
 import { HabitsService } from './habits.service';
 
 /**
@@ -12,13 +13,14 @@ import { HabitsService } from './habits.service';
  * strip, its streak and today's Done and Skip; + adds one (a name, a
  * time of day if any), daily and done-only in this step; Archived,
  * under them, keeps each archived habit's history in view, with
- * Unarchive. Streaks are read back as far as they run while this
- * screen is open. Off, it says where to switch the module on; signed
- * out, only sign-in.
+ * Unarchive. A write the server refused is said under the Undo line,
+ * with Try again (2026-11-21). Streaks are read back as far as they
+ * run while this screen is open. Off, it says where to switch the
+ * module on; signed out, only sign-in.
  */
 @Component({
   selector: 'app-habits',
-  imports: [HabitCard, PageHeader, RouterLink, SignIn],
+  imports: [HabitCard, HabitRefusals, PageHeader, RouterLink, SignIn],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
@@ -68,6 +70,7 @@ import { HabitsService } from './habits.service';
               <button type="button" class="link" (click)="habits.undo()">Undo</button>
             }
           </div>
+          <app-habit-refusals />
           @if (habits.loaded() && !habits.active().length && !adding()) {
             <div class="empty">
               <p>

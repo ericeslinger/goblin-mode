@@ -219,6 +219,78 @@ test('habits: on, added, ticked with Undo, skipped, logged for yesterday, archiv
     .toEqual({ today: ['done', 'done', 'skipped'], yesterday: ['done'] });
 });
 
+/** The owner's habit log at `id`, written as admin, past the rules. */
+async function seedLog(id: string, extra: Record<string, unknown> = {}): Promise<void> {
+  const [habit, month] = id.split('_');
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents/users/${OWNER.uid}/habitLogs/${id}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer owner' },
+      body: JSON.stringify({
+        fields: {
+          habit: { stringValue: habit },
+          month: { stringValue: month },
+          days: { mapValue: {} },
+          updatedAt: { timestampValue: new Date().toISOString() },
+          ...extra,
+        },
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`could not seed ${id}: ${await res.text()}`);
+}
+
+/** The owner's habits' ids, read as admin. */
+async function storedHabitIds(): Promise<string[]> {
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents/users/${OWNER.uid}/habits`,
+    { headers: { authorization: 'Bearer owner' } },
+  );
+  const { documents = [] } = (await res.json()) as { documents?: { name: string }[] };
+  return documents.map((d) => d.name.split('/').pop()!);
+}
+
+// A tick the server refuses (review of #327, 2026-11-21): the month's
+// log is given a field the rules do not allow, as admin, so the rules
+// refuse every write to it, as production would refuse one past its
+// limits. The tick goes, and the refusal is said, with Try again.
+test('habits: a refused tick is said, and Try again sends it again', async ({ page }) => {
+  test.setTimeout(90_000);
+  await signInAs(page, OWNER);
+  await switchModulesOn(page, 'Habits');
+  await page.goto('/habits');
+  await addHabit(page, 'Floss');
+  await letItSave(page);
+  await expect.poll(storedHabitIds).toHaveLength(1);
+  const [id] = await storedHabitIds();
+  const logId = `${id}_${new Date().toISOString().slice(0, 7)}`;
+  await seedLog(logId, { stray: { booleanValue: true } });
+
+  await page.goto('/right-now');
+  const section = habitsOnRightNow(page);
+  await section.getByRole('button', { name: 'Done: Floss' }).click();
+  const alert = section.getByRole('alert');
+  await expect(alert).toHaveText(/Floss could not be saved for today\./);
+  // The cache is put back: Floss is still to do, and no Undo claims it.
+  await expect(section.getByRole('button', { name: 'Done: Floss' })).toBeVisible();
+  await expect(section).not.toContainText('Done today');
+  await expect(section).not.toContainText('Floss: done');
+  await noSeriousViolations(page);
+
+  // Refused again while the log is as it was.
+  await alert.getByRole('button', { name: 'Try again: Floss' }).click();
+  await expect(alert).toHaveText(/Floss could not be saved for today\./);
+
+  // Put right, Try again saves it, and the line goes.
+  await seedLog(logId);
+  await alert.getByRole('button', { name: 'Try again: Floss' }).click();
+  await expect(section).toContainText('Done today: Floss');
+  await expect(section.getByText(/could not be saved/)).toHaveCount(0);
+  const today = new Date().toISOString().slice(8, 10);
+  await expect.poll(async () => (await storedLogs())[logId]?.[today]).toBe('done');
+});
+
 for (const { label, viewport, rail } of [
   { label: 'a tablet', viewport: { width: 768, height: 1024 }, rail: true },
   { label: 'a desktop', viewport: { width: 1440, height: 900 }, rail: true },

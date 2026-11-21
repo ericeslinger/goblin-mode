@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { Icon } from '../home/icon';
 import { ModulesService } from '../modules/modules.service';
 import { habitWhen } from './habit-lines';
+import { HabitRefusals } from './habit-refusals';
 import { type PlacedHabit, HabitsService } from './habits.service';
 
 /**
@@ -12,12 +13,13 @@ import { type PlacedHabit, HabitsService } from './habits.service';
  * for a few seconds. Yesterday, where it can still be logged and holds
  * nothing, is a quiet "Yesterday?" on the habit's row, which logs it
  * done; a skip of yesterday, or a change to it, is on the Habits
- * screen. Nothing shows while the module is off or there are no
- * habits due today.
+ * screen. A write the server refused is said under them, with Try
+ * again (2026-11-21). Nothing shows while the module is off or there
+ * is nothing of habits to show today.
  */
 @Component({
   selector: 'app-right-now-habits',
-  imports: [Icon, RouterLink],
+  imports: [HabitRefusals, Icon, RouterLink],
   template: `
     @if (shown()) {
       <section aria-labelledby="section-habits">
@@ -72,6 +74,7 @@ import { type PlacedHabit, HabitsService } from './habits.service';
             <button type="button" class="link" (click)="habits.undo()">Undo</button>
           }
         </div>
+        <app-habit-refusals />
       </section>
     }
   `,
@@ -164,13 +167,14 @@ export class RightNowHabits {
   protected readonly habits = inject(HabitsService);
   private readonly modules = inject(ModulesService);
 
-  /** Something due today, logged or not, or an Undo still offered. */
+  /** Something due today, logged or not, an Undo still offered, or a refusal. */
   protected readonly shown = computed(
     () =>
       this.modules.habits() &&
       (this.habits.toDo().length > 0 ||
         this.habits.settled().length > 0 ||
-        !!this.habits.undoable()),
+        !!this.habits.undoable() ||
+        this.habits.refusals().length > 0),
   );
 
   /** "Done today: Floss, Stretch · Skipped today: Run". */

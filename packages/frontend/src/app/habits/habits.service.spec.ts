@@ -73,6 +73,15 @@ function plain(v: unknown): unknown {
   return v;
 }
 
+/** The server's refusal, as Firestore rejects a write it will not take. */
+const refusal = () =>
+  Object.assign(new Error('Missing or insufficient permissions.'), { code: 'permission-denied' });
+
+/** Lets settled write promises run their handlers. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 3; i++) await Promise.resolve();
+}
+
 describe('HabitsService (#324)', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
@@ -397,5 +406,95 @@ describe('HabitsService (#324)', () => {
     expect(habits.toDo().map((h) => h.id)).toEqual(['mood']);
     habits.log(habits.toDo()[0], '2026-10-06', 'done');
     expect(lastWrite(api).path).toBe('users/u1/habitLogs/mood_2026-10');
+  });
+
+  describe('a write the server refuses (review of #327)', () => {
+    beforeEach(() => vi.spyOn(console, 'error').mockImplementation(() => undefined));
+
+    it('says which habit and day, logs it, and leaves no Undo for a tick that is gone', async () => {
+      const { habits, api, push } = setup();
+      push([habitDoc('floss', { name: 'Floss' })]);
+      api.set.mockReturnValueOnce(Promise.reject(refusal()));
+      habits.log(habits.toDo()[0], '2026-10-06', 'done');
+      expect(habits.undoable()?.message).toBe('Floss: done');
+      await settle();
+      expect(habits.refusals()).toEqual([
+        {
+          key: 'log:floss:2026-10-06',
+          habit: 'floss',
+          day: '2026-10-06',
+          name: 'Floss',
+          message: 'Floss could not be saved for today.',
+        },
+      ]);
+      expect(console.error).toHaveBeenCalledWith('habit write failed', expect.any(Error));
+      // Firestore puts the cache back: nothing claims the tick was made.
+      expect(habits.undoable()).toBeNull();
+      expect(habits.toDo().map((h) => h.id)).toEqual(['floss']);
+      expect(api.set).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends the same write again on Try again, and says so again if refused', async () => {
+      const { habits, api, push } = setup();
+      push([habitDoc('floss', { name: 'Floss' })]);
+      api.set.mockReturnValueOnce(Promise.reject(refusal()));
+      habits.log(habits.toDo()[0], '2026-10-05', 'skipped');
+      await settle();
+      expect(habits.refusals()[0].message).toBe('Floss could not be saved for yesterday.');
+      const first = api.set.mock.lastCall!;
+      api.set.mockReturnValueOnce(Promise.reject(refusal()));
+      habits.retry('log:floss:2026-10-05');
+      expect(api.set).toHaveBeenCalledTimes(2);
+      expect(api.set.mock.lastCall).toEqual(first);
+      // Sent, and not refused yet: the line is put away meanwhile.
+      expect(habits.refusals()).toEqual([]);
+      await settle();
+      expect(habits.refusals().map((r) => r.key)).toEqual(['log:floss:2026-10-05']);
+    });
+
+    it('clears the line once the same thing is next saved', async () => {
+      const { habits, api, push } = setup();
+      push([habitDoc('floss', { name: 'Floss' }), habitDoc('run', { name: 'Run' })]);
+      api.set.mockReturnValueOnce(Promise.reject(refusal()));
+      api.set.mockReturnValueOnce(Promise.reject(refusal()));
+      const [floss, run] = habits.placed();
+      habits.log(floss, '2026-10-06', 'done');
+      habits.log(run, '2026-10-06', 'done');
+      await settle();
+      expect(habits.refusals().map((r) => r.name)).toEqual(['Floss', 'Run']);
+      // Ticked again by hand, and saved this time.
+      habits.log(floss, '2026-10-06', 'done');
+      await settle();
+      expect(habits.refusals().map((r) => r.name)).toEqual(['Run']);
+      habits.dismiss('log:run:2026-10-06');
+      expect(habits.refusals()).toEqual([]);
+      expect(api.set).toHaveBeenCalledTimes(3);
+    });
+
+    it('says nothing of a write waiting offline', async () => {
+      const { habits, api, push } = setup();
+      api.set.mockImplementation(() => new Promise<void>(() => undefined));
+      push([habitDoc('floss', { name: 'Floss' })]);
+      habits.log(habits.toDo()[0], '2026-10-06', 'done');
+      await settle();
+      vi.advanceTimersByTime(60_000);
+      await settle();
+      expect(habits.refusals()).toEqual([]);
+      expect(console.error).not.toHaveBeenCalled();
+    });
+
+    it('names a refused habit, or a refused change to one', async () => {
+      const { habits, api, push } = setup();
+      push([habitDoc('floss', { name: 'Floss' })]);
+      api.set.mockReturnValueOnce(Promise.reject(refusal()));
+      api.set.mockReturnValueOnce(Promise.reject(refusal()));
+      const id = habits.add({ name: 'Stretch' })!;
+      habits.rename('floss', 'Floss twice');
+      await settle();
+      expect(habits.refusals().map((r) => [r.key, r.message])).toEqual([
+        [`habit:${id}`, 'Stretch could not be saved.'],
+        ['habit:floss', 'The change to Floss could not be saved.'],
+      ]);
+    });
   });
 });

@@ -109,4 +109,37 @@ describe('Right Now’s Habits (#324)', () => {
     await r.habits([habitDoc('floss', { name: 'Floss', archived: true })]);
     expect(section(r.el)).toBeNull();
   });
+
+  it('says a tick the server refused, with Try again and Dismiss (review of #327)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const r = await render();
+    await r.push([]);
+    await r.habits([habitDoc('floss', { name: 'Floss' })]);
+    const alert = () => section(r.el)!.querySelector<HTMLElement>('[role="alert"]')!;
+    expect(alert().textContent?.trim()).toBe('');
+    r.api.set.mockReturnValueOnce(
+      Promise.reject(Object.assign(new Error('denied'), { code: 'permission-denied' })),
+    );
+    buttonNamed(r.el, 'Done: Floss')!.click();
+    await r.fixture.whenStable();
+    // Refused, the tick is gone, and its Undo with it.
+    expect(alert().textContent).toContain('Floss could not be saved for today.');
+    expect(section(r.el)!.querySelector('[role="status"]')?.textContent?.trim()).toBe('');
+    expect(rows(r.el)).toEqual(['Floss']);
+    const sent = r.api.set.mock.lastCall;
+    buttonNamed(r.el, 'Try again: Floss')!.click();
+    await r.fixture.whenStable();
+    expect(r.api.set).toHaveBeenCalledTimes(2);
+    expect(r.api.set.mock.lastCall).toEqual(sent);
+    expect(alert().textContent?.trim()).toBe('');
+
+    r.api.set.mockReturnValueOnce(Promise.reject(new Error('denied')));
+    buttonNamed(r.el, 'Skip: Floss')!.click();
+    await r.fixture.whenStable();
+    expect(alert().textContent).toContain('Floss could not be saved for today.');
+    buttonNamed(r.el, 'Dismiss: Floss')!.click();
+    await r.fixture.whenStable();
+    expect(alert().textContent?.trim()).toBe('');
+    expect(r.api.set).toHaveBeenCalledTimes(3);
+  });
 });

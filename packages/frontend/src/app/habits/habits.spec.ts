@@ -175,4 +175,19 @@ describe('habit lines', () => {
     const words = states.map((s) => dayState(s, 'daily').words);
     expect(new Set(words).size).toBe(states.length);
   });
+
+  it('says a write the server refused, naming the habit (review of #327)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const r = await render();
+    await r.habits([habitDoc('floss', { name: 'Floss', createdAt: NOW - 3 * DAY })]);
+    r.api.set.mockReturnValueOnce(Promise.reject(new Error('denied')));
+    buttonNamed(r.el, 'Done yesterday: Floss')!.click();
+    await r.fixture.whenStable();
+    const alert = r.el.querySelector<HTMLElement>('[role="alert"]')!;
+    expect(alert.textContent).toContain('Floss could not be saved for yesterday.');
+    expect(buttonNamed(r.el, 'Try again: Floss')).toBeDefined();
+    buttonNamed(r.el, 'Dismiss: Floss')!.click();
+    await r.fixture.whenStable();
+    expect(alert.textContent?.trim()).toBe('');
+  });
 });

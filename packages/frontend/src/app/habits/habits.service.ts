@@ -96,6 +96,32 @@ export interface HabitUndoable {
   before?: RawEntry;
 }
 
+/**
+ * A write the server refused (review of #327, 2026-11-21), shown until
+ * the same thing is next saved or the gardener dismisses it: one day of
+ * a habit's log, or the habit itself.
+ */
+export interface HabitRefusal {
+  /** What was written: `log:<habit>:<day>` or `habit:<habit>`. */
+  key: string;
+  habit: string;
+  /** The day, for a log write. */
+  day?: string;
+  /** The habit's name when it was written. */
+  name: string;
+  /** "Floss could not be saved for today." */
+  message: string;
+}
+
+/** What a write is about, for saying so if it is refused. */
+interface About {
+  key: string;
+  habit: string;
+  day?: string;
+  name: string;
+  kind: 'log' | 'add' | 'change';
+}
+
 /** The Firestore calls the service makes, as a seam for unit specs. */
 export interface HabitsApi {
   /** Every habit, archived ones too (their history stays visible). */
@@ -190,11 +216,12 @@ function readDays(
   }
   return out;
 }
-/** A write waiting for the gardener to be known. */
+/** A write, and what it is about; held while the gardener is not yet known. */
 interface Waiting {
   path: (uid: string) => string;
   data: Record<string, unknown>;
   merge: boolean;
+  about: About;
 }
 
 /**
@@ -213,6 +240,12 @@ interface Waiting {
  * A write made before the gardener is known (a session still being
  * restored) is held and written once he is, as a choice made then is
  * for the theme; signed out, it is let go.
+ *
+ * A write the server refuses (review of #327, 2026-11-21) is undone in
+ * the cache by Firestore, so the tick goes from the screen; it is said
+ * in `refusals`, with Try again (the same write, sent again) and
+ * Dismiss, never retried by itself. A write waiting offline never
+ * settles, so it says nothing.
  */
 @Injectable({ providedIn: 'root' })
 export class HabitsService {
@@ -243,6 +276,8 @@ export class HabitsService {
   private readonly streakViewers = signal(0);
   private readonly listening = new Map<string, () => void>();
   private readonly waiting: Waiting[] = [];
+  /** Refused writes, by key, with the write to send again. */
+  private readonly refused = signal<{ about: About; write: Waiting }[]>([]);
   private uid?: string;
   private stopHabits?: () => void;
   private undoTimer?: ReturnType<typeof setTimeout>;
@@ -262,6 +297,29 @@ export class HabitsService {
       out.set(h.id, months);
     }
     return out;
+  });
+
+  /** Refused writes, worded against today, oldest first. */
+  readonly refusals = computed<HabitRefusal[]>(() => {
+    const today = this.today();
+    const yesterday = this.yesterday();
+    return this.refused().map(({ about }) => {
+      const { kind, day, name } = about;
+      const when = day === today ? 'today' : day === yesterday ? 'yesterday' : day;
+      const message =
+        kind === 'log'
+          ? `${name} could not be saved for ${when}.`
+          : kind === 'add'
+            ? `${name} could not be saved.`
+            : `The change to ${name} could not be saved.`;
+      return {
+        key: about.key,
+        habit: about.habit,
+        ...(day !== undefined ? { day } : {}),
+        name,
+        message,
+      };
+    });
   });
 
   /** Every habit placed on today, archived ones too, by time then name. */
@@ -395,7 +453,12 @@ export class HabitsService {
       createdBy: 'user',
     };
     if (input.time && TIME.test(input.time)) data['time'] = input.time;
-    this.write({ path: (uid) => paths.habit(uid, id), data, merge: false });
+    this.write({
+      path: (uid) => paths.habit(uid, id),
+      data,
+      merge: false,
+      about: { key: `habit:${id}`, habit: id, name, kind: 'add' },
+    });
     this.clock.set(now);
     return id;
   }
@@ -467,6 +530,19 @@ export class HabitsService {
     this.writeDay(last.habit, last.day, restored);
   }
 
+  /** Sends a refused write again; refused again, it says so again. */
+  retry(key: string): void {
+    const found = this.refused().find((r) => r.about.key === key);
+    if (!found) return;
+    this.dismiss(key);
+    this.write(found.write);
+  }
+
+  /** Puts a refused write's line away; the write is not sent again. */
+  dismiss(key: string): void {
+    this.refused.update((list) => list.filter((r) => r.about.key !== key));
+  }
+
   /** The stored entry for a habit's day, as it was heard. */
   private entry(habit: string, day: string): RawEntry | undefined {
     return this.logs()[habitLogId(habit, habitMonth(day))]?.[habitDayKey(day)];
@@ -491,6 +567,7 @@ export class HabitsService {
         updatedAt: this.api.timestamp(this.now()),
       },
       merge: true,
+      about: { key: `log:${habit}:${day}`, habit, day, name: this.nameOf(habit), kind: 'log' },
     });
   }
 
@@ -499,7 +576,12 @@ export class HabitsService {
       path: (uid) => paths.habit(uid, id),
       data: { ...change, updatedAt: this.api.timestamp(this.now()) },
       merge: true,
+      about: { key: `habit:${id}`, habit: id, name: this.nameOf(id), kind: 'change' },
     });
+  }
+
+  private nameOf(id: string): string {
+    return this.habits().find((h) => h.id === id)?.name ?? 'A habit';
   }
 
   private write(w: Waiting): void {
@@ -512,10 +594,31 @@ export class HabitsService {
     this.send(user.uid, w);
   }
 
+  /**
+   * Sends a write, never awaited. Saved, it clears a refusal of the
+   * same thing; refused, it says so, and a refused day takes its Undo
+   * with it, the tick it offered to undo being gone.
+   */
   private send(uid: string, w: Waiting): void {
-    this.api.set(this.fb.db, w.path(uid), w.data, w.merge).catch((err) => {
-      console.error('habit write failed', err);
-    });
+    const key = w.about.key;
+    this.api.set(this.fb.db, w.path(uid), w.data, w.merge).then(
+      () => {
+        if (this.auth.user()?.uid === uid) this.dismiss(key);
+      },
+      (err) => {
+        console.error('habit write failed', err);
+        if (this.auth.user()?.uid !== uid) return;
+        this.refused.update((list) => [
+          ...list.filter((r) => r.about.key !== key),
+          { about: w.about, write: w },
+        ]);
+        const last = this.undoable();
+        if (w.about.kind === 'log' && last?.habit === w.about.habit && last.day === w.about.day) {
+          this.undoable.set(null);
+          clearTimeout(this.undoTimer);
+        }
+      },
+    );
   }
 
   /** Listens to `uid`'s habits, or to nothing. */
@@ -531,6 +634,7 @@ export class HabitsService {
     this.extra.set({});
     this.loaded.set(false);
     this.undoable.set(null);
+    this.refused.set([]);
     if (!uid) return;
     this.stopHabits = this.api.listenHabits(
       this.fb.db,
