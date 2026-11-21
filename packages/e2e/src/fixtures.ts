@@ -63,8 +63,12 @@ export async function signInAs(
   await page.getByLabel('Password').fill(persona.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   // Signing in moves to `/` inside the app, never a plain launch, so it
-  // lands on the capture note whatever was open last (#272).
-  await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible();
+  // lands on the capture note whatever was open last (#272). Given 20 s
+  // (2026-11-21, #312): four full runs failed here at 5 s, each while
+  // the other worker ran the themes journey's axe sweeps and this
+  // worker's requests took 200 ms apiece. If sign-in truly hangs, this
+  // still fails.
+  await expect(page.getByRole('textbox', { name: 'New note' })).toBeVisible({ timeout: 20_000 });
   // Note text is always sealed (2026-11-15): until this device has its
   // key from the static server's `/api/note-key`, what is typed waits
   // on the device. The key comes at sign-in, online; waiting for it
