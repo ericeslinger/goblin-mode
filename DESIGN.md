@@ -4342,7 +4342,8 @@ rules take.
   are under Weekly and monthly, below, for Eric.
 - A sealed value shows its length, so a choice can be told from
   another of a different length; step 6 may pad a choice before
-  sealing it.
+  sealing it. Done with step 6, 2026-11-22: every choice is padded to
+  one length (Answers, below).
 - The Habits switch: `settings/modules` takes `habits` now, so
   switching it on needs no rules change; the entry in `MODULES`, which
   shows the switch in Settings and tells the assistant the module
@@ -4442,6 +4443,8 @@ overruling; nothing in this section above them changed.
   ticked done or skipped (an answer it would ask for is not asked).
   *Changed 2026-11-22, step 5:* weekly and monthly are offered now
   (Weekly and monthly, below); another kind of answer is still not.
+  *Changed 2026-11-22, step 6:* every kind is offered and asked for
+  (Answers, below).
 - *The day a tick means* (review of #328, 2026-11-21). The clock is
   read again when the app comes back to the screen (`visibilitychange`,
   `pageshow`), and afresh at every tick, clear and Yesterday?: with the
@@ -4511,6 +4514,10 @@ his overruling; nothing decided above changed.
   and `nudgeNote` on a result with a nudge on says when this one goes:
   at its time, held to the end of the quiet hours, none for a time in
   them before midnight, or none yet for a weekly or monthly habit.
+- *Changed 2026-11-22, step 6:* the tools make, change and log every
+  kind of answer (Answers, below), so "`answer: done` only" and "a
+  habit of another kind is logged with no answer" above no longer
+  hold.
 - *A loggable day* (review of #329, 2026-11-21). `log_habit` took
   today or yesterday (`canLogHabitDay`) alone, looser than the app.
   It now takes the app's own test, moved into `habits.ts` as
@@ -4770,6 +4777,150 @@ day, and a period with nothing logged, which for a week across two
 months is two month logs in the claim), with the quiet hours as for a
 daily habit. None of it is built.
 
+**Answers (step 6, 2026-11-22).** Built: the four kinds Eric decided
+(2026-11-21), made, changed and answered in the app and by the
+assistant, sealed. As in the steps before, the choices below are this
+step's own, not Eric's, and open to his overruling; nothing decided
+above changed, and no stored shape or rule changed: `Habit` already
+held `answer`, `choices` and `template`, and `HabitEntry` its sealed
+`answer` and `noteId` (step 1).
+
+- *Making and editing.* The add form and Edit have Answered with, a
+  select as How often is: Just done (unless chosen), One of a list, A
+  line of text, A note (`HabitAnswerFields`). A list is edited in
+  place: a line per choice, Up and Remove on each, Add a choice up to
+  12; each is cleaned to one line, and Add or Save waits while the
+  list has fewer than 2, an empty or over-40 choice, or a repeat,
+  which is said under it. A repeat is matched with case and spacing
+  aside (`normalizeName`), a little stricter than the rules, which
+  refuse only an exact one. A note habit picks one of the templates
+  From template lists, by name; with none, a line points to Settings,
+  Templates.
+- *A change of kind* writes `answer` with its `choices` or `template`
+  and removes the other (`setAnswer`); the logs are left as they are.
+  Every entry shows what it holds whatever the kind is now: an answer
+  opened, a note its link; a new tick asks for the new kind's answer.
+  Edit says so while the choice differs ("What is logged stays:
+  earlier days keep what they hold."). A list changed keeps the
+  answers given from the old one, as they were written.
+- *Answering.* On Right Now the round tick of a choice or text habit,
+  and its Yesterday?, ask in place under its name (`HabitAsk`): a
+  list's choices as buttons, the first taking the focus, one tap
+  logging the day done with that answer; a text's one line, Enter or
+  Done saving it. Cancel or Escape logs nothing and gives the tick its
+  focus back; the tick says `aria-expanded` while it asks. On the
+  Habits screen Done of the Today or Yesterday row asks the same way;
+  pressed while done it clears the day, as before. Skip is a plain
+  skip with no answer. An empty line is allowed and means done with no
+  answer: the tick is what counts, the line a note on it. What is
+  typed in the line is kept on this device as it is typed
+  (`goblin.habitAnswerDrafts`) and dropped once saved or cancelled, so
+  a reload does not lose it. Undo puts back the entry before, its
+  answer with it; the refused-write line works as for any tick.
+- *A note habit.* Its tick, on either screen, makes the entry as From
+  template makes one (`TemplatesService.use`: a fresh entry, or a
+  living template's note), logs the day done at the tap with the
+  entry's `noteId`, and opens the entry to write in (the capture loop
+  takes over, at `/n/<id>`). At the tap, not when the note has words:
+  the simplest, and a check-in opened and left empty is still a
+  check-in, which Undo can take back. A template that is gone logs the
+  day done with no note. On the Habits screen the row links to the
+  entry, "Open the entry".
+- *What shows afterwards.* On the Habits screen the Today and
+  Yesterday rows show the day's answer beside Done and Skip; every
+  strip day's words carry it ("Mon 5 Oct: done, tired"); and a choice
+  habit has a quiet line under the strip of its last seven days'
+  answers, newest first, "Lately: today calm · yesterday tired · Thu
+  calm", so a mood is seen for the week at a glance. A text habit has
+  no such line: a week of lines would crowd the card; its rows and the
+  strip's words carry them. Right Now shows no answer: its settled
+  line names the habit, as before; the Undo line says the choice
+  ("Mood: tired").
+- *Sealing.* An answer is sealed in the client with the note key
+  before it is written (`sealHabitAnswer`, `habit-answer.ts` in the
+  schema, the one place the app and the functions both seal through),
+  under `habitAnswerAadFor(uid, logId, day)`, and opened where shown
+  (`openHabitAnswer`, which takes only a sealed value). One that does
+  not open here (no key yet, another key, moved) shows as "Sealed: it
+  cannot be opened on this device." and is left as stored: only a new
+  tick by the gardener replaces it.
+- *Padding.* Before sealing, a choice is padded with U+0000 to a fixed
+  160 bytes of UTF-8 (`HABIT_CHOICE_PADDED`): a choice is at most 40
+  UTF-16 units, at most 120 bytes, so every choice of every list seals
+  to one length, and a list changed later still hides which was
+  picked; a fixed size, not the longest choice of the list, for that
+  reason. A text is padded up to the first of 128, 512 or 1,600 bytes
+  that holds it (`HABIT_TEXT_PADS`; 500 units are at most 1,500
+  bytes): a line's length says little, but a "yes" told from a "no"
+  would, and three sizes keep a full month's log small. Opening cuts
+  the trailing U+0000 off; an answer is cleaned to one line before it
+  is padded (`habitAnswerLine`: control characters and line breaks to
+  spaces, runs of spaces one, trimmed, cut at 500 without splitting a
+  pair), so none ends in one and the round trip is exact. The longest
+  text seals to about 2,200 characters, under the 4,000 an entry
+  stores (spec in `habit-answer.spec.ts`).
+- *Without the key.* The tick is written at once, without the answer;
+  the answer is held on this device (`goblin.heldHabitAnswers`, with
+  the tick's moment) and the day shows it meanwhile, as answered. Once
+  the key is here and the day's log heard, it is written, sealed, into
+  that entry alone (a merged write of `days.<DD>.answer`), if the
+  entry is still that tick (done at the same moment, with no answer);
+  else it is let go, the day having changed since (undone, skipped, or
+  answered on another device). Not the notes' way of holding the
+  whole write: a tick holds no note text and needs no key, and held it
+  would be missing from every other device and from the nudge, which
+  would push for a habit already done. A reload keeps the held answer;
+  Undo of a tick whose answer was held holds it again. It is never
+  written plain.
+- *The assistant.* `create_habit` and `update_habit` take `answer`
+  (done, choice, text, note) with `choices` (2 to 12, each 1 to 40,
+  none twice, case aside; cleaned as the app cleans them) or
+  `template` (by id or name, as the tools find things: the id, else
+  the title, case and spacing aside; not archived, in Trash, or sealed
+  and not opened). A list or template given without its kind, or a
+  kind without its list or template, is refused; `update_habit` keeps
+  the list or template when the kind stays. `log_habit` takes `answer`
+  with `done`: for a choice habit one of its choices (case and spacing
+  aside, stored as the list spells it), for a text habit one line of
+  at most 500 (a line break, or more, is refused, not cut), and
+  refuses one for any other kind. It is sealed on the server with the
+  same key, padding and aad (`NoteCodec.sealHabitAnswer`), in the
+  transaction; with the key service unavailable the whole call is
+  refused and nothing is written, as a note's text is never written
+  without its key (`SealedAnswerError`). A note habit is logged with
+  `noteId`, a note made from the habit's own template, which the
+  assistant makes first with `use_template`; `log_habit` does not make
+  the entry itself, so the assistant has one way to make an entry,
+  seen in What assistants changed as any `use_template` is. Logged
+  done again with no answer, a day keeps the answer it has and nothing
+  is written; logged done with none on a new day, the result says how
+  to give one. `list_habits` gives each day's `answer` opened,
+  `answerSealed` for one that cannot be opened here (left as stored),
+  or the entry's `noteId`, and a choice habit's `recentAnswers` over
+  seven days, newest first. An answer is Eric's own words, given as
+  `get_note` gives his note text, with no label (the `fromWeb` label
+  is for page text only); the instructions say to keep them as they
+  are. No activity entry names an answer.
+- *Tests.* Schema specs for the round trip, the padding (every choice
+  one length, the text sizes, the longest text under 4,000), the aad
+  binding and the cleaning; the app's for sealing before the write,
+  the held answer (written once the key comes, kept across a reload,
+  let go once its tick changed, held again by Undo), a sealed one
+  shown as sealed, a note habit's entry, the drafts, each kind on both
+  screens and the forms; emulator specs for every tool's kinds,
+  refusals, sealing and the missing key; a journey (`habits.spec.ts`,
+  "answered with a choice, a line of text or a note") that makes all
+  three, answers them on Right Now, sees the answers on the Habits
+  screen before and after a reload, reads the stored log as admin
+  (sealed, none of the words) and opens a note habit's entry.
+- *Not done.* Changing an answer in place (the day is cleared and
+  ticked again); the answers on Right Now's settled line; and the
+  feelings journal's reminders (step 7). *Not established:* the held
+  answer's later write against the real project's rules (the
+  emulator's took the same shape from the tools' specs only, as no
+  journey runs without the key), and how the Lately line reads with
+  twelve long choices on a narrow phone.
+
 **Build order (#324).**
 
 1. Design: this section, the stored schemas with generated rules and
@@ -4781,7 +4932,7 @@ daily habit. None of it is built.
 4. Nudges. Done 2026-11-21, daily habits only (Nudges, below).
 5. Weekly and monthly. Done 2026-11-22 in the app (Weekly and
    monthly, above); their nudges open, for Eric (options there).
-6. Answers.
+6. Answers. Done 2026-11-22 (Answers, above).
 7. The feelings journal's reminders become habits.
 8. Delight.
 
@@ -5259,10 +5410,10 @@ it, one backticked tool name per row.
 | `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |
 | `create_reminder` | A reminder, with a time, a repeat or Someday; a project task's stage and tags | Right Now (as built), Stages and items |
 | `update_reminder` | Changes, moves, snoozes or finishes a reminder; a project task's stage and tags | Right Now (as built), Stages and items |
-| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in his zone, a nudge (one push at its time if not logged, held through quiet hours; daily habits only, since step 4); done or not only; a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3 and 4 |
-| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind, whether due today, today's and yesterday's state and its streak, in its own zone (which can differ from where Eric is); Habits only | Habits (#324), step 3 |
-| `update_habit` | Renames, reschedules, retimes, nudges (as `create_habit`) or archives a habit, by id or name; never deletes; Habits only | Habits (#324), steps 3 and 4 |
-| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); Habits only | Habits (#324), step 3 |
+| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in his zone, a nudge (one push at its time if not logged, held through quiet hours; daily habits only, since step 4); answered with done, one of 2 to 12 choices, one line of text, or a note from a template by id or name (step 6, 2026-11-22); a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3, 4 and 6 |
+| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind with its choices or template, whether due today, today's and yesterday's state and what each holds (its answer opened, `answerSealed` when it cannot be, or the entry's `noteId`), a choice habit's `recentAnswers` over seven days, and its streak, in its own zone (which can differ from where Eric is); Habits only | Habits (#324), steps 3 and 6 |
+| `update_habit` | Renames, reschedules, retimes, nudges (as `create_habit`), changes what it is answered with (its logs kept) or archives a habit, by id or name; never deletes; Habits only | Habits (#324), steps 3, 4 and 6 |
+| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); with done, a choice habit's choice or a text habit's one line (at most 500), sealed on the server as the app seals it, or a note habit's entry made with `use_template` (`noteId`); Habits only | Habits (#324), steps 3 and 6 |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it

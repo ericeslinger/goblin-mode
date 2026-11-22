@@ -328,7 +328,8 @@ function dayState(
 // Nudges (step 4 of #324, 2026-11-21; DESIGN.md, Habits, Nudges): one
 // push at the habit's time, only if its day has nothing logged, never a
 // second; held through the quiet hours. Daily habits only for now: when
-// a weekly or monthly one nudges is step 5's.
+// a weekly or monthly one nudges is Eric's open decision (DESIGN.md,
+// Habits, "For Eric: when a weekly or monthly habit's nudge goes").
 
 /** How late a nudge may still go: past the hourly run that catches a missed wake. */
 export const HABIT_NUDGE_LATE_MS = 65 * 60 * 1000;
@@ -364,7 +365,8 @@ export type NudgeHabit = Pick<Habit, 'schedule' | 'time' | 'tz' | 'nudge' | 'arc
  * assistant's note and the server's sending all read. `at` its own
  * time; `held` to `time`, the end of the quiet hours; `quiet`, none,
  * its time being in quiet hours that run on past its midnight; `weekly`
- * and `monthly` are not nudged until step 5 (`not-daily`); `off` (the
+ * and `monthly` are not nudged until Eric decides when (`not-daily`;
+ * DESIGN.md, Habits, his open decision); `off` (the
  * switch off, or archived) and `no-time` send none either.
  */
 export type HabitNudgePlan =
@@ -396,7 +398,8 @@ function quietAt(ms: number, tz: string, config: HabitsConfig): boolean {
  * The instant a habit's nudge for `day` (YYYY-MM-DD in its zone) goes:
  * its time there, or the end of the quiet hours it falls in; none for a
  * habit that does not nudge (off, archived, no time, not daily: weekly
- * and monthly wait for step 5) or whose nudge has no time that day.
+ * and monthly wait for Eric's open decision in DESIGN.md) or whose
+ * nudge has no time that day.
  */
 export function habitNudgeAt(
   habit: NudgeHabit,

@@ -6,12 +6,14 @@ import {
   computed,
   effect,
   inject,
+  signal,
   untracked,
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Icon } from '../home/icon';
 import { ModulesService } from '../modules/modules.service';
+import { HabitAsk } from './habit-ask';
 import { habitWhen } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
 import { type HabitUndoable, type PlacedHabit, HabitsService } from './habits.service';
@@ -27,13 +29,18 @@ import { type HabitUndoable, type PlacedHabit, HabitsService } from './habits.se
  * again (2026-11-21). Nothing shows while the module is off or there
  * is nothing of habits to show today.
  *
+ * A habit answered with more than done (step 6 of #324, 2026-11-22):
+ * its tick, or its Yesterday?, asks in place, a choice's buttons or a
+ * line of text (HabitAsk); a note habit's tick logs it done and opens a
+ * new entry from its template, as From template does.
+ *
  * The row ticked goes, so the focus goes to its Undo; when Undo is
  * pressed or lapses with the focus on it, to the section's heading
  * (review of #328, 2026-11-21), never to the page.
  */
 @Component({
   selector: 'app-right-now-habits',
-  imports: [HabitRefusals, Icon, RouterLink],
+  imports: [HabitAsk, HabitRefusals, Icon, RouterLink],
   template: `
     @if (shown()) {
       <section aria-labelledby="section-habits">
@@ -48,8 +55,9 @@ import { type HabitUndoable, type PlacedHabit, HabitsService } from './habits.se
                   type="button"
                   class="tick touch-target"
                   [attr.aria-label]="'Done: ' + h.name"
+                  [attr.aria-expanded]="asks(h) ? isAsking(h, habits.today()) : null"
                   title="Done"
-                  (click)="log(h, habits.today(), 'done')"
+                  (click)="tick(h, habits.today())"
                 >
                   <app-icon name="check" [size]="16" />
                 </button>
@@ -58,13 +66,23 @@ import { type HabitUndoable, type PlacedHabit, HabitsService } from './habits.se
                   @if (when(h); as w) {
                     <span class="when">{{ w }}</span>
                   }
+                  @if (asking(); as a) {
+                    @if (a.habit === h.id) {
+                      <app-habit-ask
+                        [habit]="h"
+                        [day]="a.day"
+                        [when]="a.day === habits.today() ? 'today' : 'yesterday'"
+                        (closed)="answered($event)"
+                      />
+                    }
+                  }
                 </span>
                 @if (h.yesterdayOpen) {
                   <button
                     type="button"
                     class="quiet"
                     [attr.aria-label]="'Yesterday? Mark ' + h.name + ' done yesterday'"
-                    (click)="log(h, habits.yesterday(), 'done')"
+                    (click)="tick(h, habits.yesterday())"
                   >
                     Yesterday?
                   </button>
@@ -183,6 +201,7 @@ export class RightNowHabits {
   protected readonly habits = inject(HabitsService);
   private readonly modules = inject(ModulesService);
   private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
   private readonly heading = viewChild<ElementRef<HTMLAnchorElement>>('heading');
   /** The Undo offered when last looked, to see it go. */
@@ -229,10 +248,64 @@ export class RightNowHabits {
     ].join(' · ');
   });
 
+  /**
+   * The habit asking for its answer, and the day its tick or Yesterday?
+   * was for (step 6 of #324): its row shows the choices or the line.
+   */
+  protected readonly asking = signal<{ habit: string; day: string } | null>(null);
+
   /** Logs the day; the row goes with it, so the focus goes to Undo. */
   protected log(h: PlacedHabit, day: string, state: 'done' | 'skipped'): void {
+    this.asking.set(null);
     this.habits.log(h, day, state);
     this.focus(() => this.undoButton() ?? this.heading());
+  }
+
+  /** Whether a tick of `h` asks for an answer first (a choice or a line). */
+  protected asks(h: PlacedHabit): boolean {
+    return h.answer === 'choice' || h.answer === 'text';
+  }
+
+  protected isAsking(h: PlacedHabit, day: string): boolean {
+    const a = this.asking();
+    return a?.habit === h.id && a.day === day;
+  }
+
+  /**
+   * A tick, or Yesterday? (step 6 of #324, 2026-11-22): a done-only habit
+   * is logged done; a choice or text habit asks in place, pressed again
+   * to put the question away; a note habit is logged done at the tap and
+   * its entry opens from the template, the capture loop taking over.
+   */
+  protected tick(h: PlacedHabit, day: string): void {
+    if (this.asks(h)) {
+      this.asking.set(this.isAsking(h, day) ? null : { habit: h.id, day });
+      return;
+    }
+    if (h.answer === 'note' && h.template) {
+      this.asking.set(null);
+      this.habits.logNote(h, day);
+      return;
+    }
+    this.log(h, day, 'done');
+  }
+
+  /** The answer given, or put away: the focus goes to Undo, or back to the tick. */
+  protected answered(how: 'answered' | 'cancelled'): void {
+    const a = this.asking();
+    this.asking.set(null);
+    if (how === 'answered') this.focus(() => this.undoButton() ?? this.heading());
+    else if (a) {
+      const name = this.habits.placed().find((h) => h.id === a.habit)?.name;
+      this.focus(() => this.buttonNamed(`Done: ${name}`));
+    }
+  }
+
+  private buttonNamed(label: string): ElementRef<HTMLElement> | undefined {
+    const b = [...this.host.nativeElement.querySelectorAll('button')].find(
+      (x) => x.getAttribute('aria-label') === label,
+    );
+    return b ? new ElementRef(b) : undefined;
   }
 
   protected undo(): void {

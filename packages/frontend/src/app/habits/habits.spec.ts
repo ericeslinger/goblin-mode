@@ -7,7 +7,12 @@ import { PushService } from '../push/push.service';
 import type { FakePush } from '../testing/fakes';
 import { dayState, habitWhen, nudgeHint, ordinal, periodLine, streakLine } from './habit-lines';
 import { Habits } from './habits';
-import { HABITS_API } from './habits.service';
+import { HABITS_API, HabitsService } from './habits.service';
+import { newDataKey, sealHabitAnswer } from '@mossgoblin/schema';
+import { NoteKeyService } from '../notes/note-key.service';
+import { NotesService } from '../notes/notes.service';
+import type { FakeNoteKeys, FakeNotes } from '../testing/fakes';
+import { answerWords, latelyLine } from './habit-lines';
 
 const DAY = 24 * HOUR;
 
@@ -26,7 +31,10 @@ async function render({ on = true, loaded = true } = {}) {
     modules,
     async habits(
       docs: ReturnType<typeof habitDoc>[],
-      logs: Record<string, Record<string, { state: 'done' | 'skipped' }>> = {},
+      logs: Record<
+        string,
+        Record<string, { state: 'done' | 'skipped'; at?: number; answer?: string; noteId?: string }>
+      > = {},
     ) {
       api.pushHabits(docs);
       await r.fixture.whenStable();
@@ -516,5 +524,211 @@ describe('habit lines', () => {
     buttonNamed(r.el, 'Dismiss: Floss')!.click();
     await r.fixture.whenStable();
     expect(alert.textContent?.trim()).toBe('');
+  });
+  describe('answers (step 6, 2026-11-22)', () => {
+    afterEach(() => localStorage.clear());
+    const keys = () => TestBed.inject(NoteKeyService) as unknown as FakeNoteKeys;
+    const choose = async (
+      r: { fixture: { whenStable(): Promise<unknown> } },
+      select: HTMLSelectElement,
+      value: string,
+    ) => {
+      select.value = value;
+      select.dispatchEvent(new Event('change'));
+      await r.fixture.whenStable();
+    };
+
+    it('adds a habit answered with one of a list, its choices edited in place', async () => {
+      const r = await render();
+      await r.habits([]);
+      buttonNamed(r.el, 'Add your first habit')!.click();
+      await r.fixture.whenStable();
+      const form = r.el.querySelector<HTMLElement>('form[aria-label="New habit"]')!;
+      const answer = form.querySelector<HTMLSelectElement>('select[name="answer"]')!;
+      expect(answer.closest('label')?.textContent).toContain('Answered with');
+      expect([...answer.options].map((o) => o.textContent?.trim())).toEqual([
+        'Just done',
+        'One of a list',
+        'A line of text',
+        'A note',
+      ]);
+      expect(answer.value).toBe('done');
+      type(form, 'input[name="name"]', 'Mood');
+      await choose(r, answer, 'choice');
+      type(form, 'input[aria-label="Choice 1"]', 'calm');
+      await r.fixture.whenStable();
+      // Two at least, and none twice.
+      type(form, 'input[aria-label="Choice 2"]', 'Calm');
+      await r.fixture.whenStable();
+      expect(form.textContent).toContain('Calm is in the list twice');
+      expect(buttonNamed(form, 'Add')!.disabled).toBe(true);
+      type(form, 'input[aria-label="Choice 2"]', 'tired');
+      buttonNamed(form, 'Add a choice')!.click();
+      await r.fixture.whenStable();
+      type(form, 'input[aria-label="Choice 3"]', 'cross');
+      buttonNamed(form, 'Move choice 3 up')!.click();
+      await r.fixture.whenStable();
+      buttonNamed(form, 'Remove choice 1')!.click();
+      await r.fixture.whenStable();
+      expect(buttonNamed(form, 'Add')!.disabled).toBe(false);
+      buttonNamed(form, 'Add')!.click();
+      expect(r.api.set.mock.lastCall![2]).toMatchObject({
+        name: 'Mood',
+        answer: 'choice',
+        choices: ['cross', 'tired'],
+      });
+    });
+
+    it('adds a note habit from one of the templates, and says where to make one', async () => {
+      const r = await render();
+      await r.habits([]);
+      buttonNamed(r.el, 'Add your first habit')!.click();
+      await r.fixture.whenStable();
+      const form = r.el.querySelector<HTMLElement>('form[aria-label="New habit"]')!;
+      type(form, 'input[name="name"]', 'Journal');
+      await choose(r, form.querySelector<HTMLSelectElement>('select[name="answer"]')!, 'note');
+      expect(form.textContent).toContain('No templates yet');
+      const notes = TestBed.inject(NotesService) as unknown as FakeNotes;
+      notes.notes.set([
+        {
+          id: 'tj',
+          title: 'Feelings journal',
+          kind: 'template',
+          body: '',
+          archived: false,
+        } as never,
+      ]);
+      await r.fixture.whenStable();
+      const template = form.querySelector<HTMLSelectElement>('select[name="template"]')!;
+      expect([...template.options].map((o) => o.textContent?.trim())).toEqual([
+        'Choose a template',
+        'Feelings journal',
+      ]);
+      expect(buttonNamed(form, 'Add')!.disabled).toBe(true);
+      await choose(r, template, 'tj');
+      buttonNamed(form, 'Add')!.click();
+      expect(r.api.set.mock.lastCall![2]).toMatchObject({ answer: 'note', template: 'tj' });
+    });
+
+    it('changes what a habit is answered with in Edit, saying what is logged stays', async () => {
+      const r = await render();
+      await r.habits([habitDoc('walk', { name: 'Walk' })]);
+      buttonNamed(r.el, 'Edit Walk')!.click();
+      await r.fixture.whenStable();
+      const form = r.el.querySelector<HTMLElement>('form[aria-label="Edit Walk"]')!;
+      await choose(r, form.querySelector<HTMLSelectElement>('select[name="answer"]')!, 'text');
+      expect(form.textContent).toContain('What is logged stays: earlier days keep what they hold.');
+      r.api.set.mockClear();
+      buttonNamed(form, 'Save')!.click();
+      expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
+        { answer: 'text', choices: 'DELETE', template: 'DELETE', updatedAt: expect.anything() },
+      ]);
+    });
+
+    it('asks a choice habit’s answer on Done, and shows it on the row and lately', async () => {
+      const r = await render();
+      const key = newDataKey();
+      keys().key.set(key);
+      const tired = sealHabitAnswer(key, 'u1', 'mood', '2026-10-05', 'choice', 'tired');
+      await r.habits(
+        [
+          habitDoc('mood', {
+            name: 'Mood',
+            answer: 'choice',
+            choices: ['calm', 'tired'],
+            createdAt: NOW - 3 * DAY,
+          }),
+        ],
+        { 'mood_2026-10': { '05': { state: 'done', at: NOW - DAY, answer: tired } } },
+      );
+      const c = card(r.el, 'Mood');
+      expect(c.querySelector('.lately')?.textContent).toBe('Lately: yesterday tired');
+      expect(c.querySelector('[aria-label="Yesterday, Mood"] .answer')?.textContent).toBe('tired');
+      expect(c.querySelector('.strip li:nth-child(6)')?.getAttribute('title')).toBe(
+        'Mon 5 Oct: done, tired',
+      );
+      buttonNamed(c, 'Done today: Mood')!.click();
+      await r.fixture.whenStable();
+      expect(buttonNamed(c, 'Done today: Mood')!.getAttribute('aria-expanded')).toBe('true');
+      const group = c.querySelector<HTMLElement>('[aria-label="Mood today: choose one"]')!;
+      expect([...group.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
+        'calm',
+        'tired',
+        'Cancel',
+      ]);
+      expect(document.activeElement?.textContent?.trim()).toBe('calm');
+      buttonNamed(group, 'calm')!.click();
+      await r.fixture.whenStable();
+      const written = r.api.set.mock.lastCall![2] as { days: Record<string, { answer: string }> };
+      expect(written.days['06'].answer.startsWith('mg1.')).toBe(true);
+      r.api.pushLog('mood_2026-10', {
+        '05': { state: 'done', at: NOW - DAY, answer: tired },
+        '06': { state: 'done', at: NOW, answer: written.days['06'].answer },
+      });
+      await r.fixture.whenStable();
+      expect(c.querySelector('[aria-label="Today, Mood"] .answer')?.textContent).toBe('calm');
+      expect(c.querySelector('.lately')?.textContent).toBe('Lately: today calm · yesterday tired');
+      expect(c.querySelector('app-habit-ask')).toBeNull();
+    });
+
+    it('takes a text habit’s line on Enter, empty meaning done, and keeps a draft', async () => {
+      const r = await render();
+      keys().key.set(newDataKey());
+      await r.habits([habitDoc('walk', { name: 'Walk', answer: 'text' })]);
+      const c = card(r.el, 'Walk');
+      buttonNamed(c, 'Done today: Walk')!.click();
+      await r.fixture.whenStable();
+      const input = c.querySelector<HTMLInputElement>(
+        'input[aria-label="Walk today: a line of text"]',
+      )!;
+      expect(document.activeElement).toBe(input);
+      type(c, 'input[aria-label="Walk today: a line of text"]', 'to the');
+      expect(TestBed.inject(HabitsService).draft('walk', '2026-10-06')).toBe('to the');
+      type(c, 'input[aria-label="Walk today: a line of text"]', '');
+      input.form!.requestSubmit();
+      await r.fixture.whenStable();
+      expect(r.api.set.mock.lastCall![2]).toMatchObject({
+        days: { '06': { state: 'done', answer: 'DELETE' } },
+      });
+    });
+
+    it('opens a note habit’s entry on Done, and links to it once logged', async () => {
+      const r = await render();
+      await r.habits([habitDoc('journal', { name: 'Journal', answer: 'note', template: 'tj' })], {
+        'journal_2026-10': { '06': { state: 'done', at: NOW, noteId: 'entry1' } },
+      });
+      const c = card(r.el, 'Journal');
+      const link = c.querySelector<HTMLAnchorElement>('[aria-label="Today, Journal"] a.answer')!;
+      expect(link.textContent?.trim()).toBe('Open the entry');
+      expect(link.getAttribute('href')).toBe('/n/entry1');
+      const service = TestBed.inject(HabitsService);
+      const logNote = vi.spyOn(service, 'logNote').mockReturnValue(undefined);
+      r.api.pushLog('journal_2026-10', {});
+      await r.fixture.whenStable();
+      buttonNamed(c, 'Done today: Journal')!.click();
+      expect(logNote).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'journal' }),
+        '2026-10-06',
+      );
+    });
+
+    it('words an answer for a strip day, and the last week’s choices newest first', () => {
+      expect(answerWords({ text: 'calm' })).toBe('calm');
+      expect(answerWords({ sealed: true })).toBe('answer sealed');
+      expect(answerWords({ noteId: 'n' })).toBe('with a note');
+      expect(answerWords(undefined)).toBe('');
+      expect(
+        latelyLine(
+          [
+            { day: '2026-10-01', answer: { text: 'ok' } },
+            { day: '2026-10-02' },
+            { day: '2026-10-05', answer: { sealed: true } },
+            { day: '2026-10-06', answer: { text: 'calm' } },
+          ],
+          '2026-10-06',
+        ),
+      ).toBe('Lately: today calm · yesterday answer sealed · Thu ok');
+      expect(latelyLine([{ day: '2026-10-06' }], '2026-10-06')).toBe('');
+    });
   });
 });

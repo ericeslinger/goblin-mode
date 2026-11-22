@@ -1,19 +1,28 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { type HabitAnswer, type HabitSchedule } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
 import { PushService } from '../push/push.service';
-import type { HabitSchedule } from '@mossgoblin/schema';
+import { HabitAnswerFields } from './habit-answer-fields';
+import { HabitAsk } from './habit-ask';
 import {
   SCHEDULE_CHOICES,
+  answerWords,
   dayInitial,
   dayName,
   dayState,
   habitWhen,
+  latelyLine,
   nudgeHint,
   periodLine,
   streakLine,
 } from './habit-lines';
-import { type PlacedHabit, HabitsService } from './habits.service';
+import {
+  type HabitShownAnswer,
+  type PlacedHabit,
+  HabitsService,
+  answerFields,
+} from './habits.service';
 
 /**
  * One habit on the Habits screen (#324, step 2): its name, when it is
@@ -23,16 +32,24 @@ import { type PlacedHabit, HabitsService } from './habits.service';
  * too, while it can still be logged; and Edit, for its name, how often
  * (step 5 of #324), its time and Archive. A weekly or monthly habit has
  * a line for its week or month ("Done this month, on the 3rd"), and no
- * Today row once that period was settled on another day. Edit has Nudge me too (step 4 of #324), a switch that
- * needs a time, turning this device's notifications on the first time
- * it is used, through Settings' own path (PushService.enable). An
- * archived habit keeps its strip and has Unarchive.
- * Archived or unarchived, it says so (`moved`), so the screen can put
- * the focus where the habit went (review of #328, 2026-11-21).
+ * Today row once that period was settled on another day. Edit has
+ * Nudge me too (step 4 of #324), a switch that needs a time, turning
+ * this device's notifications on the first time it is used, through
+ * Settings' own path (PushService.enable). An archived habit keeps its
+ * strip and has Unarchive. Archived or unarchived, it says so
+ * (`moved`), so the screen can put the focus where the habit went
+ * (review of #328, 2026-11-21).
+ *
+ * Answers (step 6 of #324, 2026-11-22): Edit has Answered with. A
+ * choice or text habit's Done asks in place (HabitAsk) and the day's
+ * answer shows on its row once given; a note habit's Done opens a new
+ * entry from its template, and its row links to the entry. A choice
+ * habit has a line of its last seven days' answers ("Lately: today
+ * calm · Sat tired"), and every strip day's words carry its answer.
  */
 @Component({
   selector: 'app-habit-card',
-  imports: [RouterLink],
+  imports: [HabitAnswerFields, HabitAsk, RouterLink],
   template: `
     @let h = habit();
     <div class="head">
@@ -72,50 +89,43 @@ import { type PlacedHabit, HabitsService } from './habits.service';
     @if (period(); as p) {
       <p class="period">{{ p }}</p>
     }
+    @if (lately(); as l) {
+      <p class="lately">{{ l }}</p>
+    }
     @if (!h.archived) {
-      <!-- A week or month settled on another day has nothing to log
-           today: the period line above says how it stands (step 5). -->
-      @if (!settledElsewhere()) {
-        <div class="log" role="group" [attr.aria-label]="'Today, ' + h.name">
-          <span class="when">Today</span>
+      @for (r of rows(); track r.when) {
+        <div class="log" role="group" [attr.aria-label]="r.label + ', ' + h.name">
+          <span class="when">{{ r.label }}</span>
           <button
             type="button"
-            [attr.aria-pressed]="h.today === 'done'"
-            [attr.aria-label]="'Done today: ' + h.name"
-            (click)="toggle(habits.today(), h.today, 'done')"
+            [attr.aria-pressed]="r.state === 'done'"
+            [attr.aria-expanded]="asks() ? isAsking(r.day) : null"
+            [attr.aria-label]="'Done ' + r.when + ': ' + h.name"
+            (click)="done(r.day, r.state)"
           >
             Done
           </button>
           <button
             type="button"
-            [attr.aria-pressed]="h.today === 'skipped'"
-            [attr.aria-label]="'Skip today: ' + h.name"
-            (click)="toggle(habits.today(), h.today, 'skipped')"
+            [attr.aria-pressed]="r.state === 'skipped'"
+            [attr.aria-label]="'Skip ' + r.when + ': ' + h.name"
+            (click)="toggle(r.day, r.state, 'skipped')"
           >
             Skip
           </button>
+          @if (shown(r.answer); as a) {
+            @if (a.noteId) {
+              <a class="answer" [routerLink]="['/n', a.noteId]">Open the entry</a>
+            } @else if (a.sealed) {
+              <span class="answer muted">Sealed: it cannot be opened on this device.</span>
+            } @else if (a.text) {
+              <span class="answer">{{ a.text }}</span>
+            }
+          }
         </div>
-      }
-      @if (h.yesterdayLoggable) {
-        <div class="log" role="group" [attr.aria-label]="'Yesterday, ' + h.name">
-          <span class="when">Yesterday</span>
-          <button
-            type="button"
-            [attr.aria-pressed]="h.yesterday === 'done'"
-            [attr.aria-label]="'Done yesterday: ' + h.name"
-            (click)="toggle(habits.yesterday(), h.yesterday, 'done')"
-          >
-            Done
-          </button>
-          <button
-            type="button"
-            [attr.aria-pressed]="h.yesterday === 'skipped'"
-            [attr.aria-label]="'Skip yesterday: ' + h.name"
-            (click)="toggle(habits.yesterday(), h.yesterday, 'skipped')"
-          >
-            Skip
-          </button>
-        </div>
+        @if (isAsking(r.day)) {
+          <app-habit-ask [habit]="h" [day]="r.day" [when]="r.when" (closed)="asking.set(null)" />
+        }
       }
     }
     @if (editing() && !h.archived) {
@@ -159,6 +169,13 @@ import { type PlacedHabit, HabitsService } from './habits.service';
           Nudge me
         </label>
         <p class="hint" [id]="'nudge-hint-' + h.id">{{ hint() }}</p>
+        <app-habit-answer-fields
+          [(answer)]="answer"
+          [(choices)]="choices"
+          [(template)]="template"
+          [was]="h.answer"
+          [for]="h.id"
+        />
         @if (nudge() && time() && pushOff()) {
           <p class="hint">
             This device gets no notifications:
@@ -166,7 +183,9 @@ import { type PlacedHabit, HabitsService } from './habits.service';
           </p>
         }
         <div class="actions">
-          <button type="submit" class="primary" [disabled]="!name().trim()">Save</button>
+          <button type="submit" class="primary" [disabled]="!name().trim() || !answerOk()">
+            Save
+          </button>
           <button type="button" (click)="archive()">Archive</button>
           <button type="button" class="link" (click)="editing.set(false)">Cancel</button>
         </div>
@@ -266,9 +285,21 @@ import { type PlacedHabit, HabitsService } from './habits.service';
       border-color: var(--accent);
       background: var(--chip-bg);
     }
-    .period {
+    .period,
+    .lately {
       margin: var(--space-1, 4px) 0 0;
       font-size: 14px;
+    }
+    .lately {
+      color: var(--quiet);
+      overflow-wrap: anywhere;
+    }
+    .answer {
+      font-size: 14px;
+      overflow-wrap: anywhere;
+    }
+    .muted {
+      color: var(--quiet);
     }
     .edit {
       margin-top: var(--space-2);
@@ -330,6 +361,59 @@ export class HabitCard {
   protected readonly nudge = signal(false);
   protected readonly schedule = signal<HabitSchedule>('daily');
   protected readonly schedules = SCHEDULE_CHOICES;
+  protected readonly answer = signal<HabitAnswer>('done');
+  protected readonly choices = signal<string[]>([]);
+  protected readonly template = signal<string | undefined>(undefined);
+  /** The day whose Done asks for its answer here, if one does. */
+  protected readonly asking = signal<string | null>(null);
+
+  /** The answer in the form is one the habit can hold. */
+  protected readonly answerOk = computed(
+    () => answerFields(this.answer(), this.choices(), this.template()) !== undefined,
+  );
+
+  /** A choice or text habit: its Done asks first. */
+  protected readonly asks = computed(() => ['choice', 'text'].includes(this.habit().answer));
+
+  /**
+   * Today's row, unless its week or month was settled on another day
+   * (the period line says why), and yesterday's while it can be logged.
+   */
+  protected readonly rows = computed(() => {
+    const h = this.habit();
+    const out: {
+      when: 'today' | 'yesterday';
+      label: string;
+      day: string;
+      state?: 'done' | 'skipped';
+      answer?: HabitShownAnswer;
+    }[] = [];
+    if (!this.settledElsewhere()) {
+      out.push({
+        when: 'today',
+        label: 'Today',
+        day: this.habits.today(),
+        state: h.today,
+        answer: h.todayAnswer,
+      });
+    }
+    if (h.yesterdayLoggable) {
+      out.push({
+        when: 'yesterday',
+        label: 'Yesterday',
+        day: this.habits.yesterday(),
+        state: h.yesterday,
+        answer: h.yesterdayAnswer,
+      });
+    }
+    return out;
+  });
+
+  /** A choice habit's last seven days' answers, newest first. */
+  protected readonly lately = computed(() => {
+    const h = this.habit();
+    return h.answer === 'choice' ? latelyLine(h.strip, this.habits.today()) : '';
+  });
 
   /** What a nudge at the time in the form would do. */
   protected readonly hint = computed(() =>
@@ -355,7 +439,9 @@ export class HabitCard {
     const h = this.habit();
     return h.strip.map((d) => {
       const { mark, words } = dayState(d.state, h.schedule);
-      return { ...d, mark, initial: dayInitial(d.day), label: `${dayName(d.day)}: ${words}` };
+      const answer = answerWords(d.answer);
+      const said = answer ? `${words}, ${answer}` : words;
+      return { ...d, mark, initial: dayInitial(d.day), label: `${dayName(d.day)}: ${said}` };
     });
   });
 
@@ -377,6 +463,9 @@ export class HabitCard {
     this.time.set(this.habit().time ?? '');
     this.nudge.set(this.habit().nudge);
     this.schedule.set(this.habit().schedule);
+    this.answer.set(this.habit().answer);
+    this.choices.set([...(this.habit().choices ?? [])]);
+    this.template.set(this.habit().template);
     this.editing.set(true);
   }
 
@@ -396,8 +485,44 @@ export class HabitCard {
 
   /** Logs the day as `state`, or clears it when it is that already. */
   protected toggle(day: string, now: string | undefined, state: 'done' | 'skipped'): void {
+    this.asking.set(null);
     if (now === state) this.habits.clear(this.habit(), day);
     else this.habits.log(this.habit(), day, state);
+  }
+
+  /** An answer as the row shows it: its note, sealed, or its text. */
+  protected shown(
+    a: HabitShownAnswer | undefined,
+  ): { noteId?: string; sealed?: boolean; text?: string } | undefined {
+    if (!a) return undefined;
+    if ('noteId' in a) return { noteId: a.noteId };
+    if ('sealed' in a) return { sealed: true };
+    return { text: a.text };
+  }
+
+  protected isAsking(day: string): boolean {
+    return this.asking() === day;
+  }
+
+  /**
+   * Done (step 6 of #324): pressed while done, it clears the day; else a
+   * choice or text habit asks for its answer here (pressed again, the
+   * question goes), a note habit is logged done and its entry opens,
+   * and a done-only one is logged done.
+   */
+  protected done(day: string, now: 'done' | 'skipped' | undefined): void {
+    const h = this.habit();
+    if (now === 'done') return this.toggle(day, now, 'done');
+    if (this.asks()) {
+      this.asking.set(this.isAsking(day) ? null : day);
+      return;
+    }
+    if (h.answer === 'note' && h.template) {
+      this.asking.set(null);
+      this.habits.logNote(h, day);
+      return;
+    }
+    this.toggle(day, now, 'done');
   }
 
   protected save(event: Event): void {
@@ -407,6 +532,15 @@ export class HabitCard {
     if (!name) return;
     if (name !== h.name) this.habits.rename(h.id, name);
     if (this.schedule() !== h.schedule) this.habits.setSchedule(h.id, this.schedule());
+    const choices = this.answer() === 'choice' ? this.choices() : undefined;
+    const template = this.answer() === 'note' ? this.template() : undefined;
+    if (
+      this.answer() !== h.answer ||
+      JSON.stringify(choices ?? null) !== JSON.stringify(h.choices ?? null) ||
+      template !== h.template
+    ) {
+      this.habits.setAnswer(h.id, this.answer(), choices, template);
+    }
     const time = this.time() || undefined;
     const nudge = this.nudge() && time !== undefined;
     if (time !== h.time) this.habits.setTime(h.id, time, nudge);

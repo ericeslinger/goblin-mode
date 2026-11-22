@@ -1,14 +1,14 @@
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { type Firestore, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { addDays } from '@mossgoblin/schema';
-import { testKeyFor } from '../testing/test-key';
+import { addDays, isSealed, openHabitAnswer, sealHabitAnswer } from '@mossgoblin/schema';
+import { TEST_KEY, testKeyFor } from '../testing/test-key';
 import { NotesTools } from './tools';
 
 // The assistant's Habits tools (#324 step 3, 2026-11-21), against the
 // Firestore emulator under their own project id, as tools.emulator.spec
-// runs (inside `npm run e2e`). A habit's name and its log hold no note
-// text, so nothing here is sealed.
+// runs (inside `npm run e2e`). A habit's name is plain; its answers
+// (step 6, 2026-11-22) are sealed with the test key.
 const PROJECT = 'demo-mossgoblin-habits';
 const HOST = process.env['FIRESTORE_EMULATOR_HOST'] ?? '127.0.0.1:8180';
 const app = initializeApp({ projectId: PROJECT }, 'mcp-habits-spec');
@@ -411,7 +411,9 @@ describe('the Habits tools (#324 step 3)', () => {
       '21': { state: 'skipped', at: at(T) },
     });
     const done = await t.logHabit({ habit: 'Journal', state: 'done', date: '2026-11-20' });
-    expect(done.note).toMatch(/asks for a note in the app; it is logged done without one/);
+    expect(done.note).toMatch(
+      /opens a note from its template \(tpl-journal\); it is logged done with none/,
+    );
     expect((await log('journal_2026-11'))?.['days']).toMatchObject({
       '20': { state: 'done', at: at(T) },
     });
@@ -434,5 +436,230 @@ describe('the Habits tools (#324 step 3)', () => {
     ]);
     // The instructions read on connecting carry no habits.
     expect(await t.getContext()).not.toHaveProperty('habits');
+  });
+  describe('answers (step 6, 2026-11-22)', () => {
+    /** A template note as the app makes one, its text plain as an old one may be. */
+    async function template(id: string, title: string) {
+      await db.doc(`users/u1/notes/${id}`).set({
+        kind: 'template',
+        templateMode: 'entry',
+        title,
+        titleSource: 'words',
+        body: `${title}\n\nMoods: \n`,
+        tags: [],
+        links: [],
+        archived: false,
+        createdAt: at(T - 86400_000),
+        updatedAt: at(T - 86400_000),
+        createdBy: 'user',
+        updatedBy: 'user',
+      });
+    }
+    const stored = async (id: string) => (await db.doc(`users/u1/habits/${id}`).get()).data();
+    const noKey = () =>
+      new NotesTools(
+        db,
+        'u1',
+        () => T,
+        undefined,
+        undefined,
+        async () => {
+          throw new Error('the note key service did not answer');
+        },
+      );
+
+    it('makes a habit of each kind, its template found by name, and refuses a bad list', async () => {
+      await habitsOn();
+      await template('tpl-feel', 'Feelings journal');
+      const t = tools();
+      const mood = await t.createHabit({
+        name: 'Mood',
+        timeZone: LA,
+        answer: 'choice',
+        choices: [' calm ', 'tired', 'cross'],
+      });
+      expect(mood).toMatchObject({ answer: 'choice', choices: ['calm', 'tired', 'cross'] });
+      expect(await stored(mood.id)).toMatchObject({
+        answer: 'choice',
+        choices: ['calm', 'tired', 'cross'],
+      });
+      const line = await t.createHabit({ name: 'One line', timeZone: LA, answer: 'text' });
+      expect(await stored(line.id)).not.toHaveProperty('choices');
+      const journal = await t.createHabit({
+        name: 'Journal',
+        timeZone: LA,
+        answer: 'note',
+        template: 'feelings JOURNAL',
+      });
+      expect(await stored(journal.id)).toMatchObject({ answer: 'note', template: 'tpl-feel' });
+
+      await expect(
+        t.createHabit({ name: 'A', timeZone: LA, answer: 'choice', choices: ['calm'] }),
+      ).rejects.toThrow(/2 to 12/);
+      await expect(
+        t.createHabit({ name: 'A', timeZone: LA, answer: 'choice', choices: ['calm', 'Calm'] }),
+      ).rejects.toThrow(/twice/);
+      await expect(
+        t.createHabit({
+          name: 'A',
+          timeZone: LA,
+          answer: 'choice',
+          choices: ['calm', 'x'.repeat(41)],
+        }),
+      ).rejects.toThrow(/1 to 40/);
+      await expect(t.createHabit({ name: 'A', timeZone: LA, answer: 'choice' })).rejects.toThrow(
+        /needs choices/,
+      );
+      await expect(
+        t.createHabit({ name: 'A', timeZone: LA, answer: 'text', choices: ['a', 'b'] }),
+      ).rejects.toThrow(/choices go only with answer choice/);
+      await expect(
+        t.createHabit({ name: 'A', timeZone: LA, answer: 'note', template: 'Nothing' }),
+      ).rejects.toThrow(/no template Nothing/);
+      await expect(t.createHabit({ name: 'A', timeZone: LA, answer: 'note' })).rejects.toThrow(
+        /needs template/,
+      );
+    });
+
+    it('changes what a habit is answered with, keeping its logs', async () => {
+      await habitsOn();
+      await template('tpl-feel', 'Feelings journal');
+      await appHabit('mood', 'Mood', { answer: 'choice', choices: ['calm', 'tired'] });
+      const calm = sealHabitAnswer(TEST_KEY, 'u1', 'mood', '2026-11-20', 'choice', 'calm');
+      await appTick('mood', '2026-11-20', 'done', { answer: calm });
+      const t = tools();
+      // A new list, the kind kept.
+      expect(
+        await t.updateHabit({ habit: 'Mood', choices: ['calm', 'tired', 'cross'] }),
+      ).toMatchObject({
+        changed: true,
+        choices: ['calm', 'tired', 'cross'],
+      });
+      expect(await t.updateHabit({ habit: 'Mood', answer: 'text' })).toMatchObject({
+        changed: true,
+        answer: 'text',
+      });
+      expect(await stored('mood')).not.toHaveProperty('choices');
+      await t.updateHabit({ habit: 'Mood', answer: 'note', template: 'tpl-feel' });
+      expect(await stored('mood')).toMatchObject({ answer: 'note', template: 'tpl-feel' });
+      await expect(t.updateHabit({ habit: 'Mood', choices: ['a', 'b'] })).rejects.toThrow(
+        /choices go only with answer choice/,
+      );
+      // What was logged stays, and still opens.
+      const [listed] = await t.listHabits({});
+      expect(listed.yesterday).toMatchObject({ date: '2026-11-20', state: 'done', answer: 'calm' });
+    });
+
+    it('logs a choice sealed, as the app seals it, and lists it opened', async () => {
+      await habitsOn();
+      await appHabit('mood', 'Mood', {
+        answer: 'choice',
+        choices: ['calm', 'tired', 'a bit cross'],
+      });
+      const t = tools();
+      const done = await t.logHabit({ habit: 'Mood', state: 'done', answer: 'A BIT cross' });
+      expect(done).toMatchObject({
+        changed: true,
+        today: { state: 'done', answer: 'a bit cross' },
+      });
+      expect(done).not.toHaveProperty('note');
+      const day = (await log('mood_2026-11'))?.['days']['21'];
+      expect(isSealed(day.answer)).toBe(true);
+      expect(day.answer).not.toContain('cross');
+      expect(openHabitAnswer(TEST_KEY, 'u1', 'mood', '2026-11-21', day.answer)).toBe('a bit cross');
+      // Every choice seals to one length.
+      await t.logHabit({ habit: 'Mood', state: 'done', date: '2026-11-20', answer: 'calm' });
+      const days = (await log('mood_2026-11'))?.['days'];
+      expect(days['20'].answer.length).toBe(days['21'].answer.length);
+      // The activity entry names the habit, never the answer.
+      expect(JSON.stringify(await runs())).not.toContain('cross');
+
+      const [listed] = await t.listHabits({});
+      expect(listed).toMatchObject({
+        today: { date: '2026-11-21', state: 'done', answer: 'a bit cross' },
+        yesterday: { date: '2026-11-20', state: 'done', answer: 'calm' },
+        recentAnswers: [
+          { date: '2026-11-21', answer: 'a bit cross' },
+          { date: '2026-11-20', answer: 'calm' },
+        ],
+      });
+
+      await expect(t.logHabit({ habit: 'Mood', state: 'done', answer: 'happy' })).rejects.toThrow(
+        /not one of Mood's choices: calm, tired, a bit cross/,
+      );
+      await expect(t.logHabit({ habit: 'Mood', state: 'skipped', answer: 'calm' })).rejects.toThrow(
+        /only with state done/,
+      );
+      // Done again with none keeps the day's answer, and writes nothing.
+      const again = await t.logHabit({ habit: 'Mood', state: 'done', date: '2026-11-20' });
+      expect(again).toMatchObject({ changed: false, yesterday: { answer: 'calm' } });
+      expect(again).not.toHaveProperty('note');
+      // Logged done with none on a new day, it says how to give one.
+      await t.logHabit({ habit: 'Mood', state: 'none' });
+      const none = await t.logHabit({ habit: 'Mood', state: 'done' });
+      expect(none.note).toMatch(/logged done with none. Log it again with answer/);
+      expect((await log('mood_2026-11'))?.['days']['21']).not.toHaveProperty('answer');
+    });
+
+    it('logs one line of text, refusing a second line or more than 500', async () => {
+      await habitsOn();
+      await appHabit('walk', 'Walk', { answer: 'text' });
+      await appHabit('floss', 'Floss');
+      const t = tools();
+      const longest = 'x'.repeat(500);
+      await t.logHabit({ habit: 'Walk', state: 'done', answer: longest });
+      const day = (await log('walk_2026-11'))?.['days']['21'];
+      expect(day.answer.length).toBeLessThanOrEqual(4000);
+      expect(openHabitAnswer(TEST_KEY, 'u1', 'walk', '2026-11-21', day.answer)).toBe(longest);
+      await expect(
+        t.logHabit({ habit: 'Walk', state: 'done', answer: 'x'.repeat(501) }),
+      ).rejects.toThrow(/at most 500/);
+      await expect(
+        t.logHabit({ habit: 'Walk', state: 'done', answer: 'to the\nriver' }),
+      ).rejects.toThrow(/one line/);
+      await expect(t.logHabit({ habit: 'Floss', state: 'done', answer: 'yes' })).rejects.toThrow(
+        /takes no answer/,
+      );
+    });
+
+    it('records a note habit’s entry made with use_template, and no other note', async () => {
+      await habitsOn();
+      await template('tpl-feel', 'Feelings journal');
+      await template('tpl-other', 'Other');
+      await appHabit('journal', 'Journal', { answer: 'note', template: 'tpl-feel' });
+      const t = tools();
+      const entry = await t.useTemplate({ id: 'tpl-feel' });
+      const other = await t.useTemplate({ id: 'tpl-other' });
+      await expect(
+        t.logHabit({ habit: 'Journal', state: 'done', noteId: other.note.id }),
+      ).rejects.toThrow(/was not made from Journal's template/);
+      await expect(t.logHabit({ habit: 'Journal', state: 'done', noteId: 'nope' })).rejects.toThrow(
+        /no note nope/,
+      );
+      const done = await t.logHabit({ habit: 'Journal', state: 'done', noteId: entry.note.id });
+      expect(done).toMatchObject({ today: { state: 'done', noteId: entry.note.id } });
+      expect(done).not.toHaveProperty('note');
+      expect((await log('journal_2026-11'))?.['days']['21']).toEqual({
+        state: 'done',
+        at: at(T),
+        noteId: entry.note.id,
+      });
+    });
+
+    it('writes nothing when the key is not available, and lists an answer it cannot open as sealed', async () => {
+      await habitsOn();
+      await appHabit('mood', 'Mood', { answer: 'choice', choices: ['calm', 'tired'] });
+      const calm = sealHabitAnswer(TEST_KEY, 'u1', 'mood', '2026-11-20', 'choice', 'calm');
+      await appTick('mood', '2026-11-20', 'done', { answer: calm });
+      const t = noKey();
+      await expect(t.logHabit({ habit: 'Mood', state: 'done', answer: 'calm' })).rejects.toThrow(
+        /its key is not available, so nothing was written/,
+      );
+      expect((await log('mood_2026-11'))?.['days']).not.toHaveProperty('21');
+      const [listed] = await t.listHabits({});
+      expect(listed.yesterday).toEqual({ date: '2026-11-20', state: 'done', answerSealed: true });
+      // A tick with no answer needs no key.
+      expect(await t.logHabit({ habit: 'Mood', state: 'done' })).toMatchObject({ changed: true });
+    });
   });
 });

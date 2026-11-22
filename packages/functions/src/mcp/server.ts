@@ -104,7 +104,14 @@ export const INSTRUCTIONS = [
     'second, held until the quiet hours end (22:00 to 06:00 unless he set others), and none ' +
     'for a time in them before midnight; weekly and monthly habits are not nudged yet. ' +
     "A habit's today is the day in the zone it was made or last timed in, which can differ " +
-    'from where Eric is when he travels: say which day you logged.',
+    'from where Eric is when he travels: say which day you logged. ' +
+    'A habit is answered with done, one of a short list of choices (a mood), one line of ' +
+    'text, or a note opened from a template (create_habit and update_habit: answer, with ' +
+    'choices or template). When he tells you how a choice or text habit went, log it done ' +
+    'with answer in his words: one of its choices, or his line as he said it. For a note ' +
+    'habit, make the entry with use_template from its template, then log_habit with its ' +
+    'noteId. Answers are sealed like his notes; list_habits gives them opened, his own ' +
+    'words: keep them as they are, and leave one marked answerSealed as it is.',
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
     'itemTags). Its items are its sub-projects (parent) and its tasks (reminders with its ' +
     'noteId), each with a stage from that list (refile or update_reminder: stage) and tags. ' +
@@ -1037,6 +1044,20 @@ export function buildServer(
     .string()
     .describe('A local time of day, HH:MM on a 24-hour clock, e.g. 11:00');
   const timeZone = z.string().min(1).describe("Eric's IANA time zone, e.g. America/Los_Angeles");
+  // What a check-in holds (#324 step 6, 2026-11-22).
+  const answer = z
+    .enum(['done', 'choice', 'text', 'note'])
+    .describe(
+      'What a check-in holds: done alone; choice, one of choices (a mood); text, one line ' +
+        'of his words; note, an entry opened from template',
+    );
+  const choices = z
+    .array(z.string())
+    .describe('With answer choice: 2 to 12 choices, each 1 to 40 characters, none twice');
+  const template = z
+    .string()
+    .min(1)
+    .describe('With answer note: the template, by id or name as list_templates gives it');
 
   server.registerTool(
     'create_habit',
@@ -1049,8 +1070,9 @@ export function buildServer(
         'timeZone; nudge asks for one push at that time on a day it is not yet logged, never a ' +
         'second, and needs a time; quiet hours hold it to their end, and nudgeNote says when it ' +
         'goes. Only a daily habit is nudged for now: a weekly or monthly one keeps the ' +
-        'setting but is sent no push yet. A ' +
-        'habit is done or not for now: no answer, mood or note. A name an unarchived habit ' +
+        'setting but is sent no push yet. answer is done unless asked: choice with ' +
+        'choices (a mood check-in), text (one line a day), or note with template (each ' +
+        'check-in a new note from it, for anything more structured). A name an unarchived habit ' +
         'already has is refused: change that one with update_habit. Habits only.',
       inputSchema: {
         name: z.string().min(1),
@@ -1058,6 +1080,9 @@ export function buildServer(
         time: habitTime.optional(),
         timeZone,
         nudge: z.boolean().optional(),
+        answer: answer.optional(),
+        choices: choices.optional(),
+        template: template.optional(),
       },
       annotations: write,
     },
@@ -1070,8 +1095,11 @@ export function buildServer(
       title: 'List habits',
       description:
         'The habits, archived ones too when includeArchived, by time of day: each with its ' +
-        'schedule, time, timeZone, nudge and answer (its kind), whether it is due today, ' +
-        "today's and yesterday's state (done, skipped or none) in its own zone (the one it was " +
+        'schedule, time, timeZone, nudge and answer (its kind, with its choices or template), ' +
+        "whether it is due today, today's and yesterday's state (done, skipped or none) and " +
+        'what each holds (answer, his own words opened; answerSealed when it cannot be opened ' +
+        'here; noteId, the entry a note habit made), recentAnswers for a choice habit (the ' +
+        'last seven days answered, newest first), in its own zone (the one it was ' +
         'made or last timed in, which can differ from where Eric is), thisPeriod for ' +
         'a weekly or monthly one, and its streak (days, weeks or months done in a row, skips ' +
         'passed over, today and a yesterday still open not counted against it; capped when ' +
@@ -1089,7 +1117,8 @@ export function buildServer(
       description:
         "Renames a habit, changes its schedule, its time (null: any time; a time needs Eric's " +
         'timeZone), its nudge (one push at its time if not yet logged; needs a time; daily ' +
-        'habits only for now; nudgeNote says when it goes), or ' +
+        'habits only for now; nudgeNote says when it goes), what it is answered with ' +
+        '(answer, choices, template; earlier days keep what they hold), or ' +
         'archives it (archived false brings it back). An archived habit keeps its history; ' +
         'nothing deletes one. A name another unarchived habit has is refused. Habits only.',
       inputSchema: {
@@ -1100,6 +1129,9 @@ export function buildServer(
         timeZone: timeZone.optional(),
         nudge: z.boolean().optional(),
         archived: z.boolean().optional(),
+        answer: answer.optional(),
+        choices: choices.optional(),
+        template: template.optional(),
       },
       annotations: write,
     },
@@ -1117,12 +1149,23 @@ export function buildServer(
         'the habit began, and yesterday for a weekly or monthly one only when it ended a ' +
         'week or month (else log today); none clears that day. date is ' +
         'YYYY-MM-DD (list_habits gives today and yesterday); today when left out. A skip ' +
-        'never breaks a streak. Refused for an archived habit. Gives back the day, its state ' +
-        'and the streak. Habits only.',
+        'never breaks a streak. Refused for an archived habit. With state done, answer is a ' +
+        "choice habit's choice or a text habit's one line (at most 500), sealed before it is " +
+        "stored; noteId is a note habit's entry, made first with use_template from its " +
+        'template. Gives back the day, its state and the streak. Habits only.',
       inputSchema: {
         habit,
         state: z.enum(['done', 'skipped', 'none']),
         date: z.string().optional().describe("YYYY-MM-DD, today or yesterday in the habit's zone"),
+        answer: z
+          .string()
+          .optional()
+          .describe("With done: one of the habit's choices, or one line of his words"),
+        noteId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('With done, for a note habit: the entry use_template made from its template'),
       },
       annotations: write,
     },

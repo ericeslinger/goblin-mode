@@ -12,17 +12,36 @@ import {
   remindersTestProviders,
   stamp,
 } from '../testing/fakes';
-import { FRESH_MS, HABITS_API, HabitsService } from './habits.service';
+import { Router } from '@angular/router';
+import { newDataKey, openHabitAnswer, sealHabitAnswer } from '@mossgoblin/schema';
+import { CaptureService } from '../capture/capture.service';
+import { NoteKeyService } from '../notes/note-key.service';
+import type { FakeNoteKeys } from '../testing/fakes';
+import { TemplatesService } from '../templates/templates.service';
+import {
+  ANSWER_DRAFTS_KEY,
+  FRESH_MS,
+  HABITS_API,
+  HELD_ANSWERS_KEY,
+  HabitsService,
+  answerFields,
+} from './habits.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 // 2026-10-06 10:00 in New York, a Tuesday.
 const NOW = Date.parse('2026-10-06T14:00:00Z');
 
 function setup(
-  { on = true, user = { uid: 'u1' } as User | null | undefined, now = NOW } = {} as {
+  {
+    on = true,
+    user = { uid: 'u1' } as User | null | undefined,
+    now = NOW,
+    providers = [],
+  } = {} as {
     on?: boolean;
     user?: User | null | undefined;
     now?: number;
+    providers?: unknown[];
   },
 ) {
   const api = new FakeHabitsApi();
@@ -33,6 +52,7 @@ function setup(
       ...remindersTestProviders(new FakeRemindersApi(), () => clock),
       { provide: HABITS_API, useValue: api },
       { provide: AuthService, useValue: { user: auth } },
+      ...(providers as []),
     ],
   });
   const modules = TestBed.inject(ModulesService) as unknown as FakeModules;
@@ -48,7 +68,10 @@ function setup(
     /** The habits' snapshot, then every log listened to as given, else empty. */
     push(
       docs: ReturnType<typeof habitDoc>[],
-      logs: Record<string, Record<string, { state: 'done' | 'skipped' }>> = {},
+      logs: Record<
+        string,
+        Record<string, { state: 'done' | 'skipped'; at?: number; answer?: string; noteId?: string }>
+      > = {},
     ) {
       api.pushHabits(docs);
       TestBed.tick();
@@ -674,6 +697,209 @@ describe('HabitsService (#324)', () => {
         [`habit:${id}`, 'Stretch could not be saved.'],
         ['habit:floss', 'The change to Floss could not be saved.'],
       ]);
+    });
+  });
+  describe('answers (step 6, 2026-11-22)', () => {
+    afterEach(() => localStorage.clear());
+    const mood = () =>
+      habitDoc('mood', { name: 'Mood', answer: 'choice', choices: ['calm', 'tired', 'cross'] });
+    const keys = () => TestBed.inject(NoteKeyService) as unknown as FakeNoteKeys;
+
+    it('seals a choice with the note key before it is written, and opens it to show', () => {
+      const { habits, api, push } = setup();
+      const key = newDataKey();
+      keys().key.set(key);
+      push([mood()]);
+      habits.log(habits.toDo()[0], '2026-10-06', 'done', { text: 'calm' });
+      const { data } = lastWrite(api) as {
+        data: { days: Record<string, { state: string; answer: string; noteId: string }> };
+      };
+      const entry = data.days['06'];
+      expect(entry.state).toBe('done');
+      expect(entry.noteId).toBe('DELETE');
+      expect(entry.answer.startsWith('mg1.')).toBe(true);
+      expect(entry.answer).not.toContain('calm');
+      expect(openHabitAnswer(key, 'u1', 'mood', '2026-10-06', entry.answer)).toBe('calm');
+      expect(habits.undoable()?.message).toBe('Mood: calm');
+      api.pushLog('mood_2026-10', { '06': { state: 'done', at: NOW, answer: entry.answer } });
+      TestBed.tick();
+      expect(habits.placed()[0].todayAnswer).toEqual({ text: 'calm' });
+      expect(habits.placed()[0].strip.at(-1)?.answer).toEqual({ text: 'calm' });
+    });
+
+    it('cleans a line of text to one line, and takes an empty one as done with none', () => {
+      const { habits, api, push } = setup();
+      const key = newDataKey();
+      keys().key.set(key);
+      push([habitDoc('walk', { name: 'Walk', answer: 'text' })]);
+      habits.log(habits.toDo()[0], '2026-10-06', 'done', { text: '  to the\nriver ' });
+      const sealed = (lastWrite(api).data as { days: Record<string, { answer: string }> }).days[
+        '06'
+      ].answer;
+      expect(openHabitAnswer(key, 'u1', 'walk', '2026-10-06', sealed)).toBe('to the river');
+      habits.log(habits.placed()[0], '2026-10-06', 'done', { text: '   ' });
+      expect(lastWrite(api).data).toMatchObject({ days: { '06': { answer: 'DELETE' } } });
+    });
+
+    it('without the key, writes the tick at once and holds the answer, then seals it in', () => {
+      const { habits, api, push } = setup();
+      push([mood()]);
+      habits.log(habits.toDo()[0], '2026-10-06', 'done', { text: 'tired' });
+      // The tick goes now, with no answer and nothing plain.
+      expect(lastWrite(api).data).toMatchObject({
+        days: { '06': { state: 'done', at: NOW, answer: 'DELETE' } },
+      });
+      expect(JSON.stringify(api.set.mock.calls)).not.toContain('tired');
+      // Held on the device, so a reload keeps it; the day shows it.
+      expect(JSON.stringify(localStorage.getItem(HELD_ANSWERS_KEY))).toContain('tired');
+      api.pushLog('mood_2026-10', { '06': { state: 'done', at: NOW } });
+      TestBed.tick();
+      expect(habits.placed()[0].todayAnswer).toEqual({ text: 'tired', held: true });
+      // The key comes: the answer is written, sealed, into that entry alone.
+      const key = newDataKey();
+      keys().key.set(key);
+      TestBed.tick();
+      const { data, merge } = lastWrite(api) as {
+        data: { days: Record<string, Record<string, unknown>> };
+        merge: boolean;
+      };
+      expect(merge).toBe(true);
+      expect(Object.keys(data.days['06'])).toEqual(['answer']);
+      expect(
+        openHabitAnswer(key, 'u1', 'mood', '2026-10-06', String(data.days['06']['answer'])),
+      ).toBe('tired');
+      expect(localStorage.getItem(HELD_ANSWERS_KEY)).toBe('{}');
+    });
+
+    it('keeps a held answer across a reload, and lets it go once its tick has changed', () => {
+      localStorage.setItem(
+        HELD_ANSWERS_KEY,
+        JSON.stringify({
+          'mood_2026-10-06': {
+            uid: 'u1',
+            habit: 'mood',
+            day: '2026-10-06',
+            kind: 'choice',
+            text: 'cross',
+            at: NOW - 1000,
+          },
+        }),
+      );
+      const { habits, api, push } = setup();
+      push([mood()], { 'mood_2026-10': { '06': { state: 'done', at: NOW - 1000 } } });
+      expect(habits.placed()[0].todayAnswer).toEqual({ text: 'cross', held: true });
+      // Ticked again on another device meanwhile: a different moment.
+      api.pushLog('mood_2026-10', { '06': { state: 'done', at: NOW } });
+      TestBed.tick();
+      const writes = api.set.mock.calls.length;
+      keys().key.set(newDataKey());
+      TestBed.tick();
+      expect(api.set.mock.calls.length).toBe(writes);
+      expect(localStorage.getItem(HELD_ANSWERS_KEY)).toBe('{}');
+    });
+
+    it('puts a held answer back on hold with Undo, and drops it on a skip', () => {
+      const { habits, push } = setup();
+      push([mood()], { 'mood_2026-10': { '06': { state: 'done', at: NOW } } });
+      habits.log(habits.placed()[0], '2026-10-06', 'done', { text: 'calm' });
+      habits.log(habits.placed()[0], '2026-10-06', 'skipped');
+      expect(localStorage.getItem(HELD_ANSWERS_KEY)).toBe('{}');
+      habits.undo();
+      expect(localStorage.getItem(HELD_ANSWERS_KEY)).toContain('calm');
+    });
+
+    it('shows a sealed answer this device cannot open as sealed', () => {
+      const { habits, push } = setup();
+      keys().key.set(newDataKey());
+      const other = sealHabitAnswer(newDataKey(), 'u1', 'mood', '2026-10-06', 'choice', 'calm');
+      push([mood()], { 'mood_2026-10': { '06': { state: 'done', at: NOW, answer: other } } });
+      expect(habits.placed()[0].todayAnswer).toEqual({ sealed: true });
+    });
+
+    it('shows what each day holds whatever the kind now, and a note entry by its id', () => {
+      const { habits, push } = setup();
+      const key = newDataKey();
+      keys().key.set(key);
+      const calm = sealHabitAnswer(key, 'u1', 'mood', '2026-10-05', 'choice', 'calm');
+      push([habitDoc('mood', { name: 'Mood' })], {
+        'mood_2026-10': {
+          '05': { state: 'done', at: NOW - DAY, answer: calm },
+          '06': { state: 'done', at: NOW, noteId: 'entry1' },
+        },
+      });
+      expect(habits.placed()[0].yesterdayAnswer).toEqual({ text: 'calm' });
+      expect(habits.placed()[0].todayAnswer).toEqual({ noteId: 'entry1' });
+    });
+
+    it('makes and changes what a habit is answered with, its history left as it is', () => {
+      const { habits, api, push } = setup();
+      const id = habits.add({ name: 'Mood', answer: 'choice', choices: [' calm ', 'tired'] })!;
+      expect(api.set.mock.lastCall![2]).toMatchObject({
+        answer: 'choice',
+        choices: ['calm', 'tired'],
+      });
+      expect(
+        habits.add({ name: 'Bad', answer: 'choice', choices: ['calm', 'Calm'] }),
+      ).toBeUndefined();
+      expect(habits.add({ name: 'Bad', answer: 'note' })).toBeUndefined();
+      push([habitDoc(id, { name: 'Mood', answer: 'choice', choices: ['calm', 'tired'] })]);
+      const writes = api.set.mock.calls.length;
+      habits.setAnswer(id, 'note', undefined, 'tmpl');
+      expect(lastWrite(api)).toMatchObject({
+        path: `users/u1/habits/${id}`,
+        merge: true,
+        data: { answer: 'note', choices: 'DELETE', template: 'tmpl' },
+      });
+      habits.setAnswer(id, 'choice', ['only one']);
+      expect(api.set.mock.calls.length).toBe(writes + 1);
+      // No log was written by the change.
+      expect(api.set.mock.calls.some(([, path]) => String(path).includes('habitLogs'))).toBe(false);
+    });
+
+    it('opens a note habit’s entry from its template, marking the day done at the tap', () => {
+      const use = vi.fn(() => ({ id: 'entry1', text: 'Journal\n\n' }));
+      const openNote = vi.fn();
+      const navigate = vi.fn(async () => true);
+      const { habits, api, push } = setup({
+        providers: [
+          { provide: TemplatesService, useValue: { use } },
+          { provide: CaptureService, useValue: { openNote } },
+          { provide: Router, useValue: { navigate } },
+        ],
+      });
+      push([habitDoc('journal', { name: 'Journal', answer: 'note', template: 'tmpl' })]);
+      expect(habits.logNote(habits.toDo()[0], '2026-10-06')).toEqual({
+        id: 'entry1',
+        text: 'Journal\n\n',
+      });
+      expect(use).toHaveBeenCalledWith('tmpl');
+      expect(lastWrite(api).data).toMatchObject({
+        days: { '06': { state: 'done', noteId: 'entry1', answer: 'DELETE' } },
+      });
+      expect(openNote).toHaveBeenCalledWith('entry1', 'Journal\n\n');
+      expect(navigate).toHaveBeenCalledWith(['/n', 'entry1']);
+    });
+
+    it('keeps a line being typed on the device until it is saved', () => {
+      const { habits, push } = setup();
+      push([habitDoc('walk', { name: 'Walk', answer: 'text' })]);
+      habits.setDraft('walk', '2026-10-06', 'half way');
+      expect(habits.draft('walk', '2026-10-06')).toBe('half way');
+      expect(localStorage.getItem(ANSWER_DRAFTS_KEY)).toContain('half way');
+      habits.log(habits.toDo()[0], '2026-10-06', 'done', { text: 'half way' });
+      expect(habits.draft('walk', '2026-10-06')).toBe('');
+    });
+
+    it('takes only an answer a habit can hold (answerFields)', () => {
+      expect(answerFields('done', undefined, undefined)).toEqual({ answer: 'done' });
+      expect(answerFields('text', ['x'], 't')).toEqual({ answer: 'text' });
+      expect(answerFields('choice', ['a', 'b'], undefined)).toEqual({
+        answer: 'choice',
+        choices: ['a', 'b'],
+      });
+      expect(answerFields('choice', ['a'], undefined)).toBeUndefined();
+      expect(answerFields('note', undefined, 't')).toEqual({ answer: 'note', template: 't' });
+      expect(answerFields('note', undefined, undefined)).toBeUndefined();
     });
   });
 });

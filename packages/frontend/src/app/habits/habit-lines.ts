@@ -1,4 +1,5 @@
 import {
+  type HabitAnswer,
   type HabitDayState,
   type HabitSchedule,
   type HabitsConfig,
@@ -31,6 +32,56 @@ export const SCHEDULE_CHOICES = (['daily', 'weekly', 'monthly'] as const).map((v
   value,
   label: SCHEDULE_LABELS[value],
 }));
+
+/**
+ * What a habit is answered with, as the add form and Edit offer it (step
+ * 6 of #324, 2026-11-22), in that order: Just done unless chosen.
+ */
+export const ANSWER_CHOICES: readonly { value: HabitAnswer; label: string }[] = [
+  { value: 'done', label: 'Just done' },
+  { value: 'choice', label: 'One of a list' },
+  { value: 'text', label: 'A line of text' },
+  { value: 'note', label: 'A note' },
+];
+
+/** A day's answer as a strip's words and a row show it (step 6 of #324). */
+export type ShownAnswer = { text: string; held?: true } | { sealed: true } | { noteId: string };
+
+/**
+ * A day's answer in words, after its state ("done, calm"): its text;
+ * "answer sealed" for one this device cannot open; "with a note" for a
+ * note habit's entry; nothing for none or an empty text.
+ */
+export function answerWords(answer: ShownAnswer | undefined): string {
+  if (!answer) return '';
+  if ('sealed' in answer) return 'answer sealed';
+  if ('noteId' in answer) return 'with a note';
+  return answer.text;
+}
+
+/**
+ * A choice habit's last seven days' answers at a glance, newest first
+ * (step 6 of #324): "Lately: today calm · yesterday tired · Thu calm".
+ * Only days with an answer; none at all, nothing. A sealed one is said
+ * as sealed, never left out without a word.
+ */
+export function latelyLine(
+  strip: readonly { day: string; answer?: ShownAnswer }[],
+  today: string,
+): string {
+  const parts = [...strip].reverse().flatMap((d) => {
+    const words = d.answer && !('noteId' in d.answer) ? answerWords(d.answer) : '';
+    if (!words) return [];
+    const when =
+      d.day === today
+        ? 'today'
+        : d.day === addDays(today, -1)
+          ? 'yesterday'
+          : dayName(d.day).slice(0, 3);
+    return [`${when} ${words}`];
+  });
+  return parts.length ? `Lately: ${parts.join(' · ')}` : '';
+}
 
 /** The period a weekly or monthly habit is for now, as Right Now marks it. */
 const THIS_PERIOD: Record<HabitSchedule, string> = {

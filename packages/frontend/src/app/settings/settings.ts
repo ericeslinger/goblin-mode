@@ -231,8 +231,11 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             <div class="kitchen">
               <label>
                 Weeks start on
+                <!-- Its own name, so it is not taken for Kitchen's
+                     (review of #331, 2026-11-22). -->
                 <select
                   #habitsStart
+                  aria-label="Habits: weeks start on"
                   (change)="modules.configureHabits({ weekStart: $any(habitsStart.value) })"
                 >
                   @for (d of weekdays; track d) {

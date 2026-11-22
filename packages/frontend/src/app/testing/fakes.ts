@@ -1,6 +1,7 @@
 // Spec-support helpers; never imported from production code.
 import { computed, signal } from '@angular/core';
 import {
+  type DataKey,
   type HabitsConfig,
   type KitchenConfig,
   type ModuleId,
@@ -17,6 +18,7 @@ import { RunsService } from '../agent/runs.service';
 import { FIREBASE, type FirebaseHandles } from '../firebase';
 import { HABITS_API, type HabitsApi } from '../habits/habits.service';
 import { KeysService } from '../keys/keys.service';
+import { NoteKeyService } from '../notes/note-key.service';
 import { ModulesService } from '../modules/modules.service';
 import { NOW, TIME_ZONE } from '../platform/platform';
 import { type PushState, PushService } from '../push/push.service';
@@ -258,13 +260,19 @@ export class FakeHabitsApi implements HabitsApi {
   }
 
   /** A month log's snapshot, its days as given; undefined: it does not exist. */
-  pushLog(id: string, days?: Record<string, { state: 'done' | 'skipped'; at?: number }>): void {
+  pushLog(
+    id: string,
+    days?: Record<
+      string,
+      { state: 'done' | 'skipped'; at?: number; answer?: string; noteId?: string }
+    >,
+  ): void {
     const next = this.logs.get(id);
     if (!next) throw new Error(`not listening to ${id}`);
     next(
       days && {
         days: Object.fromEntries(
-          Object.entries(days).map(([k, e]) => [k, { state: e.state, at: stamp(e.at ?? 0) }]),
+          Object.entries(days).map(([k, e]) => [k, { ...e, at: stamp(e.at ?? 0) }]),
         ),
       },
     );
@@ -357,6 +365,15 @@ export class FakeModules {
   );
 }
 
+/**
+ * A stand-in NoteKeyService: no note key on this device until `key` is
+ * set (habit answers, #324 step 6).
+ */
+export class FakeNoteKeys {
+  readonly key = signal<DataKey | undefined>(undefined);
+  readonly unconfigured = signal(false);
+}
+
 /** A stand-in KeysService: no keys kept until set (#144). */
 export class FakeKeys {
   readonly keys = signal<Record<string, { masked: string; broken: boolean }> | undefined>({});
@@ -408,6 +425,7 @@ export function remindersTestProviders(api: FakeRemindersApi, now: () => number)
     { provide: PushService, useValue: new FakePush() },
     { provide: ModulesService, useValue: new FakeModules() },
     { provide: KeysService, useValue: new FakeKeys() },
+    { provide: NoteKeyService, useValue: new FakeNoteKeys() },
     { provide: RunsService, useValue: new FakeRuns() },
     { provide: FIREBASE, useValue: fakeFirebase(true) },
     { provide: READING_API, useValue: new FakeReadingApi() },

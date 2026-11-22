@@ -341,6 +341,8 @@ describe('Settings', () => {
     expect(heading.textContent).toBe('Habits');
     const select = heading.nextElementSibling!.querySelector('select')!;
     expect(select.closest('label')?.textContent).toContain('Weeks start on');
+    // Its own name, not Kitchen's (review of #331, 2026-11-22).
+    expect(select.getAttribute('aria-label')).toBe('Habits: weeks start on');
     expect(select.value).toBe('Mon');
     select.value = 'Sun';
     select.dispatchEvent(new Event('change'));
