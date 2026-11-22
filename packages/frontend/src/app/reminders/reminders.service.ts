@@ -281,14 +281,17 @@ export class RemindersService {
    * Deletes a reminder, through the cache and never awaited: only for
    * one whose work has moved elsewhere (a feelings journal's reminder
    * made a habit, step 7 of #324, 2026-11-22). Nothing in the app
-   * deletes a reminder otherwise.
+   * deletes a reminder otherwise. Says whether the delete was sent
+   * (review of #333, 2026-11-22): not while the gardener is not known,
+   * so the caller can send it again later.
    */
-  remove(id: string): void {
+  remove(id: string): boolean {
     const uid = this.owner();
-    if (!uid) return;
+    if (!uid) return false;
     this.api.drop(this.fb.db, `${paths.reminders(uid)}/${id}`).catch((err) => {
       console.error('reminder delete failed', err);
     });
+    return true;
   }
 
   private change(r: ReminderRecord, next: ReminderTimes, message: string): void {

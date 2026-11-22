@@ -171,6 +171,10 @@ test('a feelings journal made with Habits off is offered its move to habits', as
   const offer = page.getByRole('region', { name: 'Feelings journal reminders' });
   await expect(offer).toContainText('Your feelings journal has three reminders. Make them habits?');
   await expect(offer).toContainText('08:00 Feelings journal: breakfast');
+  // What changes, said in the offer (review of #333, 2026-11-22).
+  await expect(offer).toContainText(
+    'The nudge opens Right Now, where ticking the habit opens a new entry',
+  );
   expect(await storedIds('habits')).toEqual([]);
   await noSeriousViolations(page);
   await offer.getByRole('button', { name: 'Make them habits' }).click();
@@ -179,8 +183,8 @@ test('a feelings journal made with Habits off is offered its move to habits', as
   await letItSave(page);
 
   // The reminders are gone, stored and on Right Now; the habits are there.
-  const reminders = await storedIds('reminders');
-  expect(reminders).toEqual([]);
+  // Each goes once its habit is heard back (review of #333, 2026-11-22).
+  await expect.poll(() => storedIds('reminders')).toEqual([]);
   const habits = await storedIds('habits');
   expect(habits).toHaveLength(3);
   expect(habits.every((id) => id.startsWith('journal-'))).toBe(true);

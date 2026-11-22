@@ -316,6 +316,12 @@ makes the three reminders as before. A journal that already has its
 reminders is offered the move on the Habits screen, never moved
 alone. The template, its entries, the Moods line and mood concepts
 are unchanged (Habits, The feelings journal's habits).
+*2026-11-22, review of #333:* a journal is offered only when every
+one of its reminders moves whole (words that fit, no tags, no snooze),
+the move never writes over a habit or a day another device has, and
+the offer says what changes (the nudge opens Right Now; when the
+quiet hours hold or silence one). The three reminders Add a feelings
+journal made still qualify (The feelings journal's habits).
 
 **Garden this (#42, 2026-10-08).** The `capture` MCP tool files chat
 words under a project, verbatim. An idea becomes its own note: Claude's
@@ -5011,6 +5017,9 @@ overruling; no stored shape or rule changed.
   too, its first occurrence being tomorrow, so a journal made with
   Habits off and moved the same day has the meals already past logged
   done that day, and is not nudged for them until tomorrow.
+  *Changed 2026-11-22, review of #333 (below):* nothing is cut, each
+  habit is made only if absent, and the done mark and the deletes are
+  the finishing pass's.
 - *Cut short.* Firestore sends one device's writes in the order made
   and keeps them so offline, so a move stopped by the app closing, or
   made offline, can leave the habits with the reminders still there,
@@ -5024,7 +5033,50 @@ overruling; no stored shape or rule changed.
   once per device (the same id, the same fields: the second write
   lands on the first) and a delete is sent once. With Habits switched
   off midway, both stay until it is on again: off, the habits do not
-  show and the reminders still ring.
+  show and the reminders still ring. *Changed 2026-11-22, review of
+  #333 (below):* a habit is never written over, nor a day.
+- *2026-11-22, review of #333.* The move deletes his reminders, so its
+  five findings were fixed before it merged:
+  - *His words are never cut.* A journal is offered only if every one
+    of its daily reminders moves whole (`movesWhole`); one whose words
+    are longer than a habit's name (80) keeps the whole journal from
+    the offer, its reminders staying reminders. Chosen over listing
+    some and not others: an offer never splits a journal.
+    `addIfAbsent` refuses a name it would have to cut.
+  - *Nothing he set is dropped.* A reminder with tags, or snoozed,
+    keeps its journal from the offer too: a habit holds neither. Who
+    made a reminder is not carried; the habit's `createdBy` is `user`,
+    which is true, as he makes it by accepting. The three reminders
+    Add a feelings journal makes carry no tags and no snooze, so they
+    still qualify (a spec makes them as the app does and is offered
+    them).
+  - *A stale device never writes over.* Each habit is made only if
+    none is at its id, in a transaction (`HabitsService.addIfAbsent`,
+    as the notes' `createIfAbsent`), so one accepted elsewhere and
+    renamed, retimed or archived there stays as it is. It needs the
+    server: offline, nothing is written or deleted, the button reads
+    "Making them habits…" while it tries, and then the offer says
+    "Not moved yet: making habits needs a connection. Try again when
+    you are online." Accepting deletes nothing itself. The finishing
+    pass, once a habit is heard, marks today done for a reminder done
+    today only when the day's log is heard empty here and the server's
+    day is empty too (`markDoneIfEmpty`, a transaction), so a day
+    logged elsewhere keeps its entry and its note; then it deletes the
+    reminder. A mark that cannot reach the server leaves the reminder
+    for a later pass (the next change heard, or a reload).
+  - *A delete not sent is sent again.* `RemindersService.remove` says
+    whether it sent the delete (not while the gardener is unknown),
+    and a reminder is recorded as removed only then.
+  - *What changes is said.* The offer reads: "Each becomes a daily
+    habit at the same time, nudging you once then if it is not logged
+    yet. The nudge opens Right Now, where ticking the habit opens a
+    new entry; a reminder's push opened the entry itself. Your entries
+    and the journal stay as they are." A reminder's line adds "(nudge
+    at 06:00)" or "(no nudge at this time)" where the quiet hours hold
+    or silence its nudge (`habitNudgePlan`, `journalNudgeNote`). The
+    pushes were read in the code (`habit-nudges.ts` opens
+    `/right-now`; `send-due.ts` opens `/n/<template>?from=reminder`),
+    not on a device.
 - *Reminder history.* Only today's done mark carries over, as above. A
   reminder keeps no other history (Done moves its next time; nothing
   records the days before), so the habits' strips start empty before

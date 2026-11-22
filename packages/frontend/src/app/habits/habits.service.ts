@@ -52,6 +52,7 @@ import {
   deleteField,
   doc,
   onSnapshot,
+  runTransaction,
   setDoc,
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
@@ -243,6 +244,23 @@ export interface HabitsApi {
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>, merge: boolean): Promise<void>;
+  /**
+   * Writes `data` only if no document is there, in a transaction, so it
+   * never replaces one another device made or changed; needs the
+   * server (review of #333, 2026-11-22). False when one was there.
+   */
+  createIfAbsent(db: Firestore, path: string, data: Record<string, unknown>): Promise<boolean>;
+  /**
+   * Merges `data` into a month log only if its day `key` holds nothing
+   * there, in a transaction; needs the server. False when it held an
+   * entry, which is left as it is.
+   */
+  setDayIfEmpty(
+    db: Firestore,
+    path: string,
+    key: string,
+    data: Record<string, unknown>,
+  ): Promise<boolean>;
   /** Marks a field for removal in a merged write. */
   remove(): unknown;
   timestamp(ms: number): unknown;
@@ -260,6 +278,21 @@ export const HABITS_API = new InjectionToken<HabitsApi>('habits-api', {
     listenLog: (db, path, next, error) =>
       onSnapshot(doc(db, path), (snap) => next(snap.exists() ? snap.data() : undefined), error),
     set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge }),
+    createIfAbsent: (db, path, data) =>
+      runTransaction(db, async (tx) => {
+        const ref = doc(db, path);
+        if ((await tx.get(ref)).exists()) return false;
+        tx.set(ref, data);
+        return true;
+      }),
+    setDayIfEmpty: (db, path, key, data) =>
+      runTransaction(db, async (tx) => {
+        const ref = doc(db, path);
+        const days = (await tx.get(ref)).data()?.['days'];
+        if (days && typeof days === 'object' && key in days) return false;
+        tx.set(ref, data, { merge: true });
+        return true;
+      }),
     remove: () => deleteField(),
     timestamp: (ms) => Timestamp.fromMillis(ms),
   }),
@@ -699,6 +732,42 @@ export class HabitsService {
    * cannot hold (`answerFields`).
    */
   add(input: NewHabit): string | undefined {
+    const made = this.newHabit(input);
+    if (!made) return undefined;
+    const { id, name, data } = made;
+    this.write({
+      path: (uid) => paths.habit(uid, id),
+      data,
+      merge: false,
+      about: { key: `habit:${id}`, habit: id, name, kind: 'add' },
+    });
+    this.clock.set(this.now());
+    return id;
+  }
+
+  /**
+   * Makes a habit at its given id only if none is there (review of
+   * #333, 2026-11-22), for the feelings journal's move: a transaction,
+   * so a habit another device made, renamed, retimed or archived is
+   * never written over. Needs the server: offline, or with the
+   * gardener not known, it rejects and nothing is written. Its name is
+   * never cut: one past HABIT_NAME_MAX is refused, as is a given id a
+   * habit could not have. True when made, false when one was there.
+   */
+  addIfAbsent(input: NewHabit & { id: string }): Promise<boolean> {
+    const uid = this.auth.user()?.uid;
+    const made = this.newHabit(input);
+    if (!uid) return Promise.reject(new Error('not signed in'));
+    if (!made || made.id !== input.id || made.name !== input.name.trim()) {
+      return Promise.reject(new Error('not a habit'));
+    }
+    return this.api.createIfAbsent(this.fb.db, paths.habit(uid, made.id), made.data);
+  }
+
+  /** A new habit's id, name and document, as `add` writes it. */
+  private newHabit(
+    input: NewHabit,
+  ): { id: string; name: string; data: Record<string, unknown> } | undefined {
     const name = input.name.trim().slice(0, HABIT_NAME_MAX).trim();
     if (!name) return undefined;
     const answer = answerFields(input.answer ?? 'done', input.choices, input.template);
@@ -719,14 +788,7 @@ export class HabitsService {
       createdBy: 'user',
     };
     if (time !== undefined) data['time'] = time;
-    this.write({
-      path: (uid) => paths.habit(uid, id),
-      data,
-      merge: false,
-      about: { key: `habit:${id}`, habit: id, name, kind: 'add' },
-    });
-    this.clock.set(now);
-    return id;
+    return { id, name, data };
   }
 
   rename(id: string, name: string): void {
@@ -1048,15 +1110,24 @@ export class HabitsService {
    * Marks a day done with nothing in it, offering no Undo: for a habit
    * the app makes itself out of a reminder already done that day (a
    * feelings journal's, step 7 of #324, 2026-11-22), so its nudge does
-   * not push for a day already tended.
+   * not push for a day already tended. Only a day that holds nothing on
+   * the server is written (review of #333, 2026-11-22): a transaction,
+   * so a day logged on another device, its entry's note with it, is
+   * never written over. Needs the server: offline, or with the gardener
+   * not known, it rejects and nothing is written. False when the day
+   * held an entry, or cannot be logged.
    */
-  markDone(habit: string, day: string): void {
-    if (!canLogHabitDay(day, this.today())) return;
-    this.writeDay(habit, day, {
-      state: 'done',
-      at: this.api.timestamp(this.now()),
-      answer: this.api.remove(),
-      noteId: this.api.remove(),
+  markDoneIfEmpty(habit: string, day: string): Promise<boolean> {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return Promise.reject(new Error('not signed in'));
+    if (!canLogHabitDay(day, this.today())) return Promise.resolve(false);
+    const month = habitMonth(day);
+    const key = habitDayKey(day);
+    return this.api.setDayIfEmpty(this.fb.db, paths.habitLog(uid, habitLogId(habit, month)), key, {
+      habit,
+      month,
+      days: { [key]: { state: 'done', at: this.api.timestamp(this.now()) } },
+      updatedAt: this.api.timestamp(this.now()),
     });
   }
 

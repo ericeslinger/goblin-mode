@@ -1,5 +1,11 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
-import { HABIT_ID, zonedDay } from '@mossgoblin/schema';
+import {
+  HABIT_ID,
+  HABIT_NAME_MAX,
+  type HabitsConfig,
+  habitNudgePlan,
+  zonedDay,
+} from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { ModulesService } from '../modules/modules.service';
 import { type NoteRecord, NotesService } from '../notes/notes.service';
@@ -52,6 +58,32 @@ export function isJournalReminder(
 }
 
 /**
+ * Whether a journal's reminder moves whole (review of #333,
+ * 2026-11-22): nothing of it would be lost as a habit. Its words fit a
+ * habit's name (HABIT_NAME_MAX), so they are never cut; it carries no
+ * tags, which a habit has not; and it is not snoozed, a snooze being a
+ * time he set that a habit cannot hold. Who made it is not kept: the
+ * habit's `createdBy` is the gardener's, who makes it by accepting.
+ * The journal Add a feelings journal makes has three such reminders.
+ */
+export function movesWhole(r: ReminderRecord): boolean {
+  return r.text.trim().length <= HABIT_NAME_MAX && !r.tags?.length && r.status !== 'snoozed';
+}
+
+/**
+ * What a reminder's line in the offer says of its habit's nudge, by the
+ * quiet hours (`habitNudgePlan`, review of #333, 2026-11-22): nothing
+ * when it goes at the reminder's time, "nudge at 06:00" when the quiet
+ * hours hold it, "no nudge at this time" when none goes.
+ */
+export function journalNudgeNote(time: string, config: HabitsConfig): string | undefined {
+  const plan = habitNudgePlan({ schedule: 'daily', time, nudge: true }, config);
+  if (plan.kind === 'held') return `nudge at ${plan.time}`;
+  if (plan.kind === 'quiet') return 'no nudge at this time';
+  return undefined;
+}
+
+/**
  * Whether a daily reminder was ticked done today: Done moves a repeat's
  * due time to its next occurrence, so a reminder that is open and due
  * only after today was done today. (One made today after its time also
@@ -67,6 +99,12 @@ export interface JournalOffer {
   reminders: ReminderRecord[];
   /** "Your feelings journal has three reminders." */
   message: string;
+  /** By reminder id, what its habit's nudge does, where not at its time. */
+  nudges: Record<string, string>;
+  /** Accepted, its habits being made. */
+  moving: boolean;
+  /** Accepted, and some habit could not be made: those listed did not move. */
+  failed: boolean;
 }
 
 const COUNT = ['no', 'one', 'two', 'three', 'four', 'five', 'six'];
@@ -78,16 +116,20 @@ const COUNT = ['no', 'one', 'two', 'three', 'four', 'five', 'six'];
  * while Habits is on, a journal whose reminders are still reminders is
  * offered on the Habits screen, once per journal until dismissed.
  *
- * Accepting writes, in this order and never awaited, all through the
- * cache: for each reminder, its habit at the derived id (note kind,
- * the template, the reminder's words, time and zone, nudge on), then,
- * for one ticked done today, today's day done with no note; and only
- * then deletes the reminders. Firestore sends one device's writes in
- * the order made and keeps them so offline, so a move cut short leaves
- * habits with their reminders still there, never neither. The other
- * half (both) is finished on the next load, here: while Habits is on,
- * a reminder whose derived habit exists is deleted, once its done mark
- * for today has been checked for and written if it was missed.
+ * A journal is offered only when every one of its reminders moves
+ * whole (`movesWhole`, review of #333, 2026-11-22); otherwise it is not
+ * offered at all, and its reminders stay reminders.
+ *
+ * Accepting makes, for each reminder, its habit at the derived id
+ * (note kind, the template, the reminder's words, time and zone, nudge
+ * on), only if none is there (`addIfAbsent`, a transaction, review of
+ * #333): it needs the server, and offline nothing is written and the
+ * offer says so. The rest is the pass below, for a move made here or
+ * on another device: while Habits is on, a reminder whose derived
+ * habit is heard is deleted, after, for one ticked done today, today
+ * is marked done if it holds nothing on the server (`markDoneIfEmpty`,
+ * a transaction too). So a reminder is never gone without its habit,
+ * and a stale device never writes over a habit or a day.
  */
 @Injectable({ providedIn: 'root' })
 export class JournalHabitsService {
@@ -101,8 +143,14 @@ export class JournalHabitsService {
   private readonly tz = inject(TIME_ZONE);
   /** Reminders whose delete has been sent, so it is sent once. */
   private readonly removed = new Set<string>();
-  /** Habits made here, before they are heard back, so none is made twice. */
+  /** Reminders whose done mark is being written, so it is written once. */
+  private readonly marking = new Set<string>();
+  /** Habits made here (or found there), before they are heard back. */
   private readonly made = signal<ReadonlySet<string>>(new Set());
+  /** Templates whose offer was accepted, its habits being made. */
+  private readonly moving = signal<ReadonlySet<string>>(new Set());
+  /** Templates whose accept could not make every habit. */
+  private readonly failed = signal<ReadonlySet<string>>(new Set());
   private readonly dismissed = signal<Record<string, string[]>>(
     this.store.get<Record<string, string[]>>(JOURNAL_OFFER_DISMISSED_KEY) ?? {},
   );
@@ -114,7 +162,10 @@ export class JournalHabitsService {
     const have = new Set(this.habits.habits().map((h) => h.id));
     const made = this.made();
     const gone = new Set(this.dismissed()[uid] ?? []);
+    const config = this.modules.habitsConfig();
     const byTemplate = new Map<string, { template: NoteRecord; reminders: ReminderRecord[] }>();
+    // A journal with a reminder that would lose something: not offered.
+    const held = new Set<string>();
     for (const r of this.reminders.reminders()) {
       const template = r.noteId ? this.notes.find(r.noteId) : undefined;
       if (!isJournalReminder(r, template)) continue;
@@ -122,15 +173,25 @@ export class JournalHabitsService {
       const habit = journalHabitId(r.id)!;
       if (have.has(habit) || made.has(habit)) continue;
       if (gone.has(template.id)) continue;
+      if (!movesWhole(r)) held.add(template.id);
       const group = byTemplate.get(template.id) ?? { template, reminders: [] };
       group.reminders.push(r);
       byTemplate.set(template.id, group);
     }
-    return [...byTemplate.values()].map((g) => {
+    return [...byTemplate.values()].flatMap((g) => {
+      if (held.has(g.template.id)) return [];
       const n = g.reminders.length;
       const count = COUNT[n] ?? String(n);
+      const nudges: Record<string, string> = {};
+      for (const r of g.reminders) {
+        const note = journalNudgeNote(r.recurrence!.time!, config);
+        if (note) nudges[r.id] = note;
+      }
       return {
         ...g,
+        nudges,
+        moving: this.moving().has(g.template.id),
+        failed: this.failed().has(g.template.id),
         reminders: [...g.reminders].sort((a, b) =>
           (a.recurrence?.time ?? '').localeCompare(b.recurrence?.time ?? ''),
         ),
@@ -151,52 +212,69 @@ export class JournalHabitsService {
       // Read so a log heard later runs this again.
       this.habits.placed();
       untracked(() => {
+        const today = zonedDay(this.now(), this.tz);
         for (const r of list) {
           const id = journalHabitId(r.id);
-          if (!id || !have.has(id) || this.removed.has(r.id)) continue;
-          if (!this.carryDone(r, id)) continue;
-          this.removed.add(r.id);
-          this.reminders.remove(r.id);
+          if (!id || !have.has(id) || this.removed.has(r.id) || this.marking.has(r.id)) continue;
+          // Done today as a reminder: once the day's log is heard, a day
+          // holding nothing is marked, only if the server holds nothing
+          // for it either, then the reminder goes. Offline, both wait.
+          if (reminderDoneToday(r, today, this.tz)) {
+            if (!this.habits.dayHeard(id, today)) continue;
+            if (this.habits.stateOn(id, today) === undefined) {
+              this.marking.add(r.id);
+              this.habits.markDoneIfEmpty(id, today).then(
+                () => {
+                  this.marking.delete(r.id);
+                  this.drop(r.id);
+                },
+                (err) => {
+                  this.marking.delete(r.id);
+                  console.warn('journal habit day not marked yet', err);
+                },
+              );
+              continue;
+            }
+          }
+          this.drop(r.id);
         }
       });
     });
   }
 
   /**
-   * Makes a journal's reminders its habits, then deletes the reminders.
-   * A reminder whose habit is there already (a run before) is not made
-   * again; its delete is the load's, above, as it is here.
+   * Makes a journal's reminders its habits, each only if none is at its
+   * id (`addIfAbsent`). The reminders are deleted by the pass above,
+   * once the habits are heard. Offline, or refused, a habit not made
+   * leaves its reminder offered, the offer saying so.
    */
-  accept(offer: JournalOffer): void {
-    if (!this.modules.habits()) return;
-    const today = zonedDay(this.now(), this.tz);
+  async accept(offer: JournalOffer): Promise<void> {
+    const key = offer.template.id;
+    if (!this.modules.habits() || this.moving().has(key)) return;
+    const plus = (s: ReadonlySet<string>, id: string) => new Set([...s, id]);
+    const minus = (s: ReadonlySet<string>, id: string) => new Set([...s].filter((x) => x !== id));
+    this.moving.update((m) => plus(m, key));
+    this.failed.update((f) => minus(f, key));
     const have = new Set([...this.habits.habits().map((h) => h.id), ...this.made()]);
-    const moved: string[] = [];
-    for (const r of offer.reminders) {
-      const id = journalHabitId(r.id);
-      if (!id || !r.recurrence) continue;
-      if (!have.has(id)) {
-        const made = this.habits.add({
+    const results = await Promise.allSettled(
+      offer.reminders.map(async (r) => {
+        const id = journalHabitId(r.id);
+        if (!id || !r.recurrence || have.has(id) || !movesWhole(r)) return;
+        await this.habits.addIfAbsent({
           id,
           name: r.text,
           time: r.recurrence.time,
           tz: r.recurrence.tz,
           answer: 'note',
-          template: offer.template.id,
+          template: key,
           nudge: true,
         });
-        if (made !== id) continue;
-        this.made.update((m) => new Set([...m, id]));
-        // Its entry was made the old way, so the day holds no note.
-        if (reminderDoneToday(r, today, this.tz)) this.habits.markDone(id, today);
-      }
-      moved.push(r.id);
-    }
-    for (const id of moved) {
-      if (this.removed.has(id)) continue;
-      this.removed.add(id);
-      this.reminders.remove(id);
-    }
+        // Made, or there already: not offered again.
+        this.made.update((m) => plus(m, id));
+      }),
+    );
+    this.moving.update((m) => minus(m, key));
+    if (results.some((x) => x.status === 'rejected')) this.failed.update((f) => plus(f, key));
   }
 
   /** Puts a journal's offer away for good, on this device. */
@@ -209,16 +287,9 @@ export class JournalHabitsService {
     this.store.set(JOURNAL_OFFER_DISMISSED_KEY, all);
   }
 
-  /**
-   * On a later load: a reminder done today has its habit's today done,
-   * if the move did not get that far. False while that day's log is not
-   * heard yet, so the delete waits for it.
-   */
-  private carryDone(r: ReminderRecord, habit: string): boolean {
-    const today = zonedDay(this.now(), this.tz);
-    if (!reminderDoneToday(r, today, this.tz)) return true;
-    if (!this.habits.dayHeard(habit, today)) return false;
-    if (this.habits.stateOn(habit, today) === undefined) this.habits.markDone(habit, today);
-    return true;
+  /** Deletes a reminder, recorded only once the delete was sent. */
+  private drop(id: string): void {
+    if (this.removed.has(id)) return;
+    if (this.reminders.remove(id)) this.removed.add(id);
   }
 }

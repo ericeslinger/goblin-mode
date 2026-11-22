@@ -40,6 +40,15 @@ describe('RemindersService', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it('says whether a delete was sent: not while the gardener is not known (review of #333)', () => {
+    const { reminders, api, user } = setup();
+    expect(reminders.remove('r1')).toBe(true);
+    expect(api.drop).toHaveBeenCalledWith(expect.anything(), 'users/u1/reminders/r1');
+    user.set(undefined);
+    expect(reminders.remove('r2')).toBe(false);
+    expect(api.drop).toHaveBeenCalledTimes(1);
+  });
+
   it('listens to open reminders and places them by section, soonest first', () => {
     const { reminders, api } = setup();
     expect(api.listen).toHaveBeenCalledWith(
