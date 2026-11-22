@@ -104,7 +104,9 @@ for anything else.
   (2026-11-15; `E2E_WORKERS`, default 2, `E2E_WORKERS=1` for a serial
   run), runs the rules tests (`packages/rules-tests`) against stack 0,
   then the Playwright journeys (including the axe accessibility
-  journey), and tears everything down. Stack n is the emulator suite on
+  journey), and tears everything down. A full run keeps the themes
+  journey's axe sweeps for last, alone (2026-11-22, #312): beside
+  another journey they starved it. Stack n is the emulator suite on
   firebase.e2e.json's ports plus 10 n (auth 9199, Firestore 8180,
   functions 5101, storage 9198, and the suite's own 4400, 4500, 9150,
   9299, 9499) and the app on 4300 + n. Each worker has its own stack,

@@ -194,4 +194,17 @@ done
 # The specs run against stack 0 before any journey starts: they clear
 # its emulators as they go.
 npx vitest run --project rules --project functions-emulator
+# A full run keeps the themes journey's axe sweeps for last, alone
+# (2026-11-22, #312). It runs axe on every busy screen in every theme
+# for some minutes, and whatever journey ran beside it on the other
+# worker was starved: sign-in, a note arriving and a concept being made
+# each failed their waits there, six full runs in a week. A run given
+# its own arguments is passed through as it was.
+SWEEPS='every theme, light and dark, passes axe'
+if [ "$#" -eq 0 ]; then
+  status=0
+  npx playwright test -c packages/e2e/playwright.config.ts --grep-invert "$SWEEPS" || status=$?
+  npx playwright test -c packages/e2e/playwright.config.ts --grep "$SWEEPS" || status=$?
+  exit "$status"
+fi
 npx playwright test -c packages/e2e/playwright.config.ts "$@"
