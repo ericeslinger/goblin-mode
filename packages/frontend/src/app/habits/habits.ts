@@ -4,6 +4,7 @@ import {
   ElementRef,
   Injector,
   afterNextRender,
+  computed,
   afterRenderEffect,
   effect,
   inject,
@@ -16,18 +17,20 @@ import { AuthService } from '../auth.service';
 import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { SignIn } from '../sign-in/sign-in';
-import type { HabitSchedule } from '@mossgoblin/schema';
+import type { HabitAnswer, HabitSchedule } from '@mossgoblin/schema';
+import { HabitAnswerFields } from './habit-answer-fields';
 import { HabitCard } from './habit-card';
 import { SCHEDULE_CHOICES } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
-import { type HabitUndoable, HabitsService } from './habits.service';
+import { type HabitUndoable, HabitsService, answerFields } from './habits.service';
 
 /**
  * The Habits screen (`/habits`, #324 step 2): each habit with its week
  * strip, its streak and today's Done and Skip; + adds one (a name, how
- * often, a time of day if any), done-only for now; Archived,
- * under them, keeps each archived habit's history in view, with
- * Unarchive. A write the server refused is said under the Undo line,
+ * often, a time of day if any, and since step 6, 2026-11-22, what it
+ * is answered with: done, one of a list, a line of text or a note);
+ * Archived, under them, keeps each archived habit's history in view,
+ * with Unarchive. A write the server refused is said under the Undo line,
  * with Try again (2026-11-21). Streaks are read back as far as they
  * run while this screen is open. Off, it says where to switch the
  * module on; until the modules are read, only that it is loading
@@ -40,7 +43,7 @@ import { type HabitUndoable, HabitsService } from './habits.service';
  */
 @Component({
   selector: 'app-habits',
-  imports: [HabitCard, HabitRefusals, PageHeader, RouterLink, SignIn],
+  imports: [HabitAnswerFields, HabitCard, HabitRefusals, PageHeader, RouterLink, SignIn],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
@@ -90,8 +93,15 @@ import { type HabitUndoable, HabitsService } from './habits.service';
                 Time of day <span class="hint">(optional)</span>
                 <input type="time" name="time" [value]="time()" (input)="time.set(value($event))" />
               </label>
+              <app-habit-answer-fields
+                [(answer)]="answer"
+                [(choices)]="choices"
+                [(template)]="template"
+              />
               <div class="actions">
-                <button type="submit" class="primary" [disabled]="!name().trim()">Add</button>
+                <button type="submit" class="primary" [disabled]="!name().trim() || !answerOk()">
+                  Add
+                </button>
                 <button type="button" class="link" (click)="close()">Cancel</button>
               </div>
             </form>
@@ -225,6 +235,13 @@ export class Habits {
   protected readonly time = signal('');
   protected readonly schedule = signal<HabitSchedule>('daily');
   protected readonly schedules = SCHEDULE_CHOICES;
+  protected readonly answer = signal<HabitAnswer>('done');
+  protected readonly choices = signal<string[]>([]);
+  protected readonly template = signal<string | undefined>(undefined);
+  /** The answer in the form is one a habit can hold. */
+  protected readonly answerOk = computed(
+    () => answerFields(this.answer(), this.choices(), this.template()) !== undefined,
+  );
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
@@ -296,6 +313,9 @@ export class Habits {
       name: this.name(),
       schedule: this.schedule(),
       time: this.time() || undefined,
+      answer: this.answer(),
+      ...(this.answer() === 'choice' ? { choices: this.choices() } : {}),
+      ...(this.answer() === 'note' && this.template() ? { template: this.template() } : {}),
     });
     this.close();
   }
@@ -304,6 +324,9 @@ export class Habits {
     this.name.set('');
     this.time.set('');
     this.schedule.set('daily');
+    this.answer.set('done');
+    this.choices.set([]);
+    this.template.set(undefined);
     this.adding.set(false);
   }
 }

@@ -4,6 +4,9 @@ import { RightNow } from '../reminders/right-now';
 import { type FakeHabitsApi, type FakeModules, habitDoc, reminderDoc } from '../testing/fakes';
 import { HOUR, NOW, buttonNamed, renderWithReminders } from '../testing/reminders';
 import { HABITS_API, HabitsService } from './habits.service';
+import { newDataKey, openHabitAnswer } from '@mossgoblin/schema';
+import { NoteKeyService } from '../notes/note-key.service';
+import type { FakeNoteKeys } from '../testing/fakes';
 
 const DAY = 24 * HOUR;
 
@@ -198,5 +201,76 @@ describe('Right Now’s Habits (#324)', () => {
     expect(section(r.el)!.querySelector('.settled')?.textContent).toBe(
       'Done today: Pots · Skipped today: Rent',
     );
+  });
+  describe('answers (step 6, 2026-11-22)', () => {
+    afterEach(() => localStorage.clear());
+
+    it('asks a choice habit in place on its tick, one tap answering it done', async () => {
+      const r = await render();
+      const key = newDataKey();
+      (TestBed.inject(NoteKeyService) as unknown as FakeNoteKeys).key.set(key);
+      await r.push([]);
+      await r.habits([
+        habitDoc('mood', { name: 'Mood', answer: 'choice', choices: ['calm', 'low', 'cross'] }),
+      ]);
+      buttonNamed(r.el, 'Done: Mood')!.click();
+      await r.fixture.whenStable();
+      expect(r.api.set).not.toHaveBeenCalled();
+      const group = section(r.el)!.querySelector<HTMLElement>(
+        '[aria-label="Mood today: choose one"]',
+      )!;
+      expect(document.activeElement?.textContent?.trim()).toBe('calm');
+      buttonNamed(group, 'low')!.click();
+      await r.fixture.whenStable();
+      const [, path, data] = r.api.set.mock.lastCall!;
+      expect(path).toBe('users/u1/habitLogs/mood_2026-10');
+      const answer = (data as { days: Record<string, { answer: string }> }).days['06'].answer;
+      expect(answer).not.toContain('low');
+      expect(openHabitAnswer(key, 'u1', 'mood', '2026-10-06', answer)).toBe('low');
+      expect(section(r.el)!.querySelector('[role="status"]')?.textContent).toContain('Mood: low');
+    });
+
+    it('takes a text habit’s line, and Escape puts it away logging nothing', async () => {
+      const r = await render();
+      (TestBed.inject(NoteKeyService) as unknown as FakeNoteKeys).key.set(newDataKey());
+      await r.push([]);
+      await r.habits([habitDoc('walk', { name: 'Walk', answer: 'text' })]);
+      buttonNamed(r.el, 'Done: Walk')!.click();
+      await r.fixture.whenStable();
+      const input = section(r.el)!.querySelector<HTMLInputElement>('input[type="text"]')!;
+      expect(document.activeElement).toBe(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await r.fixture.whenStable();
+      expect(section(r.el)!.querySelector('input[type="text"]')).toBeNull();
+      expect(r.api.set).not.toHaveBeenCalled();
+      buttonNamed(r.el, 'Done: Walk')!.click();
+      await r.fixture.whenStable();
+      const again = section(r.el)!.querySelector<HTMLInputElement>('input[type="text"]')!;
+      again.value = 'to the river';
+      again.dispatchEvent(new Event('input'));
+      buttonNamed(section(r.el)!, 'Done')!.click();
+      await r.fixture.whenStable();
+      expect(r.api.set.mock.lastCall![2]).toMatchObject({ days: { '06': { state: 'done' } } });
+      expect(JSON.stringify(r.api.set.mock.lastCall![2])).not.toContain('river');
+    });
+
+    it('opens a note habit’s entry on its tick, and leaves Skip a plain skip', async () => {
+      const r = await render();
+      await r.push([]);
+      await r.habits([
+        habitDoc('journal', { name: 'Journal', answer: 'note', template: 'tj' }),
+        habitDoc('mood', { name: 'Mood', answer: 'choice', choices: ['calm', 'low'] }),
+      ]);
+      const logNote = vi.spyOn(r.habitsService, 'logNote').mockReturnValue(undefined);
+      buttonNamed(r.el, 'Done: Journal')!.click();
+      expect(logNote).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'journal' }),
+        '2026-10-06',
+      );
+      buttonNamed(r.el, 'Skip: Mood')!.click();
+      expect(r.api.set.mock.lastCall![2]).toMatchObject({
+        days: { '06': { state: 'skipped', answer: 'DELETE', noteId: 'DELETE' } },
+      });
+    });
   });
 });

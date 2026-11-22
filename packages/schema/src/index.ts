@@ -19,6 +19,7 @@ export * from './mealplan';
 export * from './grocery';
 export * from './pantry';
 export * from './habits';
+export * from './habit-answer';
 export * from './suggest';
 export * from './queue';
 export * from './listening-queue';

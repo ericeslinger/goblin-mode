@@ -2,6 +2,7 @@ import {
   DestroyRef,
   Injectable,
   InjectionToken,
+  Injector,
   computed,
   effect,
   inject,
@@ -10,18 +11,24 @@ import {
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import {
+  type DataKey,
+  HABIT_CHOICE_MAX,
   HABIT_DAY_KEYS,
   HABIT_ID,
   HABIT_NAME_MAX,
+  HABIT_TEXT_MAX,
   Habit,
   HabitEntry,
   type HabitAnswer,
+  type HabitAnswerKind,
   type HabitDayState,
   type HabitSchedule,
   type HabitStreak,
   addDays,
   autoId,
   canLogHabitDay,
+  habitAnswerLine,
+  habitChoicesProblem,
   habitDayKey,
   habitDayLoggable,
   habitDue,
@@ -33,7 +40,9 @@ import {
   habitSettledOn,
   habitStreak,
   habitStrip,
+  openHabitAnswer,
   paths,
+  sealHabitAnswer,
   zonedDay,
 } from '@mossgoblin/schema';
 import {
@@ -48,8 +57,14 @@ import {
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
 import { ModulesService } from '../modules/modules.service';
+import { NoteKeyService } from '../notes/note-key.service';
+import { LocalStore } from '../platform/local-store';
 import { NOW, RANDOM_BYTES, TIME_ZONE } from '../platform/platform';
+import { Router } from '@angular/router';
+import { CaptureService } from '../capture/capture.service';
 import { TICK_MS, UNDO_MS } from '../reminders/reminders.service';
+import { TemplatesService } from '../templates/templates.service';
+import type { ShownAnswer } from './habit-lines';
 
 /** A habit as the app shows it; times in milliseconds. */
 export interface HabitRecord {
@@ -61,9 +76,43 @@ export interface HabitRecord {
   /** One push at its time on a day not yet logged (step 4 of #324). */
   nudge: boolean;
   answer: HabitAnswer;
+  /** A choice habit's list, in order (step 6 of #324). */
+  choices?: string[];
+  /** A note habit's template, by its note id (step 6 of #324). */
+  template?: string;
   archived: boolean;
   createdAt?: number;
 }
+
+/**
+ * A day's answer as shown (step 6 of #324, 2026-11-22): its text,
+ * opened (`held` while it waits on this device for the note key, not
+ * yet written); `sealed`, stored sealed and not opened here (no key, or
+ * it does not open), left untouched; or the note an entry opened.
+ */
+export type HabitShownAnswer = ShownAnswer;
+
+/** Where the answers waiting for the note key are kept on this device. */
+export const HELD_ANSWERS_KEY = 'goblin.heldHabitAnswers';
+/** Where a line of text being typed for a habit is kept, until it is saved. */
+export const ANSWER_DRAFTS_KEY = 'goblin.habitAnswerDrafts';
+
+/**
+ * An answer held on this device for the note key: the tick was written
+ * at once without it, at `at`; the answer is written sealed into that
+ * same entry once the key is here, and let go if the entry changed.
+ */
+interface HeldAnswer {
+  uid?: string;
+  habit: string;
+  day: string;
+  kind: HabitAnswerKind;
+  text: string;
+  at: number;
+}
+
+/** What a tick answers with: a choice or a line of text, or the note it opened. */
+export type HabitAnswerGiven = { text: string } | { noteId: string };
 
 /** One stored check-in, as read: its state, and the rest kept as it came. */
 type RawEntry = Record<string, unknown> & { state: 'done' | 'skipped' };
@@ -88,7 +137,12 @@ export interface PlacedHabit extends HabitRecord {
   yesterdayLoggable: boolean;
   /** Loggable, and nothing in yesterday's period yet. */
   yesterdayOpen: boolean;
-  strip: { day: string; state: HabitDayState }[];
+  /** The seven days ending today, each with its answer, if any. */
+  strip: { day: string; state: HabitDayState; answer?: HabitShownAnswer }[];
+  /** Today's answer, if any (step 6 of #324). */
+  todayAnswer?: HabitShownAnswer;
+  /** Yesterday's answer, if any. */
+  yesterdayAnswer?: HabitShownAnswer;
   /** The streak, once the months it needs are read; undefined until then. */
   streak?: HabitStreak;
 }
@@ -100,6 +154,8 @@ export interface HabitUndoable {
   message: string;
   /** The entry before, as it was stored; none: there was none. */
   before?: RawEntry;
+  /** Its answer, if it was held on this device for the key then. */
+  heldBefore?: HeldAnswer;
 }
 
 /**
@@ -174,6 +230,30 @@ export interface NewHabit {
   schedule?: HabitSchedule;
   /** "HH:MM", local. */
   time?: string;
+  /** Done unless given (step 6 of #324), with its choices or its template. */
+  answer?: HabitAnswer;
+  choices?: string[];
+  template?: string;
+}
+
+/**
+ * What a habit is answered with, as the forms give it (step 6 of #324):
+ * the fields to write, the others removed; undefined when it is not
+ * one a habit can hold (a list with a problem, a note with no
+ * template). Choices are cleaned to one line each.
+ */
+export function answerFields(
+  answer: HabitAnswer,
+  choices: readonly string[] | undefined,
+  template: string | undefined,
+): { answer: HabitAnswer; choices?: string[]; template?: string } | undefined {
+  if (answer === 'choice') {
+    const list = (choices ?? []).map((c) => habitAnswerLine(c, HABIT_CHOICE_MAX));
+    return habitChoicesProblem(list) ? undefined : { answer, choices: list };
+  }
+  if (answer === 'note') return template ? { answer, template } : undefined;
+  if (answer === 'done' || answer === 'text') return { answer };
+  return undefined;
 }
 
 const SCHEDULES: readonly HabitSchedule[] = ['daily', 'weekly', 'monthly'];
@@ -209,6 +289,8 @@ function toRecord(id: string, data: Record<string, unknown>): HabitRecord | unde
     ...(h.time !== undefined ? { time: h.time } : {}),
     nudge: h.nudge,
     answer: h.answer,
+    ...(h.choices !== undefined ? { choices: h.choices } : {}),
+    ...(h.template !== undefined ? { template: h.template } : {}),
     archived: h.archived,
     createdAt: millis(data['createdAt']),
   };
@@ -277,6 +359,20 @@ export class HabitsService {
   private readonly random = inject(RANDOM_BYTES);
   private readonly now = inject(NOW);
   private readonly tz = inject(TIME_ZONE);
+  private readonly keys = inject(NoteKeyService);
+  private readonly store = inject(LocalStore);
+  /** Templates and the editor only when a note habit is ticked. */
+  private readonly injector = inject(Injector);
+  /**
+   * Answers held on this device for the note key (step 6 of #324), by
+   * `{habit}_{day}`, as kept in HELD_ANSWERS_KEY, so a reload keeps them.
+   */
+  private readonly held = signal<Record<string, HeldAnswer>>(
+    this.store.get<Record<string, HeldAnswer>>(HELD_ANSWERS_KEY) ?? {},
+  );
+  /** Answers opened, by uid, habit, day and sealed value; null: did not open. */
+  private readonly opened = new Map<string, string | null>();
+  private openedWith?: DataKey;
 
   /** Every habit, archived ones too, by name. */
   readonly habits = signal<HabitRecord[]>([]);
@@ -393,6 +489,9 @@ export class HabitsService {
             ? `${firstMonth}-01`
             : undefined;
         const settledOn = habitSettledOn(h, entries, today, weekStart);
+        const answerOn = (day: string) => this.shownAnswer(h.id, day, entries.get(day));
+        const todayAnswer = answerOn(today);
+        const yesterdayAnswer = answerOn(yesterday);
         return {
           ...h,
           due: habitDue(h, entries, today, weekStart),
@@ -403,7 +502,12 @@ export class HabitsService {
           yesterdayLoggable,
           yesterdayOpen:
             yesterdayLoggable && habitPeriodState(h, entries, yesterday, weekStart) === 'none',
-          strip: habitStrip(h, entries, today, { weekStart, createdOn }),
+          strip: habitStrip(h, entries, today, { weekStart, createdOn }).map((d) => {
+            const answer = answerOn(d.day);
+            return answer ? { ...d, answer } : d;
+          }),
+          ...(todayAnswer ? { todayAnswer } : {}),
+          ...(yesterdayAnswer ? { yesterdayAnswer } : {}),
           ...(read ? { streak: habitStreak(h, entries, today, { weekStart, loadedFrom }) } : {}),
         };
       })
@@ -453,6 +557,16 @@ export class HabitsService {
         }),
       );
     });
+    // Answers held for the note key, written sealed once it is here
+    // and the entry they belong to has been heard (step 6 of #324).
+    effect(() => {
+      const key = this.keys.key();
+      const user = this.auth.user();
+      const held = this.held();
+      this.logs();
+      if (!key || !user || !Object.keys(held).length) return;
+      untracked(() => this.writeHeld(key, user.uid));
+    });
     // Writes made before the gardener was known.
     effect(() => {
       const user = this.auth.user();
@@ -496,19 +610,23 @@ export class HabitsService {
   }
 
   /**
-   * Adds a done-only habit, daily unless a schedule is given (step 5 of
-   * #324); a name past HABIT_NAME_MAX is cut.
+   * Adds a habit, daily unless a schedule is given (step 5 of #324),
+   * done unless an answer is (step 6), with its choices or template; a
+   * name past HABIT_NAME_MAX is cut. None is made for an answer it
+   * cannot hold (`answerFields`).
    */
   add(input: NewHabit): string | undefined {
     const name = input.name.trim().slice(0, HABIT_NAME_MAX).trim();
     if (!name) return undefined;
+    const answer = answerFields(input.answer ?? 'done', input.choices, input.template);
+    if (!answer) return undefined;
     const now = this.now();
     const id = autoId(this.random);
     const data: Record<string, unknown> = {
       name,
       schedule: input.schedule && SCHEDULES.includes(input.schedule) ? input.schedule : 'daily',
       tz: this.tz,
-      answer: 'done',
+      ...answer,
       nudge: false,
       archived: false,
       createdAt: this.api.timestamp(now),
@@ -568,6 +686,23 @@ export class HabitsService {
     this.update(id, { schedule });
   }
 
+  /**
+   * What a habit is answered with (step 6 of #324, 2026-11-22): its kind
+   * and its choices or template, the other removed. The logs stay as
+   * they are: every entry shows what it holds whatever the kind now (an
+   * answer, opened; a note, its link), and a new tick asks for the new
+   * kind's answer. Nothing for an answer the habit cannot hold.
+   */
+  setAnswer(id: string, answer: HabitAnswer, choices?: string[], template?: string): void {
+    const fields = answerFields(answer, choices, template);
+    if (!fields) return;
+    this.update(id, {
+      answer: fields.answer,
+      choices: fields.choices ?? this.api.remove(),
+      template: fields.template ?? this.api.remove(),
+    });
+  }
+
   archive(id: string, archived: boolean): void {
     this.update(id, { archived });
   }
@@ -577,24 +712,200 @@ export class HabitsService {
    * as done or skipped, with Undo; a merged write of that one day to the
    * month's log, on the day `dayOf` makes of it.
    */
-  log(habit: HabitRecord, shown: string, state: 'done' | 'skipped'): void {
+  log(
+    habit: HabitRecord,
+    shown: string,
+    state: 'done' | 'skipped',
+    answer?: HabitAnswerGiven,
+  ): void {
     const day = this.dayOf(shown);
-    if (!day) return;
+    if (day) this.logOn(habit, day, state, answer);
+  }
+
+  /**
+   * A note habit's tick (step 6 of #324, 2026-11-22): a new entry from
+   * its template, made as From template makes one (TemplatesService.use:
+   * a living template's note, or a fresh entry), the day marked done at
+   * the tap with the entry's note id, and the entry opened to write in,
+   * the capture loop taking over. A template that is gone logs the day
+   * done with no note. Returns the note opened, if one was.
+   */
+  logNote(habit: HabitRecord, shown: string): { id: string; text: string } | undefined {
+    const day = this.dayOf(shown);
+    if (!day) return undefined;
+    // Lazily: the notes and the editor are not the Habits screen's own.
+    const note = habit.template
+      ? this.injector.get(TemplatesService).use(habit.template)
+      : undefined;
+    this.logOn(habit, day, 'done', note ? { noteId: note.id } : undefined);
+    if (!note) return undefined;
+    this.injector.get(CaptureService).openNote(note.id, note.text);
+    void this.injector.get(Router).navigate(['/n', note.id]);
+    return note;
+  }
+
+  /**
+   * Logs `day` as `state` with `answer`. A choice or a line of text is
+   * sealed with the note key before it is written, under the day's own
+   * aad (`sealHabitAnswer`, padded); without the key on this device the
+   * tick is written at once without it, and the answer is held here
+   * (HELD_ANSWERS_KEY) and written into that entry, sealed, once the key
+   * comes: it is never written plain, and a reload keeps it. A skip
+   * holds no answer.
+   */
+  private logOn(
+    habit: HabitRecord,
+    day: string,
+    state: 'done' | 'skipped',
+    answer?: HabitAnswerGiven,
+  ): void {
     const before = this.entry(habit.id, day);
+    const heldBefore = this.held()[`${habit.id}_${day}`];
     const at = this.now();
-    this.writeDay(habit.id, day, {
+    this.unhold(habit.id, day);
+    this.dropDraft(habit.id, day);
+    const entry: Record<string, unknown> = {
       state,
       at: this.api.timestamp(at),
       answer: this.api.remove(),
       noteId: this.api.remove(),
-    });
+    };
+    const kind: HabitAnswerKind = habit.answer === 'choice' ? 'choice' : 'text';
+    const max = kind === 'choice' ? HABIT_CHOICE_MAX : HABIT_TEXT_MAX;
+    const text =
+      state === 'done' && answer && 'text' in answer ? habitAnswerLine(answer.text, max) : '';
+    if (state === 'done' && answer && 'noteId' in answer) entry['noteId'] = answer.noteId;
+    if (text) {
+      const key = this.keys.key();
+      const uid = this.auth.user()?.uid;
+      if (key && uid) entry['answer'] = sealHabitAnswer(key, uid, habit.id, day, kind, text);
+      else this.hold({ ...(uid ? { uid } : {}), habit: habit.id, day, kind, text, at });
+    }
+    this.writeDay(habit.id, day, entry);
     const when = day === this.today() ? '' : ' yesterday';
+    const what = state === 'done' ? (kind === 'choice' && text ? text : 'done') : 'skipped';
     this.offerUndo({
       habit: habit.id,
       day,
-      message: `${habit.name}: ${state === 'done' ? 'done' : 'skipped'}${when}`,
+      message: `${habit.name}: ${what}${when}`,
       before,
+      ...(heldBefore ? { heldBefore } : {}),
     });
+  }
+
+  /** The line being typed for a habit's day, kept on this device until saved. */
+  draft(habit: string, day: string): string {
+    const all = this.store.get<Record<string, { uid?: string; text: string }>>(ANSWER_DRAFTS_KEY);
+    const d = all?.[`${habit}_${day}`];
+    return d && d.uid === this.auth.user()?.uid ? d.text : '';
+  }
+
+  /** Keeps what is typed for a habit's day, so a reload does not lose it. */
+  setDraft(habit: string, day: string, text: string): void {
+    if (!text) return this.dropDraft(habit, day);
+    const all = this.store.get<Record<string, unknown>>(ANSWER_DRAFTS_KEY) ?? {};
+    const uid = this.auth.user()?.uid;
+    this.store.set(ANSWER_DRAFTS_KEY, {
+      ...all,
+      [`${habit}_${day}`]: { ...(uid ? { uid } : {}), text },
+    });
+  }
+
+  dropDraft(habit: string, day: string): void {
+    const all = this.store.get<Record<string, unknown>>(ANSWER_DRAFTS_KEY);
+    if (!all || !(`${habit}_${day}` in all)) return;
+    const { [`${habit}_${day}`]: _gone, ...rest } = all;
+    this.store.set(ANSWER_DRAFTS_KEY, rest);
+  }
+
+  /**
+   * A day's answer as shown: one held here for the key, on the tick it
+   * was given with; else the stored one, opened with this device's key
+   * (or `sealed` when there is none, or it does not open); else the
+   * note the entry opened.
+   */
+  private shownAnswer(
+    habit: string,
+    day: string,
+    raw: HabitEntry | undefined,
+  ): HabitShownAnswer | undefined {
+    if (!raw) return undefined;
+    const held = this.held()[`${habit}_${day}`];
+    if (
+      held &&
+      raw.state === 'done' &&
+      raw.answer === undefined &&
+      millis(raw.at) === held.at &&
+      (held.uid === undefined || held.uid === this.uid)
+    ) {
+      return { text: held.text, held: true };
+    }
+    if (typeof raw.answer === 'string') {
+      const text = this.open(habit, day, raw.answer);
+      return text === null ? { sealed: true } : { text };
+    }
+    if (typeof raw.noteId === 'string') return { noteId: raw.noteId };
+    return undefined;
+  }
+
+  /** A stored answer's text, or null when this device cannot open it. */
+  private open(habit: string, day: string, sealed: string): string | null {
+    const key = this.keys.key();
+    const uid = this.uid;
+    if (!key || !uid) return null;
+    if (key !== this.openedWith) {
+      this.opened.clear();
+      this.openedWith = key;
+    }
+    const at = `${uid}|${habit}|${day}|${sealed}`;
+    let text = this.opened.get(at);
+    if (text === undefined) {
+      try {
+        text = openHabitAnswer(key, uid, habit, day, sealed);
+      } catch {
+        text = null;
+      }
+      this.opened.set(at, text);
+    }
+    return text;
+  }
+
+  private hold(answer: HeldAnswer): void {
+    this.setHeld({ ...this.held(), [`${answer.habit}_${answer.day}`]: answer });
+  }
+
+  private unhold(habit: string, day: string): void {
+    const all = this.held();
+    if (!(`${habit}_${day}` in all)) return;
+    const { [`${habit}_${day}`]: _gone, ...rest } = all;
+    this.setHeld(rest);
+  }
+
+  private setHeld(next: Record<string, HeldAnswer>): void {
+    this.held.set(next);
+    this.store.set(HELD_ANSWERS_KEY, next);
+  }
+
+  /**
+   * The answers held for the key, now that it is here: each written,
+   * sealed, into the entry it was given with, as a merged write of that
+   * day's `answer` alone, once the day's log is heard and the entry is
+   * still that tick (done at the same moment, with no answer); let go
+   * when the entry has changed since (undone, skipped, answered on
+   * another device). Another gardener's are left as they are.
+   */
+  private writeHeld(key: DataKey, uid: string): void {
+    for (const h of Object.values(this.held())) {
+      if (h.uid !== undefined && h.uid !== uid) continue;
+      const logId = habitLogId(h.habit, habitMonth(h.day));
+      if (!(logId in this.logs())) continue;
+      const raw = this.entry(h.habit, h.day);
+      this.unhold(h.habit, h.day);
+      if (!raw || raw.state !== 'done' || raw['answer'] !== undefined) continue;
+      if (raw['noteId'] !== undefined || millis(raw['at']) !== h.at) continue;
+      const answer = sealHabitAnswer(key, uid, h.habit, h.day, h.kind, h.text);
+      this.writeDay(h.habit, h.day, { answer });
+    }
   }
 
   /** Clears a day's check-in, the day as `dayOf` makes it. */
@@ -603,9 +914,17 @@ export class HabitsService {
     if (!day) return;
     const before = this.entry(habit.id, day);
     if (!before) return;
+    const heldBefore = this.held()[`${habit.id}_${day}`];
+    this.unhold(habit.id, day);
     this.writeDay(habit.id, day, undefined);
     const when = day === this.today() ? 'today' : 'yesterday';
-    this.offerUndo({ habit: habit.id, day, message: `${habit.name}: cleared ${when}`, before });
+    this.offerUndo({
+      habit: habit.id,
+      day,
+      message: `${habit.name}: cleared ${when}`,
+      before,
+      ...(heldBefore ? { heldBefore } : {}),
+    });
   }
 
   /** Puts the day back as it was before the last log or clear. */
@@ -614,6 +933,9 @@ export class HabitsService {
     if (!last) return;
     this.undoable.set(null);
     clearTimeout(this.undoTimer);
+    this.unhold(last.habit, last.day);
+    // An answer that was waiting for the key waits again, on its tick.
+    if (last.heldBefore) this.hold(last.heldBefore);
     if (!last.before) {
       this.writeDay(last.habit, last.day, undefined);
       return;

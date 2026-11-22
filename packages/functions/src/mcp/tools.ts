@@ -109,9 +109,14 @@ import {
   HabitLog,
   HABIT_ID,
   HABIT_NAME_MAX,
+  HABIT_TEXT_MAX,
+  type HabitAnswer,
+  type HabitEntry,
   type HabitsConfig,
   addDays,
   canLogHabitDay,
+  habitAnswerLine,
+  habitChoicesProblem,
   habitDayKey,
   habitDayLoggable,
   habitNudgePlan,
@@ -164,6 +169,7 @@ import {
   NoteSnap,
   SEALED_LEFT_OUT,
   SEALED_TITLE,
+  SealedAnswerError,
   sealFields,
   shownTitle,
 } from './note-text';
@@ -619,6 +625,8 @@ function habitFields(id: string, h: Habit) {
     ...(h.time !== undefined ? { time: h.time } : {}),
     timeZone: h.tz,
     answer: h.answer,
+    ...(h.choices !== undefined ? { choices: h.choices } : {}),
+    ...(h.template !== undefined ? { template: h.template } : {}),
     nudge: h.nudge,
     archived: h.archived,
     createdBy: h.createdBy,
@@ -679,6 +687,52 @@ function habitName(name: string): string {
   if (out.length > HABIT_NAME_MAX)
     throw new ToolError(`a habit's name is at most ${HABIT_NAME_MAX} characters`);
   return out;
+}
+
+/**
+ * A habit's list of choices as given (#324 step 6, 2026-11-22): each
+ * one line, trimmed, as the app cleans them; refused unless 2 to 12,
+ * each 1 to 40, none twice (case and spacing aside).
+ */
+function habitChoices(choices: readonly string[]): string[] {
+  const out = choices.map((c) => habitAnswerLine(c, Number.MAX_SAFE_INTEGER));
+  const problem = habitChoicesProblem(out);
+  if (problem) throw new ToolError(`choices: ${problem}`);
+  return out;
+}
+
+/** One day's answer as the tools give it: opened, sealed, or its note. */
+type AnswerView = { answer?: string; answerSealed?: true; noteId?: string };
+
+/**
+ * A check-in's answer as given to log_habit (step 6), checked against
+ * the habit's kind: for a choice habit one of its choices (case and
+ * spacing aside), as the list spells it; for a text habit one line, at
+ * most HABIT_TEXT_MAX, empty meaning none; none for any other kind.
+ */
+function habitAnswerText(h: Habit, answer: string | undefined): string | undefined {
+  if (answer === undefined) return undefined;
+  if (h.answer === 'choice') {
+    const key = normalizeName(answer);
+    const choice = (h.choices ?? []).find((c) => normalizeName(c) === key);
+    if (!choice)
+      throw new ToolError(
+        `${answer} is not one of ${h.name}'s choices: ${(h.choices ?? []).join(', ')}`,
+      );
+    return choice;
+  }
+  if (h.answer === 'text') {
+    if (/[\r\n\u2028\u2029]/.test(answer))
+      throw new ToolError('a text answer is one line: no line breaks');
+    const line = habitAnswerLine(answer, Number.MAX_SAFE_INTEGER);
+    if (line.length > HABIT_TEXT_MAX)
+      throw new ToolError(`a text answer is at most ${HABIT_TEXT_MAX} characters`);
+    return line || undefined;
+  }
+  throw new ToolError(
+    `${h.name} is ${h.answer === 'note' ? 'answered with a note: give noteId' : 'done or not'}; ` +
+      'it takes no answer',
+  );
 }
 
 /** A time of day for a habit; refused unless HH:MM. */
@@ -3694,7 +3748,12 @@ export class NotesTools {
    * and with `streaks` its streak, read back as far as it runs (at most
    * HABIT_STREAK_MONTHS). The months the day needs are read in one go.
    */
-  private async placeHabits(habits: readonly StoredHabit[], weekStart: Weekday, streaks: boolean) {
+  private async placeHabits(
+    habits: readonly StoredHabit[],
+    weekStart: Weekday,
+    streaks: boolean,
+    answers = false,
+  ) {
     const now = this.now();
     const days = habits.map((h) => {
       const own = habitToday(now, h.habit.tz);
@@ -3710,12 +3769,33 @@ export class NotesTools {
         const read = months[i].map((m) => logs.get(habitLogId(h.id, m)) ?? { month: m, days: {} });
         const entries = habitEntries(read);
         const yesterday = addDays(h.today, -1);
+        const answer = (date: string) =>
+          answers ? this.answerView(h.id, date, entries.get(date)) : Promise.resolve({});
+        // A choice habit's last seven days' answers, newest first (step 6).
+        const recent =
+          answers && h.habit.answer === 'choice'
+            ? {
+                recentAnswers: (
+                  await Promise.all(
+                    Array.from({ length: 7 }, (_, i) => addDays(h.today, -i)).map(async (date) => ({
+                      date,
+                      ...(await answer(date)),
+                    })),
+                  )
+                ).filter((d) => Object.keys(d).length > 1),
+              }
+            : {};
         const view = {
           ...habitFields(h.id, h.habit),
           ...(h.zoneKnown ? {} : { timeZoneUnknown: true, todayIn: 'UTC' }),
           due: habitDue(h.habit, entries, h.today, weekStart),
-          today: { date: h.today, state: dayState(entries, h.today) },
-          yesterday: { date: yesterday, state: dayState(entries, yesterday) },
+          today: { date: h.today, state: dayState(entries, h.today), ...(await answer(h.today)) },
+          yesterday: {
+            date: yesterday,
+            state: dayState(entries, yesterday),
+            ...(await answer(yesterday)),
+          },
+          ...recent,
           ...(h.habit.schedule === 'daily'
             ? {}
             : { thisPeriod: habitPeriodState(h.habit, entries, h.today, weekStart) }),
@@ -3743,9 +3823,88 @@ export class NotesTools {
   }
 
   /**
-   * Makes a habit (#324): daily unless said, done-or-not (the only kind
-   * this step offers), at a time of day if any, in Eric's zone. A name
-   * an unarchived habit already has is refused, pointing at update_habit.
+   * One day's stored answer as the tools give it (#324 step 6): a choice
+   * or a line of text opened, his own words as a note's text is (no
+   * label: they are not from the web); `answerSealed` for one that
+   * cannot be opened here, left as stored; or the note an entry made.
+   */
+  private async answerView(
+    habitId: string,
+    date: string,
+    entry: HabitEntry | undefined,
+  ): Promise<AnswerView> {
+    if (entry?.answer !== undefined) {
+      try {
+        return { answer: await this.codec.openHabitAnswer(habitId, date, entry.answer) };
+      } catch (err) {
+        if (err instanceof SealedAnswerError) return { answerSealed: true };
+        throw err;
+      }
+    }
+    if (entry?.noteId !== undefined) return { noteId: entry.noteId };
+    return {};
+  }
+
+  /**
+   * A template by id or name (#324 step 6), as the tools name things:
+   * the id first, else its title, case and spacing aside; one that is
+   * archived, in Trash or sealed and not opened is not one to use.
+   */
+  private async findTemplate(ref: string): Promise<{ id: string; title: string }> {
+    const live = (await this.queryNotes(this.notes().where('kind', '==', 'template'))).filter(
+      (d) => d.get('archived') !== true && !inTrash(d.known()),
+    );
+    const byId = live.find((d) => d.id === ref);
+    if (byId) return { id: byId.id, title: byId.locked ? '' : String(byId.get('title') ?? '') };
+    const key = normalizeName(ref);
+    const named = live.filter(
+      (d) => !d.locked && normalizeName(String(d.get('title') ?? '')) === key,
+    );
+    if (named.length === 1) return { id: named[0].id, title: String(named[0].get('title') ?? '') };
+    if (named.length > 1)
+      throw new ToolError(
+        `${named.length} templates are named ${ref}; give one's id (list_templates)`,
+      );
+    throw new ToolError(`no template ${ref}; list_templates names them`);
+  }
+
+  /**
+   * What a habit is answered with, from a tool's arguments (#324 step 6):
+   * its kind and its choices or template, checked, with `was` the habit
+   * as it is (update_habit), whose list or template is kept when the
+   * kind stays and none is given. Undefined: nothing asked of it.
+   */
+  private async habitAnswerArgs(
+    args: { answer?: HabitAnswer; choices?: string[]; template?: string },
+    was?: Pick<Habit, 'answer' | 'choices' | 'template'>,
+  ): Promise<{ answer: HabitAnswer; choices?: string[]; template?: string } | undefined> {
+    if (args.answer === undefined && args.choices === undefined && args.template === undefined)
+      return undefined;
+    const answer = args.answer ?? was?.answer ?? 'done';
+    if (args.choices !== undefined && answer !== 'choice')
+      throw new ToolError('choices go only with answer choice');
+    if (args.template !== undefined && answer !== 'note')
+      throw new ToolError('template goes only with answer note');
+    if (answer === 'choice') {
+      const given = args.choices ?? (was?.answer === 'choice' ? was.choices : undefined);
+      if (!given)
+        throw new ToolError('answer choice needs choices: 2 to 12, each 1 to 40 characters');
+      return { answer, choices: habitChoices(given) };
+    }
+    if (answer === 'note') {
+      if (args.template !== undefined)
+        return { answer, template: (await this.findTemplate(args.template)).id };
+      if (was?.answer === 'note' && was.template) return { answer, template: was.template };
+      throw new ToolError('answer note needs template: a template by id or name (list_templates)');
+    }
+    return { answer };
+  }
+
+  /**
+   * Makes a habit (#324): daily unless said, done unless an answer is
+   * asked (step 6: one of choices, a line of text, or a note from a
+   * template), at a time of day if any, in Eric's zone. A name an
+   * unarchived habit already has is refused, pointing at update_habit.
    */
   async createHabit(args: {
     name: string;
@@ -3753,9 +3912,13 @@ export class NotesTools {
     time?: string;
     timeZone: string;
     nudge?: boolean;
+    answer?: HabitAnswer;
+    choices?: string[];
+    template?: string;
   }) {
     await this.requireModule('habits', 'making a habit');
     const name = habitName(args.name);
+    const answered = (await this.habitAnswerArgs(args)) ?? { answer: 'done' as const };
     const time = args.time === undefined ? undefined : habitTime(args.time);
     if (habitToday(this.now(), args.timeZone) === undefined)
       throw new ToolError(`unknown time zone ${args.timeZone}`);
@@ -3767,7 +3930,7 @@ export class NotesTools {
       schedule: args.schedule ?? 'daily',
       ...(time !== undefined ? { time } : {}),
       tz: args.timeZone,
-      answer: 'done',
+      ...answered,
       nudge: args.nudge ?? false,
       archived: false,
       createdAt: now,
@@ -3804,7 +3967,7 @@ export class NotesTools {
     const habits = (await this.allHabits()).filter(
       (h) => args.includeArchived || !h.habit.archived,
     );
-    const placed = await this.placeHabits(habits, weekStart, true);
+    const placed = await this.placeHabits(habits, weekStart, true, true);
     return placed.sort(
       (a, b) =>
         Number(a.archived) - Number(b.archived) ||
@@ -3827,11 +3990,30 @@ export class NotesTools {
     timeZone?: string;
     nudge?: boolean;
     archived?: boolean;
+    answer?: HabitAnswer;
+    choices?: string[];
+    template?: string;
   }) {
     await this.requireModule('habits', 'changing a habit');
-    const asked = ['name', 'schedule', 'time', 'timeZone', 'nudge', 'archived'] as const;
+    const asked = [
+      'name',
+      'schedule',
+      'time',
+      'timeZone',
+      'nudge',
+      'archived',
+      'answer',
+      'choices',
+      'template',
+    ] as const;
     if (!asked.some((k) => args[k] !== undefined))
-      throw new ToolError('say what to change: name, schedule, time, timeZone, nudge or archived');
+      throw new ToolError(
+        'say what to change: name, schedule, time, timeZone, nudge, archived, answer, ' +
+          'choices or template',
+      );
+    // The template is found before the transaction: it reads the notes.
+    const template =
+      args.template === undefined ? undefined : (await this.findTemplate(args.template)).id;
     const name = args.name === undefined ? undefined : habitName(args.name);
     const time = typeof args.time === 'string' ? habitTime(args.time) : args.time;
     if (args.timeZone !== undefined && habitToday(this.now(), args.timeZone) === undefined)
@@ -3854,10 +4036,23 @@ export class NotesTools {
       if (args.nudge !== undefined && args.nudge !== was.nudge) update['nudge'] = args.nudge;
       if (args.archived !== undefined && args.archived !== was.archived)
         update['archived'] = args.archived;
+      // What it is answered with (step 6): the logs stay as they are.
+      const answered = await this.habitAnswerArgs(
+        { answer: args.answer, choices: args.choices, ...(template ? { template } : {}) },
+        was,
+      );
+      if (answered) {
+        if (answered.answer !== was.answer) update['answer'] = answered.answer;
+        if (JSON.stringify(answered.choices) !== JSON.stringify(was.choices))
+          update['choices'] = answered.choices ?? FieldValue.delete();
+        if (answered.template !== was.template)
+          update['template'] = answered.template ?? FieldValue.delete();
+      }
       if (!Object.keys(update).length)
         return { result: { changed: false, ...habitFields(found.id, was) }, next: undefined };
       const merged: Data = { ...was, ...update };
-      if (update['time'] instanceof FieldValue) delete merged['time'];
+      for (const k of ['time', 'choices', 'template'])
+        if (update[k] instanceof FieldValue) delete merged[k];
       if (merged['nudge'] === true && merged['time'] === undefined)
         throw new ToolError(
           'a nudge needs a time of day: keep its time, give a new one, or set nudge false',
@@ -3902,8 +4097,18 @@ export class NotesTools {
    * `noteId` removed), so the two never fight over a month. An archived
    * habit is refused. Gives back the day's new state and the streak.
    */
-  async logHabit(args: { habit: string; state: 'done' | 'skipped' | 'none'; date?: string }) {
+  async logHabit(args: {
+    habit: string;
+    state: 'done' | 'skipped' | 'none';
+    date?: string;
+    answer?: string;
+    noteId?: string;
+  }) {
     await this.requireModule('habits', 'logging a habit');
+    if ((args.answer !== undefined || args.noteId !== undefined) && args.state !== 'done')
+      throw new ToolError('an answer or a noteId goes only with state done: a skip holds none');
+    if (args.answer !== undefined && args.noteId !== undefined)
+      throw new ToolError('give an answer or a noteId, not both');
     const { weekStart } = await this.habitsSettings();
     const logged = await this.db.runTransaction(async (tx) => {
       const found = findHabit(await this.allHabits(tx), args.habit);
@@ -3933,16 +4138,33 @@ export class NotesTools {
           `${h.name} is ${h.schedule}, and yesterday (${yesterday}) is in the same ` +
             `${h.schedule === 'weekly' ? 'week' : 'month'} as today: log it for today instead`,
         );
+      // The answer (step 6): checked against the habit's kind, then
+      // sealed here, as the app seals it, before anything is written.
+      const text = habitAnswerText(h, args.answer);
+      if (args.noteId !== undefined) await this.checkEntryNote(h, args.noteId);
       const month = habitMonth(date);
       const key = habitDayKey(date);
       const ref = this.habitLogs().doc(habitLogId(found.id, month));
       const had = readHabitDays((await tx.get(ref)).data(), month)[key]?.state ?? 'none';
-      if (had === args.state) return { found, date, changed: false };
+      if (had === args.state && args.answer === undefined && args.noteId === undefined)
+        return { found, date, changed: false };
+      const sealed = text
+        ? await this.codec.sealHabitAnswer(
+            found.id,
+            date,
+            h.answer === 'choice' ? 'choice' : 'text',
+            text,
+          )
+        : undefined;
       const at = Timestamp.fromMillis(this.now());
+      const given = {
+        ...(sealed !== undefined ? { answer: sealed } : {}),
+        ...(args.noteId !== undefined ? { noteId: args.noteId } : {}),
+      };
       HabitLog.parse({
         habit: found.id,
         month,
-        days: args.state === 'none' ? {} : { [key]: { state: args.state, at } },
+        days: args.state === 'none' ? {} : { [key]: { state: args.state, at, ...given } },
         updatedAt: at,
       });
       const entry =
@@ -3951,8 +4173,8 @@ export class NotesTools {
           : {
               state: args.state,
               at,
-              answer: FieldValue.delete(),
-              noteId: FieldValue.delete(),
+              answer: sealed ?? FieldValue.delete(),
+              noteId: args.noteId ?? FieldValue.delete(),
             };
       const day = { habit: found.id, month, days: { [key]: entry }, updatedAt: at };
       tx.set(ref, day, { merge: true });
@@ -3961,8 +4183,21 @@ export class NotesTools {
       tx.set(...this.activity('log_habit', `Logged ${h.name}: ${what}`, []));
       return { found, date, changed: true };
     });
-    const [view] = await this.placeHabits([logged.found], weekStart, true);
-    const kind = logged.found.habit.answer;
+    const [view] = await this.placeHabits([logged.found], weekStart, true, true);
+    const habit = logged.found.habit;
+    const kind = habit.answer;
+    // Said only of a day just logged: done again with none keeps its answer.
+    const unanswered =
+      logged.changed &&
+      args.state === 'done' &&
+      ((kind === 'choice' || kind === 'text') && args.answer === undefined
+        ? `${view.name} is answered with ${kind === 'choice' ? 'one of its choices' : 'a line of text'}; ` +
+          'it is logged done with none. Log it again with answer to record one.'
+        : kind === 'note' && args.noteId === undefined
+          ? `${view.name} opens a note from its template (${habit.template}); it is logged done ` +
+            'with none. To make the entry, use use_template with that template, then log it ' +
+            'again with noteId.'
+          : undefined);
     return {
       id: view.id,
       name: view.name,
@@ -3973,14 +4208,24 @@ export class NotesTools {
       yesterday: view.yesterday,
       ...('thisPeriod' in view ? { thisPeriod: view.thisPeriod } : {}),
       streak: view.streak,
-      ...(kind !== 'done' && args.state === 'done'
-        ? {
-            note:
-              `${view.name} asks for ${kind === 'choice' ? 'a choice' : kind === 'text' ? 'a line of text' : 'a note'} ` +
-              'in the app; it is logged done without one, which this tool cannot give',
-          }
-        : {}),
+      ...(unanswered ? { note: unanswered } : {}),
     };
+  }
+
+  /**
+   * A note an entry of note habit `h` may record (step 6): one of his,
+   * not in Trash, made from the habit's own template (use_template).
+   */
+  private async checkEntryNote(h: Habit, noteId: string): Promise<void> {
+    if (h.answer !== 'note')
+      throw new ToolError(`${h.name} does not open a note; noteId goes only with a note habit`);
+    const doc = await this.readNote(noteId);
+    if (!doc.exists || inTrash(doc.known())) throw new ToolError(`no note ${noteId}`);
+    if (doc.get('fromTemplate') !== h.template)
+      throw new ToolError(
+        `note ${noteId} was not made from ${h.name}'s template (${h.template}); ` +
+          'make the entry with use_template from it',
+      );
   }
 
   /** Today's habits for get_context (#324): those due, each due, done or skipped. */

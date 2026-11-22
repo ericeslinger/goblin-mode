@@ -225,8 +225,14 @@ describe('the MCP server', () => {
     expect(passage).not.toMatch(/not sent yet/);
     expect(passage).toMatch(/can differ from where Eric is when he travels/);
     const tools = (await client.listTools()).tools;
+    // Answers (step 6, 2026-11-22): the four kinds, sealed, his words kept.
     expect(tools.find((t) => t.name === 'create_habit')?.description).toMatch(
-      /done or not for now/,
+      /answer is done unless asked: choice with choices/,
+    );
+    expect(passage).toMatch(/use_template from its template, then log_habit with its noteId/);
+    expect(passage).toMatch(/keep them as they are, and leave one marked answerSealed/);
+    expect(tools.find((t) => t.name === 'log_habit')?.description).toMatch(
+      /sealed before it is stored/,
     );
     for (const name of ['create_habit', 'update_habit'])
       expect(tools.find((t) => t.name === name)?.description).not.toMatch(/not sent yet/);

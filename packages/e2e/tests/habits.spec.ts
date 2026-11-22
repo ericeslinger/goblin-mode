@@ -4,6 +4,7 @@ import {
   FIRESTORE_EMULATOR,
   expect,
   letItSave,
+  openSettings,
   signInAs,
   switchModulesOn,
   test,
@@ -392,7 +393,7 @@ test('habits: once a week and once a month, settled and gone for the period', as
   ];
   // Settings, Modules: Habits' own week start, as Kitchen's.
   await expect(page.getByRole('heading', { name: 'Habits', level: 2 })).toBeVisible();
-  const weekStart = page.getByRole('combobox', { name: 'Weeks start on' });
+  const weekStart = page.getByRole('combobox', { name: 'Habits: weeks start on' });
   await expect(weekStart).toHaveValue('Mon');
   await weekStart.selectOption(weekday);
   await expect(weekStart).toHaveValue(weekday);
@@ -469,6 +470,156 @@ test('habits: once a week and once a month, settled and gone for the period', as
   await expect(days.nth(5)).toContainText(': done');
   await expect(days.nth(6)).toContainText(': not logged yet');
   await expect(pots.getByRole('button', { name: 'Done today: Clean the pots' })).toBeVisible();
+});
+
+/** The owner's stored documents in `collection` as admin: each one's fields, by id. */
+async function storedDocs(collection: string): Promise<Record<string, Record<string, unknown>>> {
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents/users/${OWNER.uid}/${collection}`,
+    { headers: { authorization: 'Bearer owner' } },
+  );
+  const { documents = [] } = (await res.json()) as {
+    documents?: { name: string; fields?: Record<string, unknown> }[];
+  };
+  return Object.fromEntries(documents.map((d) => [d.name.split('/').pop()!, d.fields ?? {}]));
+}
+
+/** A habit's stored entry for today (UTC), its fields as strings, found by the habit's name. */
+async function storedToday(name: string): Promise<Record<string, string>> {
+  const habits = await storedDocs('habits');
+  const id = Object.entries(habits).find(
+    ([, f]) => (f['name'] as { stringValue?: string }).stringValue === name,
+  )?.[0];
+  const today = new Date().toISOString().slice(0, 10);
+  const logs = await storedDocs('habitLogs');
+  type Day = { mapValue?: { fields?: Record<string, { stringValue?: string }> } };
+  const days = (
+    logs[`${id}_${today.slice(0, 7)}`]?.['days'] as {
+      mapValue?: { fields?: Record<string, Day> };
+    }
+  )?.mapValue?.fields;
+  const entry = days?.[today.slice(8)]?.mapValue?.fields ?? {};
+  return Object.fromEntries(Object.entries(entry).map(([k, v]) => [k, v.stringValue ?? '']));
+}
+
+/** Adds a habit answered with more than done (step 6): its kind, and its choices or template. */
+async function addAnswered(
+  page: Page,
+  name: string,
+  kind: 'One of a list' | 'A line of text' | 'A note',
+  extra: { choices?: string[]; template?: string } = {},
+): Promise<void> {
+  const first = page.getByRole('button', { name: 'Add your first habit' });
+  if (await first.isVisible()) await first.click();
+  else await page.getByRole('button', { name: 'Add a habit' }).click();
+  const form = page.getByRole('form', { name: 'New habit' });
+  await form.getByRole('textbox', { name: 'Habit' }).fill(name);
+  await form.getByRole('combobox', { name: 'Answered with' }).selectOption({ label: kind });
+  const choices = extra.choices ?? [];
+  for (const [i, choice] of choices.entries()) {
+    if (i >= 2) await form.getByRole('button', { name: 'Add a choice' }).click();
+    await form.getByRole('textbox', { name: `Choice ${i + 1}` }).fill(choice);
+  }
+  if (extra.template)
+    await form.getByRole('combobox', { name: 'Template' }).selectOption({ label: extra.template });
+  await form.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(card(page, name)).toBeVisible();
+}
+
+// Answers (#324 step 6, 2026-11-22): a mood of three choices, a line of
+// text and a note from a template, answered on Right Now, shown on the
+// Habits screen after a reload, and stored sealed, never in plain words.
+test('habits: answered with a choice, a line of text or a note, and sealed', async ({ page }) => {
+  test.setTimeout(150_000);
+  await signInAs(page, OWNER);
+  await switchModulesOn(page, 'Habits');
+  // A template for the note habit, as Settings, Templates makes one.
+  await openSettings(page, 'Templates');
+  await page.getByRole('button', { name: 'New template', exact: true }).click();
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  const templateUrl = page.url();
+  await letItSave(page);
+
+  await page.goto('/habits');
+  await addAnswered(page, 'Mood', 'One of a list', { choices: ['calm', 'tired', 'cross'] });
+  await addAnswered(page, 'Walk', 'A line of text');
+  // The form with a list open is clean too.
+  await page.getByRole('button', { name: 'Add a habit' }).click();
+  const form = page.getByRole('form', { name: 'New habit' });
+  await form
+    .getByRole('combobox', { name: 'Answered with' })
+    .selectOption({ label: 'One of a list' });
+  await expect(form.getByRole('textbox', { name: 'Choice 2' })).toBeVisible();
+  await noSeriousViolations(page);
+  await form.getByRole('button', { name: 'Cancel' }).click();
+  await addAnswered(page, 'Journal', 'A note', { template: 'New template' });
+  await letItSave(page);
+
+  // Right Now: the mood's tick asks for one of its choices, in place.
+  await page.goto('/right-now');
+  const section = habitsOnRightNow(page);
+  await section.getByRole('button', { name: 'Done: Mood' }).click();
+  const choices = section.getByRole('group', { name: 'Mood today: choose one' });
+  await expect(choices.getByRole('button', { name: 'calm' })).toBeFocused();
+  await noSeriousViolations(page);
+  await choices.getByRole('button', { name: 'tired' }).click();
+  await expect(section).toContainText('Done today: Mood');
+  await expect(section.getByRole('status')).toContainText('Mood: tired');
+  // The walk's tick asks for its line; Enter saves it.
+  await section.getByRole('button', { name: 'Done: Walk' }).click();
+  const line = section.getByRole('textbox', { name: 'Walk today: a line of text' });
+  await expect(line).toBeFocused();
+  await line.fill('to the river and back');
+  await line.press('Enter');
+  await expect(section).toContainText('Done today: Mood, Walk');
+  await letItSave(page);
+
+  // The Habits screen shows each answer, and again after a reload.
+  await page.goto('/habits');
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    const mood = card(page, 'Mood');
+    await expect(mood.getByRole('group', { name: 'Today, Mood' })).toContainText('tired');
+    await expect(mood).toContainText('Lately: today tired');
+    await expect(
+      mood.getByRole('list', { name: 'The last seven days of Mood' }).getByRole('listitem').last(),
+    ).toContainText(': done, tired');
+    await expect(card(page, 'Walk').getByRole('group', { name: 'Today, Walk' })).toContainText(
+      'to the river and back',
+    );
+  }
+  await noSeriousViolations(page);
+
+  // Stored sealed: the sealed marker, and none of the words.
+  const mood = await storedToday('Mood');
+  expect(mood['state']).toBe('done');
+  expect(mood['answer'].startsWith('\uE000mg1.')).toBe(true);
+  expect(mood['answer']).not.toContain('tired');
+  const walk = await storedToday('Walk');
+  expect(walk['answer'].startsWith('\uE000mg1.')).toBe(true);
+  expect(walk['answer']).not.toContain('river');
+
+  // The note habit's tick opens a new entry from its template, and the
+  // day is done with the entry's id, linked from the Habits screen.
+  await page.goto('/right-now');
+  await section.getByRole('button', { name: 'Done: Journal' }).click();
+  await expect(page).toHaveURL(/\/n\/\w+$/);
+  const entryUrl = page.url();
+  expect(entryUrl).not.toBe(templateUrl);
+  await expect(page.getByRole('textbox', { name: 'New note' })).toContainText('New template');
+  await letItSave(page);
+  const entryId = entryUrl.split('/').pop()!;
+  expect((await storedToday('Journal'))['noteId']).toBe(entryId);
+  await page.goto('/habits');
+  const journal = card(page, 'Journal');
+  await expect(journal.getByRole('button', { name: 'Done today: Journal' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(journal.getByRole('link', { name: 'Open the entry' })).toHaveAttribute(
+    'href',
+    `/n/${entryId}`,
+  );
 });
 
 for (const { label, viewport, rail } of [

@@ -1007,7 +1007,27 @@ describe('habits (#324): the gardener’s habits and their month logs', () => {
     await assertFails(log('2100-02', '29'));
   });
 
-  // An entry's check costs the rules about 150 of the 1,000 expressions
+  // An answer held on the device for the note key (step 6, 2026-11-22)
+  // is written later, merged into its tick's entry alone: the entry it
+  // makes is checked whole, so the same shape as a tick with an answer.
+  it('takes an answer merged into a tick’s entry alone, never onto an empty day', async () => {
+    const ref = owner().doc('users/owner/habitLogs/h1_2026-11');
+    await assertSucceeds(ref.set(habitLog()));
+    const answer = (day: string, over: Record<string, unknown> = {}) =>
+      ref.set(
+        {
+          habit: 'h1',
+          month: '2026-11',
+          days: { [day]: { answer: sealed(300), ...over } },
+          updatedAt: now(),
+        },
+        { merge: true },
+      );
+    await assertSucceeds(answer('21'));
+    await assertFails(answer('22'));
+    await assertFails(answer('21', { noteId: 'n1' }));
+  });
+
   // a request may evaluate, so a write checks only the entries it adds
   // or changes, at most four. A full month is the log nearest the
   // limits: every tick on it carries all 31 entries.

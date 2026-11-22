@@ -36,6 +36,7 @@
 // sealed, once a codec at most.
 import {
   type DataKey,
+  type HabitAnswerKind,
   type NoteForm,
   type NoteForms,
   SEALED_FIELDS,
@@ -55,9 +56,11 @@ import {
   itemHash,
   noteTextHash,
   noteTextHashMatches,
+  openHabitAnswer,
   openText,
   refileNamesHash,
   recordAadFor,
+  sealHabitAnswer,
   sealText,
   withFieldValue,
 } from '@mossgoblin/schema';
@@ -115,6 +118,29 @@ export class SealedRecordError extends ToolError {
         `here (${
           reason === 'no-key' ? 'its key is not available' : 'its sealed text did not open'
         }), so nothing was done`,
+    );
+  }
+}
+
+/**
+ * A habit's answer that cannot be sealed or opened here (#324 step 6,
+ * 2026-11-22): no key (the service is not set up, or did not answer),
+ * or a stored answer that did not open. Holds the habit, the day and
+ * why, never text or a key. Sealing refused, nothing is written: an
+ * answer is never stored plain, as no note text is.
+ */
+export class SealedAnswerError extends ToolError {
+  override readonly name = 'SealedAnswerError';
+  constructor(
+    readonly habit: string,
+    readonly date: string,
+    readonly reason: UnreadableReason,
+  ) {
+    super(
+      reason === 'no-key'
+        ? `the answer for ${date} cannot be sealed or opened here: its key is not ` +
+            'available, so nothing was written'
+        : `the answer for ${date} is sealed and did not open here, so it is left as it is`,
     );
   }
 }
@@ -264,6 +290,37 @@ export class NoteCodec {
       return openText(key, recordAadFor(this.uid, collection, docId, field), value);
     } catch (err) {
       if (err instanceof SealError) throw new SealedRecordError(collection, docId, 'did-not-open');
+      throw err;
+    }
+  }
+
+  /**
+   * A habit's answer for `date`, as stored (#324 step 6, 2026-11-22):
+   * padded and sealed under the day's own aad (`sealHabitAnswer`, as
+   * the app seals one), with the same key as note text. No key throws
+   * SealedAnswerError, so nothing is written with the answer plain.
+   */
+  async sealHabitAnswer(
+    habitId: string,
+    date: string,
+    kind: HabitAnswerKind,
+    text: string,
+  ): Promise<string> {
+    const key = await this.dataKey(habitId, () => new SealedAnswerError(habitId, date, 'no-key'));
+    return sealHabitAnswer(key, this.uid, habitId, date, kind, text);
+  }
+
+  /**
+   * The text of habit `habitId`'s stored answer for `date`. Throws
+   * SealedAnswerError when there is no key or it does not open; the
+   * key is asked for once a codec, as for notes.
+   */
+  async openHabitAnswer(habitId: string, date: string, stored: string): Promise<string> {
+    const key = await this.dataKey(habitId, () => new SealedAnswerError(habitId, date, 'no-key'));
+    try {
+      return openHabitAnswer(key, this.uid, habitId, date, stored);
+    } catch (err) {
+      if (err instanceof SealError) throw new SealedAnswerError(habitId, date, 'did-not-open');
       throw err;
     }
   }
