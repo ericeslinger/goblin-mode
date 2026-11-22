@@ -210,6 +210,12 @@ export function zonedHour(ms: number, tz: string): number {
   return parts(ms, tz)['hour']!;
 }
 
+/** The time of day of instant `ms` on the clock in `tz`, "HH:MM". */
+export function zonedTime(ms: number, tz: string): string {
+  const p = parts(ms, tz);
+  return `${pad2(p['hour']!)}:${pad2(p['minute']!)}`;
+}
+
 /**
  * The instant day `iso` (YYYY-MM-DD) begins in `tz`: its midnight, or
  * just after the gap where a clock change skips midnight.
@@ -217,4 +223,14 @@ export function zonedHour(ms: number, tz: string): number {
 export function zonedDayStart(iso: string, tz: string): number {
   const [y, m, d] = iso.split('-').map(Number);
   return atWallTime(addDays({ y, m, d, weekday: 0 }, 0), '00:00', tz);
+}
+
+/**
+ * The instant wall-clock `time` ("HH:MM") happens on day `iso`
+ * (YYYY-MM-DD) in `tz`: a time repeated by a clock change takes the
+ * first, one skipped lands just after the gap, as a recurrence's does.
+ */
+export function zonedTimeOn(iso: string, time: string, tz: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return atWallTime(addDays({ y, m, d, weekday: 0 }, 0), time, tz);
 }

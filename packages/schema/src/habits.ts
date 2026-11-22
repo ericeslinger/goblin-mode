@@ -9,14 +9,22 @@
 import { z } from 'zod';
 import { WEEKDAYS, type Weekday, addDays, periodStartFor } from './mealplan';
 import type { Habit, HabitEntry, HabitLog } from './model';
+import { zonedDay, zonedTime, zonedTimeOn } from './reminders';
+
+/** A time of day, "HH:MM" on a 24-hour clock. */
+const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * The Habits module's configuration, in `settings/modules`
  * (habits.config), defaults filling gaps: the day a week starts on,
- * Monday as the meal plan's default.
+ * Monday as the meal plan's default; and the quiet hours, one setting
+ * for every nudge (Eric, 2026-11-21), 22:00 to 06:00 unless set. A
+ * start equal to its end means no quiet hours.
  */
 export const HabitsConfig = z.object({
   weekStart: z.enum(WEEKDAYS).catch('Mon').default('Mon'),
+  quietFrom: z.string().regex(TIME_OF_DAY).catch('22:00').default('22:00'),
+  quietTo: z.string().regex(TIME_OF_DAY).catch('06:00').default('06:00'),
 });
 export type HabitsConfig = z.infer<typeof HabitsConfig>;
 
@@ -147,6 +155,31 @@ export function canLogHabitDay(day: string, today: string): boolean {
 }
 
 /**
+ * Whether a habit's `day` can be logged on `today`, as the app offers
+ * it (review of #329, 2026-11-21): today; or yesterday after the fact,
+ * when the habit was there then (made that day or before: `createdOn`,
+ * its `createdAt` in the asker's zone) and yesterday is a period of
+ * its own (a daily habit, or the last day of a week or month: within
+ * one period, today's tick settles it). Never a day before the habit
+ * began.
+ */
+export function habitDayLoggable(
+  habit: Pick<Habit, 'schedule'>,
+  day: string,
+  today: string,
+  options: { weekStart?: Weekday; createdOn?: string } = {},
+): boolean {
+  if (!canLogHabitDay(day, today)) return false;
+  if (options.createdOn !== undefined && day < options.createdOn) return false;
+  if (day === today) return true;
+  const weekStart = options.weekStart ?? 'Mon';
+  return (
+    habitPeriod(habit.schedule, day, weekStart).start !==
+    habitPeriod(habit.schedule, today, weekStart).start
+  );
+}
+
+/**
  * The months whose logs hold everything the strip ending `today` and
  * the period it starts in need: at most two, as a strip is seven days
  * and its first period begins at most twelve days before today.
@@ -268,4 +301,166 @@ function dayState(
   if (stateBetween(entries, period.start, period.end) !== 'none') return 'covered';
   // Still loggable (its last day is yesterday): open, not yet missed.
   return period.end < today && !canLogHabitDay(period.end, today) ? 'missed' : 'open';
+}
+
+// Nudges (step 4 of #324, 2026-11-21; DESIGN.md, Habits, Nudges): one
+// push at the habit's time, only if its day has nothing logged, never a
+// second; held through the quiet hours. Daily habits only for now: when
+// a weekly or monthly one nudges is step 5's.
+
+/** How late a nudge may still go: past the hourly run that catches a missed wake. */
+export const HABIT_NUDGE_LATE_MS = 65 * 60 * 1000;
+
+/** Whether `time` ("HH:MM") falls in the quiet hours `from` to `to`. */
+function quiet(time: string, from: string, to: string): boolean {
+  if (from === to) return false;
+  return from < to ? time >= from && time < to : time >= from || time < to;
+}
+
+/**
+ * The time of day a nudge for a habit at `time` is sent: its own,
+ * or, in the quiet hours, the hour they end, held to it on the same
+ * day (03:00 goes at 06:00). None when the quiet hours run on past
+ * midnight from it (22:30 would wait until 06:00 the next morning,
+ * when its day has ended, and a late nudge is never sent for a day
+ * that has ended).
+ */
+export function habitNudgeTime(time: string, config: HabitsConfig): string | undefined {
+  const { quietFrom, quietTo } = config;
+  if (!quiet(time, quietFrom, quietTo)) return time;
+  // Held to the end of the quiet hours: later the same day only when
+  // they end after it, before midnight.
+  return quietTo > time ? quietTo : undefined;
+}
+
+/** The habit fields a nudge reads. */
+export type NudgeHabit = Pick<Habit, 'schedule' | 'time' | 'tz' | 'nudge' | 'archived'>;
+
+/**
+ * What a habit's nudge will do, by time of day (review of #330,
+ * 2026-11-22): the one answer the habit's line, the Edit hint, the
+ * assistant's note and the server's sending all read. `at` its own
+ * time; `held` to `time`, the end of the quiet hours; `quiet`, none,
+ * its time being in quiet hours that run on past its midnight; `weekly`
+ * and `monthly` are not nudged until step 5 (`not-daily`); `off` (the
+ * switch off, or archived) and `no-time` send none either.
+ */
+export type HabitNudgePlan =
+  | { kind: 'at'; time: string }
+  | { kind: 'held'; time: string }
+  | { kind: 'quiet' }
+  | { kind: 'not-daily' }
+  | { kind: 'no-time' }
+  | { kind: 'off' };
+
+export function habitNudgePlan(
+  habit: Pick<Habit, 'schedule'> & { time?: string; nudge?: boolean; archived?: boolean },
+  config: HabitsConfig,
+): HabitNudgePlan {
+  if (!habit.nudge || habit.archived) return { kind: 'off' };
+  if (habit.time === undefined || habit.time === '') return { kind: 'no-time' };
+  if (habit.schedule !== 'daily') return { kind: 'not-daily' };
+  const time = habitNudgeTime(habit.time, config);
+  if (time === undefined) return { kind: 'quiet' };
+  return time === habit.time ? { kind: 'at', time } : { kind: 'held', time };
+}
+
+/** Whether instant `ms`, on the clock in `tz`, is in the quiet hours. */
+function quietAt(ms: number, tz: string, config: HabitsConfig): boolean {
+  return quiet(zonedTime(ms, tz), config.quietFrom, config.quietTo);
+}
+
+/**
+ * The instant a habit's nudge for `day` (YYYY-MM-DD in its zone) goes:
+ * its time there, or the end of the quiet hours it falls in; none for a
+ * habit that does not nudge (off, archived, no time, not daily: weekly
+ * and monthly wait for step 5) or whose nudge has no time that day.
+ */
+export function habitNudgeAt(
+  habit: NudgeHabit,
+  day: string,
+  config: HabitsConfig,
+): number | undefined {
+  const plan = habitNudgePlan(habit, config);
+  if (plan.kind !== 'at' && plan.kind !== 'held') return undefined;
+  try {
+    const at = zonedTimeOn(day, plan.time, habit.tz);
+    // A time a clock change skips lands just after the gap, still that
+    // day; none when that lands it in the quiet hours (a nudge is never
+    // sent in them, review of #330), so no wake is queued there either.
+    if (zonedDay(at, habit.tz) !== day || quietAt(at, habit.tz, config)) return undefined;
+    return at;
+  } catch {
+    // A zone the platform does not know: no nudge, never a wrong one.
+    return undefined;
+  }
+}
+
+/** What decides a nudge besides the habit: everything the server reads. */
+export interface HabitNudgeContext {
+  /** The Habits module is on. */
+  on: boolean;
+  config: HabitsConfig;
+  /** The last day a nudge was sent for this habit, YYYY-MM-DD, if any. */
+  sentFor?: string;
+  /** When the habit was last changed: a nudge is for a moment after it. */
+  changedAt?: number;
+  /** The day's entry, done or skipped, once read; none: nothing logged. */
+  logged?: HabitEntry;
+}
+
+/**
+ * The nudge due at `now`, if one is: the day (today in the habit's
+ * zone) and the moment it was for. Due when the module is on, the
+ * habit nudges, its moment that day has come no more than
+ * HABIT_NUDGE_LATE_MS ago and after the habit last changed (so a time
+ * set to one already past brings no push), no nudge was sent for that
+ * day or a later one, and the day holds no entry. Only today is ever
+ * looked at, so a nudge late past midnight is never sent; and none is
+ * sent while `now` is in the quiet hours (review of #330, 2026-11-22),
+ * so a 21:30 nudge late past 22:00 is let go: its day ends before they
+ * do. One held to their end goes as they end, which is not in them.
+ */
+export function habitNudgeDue(
+  habit: NudgeHabit,
+  now: number,
+  ctx: HabitNudgeContext,
+): { day: string; at: number } | undefined {
+  if (!ctx.on || ctx.logged) return undefined;
+  let day: string;
+  try {
+    day = zonedDay(now, habit.tz);
+  } catch {
+    return undefined;
+  }
+  if (ctx.sentFor !== undefined && ctx.sentFor >= day) return undefined;
+  const at = habitNudgeAt(habit, day, ctx.config);
+  if (at === undefined || at > now || now - at > HABIT_NUDGE_LATE_MS) return undefined;
+  if (quietAt(now, habit.tz, ctx.config)) return undefined;
+  if (ctx.changedAt !== undefined && at <= ctx.changedAt) return undefined;
+  return { day, at };
+}
+
+/**
+ * The next nudge after `now`, to wake for: today's if still ahead,
+ * else tomorrow's, else the day after's (a day can lack one only when
+ * a clock change takes its time away); none for a habit that does not
+ * nudge.
+ */
+export function habitNextNudge(
+  habit: NudgeHabit,
+  now: number,
+  config: HabitsConfig,
+): number | undefined {
+  let day: string;
+  try {
+    day = zonedDay(now, habit.tz);
+  } catch {
+    return undefined;
+  }
+  for (let i = 0; i < 3; i++) {
+    const at = habitNudgeAt(habit, addDays(day, i), config);
+    if (at !== undefined && at > now) return at;
+  }
+  return undefined;
 }

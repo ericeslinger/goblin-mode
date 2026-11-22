@@ -171,9 +171,12 @@ test('after a filing is put back, File it under… files the note under another 
     changes.getByRole('button', { name: 'Put back: Filed a sealed note under a sealed project' }),
   ).toBeVisible();
 
-  // His text stays word for word, with the link under it.
+  // His text stays word for word, with the link under it. The note
+  // has to arrive on this fresh load: given 20 s (2026-11-22, #312),
+  // as sign-in is, since one run beside the themes journey's axe sweeps
+  // still showed the empty note at 5 s.
   await page.goto(`/n/${kiln.id}`);
-  await expect(note(page)).toContainText('Cone 6, slow cool.');
+  await expect(note(page)).toContainText('Cone 6, slow cool.', { timeout: 20_000 });
   await expect(note(page)).toContainText('Garden');
   await expect(note(page)).not.toContainText('Pottery');
 

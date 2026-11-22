@@ -2,7 +2,10 @@ import { TestBed } from '@angular/core/testing';
 import { ModulesService } from '../modules/modules.service';
 import { type FakeHabitsApi, type FakeModules, habitDoc } from '../testing/fakes';
 import { HOUR, NOW, buttonNamed, renderWithReminders } from '../testing/reminders';
-import { dayState, streakLine } from './habit-lines';
+import { habitsConfig } from '@mossgoblin/schema';
+import { PushService } from '../push/push.service';
+import type { FakePush } from '../testing/fakes';
+import { dayState, habitWhen, nudgeHint, streakLine } from './habit-lines';
 import { Habits } from './habits';
 import { HABITS_API } from './habits.service';
 
@@ -217,6 +220,66 @@ describe('The Habits screen (#324)', () => {
     expect(r.api.set.mock.lastCall![2]).toMatchObject({ archived: false });
   });
 
+  it('nudges only with a time, asks for notifications the first time, and says so on the line', async () => {
+    const r = await render();
+    const push = TestBed.inject(PushService) as unknown as FakePush;
+    push.state.set('off');
+    await r.habits([habitDoc('floss', { name: 'Floss' })]);
+    buttonNamed(r.el, 'Edit Floss')!.click();
+    await r.fixture.whenStable();
+    const form = r.el.querySelector<HTMLElement>('form[aria-label="Edit Floss"]')!;
+    const nudge = () => form.querySelector<HTMLInputElement>('input[name="nudge"]')!;
+    expect(nudge().getAttribute('role')).toBe('switch');
+    expect(nudge().disabled).toBe(true);
+    expect(form.textContent).toContain('A nudge needs a time of day.');
+
+    type(form, 'input[name="time"]', '21:00');
+    await r.fixture.whenStable();
+    expect(nudge().disabled).toBe(false);
+    expect(form.textContent).toContain('One push at 21:00 if not logged by then.');
+    nudge().click();
+    await r.fixture.whenStable();
+    // The first time, this device's notifications, through Settings' path.
+    expect(push.enable).toHaveBeenCalledTimes(1);
+    buttonNamed(form, 'Save')!.click();
+    expect(r.api.set.mock.lastCall![2]).toMatchObject({ time: '21:00', nudge: true });
+
+    r.api.pushHabits([habitDoc('floss', { name: 'Floss', time: '21:00', nudge: true })]);
+    await r.fixture.whenStable();
+    expect(card(r.el, 'Floss').querySelector('.meta')?.textContent).toContain('21:00 · Nudge on');
+
+    // On already: switched off alone, the time stays and nothing is asked.
+    buttonNamed(r.el, 'Edit Floss')!.click();
+    await r.fixture.whenStable();
+    const again = r.el.querySelector<HTMLElement>('form[aria-label="Edit Floss"]')!;
+    const off = again.querySelector<HTMLInputElement>('input[name="nudge"]')!;
+    expect(off.checked).toBe(true);
+    off.click();
+    await r.fixture.whenStable();
+    buttonNamed(again, 'Save')!.click();
+    expect(r.api.set.mock.lastCall![2]).toEqual({ nudge: false, updatedAt: expect.anything() });
+    expect(push.enable).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns the nudge off with the time cleared, and points to Settings when blocked', async () => {
+    const r = await render();
+    const push = TestBed.inject(PushService) as unknown as FakePush;
+    push.state.set('blocked');
+    await r.habits([habitDoc('floss', { name: 'Floss', time: '21:00', nudge: true })]);
+    buttonNamed(r.el, 'Edit Floss')!.click();
+    await r.fixture.whenStable();
+    const form = r.el.querySelector<HTMLElement>('form[aria-label="Edit Floss"]')!;
+    expect(form.querySelector('a[href="/settings/notifications"]')?.textContent).toContain(
+      'Settings, Notifications',
+    );
+    type(form, 'input[name="time"]', '');
+    await r.fixture.whenStable();
+    expect(form.querySelector<HTMLInputElement>('input[name="nudge"]')!.disabled).toBe(true);
+    buttonNamed(form, 'Save')!.click();
+    expect(r.api.set.mock.lastCall![2]).toMatchObject({ time: 'DELETE', nudge: false });
+    expect(push.enable).not.toHaveBeenCalled();
+  });
+
   it('shows a weekly habit settled on another day as done this week', async () => {
     const r = await render();
     // Done Monday the 5th; today is Tuesday.
@@ -240,6 +303,41 @@ describe('habit lines', () => {
     expect(streakLine('daily', 5)).toBe('Streak: 5 days');
     expect(streakLine('weekly', 2)).toBe('Streak: 2 weeks');
     expect(streakLine('daily', 30, false)).toBe('Streak: at least 30 days');
+  });
+
+  it('says when a nudge goes, held through the quiet hours or not at all', () => {
+    const config = habitsConfig({});
+    expect(nudgeHint('daily', '', config)).toBe('A nudge needs a time of day.');
+    expect(nudgeHint('daily', '07:30', config)).toBe('One push at 07:30 if not logged by then.');
+    expect(nudgeHint('daily', '05:00', config)).toBe(
+      'One push at 06:00, when the quiet hours (22:00 to 06:00) end, if not logged by then.',
+    );
+    expect(nudgeHint('daily', '23:00', config)).toBe(
+      'No push: 23:00 is in the quiet hours (22:00 to 06:00), which end after its day does.',
+    );
+    expect(nudgeHint('weekly', '07:30', config)).toBe('Nudges are for daily habits for now.');
+    expect(habitWhen({ schedule: 'daily', time: '07:30', nudge: true }, config)).toBe(
+      '07:30 · Nudge on',
+    );
+    expect(habitWhen({ schedule: 'daily', nudge: true }, config)).toBe('');
+  });
+
+  it('puts on a habit’s line only the nudge its Edit hint says will go (review of #330)', () => {
+    const config = habitsConfig({});
+    const daily = { schedule: 'daily', nudge: true } as const;
+    expect(habitWhen({ ...daily, time: '05:00' }, config)).toBe('05:00 · Nudge at 06:00');
+    expect(habitWhen({ ...daily, time: '22:30' }, config)).toBe('22:30');
+    expect(habitWhen({ ...daily, time: '21:00', nudge: false }, config)).toBe('21:00');
+    expect(habitWhen({ schedule: 'weekly', time: '21:00', nudge: true }, config)).toBe(
+      'This week · 21:00',
+    );
+    expect(habitWhen({ schedule: 'monthly', time: '21:00', nudge: true }, config)).toBe(
+      'This month · 21:00',
+    );
+    // Quiet hours set otherwise move the line with the hint.
+    const noon = habitsConfig({ quietFrom: '12:00', quietTo: '14:00' });
+    expect(habitWhen({ ...daily, time: '22:30' }, noon)).toBe('22:30 · Nudge on');
+    expect(habitWhen({ ...daily, time: '13:00' }, noon)).toBe('13:00 · Nudge at 14:00');
   });
 
   it('gives every strip state a mark or words of its own', () => {

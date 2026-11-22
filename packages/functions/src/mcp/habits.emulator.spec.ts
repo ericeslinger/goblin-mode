@@ -153,7 +153,7 @@ describe('the Habits tools (#324 step 3)', () => {
     await expect(t.createHabit({ name: 'Run', time: '7am', timeZone: LA })).rejects.toThrow(
       /HH:MM/,
     );
-    // A nudge is stored only, and the result says no push goes yet.
+    // A nudge on: the result says what is sent, and that a weekly one waits.
     const nudged = await t.createHabit({
       name: 'Run',
       schedule: 'weekly',
@@ -162,7 +162,7 @@ describe('the Habits tools (#324 step 3)', () => {
       timeZone: LA,
     });
     expect(nudged).toMatchObject({ schedule: 'weekly', nudge: true });
-    expect(nudged.nudgeNote).toMatch(/does not send habit nudges yet/);
+    expect(nudged.nudgeNote).toMatch(/weekly and monthly habits are not nudged yet/);
     // Archived, its name is free again.
     await t.updateHabit({ habit: first.id, archived: true });
     const again = await t.createHabit({ name: 'Drink metamucil for fiber', timeZone: LA });
@@ -245,6 +245,10 @@ describe('the Habits tools (#324 step 3)', () => {
       nudge: true,
       createdBy: 'user',
     });
+    expect(renamed).toHaveProperty(
+      'nudgeNote',
+      expect.stringMatching(/^One push at 21:00 in Europe\/London/),
+    );
     await expect(t.updateHabit({ habit: 'floss', time: null })).rejects.toThrow(
       /a nudge needs a time of day/,
     );
@@ -344,6 +348,40 @@ describe('the Habits tools (#324 step 3)', () => {
       /Run is archived; unarchive it with update_habit/,
     );
     expect(await log('run_2026-11')).toBeUndefined();
+  });
+
+  it('refuses a day before the habit began, and a yesterday in the same week (review of #329)', async () => {
+    await habitsOn();
+    // Made today, the 21st in Los Angeles: the 20th is before it.
+    await appHabit('new', 'New', { createdAt: at(T - 3600_000) });
+    const t = tools();
+    await expect(t.logHabit({ habit: 'new', state: 'done', date: '2026-11-20' })).rejects.toThrow(
+      /New began on 2026-11-21; 2026-11-20 is before it/,
+    );
+    expect(await t.logHabit({ habit: 'new', state: 'done' })).toMatchObject({
+      date: '2026-11-21',
+    });
+    // Made on the 1st: on the 2nd, the 1st can be logged, not October 31st.
+    await appHabit('first', 'First', { createdAt: at(Date.parse('2026-11-01T17:00:00Z')) });
+    const second = tools(Date.parse('2026-11-02T19:00:00Z'));
+    expect(
+      await second.logHabit({ habit: 'first', state: 'done', date: '2026-11-01' }),
+    ).toMatchObject({ date: '2026-11-01', changed: true });
+    const first = tools(Date.parse('2026-11-01T19:00:00Z'));
+    await expect(
+      first.logHabit({ habit: 'first', state: 'done', date: '2026-10-31' }),
+    ).rejects.toThrow(/began on 2026-11-01/);
+    expect(await log('first_2026-10')).toBeUndefined();
+    // A weekly habit on Saturday: Friday is the same week; on a Monday,
+    // Sunday ended the week before and can still be logged.
+    await appHabit('moss', 'Water the moss', { schedule: 'weekly' });
+    await expect(t.logHabit({ habit: 'moss', state: 'done', date: '2026-11-20' })).rejects.toThrow(
+      /yesterday \(2026-11-20\) is in the same week as today/,
+    );
+    const monday = tools(Date.parse('2026-11-23T19:00:00Z'));
+    expect(
+      await monday.logHabit({ habit: 'moss', state: 'done', date: '2026-11-22' }),
+    ).toMatchObject({ date: '2026-11-22', changed: true });
   });
 
   it('merges a tick from the app and one from the tool into one month log', async () => {

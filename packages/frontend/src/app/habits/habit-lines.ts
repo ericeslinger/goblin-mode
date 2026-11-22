@@ -1,4 +1,9 @@
-import type { HabitDayState, HabitSchedule } from '@mossgoblin/schema';
+import {
+  type HabitDayState,
+  type HabitSchedule,
+  type HabitsConfig,
+  habitNudgePlan,
+} from '@mossgoblin/schema';
 
 // The words and marks the Habits screen and Right Now put on a habit
 // (#324, step 2): pure, so the specs can read them.
@@ -24,13 +29,22 @@ export function streakLine(schedule: HabitSchedule, count: number, complete = tr
 
 /**
  * What a habit's row says under its name: a weekly or monthly one's
- * period ("This week"), and its time of day if it has one ("07:30");
- * nothing for a daily habit at any time.
+ * period ("This week"), its time of day if it has one ("07:30"), and
+ * its nudge (step 4 of #324) by `habitNudgePlan`, as the Edit hint
+ * says it (review of #330, 2026-11-22): "Nudge on" only when a push
+ * goes at its time, "Nudge at 06:00" when the quiet hours hold it, and
+ * nothing when none goes (a weekly or monthly habit, or a time in the
+ * quiet hours before midnight); nothing for a daily habit at any time.
  */
-export function habitWhen(h: { schedule: HabitSchedule; time?: string }): string {
+export function habitWhen(
+  h: { schedule: HabitSchedule; time?: string; nudge?: boolean; archived?: boolean },
+  config: HabitsConfig,
+): string {
+  const plan = habitNudgePlan(h, config);
   const parts = [
     ...(h.schedule === 'weekly' ? ['This week'] : h.schedule === 'monthly' ? ['This month'] : []),
     ...(h.time ? [h.time] : []),
+    ...(plan.kind === 'at' ? ['Nudge on'] : plan.kind === 'held' ? [`Nudge at ${plan.time}`] : []),
   ];
   return parts.join(' · ');
 }
@@ -73,5 +87,30 @@ export function dayState(
       return { mark: '', words: 'not logged yet' };
     case 'before':
       return { mark: '', words: 'before the habit began' };
+  }
+}
+
+/**
+ * What the Edit form says under Nudge me (step 4 of #324): that a nudge
+ * needs a time; when a daily habit's goes, held through the quiet hours
+ * or not sent at all for a time in them before midnight; and that a
+ * weekly or monthly habit is not nudged yet. As if switched on, by
+ * `habitNudgePlan`, as the habit's line reads it.
+ */
+export function nudgeHint(schedule: HabitSchedule, time: string, config: HabitsConfig): string {
+  const plan = habitNudgePlan({ schedule, time, nudge: true }, config);
+  const quiet = `quiet hours (${config.quietFrom} to ${config.quietTo})`;
+  switch (plan.kind) {
+    case 'off':
+    case 'no-time':
+      return 'A nudge needs a time of day.';
+    case 'not-daily':
+      return 'Nudges are for daily habits for now.';
+    case 'quiet':
+      return `No push: ${time} is in the ${quiet}, which end after its day does.`;
+    case 'held':
+      return `One push at ${plan.time}, when the ${quiet} end, if not logged by then.`;
+    case 'at':
+      return `One push at ${time} if not logged by then.`;
   }
 }

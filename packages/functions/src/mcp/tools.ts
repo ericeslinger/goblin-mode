@@ -113,6 +113,8 @@ import {
   addDays,
   canLogHabitDay,
   habitDayKey,
+  habitDayLoggable,
+  habitNudgePlan,
   habitDue,
   habitEntries,
   habitLogId,
@@ -635,9 +637,40 @@ interface HabitStreakView {
 /** A time of day, as a habit keeps it: "HH:MM", 24-hour. */
 const HABIT_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-/** Said with a habit whose nudge is on, until nudges are sent (step 4 of #324). */
-const NUDGE_NOT_SENT =
-  'The nudge is stored, but Mossgoblin does not send habit nudges yet: promise Eric no push.';
+/**
+ * Said with a habit whose nudge is on (step 4 of #324, 2026-11-21): what
+ * is sent and when, by the shared rule (`habitNudgePlan`, as the app's
+ * line and Edit hint read it, review of #330, 2026-11-22).
+ */
+function nudgeNoteFor(h: Habit, config: HabitsConfig): string {
+  const plan = habitNudgePlan({ ...h, nudge: true }, config);
+  const quiet = `the quiet hours (${config.quietFrom} to ${config.quietTo})`;
+  switch (plan.kind) {
+    case 'not-daily':
+      return (
+        'Nudges are sent for daily habits only for now: weekly and monthly habits are not ' +
+        'nudged yet, so promise Eric no push for this one.'
+      );
+    case 'off':
+      return 'This habit is archived, so no nudge is sent for it while it stays so.';
+    case 'no-time':
+      return 'A nudge needs a time of day: this one has none, so no push is sent for it.';
+    case 'quiet':
+      return (
+        `${h.time} is in ${quiet} before midnight, so no nudge is sent for it: it would wait ` +
+        `until ${config.quietTo}, when its day has ended. Promise Eric no push for it.`
+      );
+    case 'at':
+    case 'held': {
+      const when =
+        plan.kind === 'at' ? `at ${plan.time}` : `at ${plan.time}, held through ${quiet}`;
+      return (
+        `One push ${when} in ${h.tz}, on a day it is not yet done or skipped, to each device ` +
+        'with notifications on; never a second.'
+      );
+    }
+  }
+}
 
 /** A habit's name as given, trimmed; refused when empty or too long. */
 function habitName(name: string): string {
@@ -3756,7 +3789,8 @@ export class NotesTools {
       tx.set(this.habits().doc(id), data);
       tx.set(...this.activity('create_habit', `Made the habit ${name}`, []));
     });
-    return { ...habitFields(id, data), ...(data.nudge ? { nudgeNote: NUDGE_NOT_SENT } : {}) };
+    const nudgeNote = data.nudge ? nudgeNoteFor(data, await this.habitsSettings()) : undefined;
+    return { ...habitFields(id, data), ...(nudgeNote ? { nudgeNote } : {}) };
   }
 
   /**
@@ -3806,7 +3840,7 @@ export class NotesTools {
       throw new ToolError(
         "timeZone (Eric's IANA zone) is required with time: a habit's time is local to it",
       );
-    return this.db.runTransaction(async (tx) => {
+    const done = await this.db.runTransaction(async (tx) => {
       const all = await this.allHabits(tx);
       const found = findHabit(all, args.habit);
       const was = found.habit;
@@ -3820,7 +3854,8 @@ export class NotesTools {
       if (args.nudge !== undefined && args.nudge !== was.nudge) update['nudge'] = args.nudge;
       if (args.archived !== undefined && args.archived !== was.archived)
         update['archived'] = args.archived;
-      if (!Object.keys(update).length) return { changed: false, ...habitFields(found.id, was) };
+      if (!Object.keys(update).length)
+        return { result: { changed: false, ...habitFields(found.id, was) }, next: undefined };
       const merged: Data = { ...was, ...update };
       if (update['time'] instanceof FieldValue) delete merged['time'];
       if (merged['nudge'] === true && merged['time'] === undefined)
@@ -3852,12 +3887,11 @@ export class NotesTools {
               ? `Renamed the habit ${was.name} to ${next.name}`
               : `Changed the habit ${next.name}`;
       tx.set(...this.activity('update_habit', summary, []));
-      return {
-        changed: true,
-        ...habitFields(found.id, next),
-        ...(next.nudge ? { nudgeNote: NUDGE_NOT_SENT } : {}),
-      };
+      return { result: { changed: true, ...habitFields(found.id, next) }, next };
     });
+    const { result, next } = done;
+    if (!next?.nudge) return result;
+    return { ...result, nudgeNote: nudgeNoteFor(next, await this.habitsSettings()) };
   }
 
   /**
@@ -3886,6 +3920,18 @@ export class NotesTools {
         throw new ToolError(
           `${h.name} can be logged for today (${today}) or yesterday (${yesterday}) only, ` +
             `in its own time zone (${h.tz})`,
+        );
+      // As the app offers it (review of #329, 2026-11-21): never a day
+      // before the habit began, and yesterday for a week or month only
+      // when it ended a period of its own.
+      const createdOn =
+        found.createdAt === undefined ? undefined : habitToday(found.createdAt, h.tz);
+      if (createdOn !== undefined && date < createdOn)
+        throw new ToolError(`${h.name} began on ${createdOn}; ${date} is before it`);
+      if (!habitDayLoggable(h, date, today, { weekStart, createdOn }))
+        throw new ToolError(
+          `${h.name} is ${h.schedule}, and yesterday (${yesterday}) is in the same ` +
+            `${h.schedule === 'weekly' ? 'week' : 'month'} as today: log it for today instead`,
         );
       const month = habitMonth(date);
       const key = habitDayKey(date);
