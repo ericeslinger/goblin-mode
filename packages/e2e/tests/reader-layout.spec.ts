@@ -509,6 +509,8 @@ test.describe('in three panes', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
     // Its title has the focus, as a page arriving is read from the top.
     await expect(heading).toBeFocused();
+    // With no ring: it was put there, not tabbed to (Eric, 2026-11-22).
+    expect(await heading.evaluate((h) => getComputedStyle(h).outlineStyle)).toBe('none');
     // Its row is current, read and still there; the list kept its place.
     await expect(rowLink(page, id)).toHaveAttribute('aria-current', 'true');
     await expect(listPane(page).locator('a.open[aria-current]')).toHaveCount(1);
