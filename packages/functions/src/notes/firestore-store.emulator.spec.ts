@@ -98,10 +98,12 @@ describe('firestoreNotesStore', () => {
       settledAt,
     });
 
-    expect(await store.setTitle('u1', 'n1', T + 1000, 'Bank call')).toBe(true);
+    expect(await store.setTitle('u1', 'n1', T + 1000, 'Bank call', 'k1.made-from')).toBe(true);
     expect(opened('n1', 'title', (await ref.get()).get('title'))).toBe('Bank call');
     expect((await ref.get()).data()).toMatchObject({
       titleSource: 'llm',
+      // What it was made from, beside it (2026-11-22).
+      titleHash: 'k1.made-from',
       updatedAt,
       settledAt,
     });

@@ -10,7 +10,7 @@
 import type { DocumentSnapshot, Firestore } from 'firebase-admin/firestore';
 import { type NoteCodec, SealedNoteError, logLeftSealed } from '../mcp/note-text';
 import { firestoreNotesStore, openState, storedState } from './firestore-store';
-import { type NoteState, keepUnopened, recordHistory } from './history';
+import { type KeptTimes, type NoteState, keepUnopened, recordHistory } from './history';
 import { type MergeOutcome, hashFormOf, mergeConflict, rememberReplaced } from './merge';
 import { sealWrittenPlain } from './seal-plain';
 import { type TitleOutcome, type Titler, titleNote } from './title';
@@ -42,6 +42,8 @@ export interface HistoryOutcome {
  * not lost while nothing here can merge it. Last, a note the write left
  * with any text plain is sealed (`sealWrittenPlain`, 2026-11-15); that
  * looks at the snapshot alone first, so a sealed write costs nothing.
+ * `keptTimes`, when given (one per instance, triggers.ts), spares a typing
+ * save the read of History (2026-11-22, `KeptTimes`).
  */
 export async function historyOnWrite(
   db: Firestore,
@@ -53,6 +55,7 @@ export async function historyOnWrite(
   afterSnap: DocumentSnapshot | undefined,
   now: number,
   log: Log,
+  keptTimes?: KeptTimes,
 ): Promise<HistoryOutcome> {
   const known: string[] = [];
   const outcome = await keepAndMerge(
@@ -66,6 +69,7 @@ export async function historyOnWrite(
     now,
     log,
     known,
+    keptTimes,
   );
   const plain = await sealWrittenPlain(db, codec, uid, noteId, afterSnap, known, now, log);
   return plain ? { ...outcome, plain } : outcome;
@@ -83,6 +87,7 @@ async function keepAndMerge(
   now: number,
   log: Log,
   known: string[],
+  keptTimes: KeptTimes | undefined,
 ): Promise<HistoryOutcome> {
   const store = firestoreNotesStore(db, codec);
   const stored = [storedState(beforeSnap), storedState(afterSnap)] as const;
@@ -100,14 +105,14 @@ async function keepAndMerge(
     after = await openState(codec, noteId, stored[1]);
   } catch (err) {
     if (!(err instanceof SealedNoteError)) throw err;
-    const kept = await keepUnopened(store, uid, noteId, eventId, ...stored);
+    const kept = await keepUnopened(store, uid, noteId, eventId, ...stored, now, keptTimes);
     if (kept) log.debug('noteHistory kept a version as stored', { noteId, reason: kept });
     logLeftSealed(log, 'noteHistory', err);
     return { kept, merged: 'none', sealed: true };
   }
   // The text this write replaced, for a plain `baseHash` naming it.
   if (before) known.push(before.body);
-  const kept = await recordHistory(store, uid, noteId, eventId, before, after, now);
+  const kept = await recordHistory(store, uid, noteId, eventId, before, after, now, keptTimes);
   if (kept) log.debug('noteHistory kept a version', { noteId, reason: kept });
   // The text this write replaced, for a later merge to start from.
   await rememberReplaced(store, uid, noteId, before, after, (message, err) =>
@@ -134,7 +139,9 @@ async function keepAndMerge(
 }
 
 /**
- * noteTitle: a model title when a settle asks for one. A sealed body is
+ * noteTitle: a model title when a settle asks for one and the text it is
+ * made from changed since the model title there (title.ts, 2026-11-22;
+ * `same` otherwise, the model not asked). A sealed body is
  * opened for the model and the title written sealed; a note that cannot
  * be opened here gets no title and is not written ('sealed').
  */

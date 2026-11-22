@@ -213,6 +213,11 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertFails(ref.set({ ...note(), fromTemplate: 1 }));
     await assertSucceeds(ref.set({ ...note(), baseHash: '5-1a2b3c4d' }));
     await assertFails(ref.set({ ...note(), baseHash: 5 }));
+    // What a model title was made from, written by noteTitle beside it
+    // (2026-11-22): the app's merged saves keep a note that carries it.
+    await assertSucceeds(ref.set({ ...note(), titleSource: 'llm', titleHash: 'k1.0a1b' }));
+    await assertSucceeds(ref.update({ body: 'more words', updatedAt: now() }));
+    await assertFails(ref.set({ ...note(), titleHash: 7 }));
     // Which assistant wrote it (#142).
     await assertSucceeds(ref.set({ ...note(), updatedBy: 'claude', agent: 'Gemini CLI' }));
     await assertFails(ref.set({ ...note(), agent: 1 }));

@@ -31,6 +31,7 @@ export function storedState(snap: DocumentSnapshot | undefined): NoteState | und
     body: storedText(d, 'body'),
     title: storedText(d, 'title'),
     titleSource: typeof d['titleSource'] === 'string' ? d['titleSource'] : undefined,
+    ...(typeof d['titleHash'] === 'string' ? { titleHash: d['titleHash'] } : {}),
     updatedBy: d['updatedBy'] === 'claude' ? 'claude' : 'user',
     ...(typeof d['agent'] === 'string' ? { agent: d['agent'] } : {}),
     deviceId: String(d['deviceId'] ?? ''),
@@ -176,15 +177,23 @@ export function firestoreNotesStore(
       });
     },
 
-    setTitle(uid, noteId, forSettledAt, title) {
+    titleHash(noteId, title, text) {
+      return codec.titleHash(noteId, title, text);
+    },
+
+    setTitle(uid, noteId, forSettledAt, title, titleHash) {
       const ref = db.doc(paths.note(uid, noteId));
       return db.runTransaction(async (tx) => {
         const note = await tx.get(ref);
         if (!note.exists || note.get('titleSource') === 'user') return false;
         if (millis(note.get('settledAt')) !== forSettledAt) return false;
-        // Only the title: updatedAt, updatedBy and deviceId stay the
-        // writer's. Sealed, as every write is (2026-11-15).
-        tx.update(ref, await sealFields(codec, noteId, { title, titleSource: 'llm' }));
+        // Only the title and what it was made from: updatedAt, updatedBy
+        // and deviceId stay the writer's. Sealed, as every write is
+        // (2026-11-15); the hash is keyed (2026-11-22). Without one an
+        // old hash may stay: it covers its own title, so it matches only
+        // a title the same as this one, of the same text.
+        const update = { title, titleSource: 'llm', ...(titleHash ? { titleHash } : {}) };
+        tx.update(ref, await sealFields(codec, noteId, update));
         return true;
       });
     },

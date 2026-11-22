@@ -203,7 +203,10 @@ describe('a title renamed when asked (Eric, 2026-11-15)', () => {
     // A words title would be the titler's; renamed, it is not.
     expect(read('w')['titleSource']).toBe('user');
     const titler = vi.fn(async () => 'Loan call');
-    const store = { setTitle: vi.fn(async () => true) } satisfies TitleStore;
+    const store = {
+      titleHash: vi.fn(async () => 'k1.0'),
+      setTitle: vi.fn(async () => true),
+    } satisfies TitleStore;
     const state = (over: Data) =>
       ({
         body: 'call the bank about the loan',

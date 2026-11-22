@@ -3,6 +3,8 @@
 // stored as a hash of a note's words: a write's `baseHash`, the id of a
 // replaced text (`notes/{id}/replaced/{hash}`), the body hash an
 // activity entry keeps in `before`, and the hash in an item run's id.
+// Since 2026-11-22 a fifth, a model title's `titleHash`, is only ever
+// keyed (`noteTitleHash`).
 // A plain hash lets anyone holding the database check a guess at a
 // short text against it, so for a sealed note each is keyed instead:
 // HMAC-SHA-256 under a key derived from the gardener's data key
@@ -104,6 +106,26 @@ export function noteTextHashMatches(
   if (!hash.startsWith(KEYED_PREFIX)) return undefined;
   const k = key();
   return k ? keyedHex(k, 'note-body', noteId, text, BODY_HEX) === hash : undefined;
+}
+
+/**
+ * A note's `titleHash` (2026-11-22): what a model title was made from,
+ * so a settle that would ask again of the same text does not. The keyed
+ * hash, under purpose `note-title` and the note's id, of the title and
+ * the text it was made from together (`titleText` of the body), so it
+ * matches only while both are as they were: a title written since by
+ * anyone else, or a changed text, asks again. Keyed whatever the note's
+ * form, and undefined with no key, so no plain hash of a note's words
+ * is ever stored here.
+ */
+export function noteTitleHash(
+  noteId: string,
+  title: string,
+  text: string,
+  key: KeyGetter,
+): string | undefined {
+  const k = key();
+  return k ? keyedHex(k, 'note-title', noteId, JSON.stringify([title, text]), BODY_HEX) : undefined;
 }
 
 /**

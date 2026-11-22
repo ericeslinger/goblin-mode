@@ -132,6 +132,7 @@ interface Note {
   updatedBy: 'user' | 'claude';
   deviceId: string;             // last writer, for conflict history
   settledAt?: Timestamp;        // last left after a change; asks for a title
+  titleHash?: string;           // keyed: what a model title was made from (2026-11-22)
   gardenHold?: boolean;         // Leave this note alone (#229)
 }
 ```
@@ -1241,6 +1242,22 @@ it whole, and Restore puts it back. A restore writes as its own writer
 (the device id plus `~restore`), so the text it replaces is kept too.
 Versions are never pruned yet; one person's history is small.
 
+**What a save costs History (2026-11-22).** Every reason but the
+interval is decided from the write itself. The interval needs the
+newest kept version's time, and until this date every write that
+changed the body by the same writer on the same device read it (one
+query of `history` per typing save, although the code's comment said
+most writes cost no read). Now each function instance remembers a
+time each note's last kept version is at least (`KeptTimes` in
+`packages/functions/src/notes/history.ts`): from a version it kept,
+less a second for clocks, or from what it last read. When that alone
+puts the save inside the ten minutes, nothing is read; otherwise
+History is read as before. It is only ever a lower bound (versions
+are only added, and go only with their note), so History keeps
+exactly the versions it kept before. A typing save inside the
+interval on a warm instance reads nothing; a cold instance, or the
+first save after ten minutes, reads once. Nothing new is stored.
+
 **Titles.** The client shows the first words until a better title
 arrives. A trigger on note writes asks a small Claude model for a title
 when the first paragraph changes and `titleSource` is not `user`. No
@@ -1261,6 +1278,22 @@ llm` only if the note is still at that settle. Between settles the app
 keeps Claude's title rather than putting first words back. A settle
 that has to wait for sign-in (the launch case) is held on the device
 and written once the notes load.
+
+**A title only when it could change (2026-11-22).** A settle says the
+note was written since the last one, not that the text a title is made
+from changed: the model sees the body's first 2000 characters
+(`titleText`, `packages/functions/src/notes/title.ts`), so a line added
+past them, a tick, a tool's edit or an edit put back settled the note
+and asked the model again, for every settle of a note of four or more
+words. Now `noteTitle` writes `titleHash` beside a model title: the
+keyed hash (`noteTitleHash`, purpose `note-title`, the note's id) of
+the title and the text it was made from. A settle whose note still has
+an `llm` title with a matching hash asks nothing (`same`). Any other
+title (first words, one Claude set through the tools, one from before
+this date) has no matching hash and is asked for as before; Eric's own
+(`user`) is never asked for or replaced. The hash is keyed whatever
+the note's form, so no plain hash of a sealed note's words is stored;
+with no key, the model is asked and the title written without one.
 
 **Claude credentials: workload identity federation, no API key (Eric,
 2026-10-06; replaces the `ANTHROPIC_API_KEY` secret planned on
@@ -7181,7 +7214,9 @@ below behaves as before and asks for no key.
   `baseHash` in the note's form.
 - `noteTitle`: opens the body for the model only when a settle could
   ask for a title, and writes the title sealed when the note's body
-  or title is stored sealed. So a sealed note's opened body goes to
+  or title is stored sealed. (Since 2026-11-22 it also asks nothing
+  when the title there was made from the same text, by its keyed
+  `titleHash`; Titles, above.) So a sealed note's opened body goes to
   the title model, as a plain note's does; sealing changes what is
   stored, not what a model the gardener uses is shown (review on
   #264). It opens before it knows whether a title is wanted, so a
