@@ -94,20 +94,24 @@ export class ModulesService {
     });
     // The day follows the device (Eric, 2026-11-22): with Habits on,
     // this device's zone is the module's, so the server reads a habit's
-    // today and nudge in the zone the app shows. Written only when it
-    // differs, and at most once a use of the app (opened, or brought
-    // back to the front), so two devices open in two zones never write
+    // today and nudge in the zone the app shows. Decided once a use of
+    // the app (opened, or brought back to the front) and never while
+    // the page is hidden: the stored zone is looked at then, not
+    // watched, so another device's zone arriving later is left alone
+    // until this one is used again, whether or not this one wrote
+    // (review on #336: a tab that matched at first wrote its zone back
+    // over the phone's). Two devices open in two zones never write
     // back and forth: the one last used wins.
     effect(() => {
       const uid = this.auth.user()?.uid;
       const use = this.use();
       if (!uid || !this.read() || !this.habits()) return;
-      if (this.habitsConfig().tz === this.tz) return;
       untracked(() => {
+        if (globalThis.document?.visibilityState === 'hidden') return;
         const key = `${uid}|${use}`;
         if (this.zoneWritten === key) return;
         this.zoneWritten = key;
-        this.configureHabits({ tz: this.tz });
+        if (this.habitsConfig().tz !== this.tz) this.configureHabits({ tz: this.tz });
       });
     });
     const back = () => {

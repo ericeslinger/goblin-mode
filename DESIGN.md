@@ -5274,7 +5274,11 @@ assistant's `nudgeNote` and the journal offer's line all read them.
 - *Two devices.* The last one used wins: a laptop left open at home
   and a phone travelling each write their zone only when brought to
   the front, never in answer to the other's write, so they never write
-  back and forth; the server follows whichever was used last.
+  back and forth; the server follows whichever was used last. The
+  stored zone is looked at once a use, when the page is showing, and
+  not watched (review on #336, 2026-11-22: a tab whose zone matched
+  at first had written its own back when the phone's arrived, and a
+  hidden tab could too).
 - *Travelling east.* The app's day moves on when it next runs there;
   the server's follows on its write. A nudge already sent for a day
   is not sent again (the mark); the new day is nudged once at the

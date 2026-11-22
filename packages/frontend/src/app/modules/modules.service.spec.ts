@@ -174,6 +174,43 @@ describe('ModulesService (#126)', () => {
       );
     });
 
+    it('leaves another device’s zone alone when its own matched at first (review on #336)', () => {
+      const { api, push } = setup('America/New_York');
+      push(modulesWith('America/New_York'));
+      TestBed.tick();
+      expect(api.set).not.toHaveBeenCalled();
+      // The phone, abroad, writes its zone: this tab, still open at
+      // home, does not write its own back.
+      push(modulesWith('Europe/Paris'));
+      TestBed.tick();
+      expect(api.set).not.toHaveBeenCalled();
+      // Used again, it is the one last used, and its zone is stored.
+      document.dispatchEvent(new Event('visibilitychange'));
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(1);
+      expect(api.set).toHaveBeenLastCalledWith(
+        {},
+        'users/u1/settings/modules',
+        expect.objectContaining({
+          habits: expect.objectContaining({
+            config: expect.objectContaining({ tz: 'America/New_York' }),
+          }),
+        }),
+      );
+    });
+
+    it('decides nothing while the page is hidden', () => {
+      const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+      const { api, push } = setup('Europe/Paris');
+      push(modulesWith('America/New_York'));
+      TestBed.tick();
+      expect(api.set).not.toHaveBeenCalled();
+      hidden.mockRestore();
+      document.dispatchEvent(new Event('visibilitychange'));
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(1);
+    });
+
     it('never writes back and forth with a device in another zone: once a use', async () => {
       const { api, push } = setup('Europe/Paris');
       push(modulesWith('America/New_York'));
