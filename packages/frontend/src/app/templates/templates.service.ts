@@ -2,11 +2,14 @@ import { Injectable, Injector, computed, inject } from '@angular/core';
 import {
   FEELINGS_TEMPLATE,
   FEELINGS_TIMES,
+  moodLine,
   shoppingListBody,
   shoppingListTitle,
   templateParts,
 } from '@mossgoblin/schema';
-import { NotesService } from '../notes/notes.service';
+import { HabitsService } from '../habits/habits.service';
+import { ModulesService } from '../modules/modules.service';
+import { type NoteRecord, NotesService } from '../notes/notes.service';
 import { RemindersService } from '../reminders/reminders.service';
 
 /** What a new template starts as: a name to change, and the section for Claude. */
@@ -49,6 +52,23 @@ function made(body: string, templateMode: 'living' | 'entry') {
 }
 
 /**
+ * Whether a note is a feelings journal's template (#40): a template, a
+ * new entry each time, open on this device, with a Moods line, as
+ * Settings tells one is there (`hasFeelingsJournal`) and Browse,
+ * Journal, tells an entry. Only the journal's template is made with a
+ * Moods line; one made by hand with one reads as a journal too.
+ */
+export function isFeelingsJournal(n: NoteRecord): boolean {
+  return (
+    n.kind === 'template' &&
+    !n.archived &&
+    !n.locked &&
+    n.templateMode !== 'living' &&
+    n.body.split('\n').some((line) => moodLine(line) !== undefined)
+  );
+}
+
+/**
  * Templates (#38): notes of kind `template`. Using one opens the note
  * to write in: a living template's one note (made the first time), or
  * a fresh entry. Both start from the skeleton, without the instructions.
@@ -56,7 +76,10 @@ function made(body: string, templateMode: 'living' | 'entry') {
 @Injectable({ providedIn: 'root' })
 export class TemplatesService {
   private readonly notes = inject(NotesService);
-  /** Reminders only when a journal is made, so templates need no reminder store. */
+  /**
+   * Reminders, habits and modules only when a journal is made, so
+   * templates need none of their stores.
+   */
   private readonly injector = inject(Injector);
 
   /** Live templates, by name. */
@@ -77,13 +100,24 @@ export class TemplatesService {
 
   /**
    * The feelings journal (#40): an entry template with a Moods line, and
-   * a daily reminder at breakfast, lunch and dinner that opens a new
-   * entry. Returns the template's id.
+   * at breakfast, lunch and dinner something that opens a new entry.
+   * Since step 7 of #324 (2026-11-22), with Habits on, three daily
+   * habits of the note kind on the template, named as the reminders
+   * were, each nudged at its time; with Habits off (or its switch not
+   * read yet), three daily reminders linked to it, as before. Habits is
+   * never switched on for it. Returns the template's id.
    */
   createFeelingsJournal(): string {
     const id = this.notes.newId();
     const { body, fields } = made(FEELINGS_TEMPLATE, 'entry');
     this.notes.create(id, body, fields);
+    if (this.injector.get(ModulesService).habits()) {
+      const habits = this.injector.get(HabitsService);
+      for (const { time, text } of FEELINGS_TIMES) {
+        habits.add({ name: text, time, answer: 'note', template: id, nudge: true });
+      }
+      return id;
+    }
     const reminders = this.injector.get(RemindersService);
     for (const { time, text } of FEELINGS_TIMES) {
       reminders.add({ text, repeat: 'daily', at: time, noteId: id });

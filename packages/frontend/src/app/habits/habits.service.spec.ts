@@ -796,6 +796,81 @@ describe('HabitsService (#324)', () => {
       TestBed.tick();
       expect(api.set.mock.calls.length).toBe(writes);
       expect(localStorage.getItem(HELD_ANSWERS_KEY)).toBe('{}');
+      // Said where it had been shown, until dismissed (review of #332).
+      expect(habits.lostAnswers().map((l) => l.message)).toEqual([
+        'Your answer for Mood today was not kept: the day was changed elsewhere.',
+      ]);
+      habits.dismissLost(habits.lostAnswers()[0].key);
+      expect(habits.lostAnswers()).toEqual([]);
+    });
+
+    it('drops a held answer or a draft stored without a uid on load (review of #332)', () => {
+      localStorage.setItem(
+        HELD_ANSWERS_KEY,
+        JSON.stringify({
+          'mood_2026-10-06': {
+            habit: 'mood',
+            day: '2026-10-06',
+            kind: 'choice',
+            text: 'calm',
+            at: NOW,
+          },
+          'mood_2026-10-05': {
+            uid: 'u1',
+            habit: 'mood',
+            day: '2026-10-05',
+            kind: 'choice',
+            text: 'tired',
+            at: NOW - DAY,
+          },
+        }),
+      );
+      localStorage.setItem(
+        ANSWER_DRAFTS_KEY,
+        JSON.stringify({
+          'walk_2026-10-06': { text: 'whose?' },
+          'walk_2026-10-05': { uid: 'u1', text: 'mine' },
+        }),
+      );
+      const { habits } = setup();
+      const held = JSON.parse(localStorage.getItem(HELD_ANSWERS_KEY)!);
+      expect(Object.keys(held)).toEqual(['mood_2026-10-05']);
+      expect(habits.draft('walk', '2026-10-06')).toBe('');
+      expect(habits.draft('walk', '2026-10-05')).toBe('mine');
+      expect(Object.keys(JSON.parse(localStorage.getItem(ANSWER_DRAFTS_KEY)!))).toEqual([
+        'walk_2026-10-05',
+      ]);
+    });
+
+    it('holds an answer given before the gardener is known under his uid once he is', () => {
+      const { habits, auth, push } = setup();
+      push([mood()]);
+      const h = habits.toDo()[0];
+      auth.set(undefined);
+      TestBed.tick();
+      habits.log(h, '2026-10-06', 'done', { text: 'calm' });
+      // Nothing stored without its owner.
+      expect(localStorage.getItem(HELD_ANSWERS_KEY) ?? '{}').not.toContain('calm');
+      auth.set({ uid: 'u1' } as User);
+      TestBed.tick();
+      const held = JSON.parse(localStorage.getItem(HELD_ANSWERS_KEY)!);
+      expect(held['mood_2026-10-06']).toMatchObject({ uid: 'u1', text: 'calm' });
+    });
+
+    it('keeps a held answer while its tick’s refusal stands, so Try again can carry it', async () => {
+      const { habits, api, push } = setup();
+      push([mood()]);
+      api.set.mockImplementationOnce(() => Promise.reject(refusal()));
+      habits.log(habits.toDo()[0], '2026-10-06', 'done', { text: 'tired' });
+      await settle();
+      expect(habits.refusals()).toHaveLength(1);
+      // The cache undid the tick; the day is empty when heard.
+      api.pushLog('mood_2026-10', undefined);
+      TestBed.tick();
+      keys().key.set(newDataKey());
+      TestBed.tick();
+      expect(habits.lostAnswers()).toEqual([]);
+      expect(localStorage.getItem(HELD_ANSWERS_KEY)).toContain('tired');
     });
 
     it('puts a held answer back on hold with Undo, and drops it on a skip', () => {
@@ -878,6 +953,65 @@ describe('HabitsService (#324)', () => {
       });
       expect(openNote).toHaveBeenCalledWith('entry1', 'Journal\n\n');
       expect(navigate).toHaveBeenCalledWith(['/n', 'entry1']);
+    });
+
+    it('makes no second entry for a second tap, or for a day that holds one (review of #332)', () => {
+      let n = 0;
+      const use = vi.fn(() => ({ id: `entry${++n}`, text: 'Journal\n\n' }));
+      const navigate = vi.fn(async () => true);
+      const { habits, api, push } = setup({
+        providers: [
+          { provide: TemplatesService, useValue: { use } },
+          { provide: CaptureService, useValue: { openNote: vi.fn() } },
+          { provide: Router, useValue: { navigate } },
+        ],
+      });
+      push([habitDoc('journal', { name: 'Journal', answer: 'note', template: 'tmpl' })]);
+      const h = habits.toDo()[0];
+      habits.logNote(h, '2026-10-06');
+      expect(habits.undoable()?.message).toBe('Journal: done · Undo keeps the entry');
+      const writes = api.set.mock.calls.length;
+      // Tapped again before the tick is heard back.
+      expect(habits.logNote(h, '2026-10-06')).toBeUndefined();
+      expect(use).toHaveBeenCalledTimes(1);
+      expect(api.set.mock.calls.length).toBe(writes);
+      expect(navigate).toHaveBeenLastCalledWith(['/n', 'entry1']);
+      // Heard with its entry, on a fresh service's view of it: still none.
+      api.pushLog('journal_2026-10', { '06': { state: 'done', at: NOW, noteId: 'entry1' } });
+      TestBed.tick();
+      expect(habits.logNote(habits.placed()[0], '2026-10-06')).toBeUndefined();
+      expect(use).toHaveBeenCalledTimes(1);
+      // Cleared, the entry stays in his notes, and says so.
+      habits.clear(habits.placed()[0], '2026-10-06');
+      expect(habits.undoable()?.message).toBe(
+        'Journal: cleared today · the entry stays in your notes',
+      );
+      expect(api.set.mock.calls.some((c) => String(c[1]).includes('/notes/'))).toBe(false);
+    });
+
+    it('makes a habit the app makes itself at its id, nudged, in its zone (#324 step 7)', () => {
+      const { habits, api } = setup();
+      expect(
+        habits.add({
+          id: 'journal-r1',
+          name: 'Feelings journal: breakfast',
+          time: '08:00',
+          tz: 'Europe/London',
+          answer: 'note',
+          template: 'feel',
+          nudge: true,
+        }),
+      ).toBe('journal-r1');
+      expect(lastWrite(api)).toMatchObject({
+        path: 'users/u1/habits/journal-r1',
+        merge: false,
+        data: { time: '08:00', tz: 'Europe/London', nudge: true, answer: 'note', template: 'feel' },
+      });
+      // A nudge needs a time; an id a habit cannot have is generated instead.
+      habits.add({ id: 'bad_id', name: 'Any time', nudge: true });
+      const { path, data } = lastWrite(api) as { path: string; data: { nudge: boolean } };
+      expect(path).not.toContain('bad_id');
+      expect(data.nudge).toBe(false);
     });
 
     it('keeps a line being typed on the device until it is saved', () => {

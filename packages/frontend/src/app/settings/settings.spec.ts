@@ -351,6 +351,19 @@ describe('Settings', () => {
     expect(select.value).toBe('Sun');
   });
 
+  it('holds Add a feelings journal until the stored modules are read (2026-11-22)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const modules = new FakeModules();
+    modules.loaded.set(false);
+    const el = await render(auth, 'templates', fakePush(), new FakeNotes(), modules);
+    const add = button(el, 'Add a feelings journal') as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    modules.loaded.set(true);
+    TestBed.tick();
+    expect(add.disabled).toBe(false);
+  });
+
   it('says the switches are busy until the stored modules are read (#290)', async () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');

@@ -278,7 +278,12 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             <button type="button" (click)="newTemplate('entry')">New template</button>
             <button type="button" (click)="newTemplate('living')">New living template</button>
             @if (!hasFeelingsJournal()) {
-              <button type="button" (click)="newFeelingsJournal()">Add a feelings journal</button>
+              <!-- Its three habits or reminders depend on whether Habits is
+                   on: not until that is read (2026-11-22). Tapped sooner, a
+                   journal made with Habits on got reminders. -->
+              <button type="button" [disabled]="!modules.loaded()" (click)="newFeelingsJournal()">
+                Add a feelings journal
+              </button>
             }
           </div>
         } @else {
@@ -833,7 +838,10 @@ export class Settings {
       .some((t) => t.body.split('\n').some((line) => moodLine(line) !== undefined)),
   );
 
-  /** The feelings journal template and its three reminders (#40), opened to look over. */
+  /**
+   * The feelings journal template (#40), opened to look over, with its
+   * three reminders, or with Habits on its three habits (#324 step 7).
+   */
   protected newFeelingsJournal(): void {
     void this.router.navigate(['/n', this.templates.createFeelingsJournal()]);
   }

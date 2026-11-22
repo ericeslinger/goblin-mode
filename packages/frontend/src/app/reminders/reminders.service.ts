@@ -25,6 +25,7 @@ import {
   type Firestore,
   Timestamp,
   collection,
+  deleteDoc,
   deleteField,
   doc,
   onSnapshot,
@@ -70,6 +71,8 @@ export interface RemindersApi {
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>, merge: boolean): Promise<void>;
+  /** Deletes a reminder's document. */
+  drop(db: Firestore, path: string): Promise<void>;
   /** Marks a field for removal in a merged write. */
   remove(): unknown;
   timestamp(ms: number): unknown;
@@ -85,6 +88,7 @@ export const REMINDERS_API = new InjectionToken<RemindersApi>('reminders-api', {
         error,
       ),
     set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge }),
+    drop: (db, path) => deleteDoc(doc(db, path)),
     remove: () => deleteField(),
     timestamp: (ms) => Timestamp.fromMillis(ms),
   }),
@@ -271,6 +275,23 @@ export class RemindersService {
     this.undoable.set(null);
     clearTimeout(this.undoTimer);
     this.apply(last.id, last.before);
+  }
+
+  /**
+   * Deletes a reminder, through the cache and never awaited: only for
+   * one whose work has moved elsewhere (a feelings journal's reminder
+   * made a habit, step 7 of #324, 2026-11-22). Nothing in the app
+   * deletes a reminder otherwise. Says whether the delete was sent
+   * (review of #333, 2026-11-22): not while the gardener is not known,
+   * so the caller can send it again later.
+   */
+  remove(id: string): boolean {
+    const uid = this.owner();
+    if (!uid) return false;
+    this.api.drop(this.fb.db, `${paths.reminders(uid)}/${id}`).catch((err) => {
+      console.error('reminder delete failed', err);
+    });
+    return true;
   }
 
   private change(r: ReminderRecord, next: ReminderTimes, message: string): void {

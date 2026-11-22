@@ -211,6 +211,7 @@ export class FakeRemindersApi implements RemindersApi {
   set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
     Promise.resolve(),
   );
+  drop = vi.fn((_db: unknown, _path: string) => Promise.resolve());
   remove = () => 'DELETE';
   timestamp = (ms: number) => ({ toMillis: () => ms });
 
@@ -251,6 +252,15 @@ export class FakeHabitsApi implements HabitsApi {
   );
   set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
     Promise.resolve(),
+  );
+  /** Made, unless a spec says the server had one, or was not reached. */
+  createIfAbsent = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>) =>
+    Promise.resolve(true),
+  );
+  /** Written, unless a spec says the day held an entry, or the server was not reached. */
+  setDayIfEmpty = vi.fn(
+    (_db: unknown, _path: string, _key: string, _data: Record<string, unknown>) =>
+      Promise.resolve(true),
   );
   remove = () => 'DELETE';
   timestamp = (ms: number) => stamp(ms);

@@ -306,6 +306,22 @@ as a `[[link]]` followed by a comma. A name first linked on a Moods
 line is made a concept of type mood (`moodTargets`), so a mood's
 page lists every entry naming it. Browse, Journal, lists notes with a
 Moods line, each with its date and moods.
+*Changed 2026-11-22 (#324 step 7, Eric's decision of 2026-11-21:
+"move the reminders to the habits, keep the mood journal and make
+this an open a note kind of habit"):* with the Habits module on, Add
+a feelings journal makes the template and three daily habits that
+open a new entry from it, named and timed as the reminders were and
+nudged at their times, in place of the reminders; with Habits off it
+makes the three reminders as before. A journal that already has its
+reminders is offered the move on the Habits screen, never moved
+alone. The template, its entries, the Moods line and mood concepts
+are unchanged (Habits, The feelings journal's habits).
+*2026-11-22, review of #333:* a journal is offered only when every
+one of its reminders moves whole (words that fit, no tags, no snooze),
+the move never writes over a habit or a day another device has, and
+the offer says what changes (the nudge opens Right Now; when the
+quiet hours hold or silence one). The three reminders Add a feelings
+journal made still qualify (The feelings journal's habits).
 
 **Garden this (#42, 2026-10-08).** The `capture` MCP tool files chat
 words under a project, verbatim. An idea becomes its own note: Claude's
@@ -4808,14 +4824,20 @@ held `answer`, `choices` and `template`, and `HabitEntry` its sealed
   list's choices as buttons, the first taking the focus, one tap
   logging the day done with that answer; a text's one line, Enter or
   Done saving it. Cancel or Escape logs nothing and gives the tick its
-  focus back; the tick says `aria-expanded` while it asks. On the
+  focus back; the tick says `aria-expanded` while it asks. *Changed
+  2026-11-22 (review of #332):* an ask opened by Yesterday? gives the
+  focus back to Yesterday?, not to today's tick. On the
   Habits screen Done of the Today or Yesterday row asks the same way;
   pressed while done it clears the day, as before. Skip is a plain
   skip with no answer. An empty line is allowed and means done with no
   answer: the tick is what counts, the line a note on it. What is
   typed in the line is kept on this device as it is typed
   (`goblin.habitAnswerDrafts`) and dropped once saved or cancelled, so
-  a reload does not lose it. Undo puts back the entry before, its
+  a reload does not lose it. *2026-11-22 (review of #332):* a draft
+  is always kept with its gardener's uid; one stored without a uid,
+  from before, is dropped on load, as whose it was cannot be told (no
+  habit is listed before the gardener is known, so none is typed
+  without one now). Undo puts back the entry before, its
   answer with it; the refused-write line works as for any tick.
 - *A note habit.* Its tick, on either screen, makes the entry as From
   template makes one (`TemplatesService.use`: a fresh entry, or a
@@ -4825,7 +4847,13 @@ held `answer`, `choices` and `template`, and `HabitEntry` its sealed
   the simplest, and a check-in opened and left empty is still a
   check-in, which Undo can take back. A template that is gone logs the
   day done with no note. On the Habits screen the row links to the
-  entry, "Open the entry".
+  entry, "Open the entry". *2026-11-22 (review of #332):* a second tap
+  while the day is being logged, or on a day that already holds an
+  entry, makes no second entry (the first would be left orphaned): it
+  opens the entry the day has. Undo, or clearing the day, takes back
+  the tick and never the entry, which is his note: the Undo line says
+  so ("Journal: done · Undo keeps the entry"; "Journal: cleared today
+  · the entry stays in your notes").
 - *What shows afterwards.* On the Habits screen the Today and
   Yesterday rows show the day's answer beside Done and Skip; every
   strip day's words carry it ("Mon 5 Oct: done, tired"); and a choice
@@ -4866,7 +4894,19 @@ held `answer`, `choices` and `template`, and `HabitEntry` its sealed
   that entry alone (a merged write of `days.<DD>.answer`), if the
   entry is still that tick (done at the same moment, with no answer);
   else it is let go, the day having changed since (undone, skipped, or
-  answered on another device). Not the notes' way of holding the
+  answered on another device). *2026-11-22 (review of #332):* let go
+  this way, it is said where the answer had been shown, on the Habits
+  screen and on Right Now, in the refusal line's style and dismissable:
+  "Your answer for Floss today was not kept: the day was changed
+  elsewhere." This device's own changes to the day take the held
+  answer with them first, so a change found then was made elsewhere
+  (another device, or the assistant). One whose tick the server
+  refused is kept while that refusal stands, so Try again can carry
+  it. A held answer is always kept with its gardener's uid: one given
+  before he is known (a session still being restored) waits in memory
+  with its tick, which waits too, and takes his uid when he is; one
+  stored without a uid, from before, is dropped on load. Not the
+  notes' way of holding the
   whole write: a tick holds no note text and needs no key, and held it
   would be missing from every other device and from the nudge, which
   would push for a habit already done. A reload keeps the held answer;
@@ -4882,7 +4922,11 @@ held `answer`, `choices` and `template`, and `HabitEntry` its sealed
   the list or template when the kind stays. `log_habit` takes `answer`
   with `done`: for a choice habit one of its choices (case and spacing
   aside, stored as the list spells it), for a text habit one line of
-  at most 500 (a line break, or more, is refused, not cut), and
+  at most 500 (a line break, or more, is refused, not cut; *2026-11-22,
+  review of #332:* the rest is tidied to one line as the app tidies it,
+  tabs and other control characters a space, runs of spaces one, the
+  ends trimmed, and the tool's words and the instructions now say so,
+  where they said it was kept as he said it), and
   refuses one for any other kind. It is sealed on the server with the
   same key, padding and aad (`NoteCodec.sealHabitAnswer`), in the
   transaction; with the key service unavailable the whole call is
@@ -4915,11 +4959,158 @@ held `answer`, `choices` and `template`, and `HabitEntry` its sealed
   (sealed, none of the words) and opens a note habit's entry.
 - *Not done.* Changing an answer in place (the day is cleared and
   ticked again); the answers on Right Now's settled line; and the
-  feelings journal's reminders (step 7). *Not established:* the held
+  feelings journal's reminders (step 7; done 2026-11-22, below). *Not established:* the held
   answer's later write against the real project's rules (the
   emulator's took the same shape from the tools' specs only, as no
   journey runs without the key), and how the Lately line reads with
   twelve long choices on a narrow phone.
+
+**The feelings journal's habits (step 7, 2026-11-22).** Eric decided
+(2026-11-21): "move the reminders to the habits, keep the mood journal
+and make this an open a note kind of habit". Built: a new journal's
+habits, the offer to move an existing journal's reminders, and four
+fixes from the review of #332 (in Answers, above, each dated). The
+choices below are this step's own, not Eric's, and open to his
+overruling; no stored shape or rule changed.
+
+- *A new journal.* Settings, Templates, Add a feelings journal, with
+  Habits on, makes the template exactly as before and three habits
+  (`createFeelingsJournal`): daily, of the note kind on the template,
+  named as the reminders were worded ("Feelings journal: breakfast",
+  "lunch", "dinner"), at `FEELINGS_TIMES` (08:00, 12:30, 18:30) in the
+  device's zone, nudge on. Their ids are generated on the device
+  (`autoId`), the writes go through the cache, nothing is awaited.
+  With Habits off, or its switch not yet read, it makes the three
+  reminders as before; it never switches Habits on.
+- *Telling a journal* (`isFeelingsJournal`, `isJournalReminder`). A
+  reminder is a feelings journal's when it repeats daily at a time,
+  is not a project's task (no `stage`), has words, and its `noteId`
+  is a template open on this device, not archived, a new entry each
+  time (not living), whose text has a Moods line (`moodLine`), as
+  Settings already tells a journal is there. Only the journal is made
+  with a Moods line, so the line is what marks it; a template he made
+  by hand with one reads as a journal too. Anything else, a weekly or
+  weekdays reminder, a one-off, a sealed or living template, stays a
+  reminder and is not offered.
+- *The offer.* On the Habits screen, while Habits is on and the
+  habits and notes have been heard: "Your feelings journal has three
+  reminders. Make them habits?", the reminders with their times, a
+  line saying each becomes a daily habit at the same time that opens
+  a new entry, nudged, and that the entries and the journal stay as
+  they are; Make them habits, and Keep them reminders, which puts it
+  away for good. No settings document remembers a dismissal of this
+  kind, so it is remembered on this device
+  (`goblin.journalHabitsOfferDismissed`, by uid, the template's id): on
+  another device the offer shows again. One offer per journal.
+- *What accepting writes, in order* (`JournalHabitsService.accept`),
+  through the cache and never awaited: for each reminder, its habit at
+  an id derived from the reminder's (`journal-<reminder id>`): the
+  reminder's words as its name (cut to 80), its time and its zone
+  (`recurrence.tz`, so the push keeps its moment), note kind, the
+  template, nudge on, `createdBy: user`; then, for one ticked done
+  today, today done with no note (the entry was made the old way, if
+  at all), with no Undo; then, after all of them, the reminders are
+  deleted (`RemindersService.remove`, the app's first delete of a
+  reminder; the rules always allowed the owner one). A done reminder
+  is one open and next due after today, as Done moves a repeat on.
+  *Not established:* a reminder made today after its time reads so
+  too, its first occurrence being tomorrow, so a journal made with
+  Habits off and moved the same day has the meals already past logged
+  done that day, and is not nudged for them until tomorrow.
+  *Changed 2026-11-22, review of #333 (below):* nothing is cut, each
+  habit is made only if absent, and the done mark and the deletes are
+  the finishing pass's.
+- *Cut short.* Firestore sends one device's writes in the order made
+  and keeps them so offline, so a move stopped by the app closing, or
+  made offline, can leave the habits with the reminders still there,
+  never the reminders gone without the habits. The rest is finished on
+  the next load while Habits is on, on Right Now or the Habits screen:
+  a reminder whose derived habit exists is deleted, once that habit's
+  today has been heard and, for a reminder done today, marked done if
+  it holds nothing (a day already done or skipped is left as it is).
+  A reminder whose habit is not there yet is still offered, alone if
+  the others moved. Pressed again, or on two devices, a habit is made
+  once per device (the same id, the same fields: the second write
+  lands on the first) and a delete is sent once. With Habits switched
+  off midway, both stay until it is on again: off, the habits do not
+  show and the reminders still ring. *Changed 2026-11-22, review of
+  #333 (below):* a habit is never written over, nor a day.
+- *2026-11-22, review of #333.* The move deletes his reminders, so its
+  five findings were fixed before it merged:
+  - *His words are never cut.* A journal is offered only if every one
+    of its daily reminders moves whole (`movesWhole`); one whose words
+    are longer than a habit's name (80) keeps the whole journal from
+    the offer, its reminders staying reminders. Chosen over listing
+    some and not others: an offer never splits a journal.
+    `addIfAbsent` refuses a name it would have to cut.
+  - *Nothing he set is dropped.* A reminder with tags, or snoozed,
+    keeps its journal from the offer too: a habit holds neither. Who
+    made a reminder is not carried; the habit's `createdBy` is `user`,
+    which is true, as he makes it by accepting. The three reminders
+    Add a feelings journal makes carry no tags and no snooze, so they
+    still qualify (a spec makes them as the app does and is offered
+    them).
+  - *A stale device never writes over.* Each habit is made only if
+    none is at its id, in a transaction (`HabitsService.addIfAbsent`,
+    as the notes' `createIfAbsent`), so one accepted elsewhere and
+    renamed, retimed or archived there stays as it is. It needs the
+    server: offline, nothing is written or deleted, the button reads
+    "Making them habits…" while it tries, and then the offer says
+    "Not moved yet: making habits needs a connection. Try again when
+    you are online." Accepting deletes nothing itself. The finishing
+    pass, once a habit is heard, marks today done for a reminder done
+    today only when the day's log is heard empty here and the server's
+    day is empty too (`markDoneIfEmpty`, a transaction), so a day
+    logged elsewhere keeps its entry and its note; then it deletes the
+    reminder. A mark that cannot reach the server leaves the reminder
+    for a later pass (the next change heard, or a reload).
+  - *A delete not sent is sent again.* `RemindersService.remove` says
+    whether it sent the delete (not while the gardener is unknown),
+    and a reminder is recorded as removed only then.
+  - *What changes is said.* The offer reads: "Each becomes a daily
+    habit at the same time, nudging you once then if it is not logged
+    yet. The nudge opens Right Now, where ticking the habit opens a
+    new entry; a reminder's push opened the entry itself. Your entries
+    and the journal stay as they are." A reminder's line adds "(nudge
+    at 06:00)" or "(no nudge at this time)" where the quiet hours hold
+    or silence its nudge (`habitNudgePlan`, `journalNudgeNote`). The
+    pushes were read in the code (`habit-nudges.ts` opens
+    `/right-now`; `send-due.ts` opens `/n/<template>?from=reminder`),
+    not on a device.
+- *Reminder history.* Only today's done mark carries over, as above. A
+  reminder keeps no other history (Done moves its next time; nothing
+  records the days before), so the habits' strips start empty before
+  today and their streaks from the move.
+- *Unchanged.* The template, its entries, the Moods line, mood
+  concepts and From template. A reminder linked to a template still
+  opens a new entry from it (`?from=reminder`, the `entryFrom` path):
+  other templates' reminders, and a journal's whose owner has Habits
+  off or kept them, as before.
+- *The assistant.* No tool or instruction names the journal's
+  reminders, so none changed for this. `list_templates` lists a
+  template's `schedule` from reminders with a `template` field, which
+  the journal's reminders never had (they link by `noteId`), so it did
+  not show them before and does not show the habits now; the habits
+  are in `list_habits`, their `template` the journal's id.
+- *Tests.* The app's specs for a new journal with Habits on and off,
+  telling a journal (and what is not one), the offer, accepting (the
+  order of the writes, the done mark, once only), heard back, the
+  three ways a move is cut short, a dismissal across a reload, and
+  Habits off; and the four fixes. Journeys in
+  `feelings-journal.spec.ts`: the journal with Habits off (reminders,
+  as before), with Habits on (three habits at their times on Right
+  Now, a tick landing in a new entry with its Moods line, done on the
+  Habits screen with Open the entry), and the offer (a journal made
+  with Habits off, Habits switched on, the offer accepted, the
+  reminders gone from the store and Right Now, the habits there).
+- *Not established:* Eric's own journal in the real project. Its
+  reminders are recognised only if their `noteId` is still the
+  template's and the template still has its Moods line and is not
+  living, archived or sealed and unopened on the device; if he
+  reworded or retimed them, the habits take his words and times. If
+  any of that does not hold, no offer shows and nothing moves. The
+  real project's push for the habits is the nudges' (step 4), not
+  tried on a device.
 
 **Build order (#324).**
 
@@ -4933,7 +5124,8 @@ held `answer`, `choices` and `template`, and `HabitEntry` its sealed
 5. Weekly and monthly. Done 2026-11-22 in the app (Weekly and
    monthly, above); their nudges open, for Eric (options there).
 6. Answers. Done 2026-11-22 (Answers, above).
-7. The feelings journal's reminders become habits.
+7. The feelings journal's reminders become habits. Done 2026-11-22
+   (The feelings journal's habits, above).
 8. Delight.
 
 ## Themes (#23, 2026-10-06)
@@ -5413,7 +5605,7 @@ it, one backticked tool name per row.
 | `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in his zone, a nudge (one push at its time if not logged, held through quiet hours; daily habits only, since step 4); answered with done, one of 2 to 12 choices, one line of text, or a note from a template by id or name (step 6, 2026-11-22); a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3, 4 and 6 |
 | `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind with its choices or template, whether due today, today's and yesterday's state and what each holds (its answer opened, `answerSealed` when it cannot be, or the entry's `noteId`), a choice habit's `recentAnswers` over seven days, and its streak, in its own zone (which can differ from where Eric is); Habits only | Habits (#324), steps 3 and 6 |
 | `update_habit` | Renames, reschedules, retimes, nudges (as `create_habit`), changes what it is answered with (its logs kept) or archives a habit, by id or name; never deletes; Habits only | Habits (#324), steps 3, 4 and 6 |
-| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); with done, a choice habit's choice or a text habit's one line (at most 500), sealed on the server as the app seals it, or a note habit's entry made with `use_template` (`noteId`); Habits only | Habits (#324), steps 3 and 6 |
+| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); with done, a choice habit's choice or a text habit's one line (at most 500, a line break refused, spacing tidied to one line), sealed on the server as the app seals it, or a note habit's entry made with `use_template` (`noteId`); Habits only | Habits (#324), steps 3 and 6 |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it

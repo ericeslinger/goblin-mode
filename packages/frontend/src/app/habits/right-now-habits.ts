@@ -17,6 +17,7 @@ import { HabitAsk } from './habit-ask';
 import { habitWhen } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
 import { type HabitUndoable, type PlacedHabit, HabitsService } from './habits.service';
+import { JournalHabitsService } from './journal-habits.service';
 
 /**
  * Right Now's Habits (#324, step 2): today's habits not yet logged, a
@@ -208,6 +209,9 @@ export class RightNowHabits {
   private offered: HabitUndoable | null = null;
 
   constructor() {
+    // A feelings journal's move to habits cut short is finished on Right
+    // Now too, not only on the Habits screen (step 7 of #324).
+    inject(JournalHabitsService);
     // Undo lapses (or a refusal takes it back) while it has the focus:
     // seen before the view drops the button.
     effect(() => {
@@ -229,7 +233,8 @@ export class RightNowHabits {
       (this.habits.toDo().length > 0 ||
         this.habits.settled().length > 0 ||
         !!this.habits.undoable() ||
-        this.habits.refusals().length > 0),
+        this.habits.refusals().length > 0 ||
+        this.habits.lostAnswers().length > 0),
   );
 
   /** "Done today: Floss, Stretch · Skipped today: Run". */
@@ -290,14 +295,20 @@ export class RightNowHabits {
     this.log(h, day, 'done');
   }
 
-  /** The answer given, or put away: the focus goes to Undo, or back to the tick. */
+  /**
+   * The answer given, or put away: the focus goes to Undo, or back to
+   * the button that asked, today's tick or Yesterday? (review of #332,
+   * 2026-11-22).
+   */
   protected answered(how: 'answered' | 'cancelled'): void {
     const a = this.asking();
     this.asking.set(null);
     if (how === 'answered') this.focus(() => this.undoButton() ?? this.heading());
     else if (a) {
       const name = this.habits.placed().find((h) => h.id === a.habit)?.name;
-      this.focus(() => this.buttonNamed(`Done: ${name}`));
+      const label =
+        a.day === this.habits.today() ? `Done: ${name}` : `Yesterday? Mark ${name} done yesterday`;
+      this.focus(() => this.buttonNamed(label) ?? this.buttonNamed(`Done: ${name}`));
     }
   }
 

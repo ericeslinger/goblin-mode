@@ -52,6 +52,7 @@ import {
   deleteField,
   doc,
   onSnapshot,
+  runTransaction,
   setDoc,
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
@@ -103,12 +104,54 @@ export const ANSWER_DRAFTS_KEY = 'goblin.habitAnswerDrafts';
  * same entry once the key is here, and let go if the entry changed.
  */
 interface HeldAnswer {
-  uid?: string;
+  /**
+   * Whose it is: required since the review of #332 (2026-11-22). One
+   * given before the gardener was known waits in memory with its tick
+   * (`unowned`) and takes his uid when he is; one stored without a uid
+   * (from before) is dropped on load, as whose it was cannot be known.
+   */
+  uid: string;
   habit: string;
   day: string;
   kind: HabitAnswerKind;
   text: string;
   at: number;
+}
+
+/** A line of text being typed, kept on this device; whose, as a held answer's. */
+interface Draft {
+  uid: string;
+  text: string;
+}
+
+/**
+ * What is kept under `key` that has a uid, each entry without one
+ * dropped (review of #332, 2026-11-22): such an entry was written
+ * before the gardener was known, so whose it is cannot be told.
+ */
+function owned<T>(store: LocalStore, key: string): Record<string, T> {
+  const all = store.get<Record<string, unknown>>(key);
+  if (!all || typeof all !== 'object') return {};
+  const kept = Object.fromEntries(
+    Object.entries(all).filter(([, v]) => !!v && typeof (v as { uid?: unknown }).uid === 'string'),
+  ) as Record<string, T>;
+  if (Object.keys(kept).length !== Object.keys(all).length) store.set(key, kept);
+  return kept;
+}
+
+/**
+ * A held answer let go because its day changed elsewhere (review of
+ * #332, 2026-11-22), said where the answer had been shown until the
+ * gardener dismisses it.
+ */
+export interface HabitLostAnswer {
+  /** `{habit}_{day}`. */
+  key: string;
+  habit: string;
+  day: string;
+  name: string;
+  /** "Your answer for Floss today was not kept: the day was changed elsewhere." */
+  message: string;
 }
 
 /** What a tick answers with: a choice or a line of text, or the note it opened. */
@@ -201,6 +244,23 @@ export interface HabitsApi {
     error: (err: unknown) => void,
   ): () => void;
   set(db: Firestore, path: string, data: Record<string, unknown>, merge: boolean): Promise<void>;
+  /**
+   * Writes `data` only if no document is there, in a transaction, so it
+   * never replaces one another device made or changed; needs the
+   * server (review of #333, 2026-11-22). False when one was there.
+   */
+  createIfAbsent(db: Firestore, path: string, data: Record<string, unknown>): Promise<boolean>;
+  /**
+   * Merges `data` into a month log only if its day `key` holds nothing
+   * there, in a transaction; needs the server. False when it held an
+   * entry, which is left as it is.
+   */
+  setDayIfEmpty(
+    db: Firestore,
+    path: string,
+    key: string,
+    data: Record<string, unknown>,
+  ): Promise<boolean>;
   /** Marks a field for removal in a merged write. */
   remove(): unknown;
   timestamp(ms: number): unknown;
@@ -218,6 +278,21 @@ export const HABITS_API = new InjectionToken<HabitsApi>('habits-api', {
     listenLog: (db, path, next, error) =>
       onSnapshot(doc(db, path), (snap) => next(snap.exists() ? snap.data() : undefined), error),
     set: (db, path, data, merge) => setDoc(doc(db, path), data, { merge }),
+    createIfAbsent: (db, path, data) =>
+      runTransaction(db, async (tx) => {
+        const ref = doc(db, path);
+        if ((await tx.get(ref)).exists()) return false;
+        tx.set(ref, data);
+        return true;
+      }),
+    setDayIfEmpty: (db, path, key, data) =>
+      runTransaction(db, async (tx) => {
+        const ref = doc(db, path);
+        const days = (await tx.get(ref)).data()?.['days'];
+        if (days && typeof days === 'object' && key in days) return false;
+        tx.set(ref, data, { merge: true });
+        return true;
+      }),
     remove: () => deleteField(),
     timestamp: (ms) => Timestamp.fromMillis(ms),
   }),
@@ -234,6 +309,14 @@ export interface NewHabit {
   answer?: HabitAnswer;
   choices?: string[];
   template?: string;
+  /**
+   * For a habit the app makes itself (step 7 of #324, 2026-11-22: a
+   * feelings journal's): its id, when derived, else generated; its
+   * nudge, on only with a time; and its zone, else the device's.
+   */
+  id?: string;
+  nudge?: boolean;
+  tz?: string;
 }
 
 /**
@@ -368,8 +451,22 @@ export class HabitsService {
    * `{habit}_{day}`, as kept in HELD_ANSWERS_KEY, so a reload keeps them.
    */
   private readonly held = signal<Record<string, HeldAnswer>>(
-    this.store.get<Record<string, HeldAnswer>>(HELD_ANSWERS_KEY) ?? {},
+    owned<HeldAnswer>(this.store, HELD_ANSWERS_KEY),
   );
+  /**
+   * Answers given while the gardener was not yet known (a session still
+   * being restored): in memory with the tick, which waits too, and held
+   * under his uid once he is; let go with it if he is signed out.
+   */
+  private readonly unowned: Omit<HeldAnswer, 'uid'>[] = [];
+  /** Held answers let go because their day changed elsewhere. */
+  private readonly lost = signal<Omit<HabitLostAnswer, 'message'>[]>([]);
+  /**
+   * The entry a note habit's tick made, by `{habit}_{day}`, until that
+   * day is next logged, cleared or undone: a second tap meanwhile makes
+   * no second entry (review of #332, 2026-11-22).
+   */
+  private readonly noting = new Map<string, string>();
   /** Answers opened, by uid, habit, day and sealed value; null: did not open. */
   private readonly opened = new Map<string, string | null>();
   private openedWith?: DataKey;
@@ -450,6 +547,19 @@ export class HabitsService {
         ...(day !== undefined ? { day } : {}),
         name,
         message,
+      };
+    });
+  });
+
+  /** Held answers let go, worded against today, oldest first. */
+  readonly lostAnswers = computed<HabitLostAnswer[]>(() => {
+    const today = this.today();
+    const yesterday = this.yesterday();
+    return this.lost().map((l) => {
+      const when = l.day === today ? 'today' : l.day === yesterday ? 'yesterday' : `on ${l.day}`;
+      return {
+        ...l,
+        message: `Your answer for ${l.name} ${when} was not kept: the day was changed elsewhere.`,
       };
     });
   });
@@ -567,12 +677,18 @@ export class HabitsService {
       if (!key || !user || !Object.keys(held).length) return;
       untracked(() => this.writeHeld(key, user.uid));
     });
-    // Writes made before the gardener was known.
+    // Writes made before the gardener was known, and the answers given
+    // with them, now his.
     effect(() => {
       const user = this.auth.user();
       untracked(() => {
-        if (user === null) this.waiting.length = 0;
-        else if (user) for (const w of this.waiting.splice(0)) this.send(user.uid, w);
+        if (user === null) {
+          this.waiting.length = 0;
+          this.unowned.length = 0;
+        } else if (user) {
+          for (const w of this.waiting.splice(0)) this.send(user.uid, w);
+          for (const a of this.unowned.splice(0)) this.hold({ ...a, uid: user.uid });
+        }
       });
     });
     const tick = setInterval(() => this.clock.set(this.now()), TICK_MS);
@@ -616,32 +732,63 @@ export class HabitsService {
    * cannot hold (`answerFields`).
    */
   add(input: NewHabit): string | undefined {
-    const name = input.name.trim().slice(0, HABIT_NAME_MAX).trim();
-    if (!name) return undefined;
-    const answer = answerFields(input.answer ?? 'done', input.choices, input.template);
-    if (!answer) return undefined;
-    const now = this.now();
-    const id = autoId(this.random);
-    const data: Record<string, unknown> = {
-      name,
-      schedule: input.schedule && SCHEDULES.includes(input.schedule) ? input.schedule : 'daily',
-      tz: this.tz,
-      ...answer,
-      nudge: false,
-      archived: false,
-      createdAt: this.api.timestamp(now),
-      updatedAt: this.api.timestamp(now),
-      createdBy: 'user',
-    };
-    if (input.time && TIME.test(input.time)) data['time'] = input.time;
+    const made = this.newHabit(input);
+    if (!made) return undefined;
+    const { id, name, data } = made;
     this.write({
       path: (uid) => paths.habit(uid, id),
       data,
       merge: false,
       about: { key: `habit:${id}`, habit: id, name, kind: 'add' },
     });
-    this.clock.set(now);
+    this.clock.set(this.now());
     return id;
+  }
+
+  /**
+   * Makes a habit at its given id only if none is there (review of
+   * #333, 2026-11-22), for the feelings journal's move: a transaction,
+   * so a habit another device made, renamed, retimed or archived is
+   * never written over. Needs the server: offline, or with the
+   * gardener not known, it rejects and nothing is written. Its name is
+   * never cut: one past HABIT_NAME_MAX is refused, as is a given id a
+   * habit could not have. True when made, false when one was there.
+   */
+  addIfAbsent(input: NewHabit & { id: string }): Promise<boolean> {
+    const uid = this.auth.user()?.uid;
+    const made = this.newHabit(input);
+    if (!uid) return Promise.reject(new Error('not signed in'));
+    if (!made || made.id !== input.id || made.name !== input.name.trim()) {
+      return Promise.reject(new Error('not a habit'));
+    }
+    return this.api.createIfAbsent(this.fb.db, paths.habit(uid, made.id), made.data);
+  }
+
+  /** A new habit's id, name and document, as `add` writes it. */
+  private newHabit(
+    input: NewHabit,
+  ): { id: string; name: string; data: Record<string, unknown> } | undefined {
+    const name = input.name.trim().slice(0, HABIT_NAME_MAX).trim();
+    if (!name) return undefined;
+    const answer = answerFields(input.answer ?? 'done', input.choices, input.template);
+    if (!answer) return undefined;
+    const now = this.now();
+    const id = input.id && HABIT_ID.test(input.id) ? input.id : autoId(this.random);
+    const time = input.time && TIME.test(input.time) ? input.time : undefined;
+    const tz = input.tz && input.tz.length <= 64 ? input.tz : this.tz;
+    const data: Record<string, unknown> = {
+      name,
+      schedule: input.schedule && SCHEDULES.includes(input.schedule) ? input.schedule : 'daily',
+      tz,
+      ...answer,
+      nudge: !!input.nudge && time !== undefined,
+      archived: false,
+      createdAt: this.api.timestamp(now),
+      updatedAt: this.api.timestamp(now),
+      createdBy: 'user',
+    };
+    if (time !== undefined) data['time'] = time;
+    return { id, name, data };
   }
 
   rename(id: string, name: string): void {
@@ -733,12 +880,27 @@ export class HabitsService {
   logNote(habit: HabitRecord, shown: string): { id: string; text: string } | undefined {
     const day = this.dayOf(shown);
     if (!day) return undefined;
+    // A second tap (review of #332, 2026-11-22): the day already being
+    // logged, or already holding its entry, makes no second one; the
+    // entry it has is opened instead.
+    const k = `${habit.id}_${day}`;
+    const stored = this.entry(habit.id, day);
+    const has =
+      this.noting.get(k) ??
+      (stored?.state === 'done' && typeof stored['noteId'] === 'string'
+        ? stored['noteId']
+        : undefined);
+    if (has) {
+      void this.injector.get(Router).navigate(['/n', has]);
+      return undefined;
+    }
     // Lazily: the notes and the editor are not the Habits screen's own.
     const note = habit.template
       ? this.injector.get(TemplatesService).use(habit.template)
       : undefined;
     this.logOn(habit, day, 'done', note ? { noteId: note.id } : undefined);
     if (!note) return undefined;
+    this.noting.set(k, note.id);
     this.injector.get(CaptureService).openNote(note.id, note.text);
     void this.injector.get(Router).navigate(['/n', note.id]);
     return note;
@@ -762,6 +924,7 @@ export class HabitsService {
     const before = this.entry(habit.id, day);
     const heldBefore = this.held()[`${habit.id}_${day}`];
     const at = this.now();
+    this.noting.delete(`${habit.id}_${day}`);
     this.unhold(habit.id, day);
     this.dropDraft(habit.id, day);
     const entry: Record<string, unknown> = {
@@ -779,15 +942,18 @@ export class HabitsService {
       const key = this.keys.key();
       const uid = this.auth.user()?.uid;
       if (key && uid) entry['answer'] = sealHabitAnswer(key, uid, habit.id, day, kind, text);
-      else this.hold({ ...(uid ? { uid } : {}), habit: habit.id, day, kind, text, at });
+      else if (uid) this.hold({ uid, habit: habit.id, day, kind, text, at });
+      else this.unowned.push({ habit: habit.id, day, kind, text, at });
     }
     this.writeDay(habit.id, day, entry);
     const when = day === this.today() ? '' : ' yesterday';
     const what = state === 'done' ? (kind === 'choice' && text ? text : 'done') : 'skipped';
+    // Undo takes back the tick, never the note it made (review of #332).
+    const note = state === 'done' && !!answer && 'noteId' in answer;
     this.offerUndo({
       habit: habit.id,
       day,
-      message: `${habit.name}: ${what}${when}`,
+      message: `${habit.name}: ${what}${when}${note ? ' · Undo keeps the entry' : ''}`,
       before,
       ...(heldBefore ? { heldBefore } : {}),
     });
@@ -795,20 +961,20 @@ export class HabitsService {
 
   /** The line being typed for a habit's day, kept on this device until saved. */
   draft(habit: string, day: string): string {
-    const all = this.store.get<Record<string, { uid?: string; text: string }>>(ANSWER_DRAFTS_KEY);
-    const d = all?.[`${habit}_${day}`];
-    return d && d.uid === this.auth.user()?.uid ? d.text : '';
+    const uid = this.auth.user()?.uid;
+    const d = owned<Draft>(this.store, ANSWER_DRAFTS_KEY)[`${habit}_${day}`];
+    return uid && d?.uid === uid ? d.text : '';
   }
 
   /** Keeps what is typed for a habit's day, so a reload does not lose it. */
   setDraft(habit: string, day: string, text: string): void {
     if (!text) return this.dropDraft(habit, day);
-    const all = this.store.get<Record<string, unknown>>(ANSWER_DRAFTS_KEY) ?? {};
+    // Whose, always (review of #332): no habit is listed before the
+    // gardener is known, so a line is never typed without him.
     const uid = this.auth.user()?.uid;
-    this.store.set(ANSWER_DRAFTS_KEY, {
-      ...all,
-      [`${habit}_${day}`]: { ...(uid ? { uid } : {}), text },
-    });
+    if (!uid) return;
+    const all = owned<Draft>(this.store, ANSWER_DRAFTS_KEY);
+    this.store.set(ANSWER_DRAFTS_KEY, { ...all, [`${habit}_${day}`]: { uid, text } });
   }
 
   dropDraft(habit: string, day: string): void {
@@ -836,7 +1002,7 @@ export class HabitsService {
       raw.state === 'done' &&
       raw.answer === undefined &&
       millis(raw.at) === held.at &&
-      (held.uid === undefined || held.uid === this.uid)
+      held.uid === this.uid
     ) {
       return { text: held.text, held: true };
     }
@@ -892,20 +1058,77 @@ export class HabitsService {
    * day's `answer` alone, once the day's log is heard and the entry is
    * still that tick (done at the same moment, with no answer); let go
    * when the entry has changed since (undone, skipped, answered on
-   * another device). Another gardener's are left as they are.
+   * another device, or by the assistant), and said so (`lostAnswers`,
+   * review of #332, 2026-11-22): this device's own changes to the day
+   * take the held answer with them first, so a change found here was
+   * made elsewhere. Another gardener's are left as they are, and so is
+   * one whose tick the server refused while that refusal stands (its
+   * Try again sends the same tick back).
    */
   private writeHeld(key: DataKey, uid: string): void {
     for (const h of Object.values(this.held())) {
-      if (h.uid !== undefined && h.uid !== uid) continue;
+      if (h.uid !== uid) continue;
       const logId = habitLogId(h.habit, habitMonth(h.day));
       if (!(logId in this.logs())) continue;
+      if (this.refused().some((r) => r.about.key === `log:${h.habit}:${h.day}`)) continue;
       const raw = this.entry(h.habit, h.day);
       this.unhold(h.habit, h.day);
-      if (!raw || raw.state !== 'done' || raw['answer'] !== undefined) continue;
-      if (raw['noteId'] !== undefined || millis(raw['at']) !== h.at) continue;
+      const same =
+        raw?.state === 'done' &&
+        raw['answer'] === undefined &&
+        raw['noteId'] === undefined &&
+        millis(raw['at']) === h.at;
+      if (!same) {
+        const k = `${h.habit}_${h.day}`;
+        this.lost.update((list) => [
+          ...list.filter((l) => l.key !== k),
+          { key: k, habit: h.habit, day: h.day, name: this.nameOf(h.habit) },
+        ]);
+        continue;
+      }
       const answer = sealHabitAnswer(key, uid, h.habit, h.day, h.kind, h.text);
       this.writeDay(h.habit, h.day, { answer });
     }
+  }
+
+  /** Puts a lost answer's line away. */
+  dismissLost(key: string): void {
+    this.lost.update((list) => list.filter((l) => l.key !== key));
+  }
+
+  /** Whether the month log holding `day` has been heard for `habit`. */
+  dayHeard(habit: string, day: string): boolean {
+    return habitLogId(habit, habitMonth(day)) in this.logs();
+  }
+
+  /** The state stored for a habit's day, as heard; none when empty. */
+  stateOn(habit: string, day: string): 'done' | 'skipped' | undefined {
+    return this.entry(habit, day)?.state;
+  }
+
+  /**
+   * Marks a day done with nothing in it, offering no Undo: for a habit
+   * the app makes itself out of a reminder already done that day (a
+   * feelings journal's, step 7 of #324, 2026-11-22), so its nudge does
+   * not push for a day already tended. Only a day that holds nothing on
+   * the server is written (review of #333, 2026-11-22): a transaction,
+   * so a day logged on another device, its entry's note with it, is
+   * never written over. Needs the server: offline, or with the gardener
+   * not known, it rejects and nothing is written. False when the day
+   * held an entry, or cannot be logged.
+   */
+  markDoneIfEmpty(habit: string, day: string): Promise<boolean> {
+    const uid = this.auth.user()?.uid;
+    if (!uid) return Promise.reject(new Error('not signed in'));
+    if (!canLogHabitDay(day, this.today())) return Promise.resolve(false);
+    const month = habitMonth(day);
+    const key = habitDayKey(day);
+    return this.api.setDayIfEmpty(this.fb.db, paths.habitLog(uid, habitLogId(habit, month)), key, {
+      habit,
+      month,
+      days: { [key]: { state: 'done', at: this.api.timestamp(this.now()) } },
+      updatedAt: this.api.timestamp(this.now()),
+    });
   }
 
   /** Clears a day's check-in, the day as `dayOf` makes it. */
@@ -915,13 +1138,16 @@ export class HabitsService {
     const before = this.entry(habit.id, day);
     if (!before) return;
     const heldBefore = this.held()[`${habit.id}_${day}`];
+    this.noting.delete(`${habit.id}_${day}`);
     this.unhold(habit.id, day);
     this.writeDay(habit.id, day, undefined);
     const when = day === this.today() ? 'today' : 'yesterday';
+    // The entry it made stays in his notes (review of #332, 2026-11-22).
+    const note = typeof before['noteId'] === 'string' ? ' · the entry stays in your notes' : '';
     this.offerUndo({
       habit: habit.id,
       day,
-      message: `${habit.name}: cleared ${when}`,
+      message: `${habit.name}: cleared ${when}${note}`,
       before,
       ...(heldBefore ? { heldBefore } : {}),
     });
@@ -933,6 +1159,7 @@ export class HabitsService {
     if (!last) return;
     this.undoable.set(null);
     clearTimeout(this.undoTimer);
+    this.noting.delete(`${last.habit}_${last.day}`);
     this.unhold(last.habit, last.day);
     // An answer that was waiting for the key waits again, on its tick.
     if (last.heldBefore) this.hold(last.heldBefore);
@@ -1079,6 +1306,8 @@ export class HabitsService {
     this.loaded.set(false);
     this.undoable.set(null);
     this.refused.set([]);
+    this.lost.set([]);
+    this.noting.clear();
     if (!uid) return;
     this.stopHabits = this.api.listenHabits(
       this.fb.db,
