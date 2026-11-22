@@ -127,6 +127,7 @@ import {
   habitMonth,
   habitPeriodState,
   habitsConfig,
+  habitZone,
   type Weekday,
   zonedDay,
 } from '@mossgoblin/schema';
@@ -616,14 +617,19 @@ interface StoredHabit {
   createdAt?: number;
 }
 
-/** A habit's own fields, as every Habits tool gives them back. */
-function habitFields(id: string, h: Habit) {
+/**
+ * A habit's own fields, as every Habits tool gives them back; its
+ * `timeZone` the zone its days and time are read in (`habitZone`: the
+ * device's Eric last used, Eric 2026-11-22), not necessarily the one
+ * stored on it.
+ */
+function habitFields(id: string, h: Habit, zone: string) {
   return {
     id,
     name: h.name,
     schedule: h.schedule,
     ...(h.time !== undefined ? { time: h.time } : {}),
-    timeZone: h.tz,
+    timeZone: zone,
     answer: h.answer,
     ...(h.choices !== undefined ? { choices: h.choices } : {}),
     ...(h.template !== undefined ? { template: h.template } : {}),
@@ -645,39 +651,52 @@ interface HabitStreakView {
 /** A time of day, as a habit keeps it: "HH:MM", 24-hour. */
 const HABIT_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** A weekday's whole name, as the assistant says it. */
+const WEEKDAY_NAMES: Record<Weekday, string> = {
+  Mon: 'Monday',
+  Tue: 'Tuesday',
+  Wed: 'Wednesday',
+  Thu: 'Thursday',
+  Fri: 'Friday',
+  Sat: 'Saturday',
+  Sun: 'Sunday',
+};
+
 /**
  * Said with a habit whose nudge is on (step 4 of #324, 2026-11-21): what
  * is sent and when, by the shared rule (`habitNudgePlan`, as the app's
- * line and Edit hint read it, review of #330, 2026-11-22).
+ * line and Edit hint read it, review of #330, 2026-11-22), with Eric's
+ * decisions of 2026-11-22: a time in the quiet hours before midnight goes
+ * as they begin, a weekly or monthly habit is nudged on the last day of
+ * its period, and the zone is the one the app last ran in (`zone`).
  */
-function nudgeNoteFor(h: Habit, config: HabitsConfig): string {
+function nudgeNoteFor(h: Habit, config: HabitsConfig, zone: string): string {
   const plan = habitNudgePlan({ ...h, nudge: true }, config);
   const quiet = `the quiet hours (${config.quietFrom} to ${config.quietTo})`;
-  switch (plan.kind) {
-    case 'not-daily':
-      return (
-        'Nudges are sent for daily habits only for now: weekly and monthly habits are not ' +
-        'nudged yet, so promise Eric no push for this one.'
-      );
-    case 'off':
-      return 'This habit is archived, so no nudge is sent for it while it stays so.';
-    case 'no-time':
-      return 'A nudge needs a time of day: this one has none, so no push is sent for it.';
-    case 'quiet':
-      return (
-        `${h.time} is in ${quiet} before midnight, so no nudge is sent for it: it would wait ` +
-        `until ${config.quietTo}, when its day has ended. Promise Eric no push for it.`
-      );
-    case 'at':
-    case 'held': {
-      const when =
-        plan.kind === 'at' ? `at ${plan.time}` : `at ${plan.time}, held through ${quiet}`;
-      return (
-        `One push ${when} in ${h.tz}, on a day it is not yet done or skipped, to each device ` +
-        'with notifications on; never a second.'
-      );
-    }
-  }
+  if (plan.kind === 'off')
+    return 'This habit is archived, so no nudge is sent for it while it stays so.';
+  if (plan.kind === 'no-time')
+    return 'A nudge needs a time of day: this one has none, so no push is sent for it.';
+  const at =
+    plan.kind === 'at'
+      ? `at ${plan.time}`
+      : plan.kind === 'held'
+        ? `at ${plan.time}, held to the end of ${quiet}`
+        : `at ${plan.time}, as ${quiet} begin, its own time (${h.time}) being in them`;
+  const when =
+    plan.schedule === 'daily'
+      ? `${at}, on a day it is not yet done or skipped`
+      : plan.schedule === 'weekly'
+        ? `on the last day of each week (${WEEKDAY_NAMES[plan.lastDay ?? 'Sun']}, as weeks ` +
+          `start on ${WEEKDAY_NAMES[config.weekStart]}) ${at}, only if that week is not yet ` +
+          'done or skipped'
+        : `on the last day of each month ${at}, only if that month is not yet done or skipped`;
+  return (
+    `One push ${when}, in ${zone} (the zone of the device Eric last used the app on), to ` +
+    `each device with notifications on; never a second that ${
+      plan.schedule === 'daily' ? 'day' : plan.schedule === 'weekly' ? 'week' : 'month'
+    }.`
+  );
 }
 
 /** A habit's name as given, trimmed; refused when empty or too long. */
@@ -3697,11 +3716,13 @@ export class NotesTools {
   }
 
   // Habits (#324 step 3, 2026-11-21; DESIGN.md, Habits). A habit's name
-  // is plain, never sealed, and its log holds no answer from here, so
-  // nothing here meets the note codec. Today is each habit's own, in
-  // its `tz`, the server having no device. Every write records an
-  // activity entry naming the habit in its summary: an entry lists notes
-  // and reminders only, so it names no habit to put back.
+  // is plain, never sealed. Today is the day in the module's zone, the
+  // zone of the device the app last ran on (`habitZone`, Eric 2026-11-22:
+  // "follow the device"), a habit's own `tz` only while the module has
+  // none, so what the assistant logs is the day the app shows. Every
+  // write records an activity entry naming the habit in its summary: an
+  // entry lists notes and reminders only, so it names no habit to put
+  // back.
 
   private habits() {
     return this.db.collection(paths.habits(this.uid));
@@ -3746,22 +3767,24 @@ export class NotesTools {
   }
 
   /**
-   * Each habit as it stands today, in its own zone: due, today's and
+   * Each habit as it stands today, in `habitZone`: due, today's and
    * yesterday's own state, its period's for a weekly or monthly one,
    * and with `streaks` its streak, read back as far as it runs (at most
    * HABIT_STREAK_MONTHS). The months the day needs are read in one go.
    */
   private async placeHabits(
     habits: readonly StoredHabit[],
-    weekStart: Weekday,
+    config: HabitsConfig,
     streaks: boolean,
     answers = false,
   ) {
     const now = this.now();
+    const { weekStart } = config;
     const days = habits.map((h) => {
-      const own = habitToday(now, h.habit.tz);
+      const zone = habitZone(h.habit, config);
+      const own = habitToday(now, zone);
       const today = own ?? zonedDay(now, 'UTC');
-      return { ...h, today, zoneKnown: own !== undefined };
+      return { ...h, zone, today, zoneKnown: own !== undefined };
     });
     const months = days.map((h) => habitLogMonths(h.habit.schedule, h.today, weekStart));
     const logs = await this.habitLogDays(
@@ -3789,7 +3812,7 @@ export class NotesTools {
               }
             : {};
         const view = {
-          ...habitFields(h.id, h.habit),
+          ...habitFields(h.id, h.habit, h.zone),
           ...(h.zoneKnown ? {} : { timeZoneUnknown: true, todayIn: 'UTC' }),
           due: habitDue(h.habit, entries, h.today, weekStart),
           today: { date: h.today, state: dayState(entries, h.today), ...(await answer(h.today)) },
@@ -3804,8 +3827,7 @@ export class NotesTools {
             : { thisPeriod: habitPeriodState(h.habit, entries, h.today, weekStart) }),
         };
         if (!streaks) return { ...view, streak: undefined as HabitStreakView | undefined };
-        const createdOn =
-          h.createdAt === undefined ? undefined : habitToday(h.createdAt, h.habit.tz);
+        const createdOn = h.createdAt === undefined ? undefined : habitToday(h.createdAt, h.zone);
         const streak = await streakReadBack(h.habit, h.today, {
           weekStart,
           createdOn,
@@ -3906,14 +3928,16 @@ export class NotesTools {
   /**
    * Makes a habit (#324): daily unless said, done unless an answer is
    * asked (step 6: one of choices, a line of text, or a note from a
-   * template), at a time of day if any, in Eric's zone. A name an
+   * template), at a time of day if any. Its days follow the module's
+   * zone (Eric, 2026-11-22); `timeZone`, stored as the habit's own, is
+   * needed only while the app has not yet stored one. A name an
    * unarchived habit already has is refused, pointing at update_habit.
    */
   async createHabit(args: {
     name: string;
     schedule?: Habit['schedule'];
     time?: string;
-    timeZone: string;
+    timeZone?: string;
     nudge?: boolean;
     answer?: HabitAnswer;
     choices?: string[];
@@ -3923,8 +3947,8 @@ export class NotesTools {
     const name = habitName(args.name);
     const answered = (await this.habitAnswerArgs(args)) ?? { answer: 'done' as const };
     const time = args.time === undefined ? undefined : habitTime(args.time);
-    if (habitToday(this.now(), args.timeZone) === undefined)
-      throw new ToolError(`unknown time zone ${args.timeZone}`);
+    const config = await this.habitsSettings();
+    const tz = this.habitTimeZone(args.timeZone, config);
     if (args.nudge && time === undefined)
       throw new ToolError('a nudge needs a time of day: give time, or leave nudge off');
     const now = Timestamp.fromMillis(this.now());
@@ -3932,7 +3956,7 @@ export class NotesTools {
       name,
       schedule: args.schedule ?? 'daily',
       ...(time !== undefined ? { time } : {}),
-      tz: args.timeZone,
+      tz,
       ...answered,
       nudge: args.nudge ?? false,
       archived: false,
@@ -3955,22 +3979,42 @@ export class NotesTools {
       tx.set(this.habits().doc(id), data);
       tx.set(...this.activity('create_habit', `Made the habit ${name}`, []));
     });
-    const nudgeNote = data.nudge ? nudgeNoteFor(data, await this.habitsSettings()) : undefined;
-    return { ...habitFields(id, data), ...(nudgeNote ? { nudgeNote } : {}) };
+    const zone = habitZone(data, config);
+    const nudgeNote = data.nudge ? nudgeNoteFor(data, config, zone) : undefined;
+    return { ...habitFields(id, data, zone), ...(nudgeNote ? { nudgeNote } : {}) };
+  }
+
+  /**
+   * The zone a habit made or timed now is stored with (Eric, 2026-11-22):
+   * the one given, checked; else the module's, the device's Eric last
+   * used; refused when there is neither, as the app has not yet run with
+   * Habits on since the module began keeping one.
+   */
+  private habitTimeZone(given: string | undefined, config: HabitsConfig): string {
+    if (given !== undefined) {
+      if (habitToday(this.now(), given) === undefined)
+        throw new ToolError(`unknown time zone ${given}`);
+      return given;
+    }
+    if (config.tz && habitToday(this.now(), config.tz) !== undefined) return config.tz;
+    throw new ToolError(
+      "timeZone (Eric's IANA zone) is needed: the app has not yet told the server which " +
+        'zone his device is in',
+    );
   }
 
   /**
    * The habits (#324), archived ones only when asked, by time of day
    * then name: each with its schedule, time, nudge, whether it is due
-   * today, today's and yesterday's state and its streak, in its own zone.
+   * today, today's and yesterday's state and its streak, in `habitZone`.
    */
   async listHabits(args: { includeArchived?: boolean }) {
     await this.requireModule('habits', 'reading the habits');
-    const { weekStart } = await this.habitsSettings();
+    const config = await this.habitsSettings();
     const habits = (await this.allHabits()).filter(
       (h) => args.includeArchived || !h.habit.archived,
     );
-    const placed = await this.placeHabits(habits, weekStart, true, true);
+    const placed = await this.placeHabits(habits, config, true, true);
     return placed.sort(
       (a, b) =>
         Number(a.archived) - Number(b.archived) ||
@@ -4019,12 +4063,13 @@ export class NotesTools {
       args.template === undefined ? undefined : (await this.findTemplate(args.template)).id;
     const name = args.name === undefined ? undefined : habitName(args.name);
     const time = typeof args.time === 'string' ? habitTime(args.time) : args.time;
-    if (args.timeZone !== undefined && habitToday(this.now(), args.timeZone) === undefined)
-      throw new ToolError(`unknown time zone ${args.timeZone}`);
-    if (typeof time === 'string' && args.timeZone === undefined)
-      throw new ToolError(
-        "timeZone (Eric's IANA zone) is required with time: a habit's time is local to it",
-      );
+    const config = await this.habitsSettings();
+    // A time set takes the zone given, else the module's, as a time set
+    // in the app takes the device's; a zone alone is checked and stored.
+    const tz =
+      typeof time === 'string' || args.timeZone !== undefined
+        ? this.habitTimeZone(args.timeZone, config)
+        : undefined;
     const done = await this.db.runTransaction(async (tx) => {
       const all = await this.allHabits(tx);
       const found = findHabit(all, args.habit);
@@ -4035,7 +4080,7 @@ export class NotesTools {
         update['schedule'] = args.schedule;
       if (time === null && was.time !== undefined) update['time'] = FieldValue.delete();
       if (typeof time === 'string' && time !== was.time) update['time'] = time;
-      if (args.timeZone !== undefined && args.timeZone !== was.tz) update['tz'] = args.timeZone;
+      if (tz !== undefined && tz !== was.tz) update['tz'] = tz;
       if (args.nudge !== undefined && args.nudge !== was.nudge) update['nudge'] = args.nudge;
       if (args.archived !== undefined && args.archived !== was.archived)
         update['archived'] = args.archived;
@@ -4052,7 +4097,10 @@ export class NotesTools {
           update['template'] = answered.template ?? FieldValue.delete();
       }
       if (!Object.keys(update).length)
-        return { result: { changed: false, ...habitFields(found.id, was) }, next: undefined };
+        return {
+          result: { changed: false, ...habitFields(found.id, was, habitZone(was, config)) },
+          next: undefined,
+        };
       const merged: Data = { ...was, ...update };
       for (const k of ['time', 'choices', 'template'])
         if (update[k] instanceof FieldValue) delete merged[k];
@@ -4085,19 +4133,23 @@ export class NotesTools {
               ? `Renamed the habit ${was.name} to ${next.name}`
               : `Changed the habit ${next.name}`;
       tx.set(...this.activity('update_habit', summary, []));
-      return { result: { changed: true, ...habitFields(found.id, next) }, next };
+      return {
+        result: { changed: true, ...habitFields(found.id, next, habitZone(next, config)) },
+        next,
+      };
     });
     const { result, next } = done;
     if (!next?.nudge) return result;
-    return { ...result, nudgeNote: nudgeNoteFor(next, await this.habitsSettings()) };
+    return { ...result, nudgeNote: nudgeNoteFor(next, config, habitZone(next, config)) };
   }
 
   /**
-   * Logs a habit (#324), by id or name, for today or yesterday in its own
-   * zone (`canLogHabitDay`): done, skipped, or none to clear the day. One
-   * day of its month log, merged in the shape the app writes (`habit`,
-   * `month`, `updatedAt`, `days.<DD>` with `state` and `at`, `answer` and
-   * `noteId` removed), so the two never fight over a month. An archived
+   * Logs a habit (#324), by id or name, for today or yesterday in
+   * `habitZone`, the day the app shows (`canLogHabitDay`): done,
+   * skipped, or none to clear the day. One day of its month log, merged
+   * in the shape the app writes (`habit`, `month`, `updatedAt`,
+   * `days.<DD>` with `state` and `at`, `answer` and `noteId` removed),
+   * so the two never fight over a month. An archived
    * habit is refused. Gives back the day's new state and the streak.
    */
   async logHabit(args: {
@@ -4112,28 +4164,30 @@ export class NotesTools {
       throw new ToolError('an answer or a noteId goes only with state done: a skip holds none');
     if (args.answer !== undefined && args.noteId !== undefined)
       throw new ToolError('give an answer or a noteId, not both');
-    const { weekStart } = await this.habitsSettings();
+    const config = await this.habitsSettings();
+    const { weekStart } = config;
     const logged = await this.db.runTransaction(async (tx) => {
       const found = findHabit(await this.allHabits(tx), args.habit);
       const h = found.habit;
       if (h.archived)
         throw new ToolError(`${h.name} is archived; unarchive it with update_habit to log it`);
-      const today = habitToday(this.now(), h.tz);
+      const zone = habitZone(h, config);
+      const today = habitToday(this.now(), zone);
       if (today === undefined)
-        throw new ToolError(`${h.name}'s time zone ${h.tz} is not one the server knows`);
+        throw new ToolError(`${h.name}'s time zone ${zone} is not one the server knows`);
       const date = args.date ?? today;
       if (!isIsoDate(date)) throw new ToolError('date must be a calendar date, YYYY-MM-DD');
       const yesterday = addDays(today, -1);
       if (!canLogHabitDay(date, today))
         throw new ToolError(
           `${h.name} can be logged for today (${today}) or yesterday (${yesterday}) only, ` +
-            `in its own time zone (${h.tz})`,
+            `in Eric's time zone as the app last saw it (${zone})`,
         );
       // As the app offers it (review of #329, 2026-11-21): never a day
       // before the habit began, and yesterday for a week or month only
       // when it ended a period of its own.
       const createdOn =
-        found.createdAt === undefined ? undefined : habitToday(found.createdAt, h.tz);
+        found.createdAt === undefined ? undefined : habitToday(found.createdAt, zone);
       if (createdOn !== undefined && date < createdOn)
         throw new ToolError(`${h.name} began on ${createdOn}; ${date} is before it`);
       if (!habitDayLoggable(h, date, today, { weekStart, createdOn }))
@@ -4186,7 +4240,7 @@ export class NotesTools {
       tx.set(...this.activity('log_habit', `Logged ${h.name}: ${what}`, []));
       return { found, date, changed: true };
     });
-    const [view] = await this.placeHabits([logged.found], weekStart, true, true);
+    const [view] = await this.placeHabits([logged.found], config, true, true);
     const habit = logged.found.habit;
     const kind = habit.answer;
     // Said only of a day just logged: done again with none keeps its answer.
@@ -4233,9 +4287,9 @@ export class NotesTools {
 
   /** Today's habits for get_context (#324): those due, each due, done or skipped. */
   private async todaysHabits() {
-    const { weekStart } = await this.habitsSettings();
+    const config = await this.habitsSettings();
     const live = (await this.allHabits()).filter((h) => !h.habit.archived);
-    const placed = await this.placeHabits(live, weekStart, false);
+    const placed = await this.placeHabits(live, config, false);
     return placed
       .filter((h) => h.due)
       .sort(

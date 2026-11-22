@@ -54,7 +54,9 @@ Follow them; they are not repeated here.
   has on hand with `update_pantry`, not `capture`. For what to cook,
   `suggest_recipes`.
 - A habit is not gardened either (#324, Habits on): Eric's "set up a
-  habit to..." is `create_habit`, in his words; "I did it" is
+  habit to..." is `create_habit`, in his words, its time read in the
+  zone of the device he last used the app on (`timeZone` only when a
+  refusal asks for it, 2026-11-22); "I did it" is
   `log_habit`, with `answer` in his words for a habit answered with
   a choice or a line of text, and for one that opens a note, the
   entry made first with `use_template` and given as `noteId`;

@@ -1,4 +1,4 @@
-import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
+import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import {
   HABIT_ID,
   HABIT_NAME_MAX,
@@ -74,12 +74,13 @@ export function movesWhole(r: ReminderRecord): boolean {
  * What a reminder's line in the offer says of its habit's nudge, by the
  * quiet hours (`habitNudgePlan`, review of #333, 2026-11-22): nothing
  * when it goes at the reminder's time, "nudge at 06:00" when the quiet
- * hours hold it, "no nudge at this time" when none goes.
+ * hours hold it to their end, "nudge at 22:00" when its time is in them
+ * before midnight and it goes as they begin (Eric, 2026-11-22: where it
+ * said "no nudge at this time" until then).
  */
 export function journalNudgeNote(time: string, config: HabitsConfig): string | undefined {
   const plan = habitNudgePlan({ schedule: 'daily', time, nudge: true }, config);
-  if (plan.kind === 'held') return `nudge at ${plan.time}`;
-  if (plan.kind === 'quiet') return 'no nudge at this time';
+  if (plan.kind === 'held' || plan.kind === 'early') return `nudge at ${plan.time}`;
   return undefined;
 }
 
@@ -129,7 +130,10 @@ const COUNT = ['no', 'one', 'two', 'three', 'four', 'five', 'six'];
  * habit is heard is deleted, after, for one ticked done today, today
  * is marked done if it holds nothing on the server (`markDoneIfEmpty`,
  * a transaction too). So a reminder is never gone without its habit,
- * and a stale device never writes over a habit or a day.
+ * and a stale device never writes over a habit or a day. A mark that
+ * could not reach the server is tried again on the next change heard,
+ * a reload, or the connection coming back (`online`); the pass does
+ * nothing for a gardener no longer signed in (review of #333).
  */
 @Injectable({ providedIn: 'root' })
 export class JournalHabitsService {
@@ -145,6 +149,10 @@ export class JournalHabitsService {
   private readonly removed = new Set<string>();
   /** Reminders whose done mark is being written, so it is written once. */
   private readonly marking = new Set<string>();
+  /** The gardener the pass last ran for: another's starts afresh. */
+  private passUid?: string;
+  /** Bumped when the connection returns, so a failed mark is tried again. */
+  private readonly online = signal(0);
   /** Habits made here (or found there), before they are heard back. */
   private readonly made = signal<ReadonlySet<string>>(new Set());
   /** Templates whose offer was accepted, its habits being made. */
@@ -206,12 +214,23 @@ export class JournalHabitsService {
     // A move cut short (or made on another device and not yet finished
     // there): a reminder whose habit exists goes, its done mark first.
     effect(() => {
-      if (!this.auth.user()?.uid || !this.modules.habits() || !this.habits.loaded()) return;
+      // The pass is for this gardener (review of #333, 2026-11-22): a
+      // mark is written only while he is still the one signed in and the
+      // habits heard are his, and a reminder goes only if he still is.
+      const uid = this.auth.user()?.uid;
+      if (!uid || !this.modules.habits() || !this.habits.loaded()) return;
       const have = new Set(this.habits.habits().map((h) => h.id));
       const list = this.reminders.reminders();
-      // Read so a log heard later runs this again.
+      // Read so a log heard later runs this again, and a connection
+      // come back tries a failed mark again (review of #333).
       this.habits.placed();
+      this.online();
       untracked(() => {
+        if (uid !== this.passUid) {
+          this.passUid = uid;
+          this.removed.clear();
+          this.marking.clear();
+        }
         const today = zonedDay(this.now(), this.tz);
         for (const r of list) {
           const id = journalHabitId(r.id);
@@ -223,9 +242,10 @@ export class JournalHabitsService {
             if (!this.habits.dayHeard(id, today)) continue;
             if (this.habits.stateOn(id, today) === undefined) {
               this.marking.add(r.id);
-              this.habits.markDoneIfEmpty(id, today).then(
+              this.habits.markDoneIfEmpty(id, today, uid).then(
                 () => {
                   this.marking.delete(r.id);
+                  if (this.auth.user()?.uid !== uid) return;
                   this.drop(r.id);
                 },
                 (err) => {
@@ -240,6 +260,9 @@ export class JournalHabitsService {
         }
       });
     });
+    const back = () => this.online.update((n) => n + 1);
+    globalThis.addEventListener?.('online', back);
+    inject(DestroyRef).onDestroy(() => globalThis.removeEventListener?.('online', back));
   }
 
   /**

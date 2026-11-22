@@ -91,6 +91,7 @@ function setup({ on = true, notes = [journal()] as NoteRecord[] } = {}) {
     habits,
     journals,
     modules,
+    auth,
     reminders(docs: ReturnType<typeof reminderDoc>[]) {
       remindersApi.push(docs);
       TestBed.tick();
@@ -523,6 +524,49 @@ describe('A feelings journal’s reminders made habits (#324 step 7)', () => {
       expect(r.remindersApi.drop).not.toHaveBeenCalled();
     });
 
+    it('tries a failed mark again when the connection returns (review of #333)', async () => {
+      const r = setup();
+      r.reminders(journalReminders());
+      r.habitsApi.setDayIfEmpty.mockRejectedValueOnce(new Error('offline'));
+      r.habitDocs([movedHabit('rb', 'Feelings journal: breakfast', '08:00')], {});
+      await settle();
+      expect(r.habitsApi.setDayIfEmpty).toHaveBeenCalledTimes(1);
+      expect(r.remindersApi.drop).not.toHaveBeenCalled();
+      // Back online: the same mark again, then the reminder goes.
+      globalThis.dispatchEvent(new Event('online'));
+      TestBed.tick();
+      await settle();
+      expect(r.habitsApi.setDayIfEmpty).toHaveBeenCalledTimes(2);
+      expect(writes(r).map((w) => w.what)).toEqual([
+        'mark habitLogs/journal-rb_2026-10',
+        'mark habitLogs/journal-rb_2026-10',
+        'drop reminders/rb',
+      ]);
+    });
+
+    it('does nothing for a gardener no longer signed in (review of #333)', async () => {
+      const r = setup();
+      r.reminders(journalReminders());
+      let finish!: (v: boolean) => void;
+      r.habitsApi.setDayIfEmpty.mockReturnValueOnce(new Promise((done) => (finish = done)));
+      r.habitDocs([movedHabit('rb', 'Feelings journal: breakfast', '08:00')], {});
+      expect(r.habitsApi.setDayIfEmpty).toHaveBeenCalledTimes(1);
+      // Signed out and in as another before the mark came back: his
+      // reminder is not deleted under the new gardener.
+      r.auth.set(null);
+      TestBed.tick();
+      r.auth.set({ uid: 'u2' } as User);
+      TestBed.tick();
+      finish(true);
+      await settle();
+      expect(r.remindersApi.drop).not.toHaveBeenCalled();
+      // Nor is a mark asked for one gardener written once another is in.
+      await expect(r.habits.markDoneIfEmpty('journal-rb', '2026-10-06', 'u1')).rejects.toThrow(
+        /someone else/,
+      );
+      expect(r.habitsApi.setDayIfEmpty).toHaveBeenCalledTimes(1);
+    });
+
     it('a delete that could not be sent is sent again on the next pass', () => {
       const r = setup();
       const remove = vi.spyOn(r.remindersService, 'remove').mockReturnValueOnce(false);
@@ -537,11 +581,12 @@ describe('A feelings journal’s reminders made habits (#324 step 7)', () => {
       expect(remove).toHaveBeenCalledTimes(2);
     });
 
-    it('says on a reminder’s line where the quiet hours hold its nudge or silence it', () => {
+    it('says on a reminder’s line where the quiet hours move its nudge', () => {
       const config = habitsConfig({});
       expect(journalNudgeNote('08:00', config)).toBeUndefined();
       expect(journalNudgeNote('05:00', config)).toBe('nudge at 06:00');
-      expect(journalNudgeNote('23:00', config)).toBe('no nudge at this time');
+      // Eric, 2026-11-22: sent as the quiet hours begin, no longer none.
+      expect(journalNudgeNote('23:00', config)).toBe('nudge at 22:00');
       const r = setup();
       const [rb, rl, rd] = journalReminders();
       const data = (d: typeof rb) => d.data as { text: string };
@@ -553,7 +598,7 @@ describe('A feelings journal’s reminders made habits (#324 step 7)', () => {
       r.habitDocs([]);
       expect(r.journals.offers()[0].nudges).toEqual({
         rb: 'nudge at 06:00',
-        rd: 'no nudge at this time',
+        rd: 'nudge at 22:00',
       });
     });
 

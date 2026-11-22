@@ -356,8 +356,9 @@ describe('The Habits screen (#324)', () => {
     select.dispatchEvent(new Event('change'));
     await r.fixture.whenStable();
     expect(form.textContent).toContain('What is logged stays, read again by the new schedule.');
-    // The hint is for the schedule chosen, before it is saved.
-    expect(form.textContent).toContain('Nudges are for daily habits for now.');
+    // The hint is for the schedule chosen, before it is saved: the last
+    // day of the week (Eric, 2026-11-22).
+    expect(form.textContent).toContain('One push on Sunday at 21:00 if not done this week.');
     r.api.set.mockClear();
     buttonNamed(form, 'Save')!.click();
     expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
@@ -429,7 +430,7 @@ describe('habit lines', () => {
     expect(streakLine('daily', 30, false)).toBe('Streak: at least 30 days');
   });
 
-  it('says when a nudge goes, held through the quiet hours or not at all', () => {
+  it('says when a nudge goes, around the quiet hours (Eric, 2026-11-22)', () => {
     const config = habitsConfig({});
     expect(nudgeHint('daily', '', config)).toBe('A nudge needs a time of day.');
     expect(nudgeHint('daily', '07:30', config)).toBe('One push at 07:30 if not logged by then.');
@@ -437,9 +438,25 @@ describe('habit lines', () => {
       'One push at 06:00, when the quiet hours (22:00 to 06:00) end, if not logged by then.',
     );
     expect(nudgeHint('daily', '23:00', config)).toBe(
-      'No push: 23:00 is in the quiet hours (22:00 to 06:00), which end after its day does.',
+      'One push at 22:00, as the quiet hours (22:00 to 06:00) begin, if not logged by then.',
     );
-    expect(nudgeHint('weekly', '07:30', config)).toBe('Nudges are for daily habits for now.');
+    expect(nudgeHint('daily', '22:00', config)).toBe('One push at 22:00 if not logged by then.');
+    // Weekly and monthly: the last day of the period.
+    expect(nudgeHint('weekly', '21:00', config)).toBe(
+      'One push on Sunday at 21:00 if not done this week.',
+    );
+    expect(nudgeHint('weekly', '21:00', habitsConfig({ weekStart: 'Sun' }))).toBe(
+      'One push on Saturday at 21:00 if not done this week.',
+    );
+    expect(nudgeHint('weekly', '23:30', config)).toBe(
+      'One push on Sunday at 22:00, as the quiet hours (22:00 to 06:00) begin, if not done this week.',
+    );
+    expect(nudgeHint('monthly', '09:00', config)).toBe(
+      'One push on the last day of the month at 09:00 if not done this month.',
+    );
+    expect(nudgeHint('monthly', '04:00', config)).toBe(
+      'One push on the last day of the month at 06:00, when the quiet hours (22:00 to 06:00) end, if not done this month.',
+    );
     expect(habitWhen({ schedule: 'daily', time: '07:30', nudge: true }, config)).toBe(
       '07:30 · Nudge on',
     );
@@ -450,13 +467,22 @@ describe('habit lines', () => {
     const config = habitsConfig({});
     const daily = { schedule: 'daily', nudge: true } as const;
     expect(habitWhen({ ...daily, time: '05:00' }, config)).toBe('05:00 · Nudge at 06:00');
-    expect(habitWhen({ ...daily, time: '22:30' }, config)).toBe('22:30');
+    // Eric, 2026-11-22: sent as the quiet hours begin.
+    expect(habitWhen({ ...daily, time: '22:30' }, config)).toBe('22:30 · Nudge at 22:00');
+    expect(habitWhen({ ...daily, time: '22:00' }, config)).toBe('22:00 · Nudge on');
     expect(habitWhen({ ...daily, time: '21:00', nudge: false }, config)).toBe('21:00');
+    // Eric, 2026-11-22: weekly and monthly on the period's last day.
     expect(habitWhen({ schedule: 'weekly', time: '21:00', nudge: true }, config)).toBe(
-      'This week · 21:00',
+      'This week · 21:00 · Nudge on Sunday',
+    );
+    expect(habitWhen({ schedule: 'weekly', time: '23:00', nudge: true }, config, 'screen')).toBe(
+      'Once a week · 23:00 · Nudge Sunday at 22:00',
     );
     expect(habitWhen({ schedule: 'monthly', time: '21:00', nudge: true }, config)).toBe(
-      'This month · 21:00',
+      'This month · 21:00 · Nudge on the last day',
+    );
+    expect(habitWhen({ schedule: 'monthly', time: '05:00', nudge: true }, config, 'screen')).toBe(
+      'Once a month · 05:00 · Nudge on the last day at 06:00',
     );
     // Quiet hours set otherwise move the line with the hint.
     const noon = habitsConfig({ quietFrom: '12:00', quietTo: '14:00' });

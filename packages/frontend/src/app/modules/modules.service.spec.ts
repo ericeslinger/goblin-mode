@@ -3,12 +3,13 @@ import type { User } from 'firebase/auth';
 import { signal } from '@angular/core';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { TIME_ZONE } from '../platform/platform';
 import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
 import { ModulesService } from './modules.service';
 
 let ack: Promise<void> = Promise.resolve();
 
-function setup() {
+function setup(tz = 'America/New_York') {
   let next: (data: Record<string, unknown> | undefined, local?: boolean) => void = () => undefined;
   const api = {
     listen: vi.fn((_db, _path, n) => {
@@ -24,6 +25,7 @@ function setup() {
       { provide: SETTINGS_API, useValue: api },
       { provide: FIREBASE, useValue: { db: {} } },
       { provide: AuthService, useValue: { user } },
+      { provide: TIME_ZONE, useValue: tz },
     ],
   });
   const modules = TestBed.inject(ModulesService);
@@ -95,19 +97,108 @@ describe('ModulesService (#126)', () => {
 
   it('sets Habits’ week start, keeping its switch and quiet hours (step 5 of #324)', () => {
     const { modules, api, push } = setup();
-    push({ habits: { enabled: true, config: { quietFrom: '23:00' } } });
+    const tz = 'America/New_York';
+    push({ habits: { enabled: true, config: { quietFrom: '23:00', tz } } });
     modules.configureHabits({ weekStart: 'Sun' });
     expect(modules.habitsConfig()).toEqual({
       weekStart: 'Sun',
       quietFrom: '23:00',
       quietTo: '06:00',
+      tz,
     });
     expect(api.set).toHaveBeenLastCalledWith({}, 'users/u1/settings/modules', {
       habits: {
         enabled: true,
-        config: { weekStart: 'Sun', quietFrom: '23:00', quietTo: '06:00' },
+        config: { weekStart: 'Sun', quietFrom: '23:00', quietTo: '06:00', tz },
       },
       updatedAt: 'NOW',
+    });
+  });
+
+  describe('the device’s zone for Habits (Eric, 2026-11-22)', () => {
+    const modulesWith = (tz?: string, enabled = true) => ({
+      habits: { enabled, config: { weekStart: 'Sun', ...(tz ? { tz } : {}) } },
+      kitchen: { enabled: true },
+    });
+
+    it('stores this device’s zone when it differs, keeping the rest, once', () => {
+      const { modules, api, push } = setup('Europe/Paris');
+      push(modulesWith('America/New_York'));
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(1);
+      expect(api.set).toHaveBeenCalledWith({}, 'users/u1/settings/modules', {
+        habits: {
+          enabled: true,
+          config: { weekStart: 'Sun', quietFrom: '22:00', quietTo: '06:00', tz: 'Europe/Paris' },
+        },
+        kitchen: { enabled: true },
+        updatedAt: 'NOW',
+      });
+      expect(modules.habitsConfig().tz).toBe('Europe/Paris');
+      // Its echo, and the server's copy: the same zone, nothing more.
+      push(modulesWith('Europe/Paris'), true);
+      push(modulesWith('Europe/Paris'));
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes nothing when the zone is the same, Habits is off, or nothing is read', () => {
+      const same = setup('Europe/Paris');
+      same.push(modulesWith('Europe/Paris'));
+      TestBed.tick();
+      expect(same.api.set).not.toHaveBeenCalled();
+      TestBed.resetTestingModule();
+      const off = setup('Europe/Paris');
+      off.push(modulesWith('America/New_York', false));
+      TestBed.tick();
+      expect(off.api.set).not.toHaveBeenCalled();
+      TestBed.resetTestingModule();
+      const unread = setup('Europe/Paris');
+      TestBed.tick();
+      expect(unread.api.set).not.toHaveBeenCalled();
+    });
+
+    it('stores one where none was, as for a module switched on before', () => {
+      const { api, push } = setup('Asia/Tokyo');
+      push(modulesWith());
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(1);
+      expect(api.set).toHaveBeenCalledWith(
+        {},
+        'users/u1/settings/modules',
+        expect.objectContaining({
+          habits: expect.objectContaining({
+            config: expect.objectContaining({ tz: 'Asia/Tokyo' }),
+          }),
+        }),
+      );
+    });
+
+    it('never writes back and forth with a device in another zone: once a use', async () => {
+      const { api, push } = setup('Europe/Paris');
+      push(modulesWith('America/New_York'));
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(1);
+      // Acknowledged, so another device's change is taken again.
+      await new Promise((done) => setTimeout(done));
+      // The laptop at home, also open, writes its zone afterwards: this
+      // device leaves it until it is used again.
+      push(modulesWith('America/New_York'));
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(1);
+      // Brought back to the front: a new use, and its zone again.
+      document.dispatchEvent(new Event('visibilitychange'));
+      TestBed.tick();
+      expect(api.set).toHaveBeenCalledTimes(2);
+      expect(api.set).toHaveBeenLastCalledWith(
+        {},
+        'users/u1/settings/modules',
+        expect.objectContaining({
+          habits: expect.objectContaining({
+            config: expect.objectContaining({ tz: 'Europe/Paris' }),
+          }),
+        }),
+      );
     });
   });
 

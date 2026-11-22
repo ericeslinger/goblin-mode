@@ -4206,7 +4206,11 @@ small proposals there. What is decided:
 - **Nudges:** per habit, one push at the habit's time, only if it is
   not logged yet, never a second; quiet hours 22:00 to 06:00, one
   setting for all nudges. They ride the push reminders use
-  (`functions/src/push`).
+  (`functions/src/push`). Eric decided three open parts on 2026-11-22
+  (Eric's decisions of 2026-11-22, below): a time in quiet hours
+  before midnight is sent as they begin; a weekly or monthly habit is
+  nudged on the last day of its period; and a habit's day follows the
+  device.
 - **Sealing:** answers are sealed like note text; a habit's name stays
   readable, so a push can name it.
 - **Streaks** exist, computed, never stored; a delight layer comes
@@ -4235,7 +4239,9 @@ interface Habit {
   schedule: 'daily' | 'weekly' | 'monthly';
   time?: string;         // "HH:MM", local, as a recurrence's; none: any
   tz: string;            // IANA zone `time` is in, 1 to 64; the device's
-                         // when made or its time last set
+                         // when made or its time last set; since
+                         // 2026-11-22 the server's fallback only, while
+                         // the module has no zone (`HabitsConfig.tz`)
   answer: 'done' | 'choice' | 'text' | 'note';
   choices?: string[];    // only with choice: 2 to 12, each 1 to 40, once
   template?: string;     // only with note: the template's note id
@@ -4281,10 +4287,14 @@ YYYY-MM-DD as the meal plan and the Reader write them; a log keys it
 by its day of the month, "01" to "31" (`habitDayKey`). Today is the
 day on the device's own clock, in its own zone (`zonedDay(now, tz)`
 with the platform zone, as Right Now decides today for reminders).
-The server, which has no device, takes the habit's `tz` (nudges, the
-assistant's tools). So a gardener away from home logs by the clock he
-is under, while his nudge keeps the zone the habit was set in until he
-sets its time again. Everything in `habits.ts` is calendar arithmetic
+The server, which has no device, took the habit's `tz` (nudges, the
+assistant's tools), so a gardener away from home logged by the clock
+he was under while his nudge kept the zone the habit was set in.
+*Changed 2026-11-22 (Eric, "follow the device"):* the server reads
+every habit's day in the module's zone, the zone of the device the app
+last ran on (`HabitsConfig.tz`, `habitZone`), and the habit's `tz` only
+while the module has none (Eric's decisions of 2026-11-22, below).
+Everything in `habits.ts` is calendar arithmetic
 on those strings (`addDays`, `periodStartFor` from `mealplan.ts`), so
 a clock change never moves, doubles or drops a day. A weekly or
 monthly habit's check-in sits under the day it was done; its period
@@ -4398,7 +4408,9 @@ rules take.
   step 5 (2026-11-21, step 4): until then such a habit's nudge is
   stored and not sent, and the app and the assistant say so. *Still
   open after step 5 (2026-11-22):* the options and a recommendation
-  are under Weekly and monthly, below, for Eric.
+  are under Weekly and monthly, below, for Eric. *Decided 2026-11-22
+  (Eric, "last day of period"):* the last day of the period, built
+  (Eric's decisions of 2026-11-22, below).
 - A sealed value shows its length, so a choice can be told from
   another of a different length; step 6 may pad a choice before
   sealing it. Done with step 6, 2026-11-22: every choice is padded to
@@ -4538,7 +4550,9 @@ his overruling; nothing decided above changed.
   reads included, as the Kitchen tools do (`requireModule`).
 - *Making one.* A name in Eric's words, trimmed, 1 to 80; daily unless
   weekly or monthly is asked; a time "HH:MM" or none; `timeZone` is
-  required, as every habit has a zone; `answer: done` only (a habit is
+  required, as every habit has a zone (*changed 2026-11-22:* optional,
+  needed only while the module has no zone, Eric's decisions of
+  2026-11-22, below); `answer: done` only (a habit is
   done or not in this step); `nudge` off unless asked, and on only with
   a time. The id is generated on the server (`autoId`, the `HABIT_ID`
   form), `createdBy: claude` and `agent` as a reminder's. A name an
@@ -4553,7 +4567,10 @@ his overruling; nothing decided above changed.
   `date` that must be today or yesterday there (`canLogHabitDay`).
   Setting a time with `update_habit` needs `timeZone`, which becomes
   the habit's zone, as a time set in the app takes the device's;
-  clearing it keeps the zone.
+  clearing it keeps the zone. *Changed 2026-11-22 (Eric, "follow the
+  device"):* today is the day in the module's zone, the device's, for
+  every habit; a time set takes `timeZone` if given, else the module's
+  zone, and is refused only when there is neither.
 - *A tick* is one day of the month log, merged, exactly as the app
   writes it: `habit`, `month`, `updatedAt` and `days.<DD>` holding
   `state` and `at`, with `answer` and `noteId` removed; `none` removes
@@ -4573,6 +4590,9 @@ his overruling; nothing decided above changed.
   and `nudgeNote` on a result with a nudge on says when this one goes:
   at its time, held to the end of the quiet hours, none for a time in
   them before midnight, or none yet for a weekly or monthly habit.
+  *Changed 2026-11-22 (Eric's decisions, below):* a time in them before
+  midnight goes as they begin, and a weekly or monthly habit's on the
+  last day of its period; the note says which, in the zone used.
 - *Changed 2026-11-22, step 6:* the tools make, change and log every
   kind of answer (Answers, below), so "`answer: done` only" and "a
   habit of another kind is logged with no answer" above no longer
@@ -4588,7 +4608,8 @@ his overruling; nothing decided above changed.
   and `log_habit`, and the instructions, now say that a habit's today
   is the day in the zone it was made or last timed in, which can
   differ from where Eric is when he travels, so the assistant says
-  which day it logged.
+  which day it logged. *Changed 2026-11-22:* they say the zone of the
+  device he last used the app on, the day the app shows.
 - *What assistants changed.* An entry lists notes and reminders only,
   so a habit's entry names it in its summary ("Made the habit Floss",
   "Logged Floss: done today") with no item to open or put back; a
@@ -4605,7 +4626,9 @@ above changed.
 - *When one is due* (`habitNudgeDue`, `habits.ts`, beside the rest of
   the habit rules): the Habits module is on; the habit is unarchived,
   `nudge: true`, has a time and is daily; its moment today, in the
-  habit's own `tz` (Days and weeks), has come; no nudge was sent for
+  habit's own `tz` (Days and weeks), has come (*changed 2026-11-22:*
+  weekly and monthly too, on their period's last day, in the module's
+  zone; Eric's decisions, below); no nudge was sent for
   today or a later day; and today holds no entry, done or skipped.
   Only today in its zone is ever looked at, so a nudge late past
   midnight is never sent for the day that ended. Two bounds of this
@@ -4624,7 +4647,9 @@ above changed.
   14:00: 11:30 late past 12:00 is let go, 13:00 goes at 14:00). The
   wake is for the same moment (`habitNextNudge`, from `habitNudgeAt`),
   so none is queued in them; a moment a clock change pushes into
-  them sends none that day.
+  them sends none that day. *Changed 2026-11-22 (Eric, "send at
+  22:00"):* one exception, the nudge at the start of quiet hours that
+  wrap midnight (Eric's decisions, below).
 - *Quiet hours* are one setting for every nudge, `quietFrom` and
   `quietTo` in `HabitsConfig` (`settings/modules` habits.config, as
   `weekStart` is), 22:00 to 06:00 unless set; a start equal to its
@@ -4637,13 +4662,18 @@ above changed.
   sends no nudge at all, and Edit, its line and the assistant say so
   (its line since 2026-11-22). Sending
   it at 22:00 instead, early, or the next morning for yesterday, are
-  his to choose. No screen sets the quiet hours in this step: the
+  his to choose. *Decided 2026-11-22 (Eric, "send at 22:00"):* sent as
+  the quiet hours begin, that day (Eric's decisions, below). No screen
+  sets the quiet hours in this step: the
   config takes them, and nothing writes them but by hand. Any
   `HH:MM` pair is valid: a start after its end wraps midnight (the
   default), one before it does not (12:00 to 14:00), equal is none.
 - *Where "sent" is marked:* `users/{uid}/usage/habitNudges`,
   `sent.<habitId>` the last day (YYYY-MM-DD in the habit's zone) a
   nudge was sent for that habit, as the digest marks `usage/digest`.
+  *Changed 2026-11-22:* the day in the zone the nudge was read in (the
+  module's), and a mark on any day of a period stops a second nudge in
+  that period (Eric's decisions, below).
   Server only: the rules match nothing under `usage`, so a client can
   neither read nor write it (a rules test says so), and no stored
   shape of `Habit` or `HabitLog` changed, nor any rule. One document
@@ -4683,7 +4713,9 @@ above changed.
   disabled without a time, with a line under it saying what it will
   do ("A nudge needs a time of day."; "One push at 21:00 if not
   logged by then."; held, or none, by the quiet hours; "Nudges are
-  for daily habits for now."). Switched on while this device's
+  for daily habits for now."; *changed 2026-11-22:* none is "none" any
+  more, and a weekly or monthly habit's names its last day, Eric's
+  decisions, below). Switched on while this device's
   notifications are off, it asks for them through the same path as
   Settings, Notifications (`PushService.enable`); blocked or not set
   up, a line points to Settings, Notifications. Saved with the form:
@@ -4702,8 +4734,10 @@ above changed.
   `create_habit` and `update_habit`): one push at its time on a day
   not yet logged, never a second, held through the quiet hours, none
   for a time in them before midnight, daily habits only for now.
+  *Changed 2026-11-22:* rewritten to Eric's decisions (below).
 - *Not done:* weekly and monthly nudges (left open by step 5 for Eric:
-  Weekly and monthly, below); a
+  Weekly and monthly, below; *done 2026-11-22*, Eric's decisions,
+  below); a
   screen for the quiet hours; a tick from the notification itself.
   *Not tried on a real device:* the push arriving, its words and tag
   replacing an older one, and the tap opening Right Now (the
@@ -4717,7 +4751,8 @@ above changed.
 **Weekly and monthly in the app (step 5, 2026-11-22).** Built: making
 and changing a weekly or monthly habit on the Habits screen, its week
 or month there and on Right Now, Habits' own week start, and the Home
-count for them. Not built: their nudges, a decision of Eric's (below).
+count for them. Not built: their nudges, a decision of Eric's (below;
+*built 2026-11-22*, Eric's decisions of 2026-11-22, below).
 As in the steps before, the choices are this step's own and open to
 his overruling; nothing decided above changed.
 
@@ -4739,7 +4774,9 @@ his overruling; nothing decided above changed.
   schedule."). The nudge switch and time stay as they were; whether a
   push goes is `habitNudgePlan`'s, as for any habit (made weekly, none;
   made daily again, from its next moment after the change, the bound of
-  step 4). Specs in `habits.spec.ts` (schema) cover both rereadings.
+  step 4; *changed 2026-11-22:* made weekly, on the week's last day,
+  and never a second in a period already nudged). Specs in
+  `habits.spec.ts` (schema) cover both rereadings.
 - *Its kind, said.* On Right Now the period it is for, under its name,
   "This week" or "This month" (step 4's `habitWhen`, as it was). On the
   Habits screen, how often in the form's own words, "Once a week ·
@@ -4790,10 +4827,12 @@ his overruling; nothing decided above changed.
   service and in the journey.
 - *The assistant.* No tool changed: the four already took `schedule`.
   `INSTRUCTIONS` were true as they stood (weekly and monthly habits are
-  not nudged yet) and are unchanged; `create_habit`'s description said
-  "Daily habits only", which could read as making only daily ones, and
-  now says only a daily one is nudged for now, a weekly or monthly one
-  keeping the setting. The tool table's words hold. `garden-this`
+  not nudged yet; *no longer, 2026-11-22*) and are unchanged;
+  `create_habit`'s description said "Daily habits only", which could
+  read as making only daily ones, and now says only a daily one is
+  nudged for now, a weekly or monthly one keeping the setting
+  (*changed 2026-11-22:* it says when they are nudged). The tool
+  table's words hold. `garden-this`
   names rescheduling under `update_habit`.
 - *Tests.* Schema specs for `habitSettledOn` and the rereadings; the
   app's for the select, the change, the period line, Right Now, the
@@ -4834,7 +4873,8 @@ migration. 1 fits "one push, never a second" per period and needs only
 `habitNudgePlan` and `habitNudgeDue` to look at the period (its last
 day, and a period with nothing logged, which for a week across two
 months is two month logs in the claim), with the quiet hours as for a
-daily habit. None of it is built.
+daily habit. None of it is built. *Decided 2026-11-22 (Eric, "last day
+of period"):* option 1, built (Eric's decisions of 2026-11-22, below).
 
 **Answers (step 6, 2026-11-22).** Built: the four kinds Eric decided
 (2026-11-21), made, changed and answered in the app and by the
@@ -5116,7 +5156,9 @@ overruling; no stored shape or rule changed.
     new entry; a reminder's push opened the entry itself. Your entries
     and the journal stay as they are." A reminder's line adds "(nudge
     at 06:00)" or "(no nudge at this time)" where the quiet hours hold
-    or silence its nudge (`habitNudgePlan`, `journalNudgeNote`). The
+    or silence its nudge (`habitNudgePlan`, `journalNudgeNote`).
+    *Changed 2026-11-22:* "(nudge at 22:00)" where it said "(no nudge
+    at this time)", as such a nudge now goes as the quiet hours begin. The
     pushes were read in the code (`habit-nudges.ts` opens
     `/right-now`; `send-due.ts` opens `/n/<template>?from=reminder`),
     not on a device.
@@ -5155,6 +5197,147 @@ overruling; no stored shape or rule changed.
   real project's push for the habits is the nudges' (step 4), not
   tried on a device.
 
+**Eric's decisions of 2026-11-22: nudges and the zone.** Eric
+answered the three open questions on 2026-11-22: "send at 22:00",
+"last day of period" and "follow the device". Built as below; what
+the earlier paragraphs said is kept, each marked changed or decided
+with this date. The rules are `habitNudgePlan`, `habitNudgeAt`,
+`habitNudgeDue`, `habitNextNudge` and `habitZone` in `habits.ts`;
+the sender, the wake, the Edit hint, the habit's line, the
+assistant's `nudgeNote` and the journal offer's line all read them.
+
+- *Send at 22:00.* A time in the quiet hours on their evening side,
+  from their start to midnight when they wrap it, is sent at their
+  start, that same day: with the default 22:00 to 06:00, 22:30 and
+  23:59 go at 22:00 (`habitNudgeTime`; plan `early`). A time on their
+  morning side, midnight up to their end, is still held to their end:
+  03:00 goes at 06:00 (`held`). A habit timed at their start exactly
+  goes then, at its own time (`at`). Quiet hours that do not wrap
+  midnight (12:00 to 14:00) keep the earlier rule, every time in them
+  held to their end (13:00 at 14:00), as their end is still that day.
+- *Never inside quiet hours, reconciled.* The rule from the review of
+  #330 stands with one exception: the nudge whose moment is the start
+  of quiet hours that wrap midnight. It is the evening habit's own
+  nudge moved earlier to the boundary, not another. Chosen: it keeps
+  the same lateness bound as every nudge, `HABIT_NUDGE_LATE_MS`
+  (65 minutes), so a lost wake is still caught by the hourly run, as
+  "send at 22:00" asks for it reliably. So with the defaults it goes
+  at 22:00, or, its wake lost, at the latest by 23:05, never later,
+  and never past midnight (only today is looked at: quiet hours from
+  23:30 lose it at 00:00). Every other nudge is still never sent
+  while it is quiet: a 21:30 one late past 22:00 is let go, as before.
+  What "never inside quiet hours" now means: no push in them except
+  an evening habit's own, at their start or up to 65 minutes into
+  them. Not chosen: the boundary minute only, which a lost wake would
+  lose for the day.
+- *Last day of period.* A weekly or monthly habit with Nudge me on is
+  nudged on the last day of its period, at its time, only if the
+  period is still not done or skipped, once: the last day of the week
+  by the module's `weekStart` (Sunday for weeks from Monday, Saturday
+  for weeks from Sunday; `lastWeekday`), and the last day of the
+  month (the 28th, 29th, 30th or 31st). The quiet hours apply on that
+  day as on any (23:00 on Sunday goes at 22:00). The push says the
+  period: "Right Now · not done yet this week" ("this month"). The
+  claim reads the period's month logs, two for a week across a
+  month's start.
+- *Once per period.* `usage/habitNudges` keeps the last day a nudge
+  was sent for, per habit, as before; no shape changed. A nudge is due
+  only when that day is before the start of today's period, so a
+  mark on any day of the period stops another, whatever the schedule
+  was when it was sent: a daily habit nudged on Wednesday and made
+  weekly on Thursday is not nudged again that Sunday; a weekly one
+  nudged on Sunday the 22nd and made monthly is not nudged on the
+  30th. Made daily again, it is nudged from its next day. The claim
+  checks the habit's schedule is the one the run read, else claims
+  nothing (the write queued its own wake, and the next run decides).
+  A weekly or monthly habit's wake can be a month away, beyond a Cloud
+  Task's 29 days, so none is queued past that: the hourly run queues
+  it in the hour before.
+- *Follow the device.* One zone for the Habits module, the zone of the
+  device the app last ran on with Habits on: `HabitsConfig.tz`, an
+  optional IANA zone in `settings/modules` habits.config. The app
+  (`ModulesService`) writes it, a whole-config write through the cache
+  as Weeks start on is written, when it runs with Habits on, has read
+  the modules and the device's zone (the one the app reads today in)
+  differs from the stored one; at most once a use of the app (opened,
+  or brought back to the front, `visibilitychange`). The server reads
+  every habit's today, nudge day and nudge time in it (`habitZone`),
+  and a habit's own `tz` only while the module has none or one the
+  platform does not know (old data, before the app first runs with
+  this). No migration: `Habit` and `HabitLog` are as they were; a
+  habit's `tz` is still written (the device's, as before; the tools'
+  `timeZone`, else the module's) and is the fallback only. The config
+  is a map the rules take whole, so the rules and their generated
+  validators did not change (`npm run rules:gen -- --check`); a rules
+  test shows the owner's merge write of the zone allowed and another
+  gardener's refused.
+- *Two devices.* The last one used wins: a laptop left open at home
+  and a phone travelling each write their zone only when brought to
+  the front, never in answer to the other's write, so they never write
+  back and forth; the server follows whichever was used last.
+- *Travelling east.* The app's day moves on when it next runs there;
+  the server's follows on its write. A nudge already sent for a day
+  is not sent again (the mark); the new day is nudged once at the
+  habit's time there. A day the jump passes over before its nudge
+  (New York at 18:00 on the 21st, landing where it is already the
+  22nd) gets no nudge; it can still be logged as yesterday. Days
+  logged stay under their date: nothing is moved or doubled.
+- *Travelling west.* Today can go back a day. A day already nudged is
+  not nudged again when it comes round (a 21:00 nudge sent in Paris
+  on the 21st, 21:00 on the 21st in New York: no second push). A mark
+  ahead of today (a nudge for the 22nd sent in Paris just after
+  midnight, then New York's 21st) holds: neither the 21st nor the
+  22nd is nudged again there, so at most one day's nudge is lost. A
+  day logged ahead (the 22nd, ticked in Paris) shows as done when that
+  date comes, and cannot be logged twice: the log is keyed by date.
+- *A habit timed 08:00* now nudges at 08:00 wherever the device last
+  was, which is what following the device means; until the app has
+  run there, the server keeps the zone it last had.
+- *The assistant* reads the same zone: `list_habits` gives it as each
+  habit's `timeZone`, and `log_habit`'s today and yesterday are the
+  app's, so what Eric sees and what the assistant logs agree.
+  `create_habit` and `update_habit` take `timeZone` as before, now
+  optional: it is stored on the habit (the fallback) and checked, and
+  is needed only while the module has no zone (refused then without
+  it, asking for his zone). `INSTRUCTIONS`, the four tools'
+  descriptions and `nudgeNote` say all of this; the tool table and
+  `garden-this` were updated with them.
+- *What the app says.* Edit's hint: "One push at 22:00, as the quiet
+  hours (22:00 to 06:00) begin, if not logged by then." for 23:00;
+  "One push on Sunday at 21:00 if not done this week."; "One push on
+  the last day of the month at 09:00 if not done this month."; held
+  ones "..., when the quiet hours (22:00 to 06:00) end, ...". The
+  habit's line: "22:30 · Nudge at 22:00", "This week · 21:00 · Nudge
+  on Sunday", "Once a week · 23:00 · Nudge Sunday at 22:00", "This
+  month · 21:00 · Nudge on the last day", "Once a month · 05:00 ·
+  Nudge on the last day at 06:00". The journal offer's line "(nudge at
+  22:00)" where it said "(no nudge at this time)". Nothing about a
+  nudge shows when none goes (switch off, archived, no time).
+- *Two leftovers from the review of #333.* The journal's finishing
+  pass captures the gardener it runs for: its done mark is refused
+  once another is signed in or while the habits heard are not his
+  (`markDoneIfEmpty`'s `forUid`), and a mark that comes back after a
+  sign-out and another sign-in deletes nothing. A mark that could not
+  reach the server is tried again when the connection returns (the
+  `online` event, as the notes' sealing waits on it), as well as on
+  the next change heard or a reload.
+- *Tests.* Schema specs for each rule (the evening nudge at the quiet
+  hours' start and its 65-minute bound, the last day of weeks from
+  Monday and Sunday and of months of 28, 29, 30 and 31 days, settled
+  periods, once per period across a schedule change, the zone east
+  and west across midnight, clock changes); the sender's and wake's
+  unit and emulator specs (a week across two months read whole, the
+  module's zone); the tools' emulator specs; the app's for the hint,
+  the line, the journal line, the zone write (only when it differs,
+  once a use, no loop) and the two leftovers; and the nudges journey
+  reads the stored zone as admin.
+- *Not established.* A push arriving on a real device at 22:00 or on a
+  Sunday (the emulator has no FCM); the zone a real phone reports
+  after a flight before the PWA is reopened (the app reads it at
+  start, so a PWA left running keeps its old zone until reloaded);
+  and the TTL of an hour, which still lets a 22:00 nudge to a phone
+  offline arrive later inside the quiet hours.
+
 **Build order (#324).**
 
 1. Design: this section, the stored schemas with generated rules and
@@ -5163,9 +5346,14 @@ overruling; no stored shape or rule changed.
    above).
 3. The assistant's tools. Done 2026-11-21 (The assistant's tools,
    above).
-4. Nudges. Done 2026-11-21, daily habits only (Nudges, below).
+4. Nudges. Done 2026-11-21, daily habits only (Nudges, above). With
+   Eric's decisions of 2026-11-22 (above): a time in quiet hours
+   before midnight sent as they begin, and the day in the device's
+   zone.
 5. Weekly and monthly. Done 2026-11-22 in the app (Weekly and
    monthly, above); their nudges open, for Eric (options there).
+   Decided and built 2026-11-22: on the period's last day (Eric's
+   decisions of 2026-11-22, above).
 6. Answers. Done 2026-11-22 (Answers, above).
 7. The feelings journal's reminders become habits. Done 2026-11-22
    (The feelings journal's habits, above).
@@ -5645,10 +5833,10 @@ it, one backticked tool name per row.
 | `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |
 | `create_reminder` | A reminder, with a time, a repeat or Someday; a project task's stage and tags | Right Now (as built), Stages and items |
 | `update_reminder` | Changes, moves, snoozes or finishes a reminder; a project task's stage and tags | Right Now (as built), Stages and items |
-| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in his zone, a nudge (one push at its time if not logged, held through quiet hours; daily habits only, since step 4); answered with done, one of 2 to 12 choices, one line of text, or a note from a template by id or name (step 6, 2026-11-22); a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3, 4 and 6 |
-| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind with its choices or template, whether due today, today's and yesterday's state and what each holds (its answer opened, `answerSealed` when it cannot be, or the entry's `noteId`), a choice habit's `recentAnswers` over seven days, and its streak, in its own zone (which can differ from where Eric is); Habits only | Habits (#324), steps 3 and 6 |
+| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in the zone of the device he last used the app on (`timeZone` optional since 2026-11-22, needed only while the app has stored none), a nudge (one push at its time if not logged, never a second; a weekly or monthly habit's on the last day of its period; in the quiet hours a time before midnight goes as they begin, one after it as they end; Eric, 2026-11-22); answered with done, one of 2 to 12 choices, one line of text, or a note from a template by id or name (step 6, 2026-11-22); a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3, 4 and 6 |
+| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind with its choices or template, whether due today, today's and yesterday's state and what each holds (its answer opened, `answerSealed` when it cannot be, or the entry's `noteId`), a choice habit's `recentAnswers` over seven days, and its streak, in the zone of the device Eric last used the app on, given as `timeZone` (2026-11-22); Habits only | Habits (#324), steps 3 and 6 |
 | `update_habit` | Renames, reschedules, retimes, nudges (as `create_habit`), changes what it is answered with (its logs kept) or archives a habit, by id or name; never deletes; Habits only | Habits (#324), steps 3, 4 and 6 |
-| `log_habit` | Marks a habit done or skipped for today or yesterday in its zone, or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); with done, a choice habit's choice or a text habit's one line (at most 500, a line break refused, spacing tidied to one line), sealed on the server as the app seals it, or a note habit's entry made with `use_template` (`noteId`); Habits only | Habits (#324), steps 3 and 6 |
+| `log_habit` | Marks a habit done or skipped for today or yesterday in the zone of the device Eric last used the app on (the day the app shows, 2026-11-22), or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); with done, a choice habit's choice or a text habit's one line (at most 500, a line break refused, spacing tidied to one line), sealed on the server as the app seals it, or a note habit's entry made with `use_template` (`noteId`); Habits only | Habits (#324), steps 3 and 6 |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it
@@ -6443,7 +6631,10 @@ reminder's note, or a new note from its template.
   Cloud Task (`habitNudgeWake`) with an hourly safety net
   (`habitNudgePush`); a tap opens Right Now. Its claim is
   `usage/habitNudges` (`sent.<habitId>`, the habit's local date). See
-  Habits, Nudges.
+  Habits, Nudges. *Changed 2026-11-22 (Eric):* a weekly or monthly
+  habit's on the last day of its period, and the local date is the
+  module's zone, the device's (Habits, Eric's decisions of
+  2026-11-22).
 
 ## Deploy configuration (Eric, 2026-10-06)
 

@@ -153,7 +153,8 @@ describe('the Habits tools (#324 step 3)', () => {
     await expect(t.createHabit({ name: 'Run', time: '7am', timeZone: LA })).rejects.toThrow(
       /HH:MM/,
     );
-    // A nudge on: the result says what is sent, and that a weekly one waits.
+    // A nudge on: the result says what is sent, a weekly one on the last
+    // day of its week (Eric, 2026-11-22).
     const nudged = await t.createHabit({
       name: 'Run',
       schedule: 'weekly',
@@ -162,7 +163,10 @@ describe('the Habits tools (#324 step 3)', () => {
       timeZone: LA,
     });
     expect(nudged).toMatchObject({ schedule: 'weekly', nudge: true });
-    expect(nudged.nudgeNote).toMatch(/weekly and monthly habits are not nudged yet/);
+    expect(nudged.nudgeNote).toMatch(
+      /^One push on the last day of each week \(Sunday, as weeks start on Monday\) at 07:00, only if that week is not yet done or skipped, in America\/Los_Angeles/,
+    );
+    expect(nudged.nudgeNote).toMatch(/never a second that week\.$/);
     // Archived, its name is free again.
     await t.updateHabit({ habit: first.id, archived: true });
     const again = await t.createHabit({ name: 'Drink metamucil for fiber', timeZone: LA });
@@ -227,7 +231,7 @@ describe('the Habits tools (#324 step 3)', () => {
       /no habit Swim/,
     );
     await expect(t.updateHabit({ habit: 'FLOSS', time: '21:00' })).rejects.toThrow(
-      /timeZone .* is required with time/,
+      /timeZone .* is needed: the app has not yet told the server/,
     );
     const renamed = await t.updateHabit({
       habit: ' FLOSS ',
@@ -247,7 +251,9 @@ describe('the Habits tools (#324 step 3)', () => {
     });
     expect(renamed).toHaveProperty(
       'nudgeNote',
-      expect.stringMatching(/^One push at 21:00 in Europe\/London/),
+      expect.stringMatching(
+        /^One push at 21:00, on a day it is not yet done or skipped, in Europe\/London/,
+      ),
     );
     await expect(t.updateHabit({ habit: 'floss', time: null })).rejects.toThrow(
       /a nudge needs a time of day/,
@@ -333,12 +339,13 @@ describe('the Habits tools (#324 step 3)', () => {
     const t = tools();
     for (const date of ['2026-11-19', '2026-11-22'])
       await expect(t.logHabit({ habit: 'floss', state: 'done', date })).rejects.toThrow(
-        /today \(2026-11-21\) or yesterday \(2026-11-20\) only, in its own time zone/,
+        /today \(2026-11-21\) or yesterday \(2026-11-20\) only, in Eric's time zone as the app last saw it \(America\/Los_Angeles\)/,
       );
     await expect(t.logHabit({ habit: 'floss', state: 'done', date: 'Nov 21' })).rejects.toThrow(
       /YYYY-MM-DD/,
     );
-    // Today is the habit's own: in Tokyo it is already Sunday.
+    // With no zone from the app yet, today is the habit's own: in Tokyo
+    // it is already Sunday.
     await appHabit('tea', 'Tea', { tz: 'Asia/Tokyo' });
     expect(await t.logHabit({ habit: 'tea', state: 'done' })).toMatchObject({
       date: '2026-11-22',
@@ -660,6 +667,73 @@ describe('the Habits tools (#324 step 3)', () => {
       expect(listed.yesterday).toEqual({ date: '2026-11-20', state: 'done', answerSealed: true });
       // A tick with no answer needs no key.
       expect(await t.logHabit({ habit: 'Mood', state: 'done' })).toMatchObject({ changed: true });
+    });
+  });
+
+  describe('the day follows the device (Eric, 2026-11-22)', () => {
+    it('reads today, the zone given back and the nudge in the module’s zone', async () => {
+      // The app last ran in Tokyo, where it is already Sunday the 22nd.
+      await habitsOn({ tz: 'Asia/Tokyo' });
+      await appHabit('floss', 'Floss', { time: '21:00', nudge: true });
+      const t = tools();
+      const [listed] = await t.listHabits({});
+      expect(listed).toMatchObject({
+        timeZone: 'Asia/Tokyo',
+        today: { date: '2026-11-22' },
+        yesterday: { date: '2026-11-21' },
+      });
+      // Logged eastward: the day the app in Tokyo shows.
+      expect(await t.logHabit({ habit: 'floss', state: 'done' })).toMatchObject({
+        date: '2026-11-22',
+      });
+      expect((await log('floss_2026-11'))?.['days']).toHaveProperty('22');
+      // The habit's own zone is unchanged; the result names the one used.
+      expect((await db.doc('users/u1/habits/floss').get()).get('tz')).toBe(LA);
+      // Westward, back in Los Angeles: today is the 21st again, the 22nd
+      // logged in Tokyo waits as tomorrow's, and is not logged twice.
+      await habitsOn({ tz: LA });
+      const [back] = await t.listHabits({});
+      expect(back).toMatchObject({ timeZone: LA, today: { date: '2026-11-21', state: 'none' } });
+      await expect(
+        t.logHabit({ habit: 'floss', state: 'done', date: '2026-11-22' }),
+      ).rejects.toThrow(/today \(2026-11-21\) or yesterday/);
+    });
+
+    it('makes and retimes a habit in the module’s zone without timeZone', async () => {
+      await habitsOn({ tz: 'Europe/Paris' });
+      const t = tools();
+      const made = await t.createHabit({ name: 'Tea', time: '22:30', nudge: true });
+      expect(made).toMatchObject({ timeZone: 'Europe/Paris', time: '22:30' });
+      expect((await db.doc(`users/u1/habits/${made.id}`).get()).get('tz')).toBe('Europe/Paris');
+      // 22:30 is in the quiet hours before midnight: sent as they begin.
+      expect(made.nudgeNote).toMatch(
+        /^One push at 22:00, as the quiet hours \(22:00 to 06:00\) begin, its own time \(22:30\) being in them, on a day it is not yet done or skipped, in Europe\/Paris/,
+      );
+      const timed = await t.updateHabit({ habit: 'Tea', time: '03:00' });
+      expect(timed).toMatchObject({ time: '03:00', timeZone: 'Europe/Paris' });
+      expect(timed).toHaveProperty(
+        'nudgeNote',
+        expect.stringMatching(
+          /^One push at 06:00, held to the end of the quiet hours \(22:00 to 06:00\)/,
+        ),
+      );
+      // A monthly habit: the last day of each month.
+      const rent = await t.createHabit({
+        name: 'Rent',
+        schedule: 'monthly',
+        time: '09:00',
+        nudge: true,
+      });
+      expect(rent.nudgeNote).toMatch(
+        /^One push on the last day of each month at 09:00, only if that month is not yet done or skipped/,
+      );
+      // A zone given is still checked, and stored on the habit.
+      await expect(t.createHabit({ name: 'Run', timeZone: 'Not/AZone' })).rejects.toThrow(
+        /unknown time zone/,
+      );
+      const run = await t.createHabit({ name: 'Run', timeZone: LA });
+      expect((await db.doc(`users/u1/habits/${run.id}`).get()).get('tz')).toBe(LA);
+      expect(run).toMatchObject({ timeZone: 'Europe/Paris' });
     });
   });
 });

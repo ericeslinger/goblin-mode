@@ -1,6 +1,6 @@
 import {
   Habit,
-  habitDayKey,
+  habitEntries,
   habitLogId,
   habitMonth,
   habitsConfig,
@@ -16,7 +16,9 @@ import type { NudgeStore, NudgingHabit } from './habit-nudges';
  * Where the nudges sent are marked: server only, like the digest's
  * (`usage/digest`); the rules allow no client anything under `usage`.
  * One document per gardener, `sent.<habitId>` the last day (YYYY-MM-DD
- * in the habit's zone) a nudge was sent for that habit.
+ * in the zone the nudge was read in, `habitZone`) a nudge was sent for
+ * that habit: a weekly or monthly habit's is the last day of its period,
+ * and a mark anywhere in a period stops a second nudge in it.
  */
 export const nudgeStatePath = (uid: string) => paths.usage(uid, 'habitNudges');
 
@@ -71,21 +73,27 @@ export function firestoreNudgeStore(db: Firestore): NudgeStore {
       return sentMarks((await db.doc(nudgeStatePath(uid)).get()).get('sent'));
     },
 
-    claim(uid, id, day, stillDue) {
+    claim(uid, id, day, period, stillDue) {
       const habitRef = db.doc(paths.habit(uid, id));
-      const month = habitMonth(day);
-      const logRef = db.doc(paths.habitLog(uid, habitLogId(id, month)));
+      // The period's months: one, or two for a week across a month's start.
+      const months = [...new Set([habitMonth(period.start), habitMonth(period.end)])];
+      const logRefs = months.map((m) => db.doc(paths.habitLog(uid, habitLogId(id, m))));
       const stateRef = db.doc(nudgeStatePath(uid));
       return db.runTransaction(async (tx) => {
-        const [habitSnap, logSnap, stateSnap] = await tx.getAll(habitRef, logRef, stateRef);
+        const [habitSnap, stateSnap, ...logSnaps] = await tx.getAll(habitRef, stateRef, ...logRefs);
         const parsed = Habit.safeParse(habitSnap.data());
-        const logged = readHabitDays(logSnap.data(), month)[habitDayKey(day)];
+        const entries = habitEntries(
+          logSnaps.map((snap, i) => ({
+            month: months[i],
+            days: readHabitDays(snap.data(), months[i]),
+          })),
+        );
         const sentFor = sentMarks(stateSnap.get('sent'))[id];
         const changedAt = millis(habitSnap.get('updatedAt'));
         const due = stillDue({
           ...(parsed.success ? { habit: parsed.data } : {}),
           ...(changedAt !== undefined ? { changedAt } : {}),
-          ...(logged ? { logged } : {}),
+          entries,
           ...(sentFor !== undefined ? { sentFor } : {}),
         });
         if (!due) return false;

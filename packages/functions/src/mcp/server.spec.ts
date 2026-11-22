@@ -220,10 +220,16 @@ describe('the MCP server', () => {
     );
     expect(named.filter((name) => !registered.has(name))).toEqual([]);
     expect(passage).toMatch(/named in his own words/);
-    expect(passage).toMatch(/one push at its time on a day it is not yet logged, never a second/);
-    expect(passage).toMatch(/weekly and monthly habits are not nudged yet/);
+    expect(passage).toMatch(/nudge is one push at its time, never a second/);
+    // Eric's decisions of 2026-11-22: weekly and monthly on the period's
+    // last day, a time in the quiet hours before midnight as they begin,
+    // and the day in the zone of the device he last used.
+    expect(passage).toMatch(/on the last day of its week or month/);
+    expect(passage).not.toMatch(/not nudged yet/);
+    expect(passage).toMatch(/sent as they begin \(22:30 at 22:00\)/);
     expect(passage).not.toMatch(/not sent yet/);
-    expect(passage).toMatch(/can differ from where Eric is when he travels/);
+    expect(passage).toMatch(/in the zone of the device Eric last used the app on/);
+    expect(passage).not.toMatch(/zone it was made or last timed in/);
     const tools = (await client.listTools()).tools;
     // Answers (step 6, 2026-11-22): the four kinds, sealed, his words kept.
     expect(tools.find((t) => t.name === 'create_habit')?.description).toMatch(
@@ -236,8 +242,14 @@ describe('the MCP server', () => {
     );
     for (const name of ['create_habit', 'update_habit'])
       expect(tools.find((t) => t.name === name)?.description).not.toMatch(/not sent yet/);
-    for (const name of ['list_habits', 'log_habit'])
-      expect(tools.find((t) => t.name === name)?.description).toMatch(/differ from where Eric is/);
+    for (const name of ['create_habit', 'list_habits', 'update_habit', 'log_habit'])
+      expect(tools.find((t) => t.name === name)?.description).toMatch(
+        /zone of the device (Eric|he) last used the app on/,
+      );
+    for (const name of ['create_habit', 'update_habit'])
+      expect(tools.find((t) => t.name === name)?.description).toMatch(
+        /last day of its week or month/,
+      );
     for (const name of ['create_habit', 'list_habits', 'update_habit', 'log_habit'])
       expect(tools.find((t) => t.name === name)?.description).toMatch(/Habits only\.$/);
   });
@@ -255,12 +267,13 @@ describe('the MCP server', () => {
       state: 'skipped',
       date: '2026-11-20',
     });
-    const missingZone = await client.callTool({
+    // timeZone is optional since 2026-11-22: the module's zone (the
+    // device's) is used, and the tool refuses only when it has none.
+    await client.callTool({
       name: 'create_habit',
       arguments: { name: 'Drink metamucil for fiber' },
     });
-    expect(missingZone.isError).toBe(true);
-    expect(tools.createHabit).not.toHaveBeenCalled();
+    expect(tools.createHabit).toHaveBeenCalledWith({ name: 'Drink metamucil for fiber' });
   });
 
   it('passes validated arguments to the tools and returns their result as JSON', async () => {
