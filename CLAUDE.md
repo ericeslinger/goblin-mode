@@ -123,11 +123,13 @@ Dated, and deliberate; everything else follows the plugin.
 - **No CI** (2026-10-05). Rules tests need the emulator, so they run in
   `npm run e2e` rather than in a CI job.
 
-**Working with the platform (Eric, 2026-11-22).** When a request works
-against what Firestore, Angular or Cloudflare already provide, the
-agent says so before building, and names what the platform offers
-instead. Sealed notes and Worker hosting are decisions Eric made with
-eyes open; they are not re-raised.
+## Working with the platform
+
+When a request works against what Firestore, Angular or Cloudflare
+already provide, the agent says so before building, and names what the
+platform offers instead (Eric, 2026-11-22). Sealed notes, like Worker
+hosting above, are a decision Eric made with eyes open; neither is
+re-raised.
 
 ## PRs, review and merging
 

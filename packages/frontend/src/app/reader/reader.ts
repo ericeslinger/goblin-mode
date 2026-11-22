@@ -1,4 +1,14 @@
-import { Component, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import {
+  Component,
+  type ElementRef,
+  afterNextRender,
+  booleanAttribute,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { type ItemRecord, ItemsService, shelfParam } from './items.service';
 import { ReaderBar } from './reader-bar';
@@ -12,13 +22,29 @@ import { ReaderService } from './reader.service';
  * with audio, since the shows in Podcasts left it (#245). All and Saved
  * are tabs of their own; Search, Downloads and Manage feeds are in the
  * header (#221).
+ *
+ * In the Reader's two panes (2026-11-22) it is the list pane's when
+ * the Folders tab is chosen, the folders column it replaces gone:
+ * `pane`, under the panes' header, in its own scroll box.
  */
 @Component({
   selector: 'app-reader',
-  imports: [ReaderBar, RouterLink],
+  imports: [NgTemplateOutlet, ReaderBar, RouterLink],
+  host: { '[class.in-panes]': 'pane()' },
   template: `
-    <main class="page">
-      <app-reader-bar active="folders" />
+    @if (pane()) {
+      <div class="pane-body">
+        <!-- Focused when the list it came from went with the focus (2026-11-22). -->
+        <h2 #heading class="visually-hidden" tabindex="-1">Folders</h2>
+        <ng-container [ngTemplateOutlet]="body" />
+      </div>
+    } @else {
+      <main class="page">
+        <app-reader-bar active="folders" />
+        <ng-container [ngTemplateOutlet]="body" />
+      </main>
+    }
+    <ng-template #body>
       <p class="refresh">
         <button
           type="button"
@@ -58,9 +84,21 @@ import { ReaderService } from './reader.service';
           }
         </ul>
       </nav>
-    </main>
+    </ng-template>
   `,
   styles: `
+    /* The list pane of the two panes (2026-11-22): its own scroll box. */
+    :host(.in-panes) {
+      display: block;
+      height: 100%;
+    }
+    .pane-body {
+      box-sizing: border-box;
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 0 var(--space-3) var(--space-4);
+    }
     ul {
       list-style: none;
       margin: 0;
@@ -111,6 +149,11 @@ import { ReaderService } from './reader.service';
   `,
 })
 export class Reader {
+  /** The list pane of the Reader's two panes (2026-11-22): no page, no header of its own. */
+  readonly pane = input(false, { transform: booleanAttribute });
+  /** In the panes, whether the gardener just came here from a list; see ReaderList's. */
+  readonly arriving = input(false);
+  private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
   protected readonly reader = inject(ReaderService);
   protected readonly items = inject(ItemsService);
   /** Continue listening opens an episode among its feed's (#179, #245). */
@@ -119,6 +162,15 @@ export class Reader {
   }
   protected readonly refreshing = signal(false);
   protected readonly refreshed = signal('');
+
+  constructor() {
+    afterNextRender(() => {
+      if (!this.pane() || !this.arriving()) return;
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      this.heading()?.nativeElement.focus({ preventScroll: true });
+    });
+  }
 
   /** "12:34 of 42:10", for Continue listening (#179). */
   protected left(ep: ItemRecord): string {

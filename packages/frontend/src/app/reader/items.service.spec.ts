@@ -406,6 +406,89 @@ describe('ItemsService (#162)', () => {
     expect(items.find('b')?.saved).toBe(true);
   });
 
+  /**
+   * The writes held in flight, as the server's word on them is: each
+   * `set` returns a promise settled by `settle` (all, in order), so a
+   * spec can say when the server has answered (2026-11-22).
+   */
+  function holdWrites(api: FakeItemsApi) {
+    const held: { resolve: () => void; reject: (e: unknown) => void }[] = [];
+    api.set.mockImplementation(
+      () => new Promise<void>((resolve, reject) => void held.push({ resolve, reject })),
+    );
+    return {
+      settle: async (refuse = false) => {
+        for (const h of held.splice(0)) {
+          if (refuse) h.reject(new Error('permission-denied'));
+          else h.resolve();
+        }
+        await Promise.resolve();
+        await Promise.resolve();
+      },
+    };
+  }
+
+  it('keeps Keep unread then Mark read as pressed, though an echo of the first comes late (2026-11-22)', () => {
+    const { items, api } = setup();
+    api.push('read', [item('a', 'f1', 1, { read: true })]);
+    holdWrites(api);
+    // Keep unread, then Mark read at once.
+    items.setRead('a', false);
+    items.setRead('a', true);
+    expect(items.find('a')?.read).toBe(true);
+    // The first press's echo arrives after the second: the read shelf
+    // without it, the unread shelf with it unread.
+    api.push('read', []);
+    api.push('unread', [item('a', 'f1', 1)]);
+    expect(items.find('a')?.read).toBe(true);
+    // And from the shelf that holds it (saved too), its copy unread.
+    api.push('saved', [item('a', 'f1', 1, { saved: true })]);
+    expect(items.find('a')?.read).toBe(true);
+    // The second press's echo agrees: the server's copy takes over.
+    api.push('unread', []);
+    api.push('read', [item('a', 'f1', 1, { read: true })]);
+    api.push('saved', [item('a', 'f1', 1, { read: true, saved: true })]);
+    expect(items.find('a')?.read).toBe(true);
+  });
+
+  it('keeps Unsave then Save as pressed, though an echo of the first comes late (2026-11-22)', () => {
+    const { items, api } = setup();
+    api.push('saved', [item('b', 'f2', 2, { saved: true, attachmentId: 'att0' })]);
+    holdWrites(api);
+    items.setSaved('b', false);
+    items.setSaved('b', true);
+    expect(items.find('b')?.saved).toBe(true);
+    // The unsave's echo, late: gone from Saved, on the unread shelf unsaved.
+    api.push('saved', []);
+    api.push('unread', [item('b', 'f2', 2, { attachmentId: 'att0' })]);
+    expect(items.find('b')?.saved).toBe(true);
+    api.push('unread', [item('b', 'f2', 2, { saved: true, attachmentId: 'att0' })]);
+    expect(items.find('b')?.saved).toBe(true);
+  });
+
+  it('lets the server’s word win once the writes are answered, or at once when refused (2026-11-22)', async () => {
+    const { items, api } = setup();
+    api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2)]);
+    const writes = holdWrites(api);
+    items.setRead('a', true);
+    items.setSaved('b', true);
+    // Still in flight: a copy that disagrees leaves the marks.
+    api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2)]);
+    expect(items.find('a')?.read).toBe(true);
+    expect(items.find('b')?.saved).toBe(true);
+    // Answered; another device then put it back: the next copy wins.
+    await writes.settle();
+    expect(items.find('a')?.read).toBe(true);
+    api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2)]);
+    expect(items.find('a')?.read).toBe(false);
+    expect(items.find('b')?.saved).toBe(false);
+    // A refused write: its mark goes at once, the shelf's copy shows.
+    items.setRead('a', true);
+    expect(items.find('a')?.read).toBe(true);
+    await writes.settle(true);
+    expect(items.find('a')?.read).toBe(false);
+  });
+
   it('saving puts the link in the reading queue once; unsaving leaves it', () => {
     const { items, api, reading } = setup();
     api.push('unread', [item('a', 'f1', 1), item('b', 'f2', 2, { attachmentId: 'old' })]);

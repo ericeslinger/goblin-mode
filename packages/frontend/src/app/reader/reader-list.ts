@@ -27,6 +27,7 @@ import { ALL, SAVED, type Shelf2, shelfParam } from './shelves';
 import { type FeedRecord, ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 import { Icon } from '../home/icon';
+import { ReadAct, SaveAct } from './item-acts';
 import { NOW, TIME_ZONE } from '../platform/platform';
 import { groupByDay } from './days';
 import { ReaderDensity } from './density';
@@ -121,17 +122,33 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
  * their key and rows by id, so a change above a day leaves its rows'
  * nodes, their swipe and their place for the observer as they were.
  *
- * In the Reader's three panes (#289, 2026-11-16) it is the list pane:
- * the panes draw the header, the shelf is theirs (`shelf`), the list
- * scrolls in its own box, which is what the observer of #172 watches
- * and the status bar sits at the foot of, and the article open beside
- * it (`current`) is its current row, scrolled into view once, kept in
- * the list once read as the ones read on the way are. Its keys are
- * the article's while one is open (`ownKeys`).
+ * In the Reader's panes (#289, 2026-11-16; two since 2026-11-22) it is
+ * the list pane: the panes draw the header, the shelf is theirs
+ * (`shelf`), the list scrolls in its own box, which is what the
+ * observer of #172 watches and the status bar sits at the foot of, and
+ * the article open beside it (`current`) is its current row, scrolled
+ * into view once, kept in the list once read as the ones read on the
+ * way are. Its keys are the article's while one is open (`ownKeys`).
+ *
+ * A row's Keep unread (or Mark read) and Save for later are the
+ * article toolbar's own icons, small and side by side at its end
+ * (`ReadAct`, `SaveAct`; Eric, 2026-11-22, in place of the words
+ * Unread and Save); on touch they are hidden, as the words were, and
+ * the swipe does both.
  */
 @Component({
   selector: 'app-reader-list',
-  imports: [Icon, NgTemplateOutlet, ReaderBar, ReaderFeedHead, RouterLink, SourceMarkView, Swipe],
+  imports: [
+    Icon,
+    NgTemplateOutlet,
+    ReadAct,
+    ReaderBar,
+    ReaderFeedHead,
+    RouterLink,
+    SaveAct,
+    SourceMarkView,
+    Swipe,
+  ],
   host: { '[class.in-panes]': 'pane()' },
   template: `
     @if (pane()) {
@@ -154,7 +171,7 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
         <a class="up" routerLink="/reader/folders"
           ><app-icon name="chevron-left" [size]="18" />Folders</a
         >
-        <h2>{{ title() }}</h2>
+        <h2 #heading tabindex="-1">{{ title() }}</h2>
         @if (feedId(); as id) {
           <!-- One feed's page (2026-11-15): its address, state and actions, then its posts. -->
           <app-reader-feed-head [feedId]="id" />
@@ -215,7 +232,20 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
                   day.label + (day.unread.length ? ', ' + day.unread.length + ' unread' : '')
                 }}</span>
               </h3>
-              @if (day.unread.length) {
+              @if (day.unread.length && pane()) {
+                <!-- In the panes a tick, as Mark all read's, its words its name and tooltip
+                     (Eric, 2026-11-22: "most buttons should have icons with tooltips"). -->
+                <button
+                  type="button"
+                  class="day-mark"
+                  aria-label="Mark these read"
+                  title="Mark these read: this day's unread"
+                  [attr.aria-describedby]="'day-' + day.key"
+                  (click)="markDay(day.unread)"
+                >
+                  <app-icon name="check" [size]="18" />
+                </button>
+              } @else if (day.unread.length) {
                 <button
                   type="button"
                   class="quiet"
@@ -283,21 +313,11 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
                       }
                     </span>
                   </a>
+                  <!-- The article toolbar's own Keep unread and Save for later, small, side by
+                       side (Eric, 2026-11-22); each named with the row's title. -->
                   <span class="acts">
-                    <button
-                      type="button"
-                      [attr.aria-label]="(item.read ? 'Mark unread: ' : 'Mark read: ') + item.title"
-                      (click)="items.setRead(item.id, !item.read)"
-                    >
-                      {{ item.read ? 'Unread' : 'Read' }}
-                    </button>
-                    <button
-                      type="button"
-                      [attr.aria-label]="(item.saved ? 'Unsave: ' : 'Save: ') + item.title"
-                      (click)="items.setSaved(item.id, !item.saved)"
-                    >
-                      {{ item.saved ? 'Unsave' : 'Save' }}
-                    </button>
+                    <button appReadAct small [item]="item" [about]="item.title"></button>
+                    <button appSaveAct small [item]="item" [about]="item.title"></button>
                   </span>
                 </li>
               }
@@ -434,6 +454,20 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
     .day-head button {
       font-size: 14px;
     }
+    .day-mark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius-control);
+      background: transparent;
+    }
+    .day-mark:hover {
+      background: var(--chip-bg);
+    }
     .open {
       display: flex;
       align-items: flex-start;
@@ -532,13 +566,11 @@ export function shelfTitle(shelf: Shelf2, feeds: readonly FeedRecord[]): string 
       overflow: hidden;
       overflow-wrap: anywhere;
     }
+    /* A row's two icons, side by side at its end (2026-11-22). */
     .acts {
-      display: grid;
-      gap: 4px;
-      padding-right: 4px;
-    }
-    .acts button {
-      min-height: 32px;
+      display: flex;
+      gap: 2px;
+      padding-right: 2px;
     }
     @media (pointer: coarse) {
       .acts {
@@ -558,7 +590,7 @@ export class ReaderList {
   protected readonly density = inject(ReaderDensity);
   protected readonly compact = computed(() => this.density.value() === 'compact');
   private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
-  /** The list pane of the three panes (#289). */
+  /** The list pane of the Reader's panes (#289). */
   readonly pane = input(false, { transform: booleanAttribute });
   /** The panes' shelf, which their route says; otherwise the list's own route's. */
   readonly shelfIn = input<Shelf2 | undefined>(undefined, { alias: 'shelf' });
@@ -566,6 +598,14 @@ export class ReaderList {
   readonly current = input<string | undefined>(undefined);
   /** Whether the list's keys are its own: not while an article beside it has them. */
   readonly ownKeys = input(true);
+  /**
+   * In the panes, whether the list is one the gardener just chose, from
+   * the Folders the list pane showed (2026-11-22): the link pressed has
+   * gone with them, so the list takes the focus, its heading on a
+   * folder's or a feed's list. Not a list a reload drew.
+   */
+  readonly arriving = input(false);
+  private readonly heading = viewChild<ElementRef<HTMLElement>>('heading');
   private readonly routeShelf = toSignal(inject(ActivatedRoute).paramMap.pipe(map(shelfOf)), {
     initialValue: { kind: 'folder', name: ALL } as Shelf2,
   });
@@ -730,6 +770,14 @@ export class ReaderList {
       const rows = this.rows();
       if (this.pane()) this.reveal(this.current(), rows);
       if (typeof IntersectionObserver !== 'undefined') this.observe(rows);
+    });
+    // Chosen in the panes with the focus gone with the link pressed:
+    // the focus to the list's heading, or its articles on All or Saved.
+    afterNextRender(() => {
+      if (!this.pane() || !this.arriving()) return;
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      (this.heading() ?? this.articlesBox())?.nativeElement.focus({ preventScroll: true });
     });
     const onInput = () => (this.touched = true);
     const onScroll = () => this.scrolled();

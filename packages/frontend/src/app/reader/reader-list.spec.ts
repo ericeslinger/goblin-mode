@@ -576,7 +576,7 @@ describe('ReaderList, by day, compact and the source marks (#288)', () => {
   });
 });
 
-describe('ReaderList, the list pane of the three panes (#289)', () => {
+describe('ReaderList, the list pane of the Reader’s panes (#289)', () => {
   const all = { kind: 'folder', name: 'all' } as const;
   afterEach(() => vi.unstubAllGlobals());
 
@@ -588,6 +588,37 @@ describe('ReaderList, the list pane of the three panes (#289)', () => {
     expect(box.querySelectorAll('li[data-id]')).toHaveLength(3);
     // The observer of #172 watches the rows against that box.
     expect(observerRoot).toBe(box);
+  });
+
+  it('gives each row the toolbar’s icons, and a day the tick (2026-11-22)', () => {
+    const { fixture, el, items } = setup(false, undefined, { pane: true, shelf: all });
+    const row = el.querySelector<HTMLElement>('li[data-id="a"]')!;
+    const acts = [...row.querySelectorAll<HTMLButtonElement>('.acts button')];
+    expect(acts.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Mark read: Article a',
+      'Save for later: Article a',
+    ]);
+    // Icons alone, each with its tooltip; Save shows its state pressed.
+    for (const b of acts) {
+      expect(b.textContent!.trim()).toBe('');
+      expect(b.querySelector('svg')).not.toBeNull();
+      expect(b.title).not.toBe('');
+    }
+    expect(acts[1].getAttribute('aria-pressed')).toBe('false');
+    acts[1].click();
+    fixture.detectChanges();
+    expect(items.find('a')?.saved).toBe(true);
+    expect(acts[1].getAttribute('aria-pressed')).toBe('true');
+    // A day's Mark these read is a tick, named in words, with a tooltip.
+    const day = el.querySelector<HTMLButtonElement>('.day-head button')!;
+    expect(day.getAttribute('aria-label')).toBe('Mark these read');
+    expect(day.title).toContain('Mark these read');
+    expect(day.querySelector('svg')).not.toBeNull();
+    // Mark read: read, and gone from the list, which shows the unread.
+    acts[0].click();
+    fixture.detectChanges();
+    expect(items.find('a')?.read).toBe(true);
+    expect(el.querySelector('li[data-id="a"]')).toBeNull();
   });
 
   it('takes the shelf the panes give it, not its route', () => {

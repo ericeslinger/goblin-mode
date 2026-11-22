@@ -445,6 +445,12 @@ export class ItemsService {
       >
     >
   >({});
+  /**
+   * The read and saved marks' writes not yet answered by the server, by
+   * `<id> read` or `<id> saved` (2026-11-22). While one is, an echo
+   * clears that mark only if its copy agrees with it; see `echo`.
+   */
+  private readonly inFlight = new Map<string, number>();
   /** Each show's newest episodes (#245), by feed id. */
   private readonly episodeDocs = signal<Record<string, ItemRecord[]>>({});
   private episodeStops = new Map<string, () => void>();
@@ -657,6 +663,7 @@ export class ItemsService {
       this.openedDocs.set({});
       this.uid = uid;
       this.local.set({});
+      this.inFlight.clear();
       // Signed out (or the Reader off): this tab forgets them. Not on
       // the first sign-in, which would drop what a reload kept.
       if (was !== undefined) this.forgetVisits();
@@ -690,12 +697,9 @@ export class ItemsService {
           this.fb.db,
           path,
           (docs) => {
-            this.queueDocs.set(docs.map((d) => toItem(d.id, d.data)));
-            this.local.update((l) => {
-              const next = { ...l };
-              for (const d of docs) delete next[d.id];
-              return next;
-            });
+            const queued = docs.map((d) => toItem(d.id, d.data));
+            this.queueDocs.set(queued);
+            this.echo(queued);
           },
           (err) => console.error('queue listener', err),
         ),
@@ -739,13 +743,10 @@ export class ItemsService {
           shelf,
           (docs, fromCache) => {
             if (uid !== this.uid || !this.shelfStops.has(key)) return;
-            this.shelfDocs.update((d) => ({ ...d, [key]: docs.map((x) => toItem(x.id, x.data)) }));
+            const shelf = docs.map((x) => toItem(x.id, x.data));
+            this.shelfDocs.update((d) => ({ ...d, [key]: shelf }));
             // The echo carries this device's marks: drop the local copy.
-            this.local.update((l) => {
-              const next = { ...l };
-              for (const d of docs) delete next[d.id];
-              return next;
-            });
+            this.echo(shelf);
             if (this.unreadHeard()) this.read.set(true);
             if (part && !fromCache) this.confirm(uid, key);
           },
@@ -843,15 +844,9 @@ export class ItemsService {
           paths.feedItems(uid),
           id,
           (docs) => {
-            this.episodeDocs.update((d) => ({
-              ...d,
-              [id]: docs.map((doc) => toItem(doc.id, doc.data)),
-            }));
-            this.local.update((l) => {
-              const next = { ...l };
-              for (const doc of docs) delete next[doc.id];
-              return next;
-            });
+            const episodes = docs.map((doc) => toItem(doc.id, doc.data));
+            this.episodeDocs.update((d) => ({ ...d, [id]: episodes }));
+            this.echo(episodes);
           },
           (err) => console.error('episodes listener', err),
         ),
@@ -1020,11 +1015,11 @@ export class ItemsService {
         this.fb.db,
         paths.feedItem(uid, id),
         (data) => {
-          this.openedDocs.update(({ [id]: _, ...rest }) =>
-            data ? { ...rest, [id]: toItem(id, data) } : rest,
-          );
+          const one = data ? toItem(id, data) : undefined;
+          this.openedDocs.update(({ [id]: _, ...rest }) => (one ? { ...rest, [id]: one } : rest));
           // The echo carries this device's marks, as a shelf's does.
-          this.local.update(({ [id]: _, ...rest }) => rest);
+          if (one) this.echo([one]);
+          else this.local.update(({ [id]: _, ...rest }) => rest);
         },
         (err) => console.error('article listener', err),
       ),
@@ -1036,13 +1031,94 @@ export class ItemsService {
     const uid = this.auth.user()?.uid;
     if (!uid) return;
     this.local.update((l) => ({ ...l, [id]: { ...l[id], read } }));
-    void this.api
-      .set(this.fb.db, paths.feedItem(uid, id), {
+    this.track(
+      [id],
+      'read',
+      this.api.set(this.fb.db, paths.feedItem(uid, id), {
         read,
         readAt: read ? this.api.serverTime() : this.api.clear(),
         updatedAt: this.api.serverTime(),
-      })
-      .catch((err) => console.error('read mark not saved', err));
+      }),
+      'read mark not saved',
+    );
+  }
+
+  /**
+   * A read or saved mark's write (2026-11-22), counted until the server
+   * answers it. Refused, the mark goes at once, unless a later write of
+   * it is still in flight, and the shelf's copy shows; answered, the
+   * next copy of the article any listener hears takes over, whatever it
+   * says (another device may have changed it since).
+   */
+  private track(
+    ids: readonly string[],
+    mark: 'read' | 'saved',
+    write: Promise<void>,
+    failed: string,
+  ): void {
+    for (const id of ids) {
+      const key = `${id} ${mark}`;
+      this.inFlight.set(key, (this.inFlight.get(key) ?? 0) + 1);
+    }
+    const landed = (refused: boolean) => {
+      const dropped: string[] = [];
+      for (const id of ids) {
+        const key = `${id} ${mark}`;
+        const left = (this.inFlight.get(key) ?? 1) - 1;
+        if (left > 0) {
+          this.inFlight.set(key, left);
+          continue;
+        }
+        this.inFlight.delete(key);
+        if (refused) dropped.push(id);
+      }
+      if (!dropped.length) return;
+      this.local.update((l) => {
+        const next = { ...l };
+        for (const id of dropped) {
+          if (!next[id] || !(mark in next[id])) continue;
+          const { [mark]: _, ...rest } = next[id];
+          next[id] = rest;
+        }
+        return next;
+      });
+    };
+    write.then(
+      () => landed(false),
+      (err) => {
+        console.error(failed, err);
+        landed(true);
+      },
+    );
+  }
+
+  /**
+   * A listener's articles, as this device's marks' echo: each mark goes,
+   * except a read or saved mark whose write is still in flight and which
+   * this copy does not agree with (2026-11-22). Such a copy is from
+   * before the mark: an echo of an earlier press heard after a later
+   * one (Keep unread, then Mark read at once), which until then put the
+   * earlier state back on screen. Once the server has answered, any
+   * copy wins.
+   */
+  private echo(docs: readonly ItemRecord[]): void {
+    this.local.update((l) => {
+      let next: typeof l | undefined;
+      for (const d of docs) {
+        const mark = l[d.id];
+        if (!mark) continue;
+        next ??= { ...l };
+        const kept: (typeof l)[string] = {};
+        for (const f of ['read', 'saved'] as const) {
+          if (f in mark && mark[f] !== d[f] && this.inFlight.has(`${d.id} ${f}`)) {
+            kept[f] = mark[f];
+          }
+        }
+        if (Object.keys(kept).length) next[d.id] = kept;
+        else delete next[d.id];
+      }
+      return next ?? l;
+    });
   }
 
   /**
@@ -1326,15 +1402,18 @@ export class ItemsService {
       ...l,
       [id]: { ...l[id], saved, ...(attachmentId ? { attachmentId } : {}) },
     }));
-    void this.api
-      .set(this.fb.db, paths.feedItem(uid, id), {
+    this.track(
+      [id],
+      'saved',
+      this.api.set(this.fb.db, paths.feedItem(uid, id), {
         saved,
         ...(attachmentId ? { attachmentId } : {}),
         // A saved article is kept past the keep-for months (#171).
         ...(saved ? { expireAt: this.api.clear() } : {}),
         updatedAt: this.api.serverTime(),
-      })
-      .catch((err) => console.error('save mark not saved', err));
+      }),
+      'save mark not saved',
+    );
   }
 
   /**
@@ -1417,8 +1496,10 @@ export class ItemsService {
       for (const id of ids) next[id] = { ...next[id], read };
       return next;
     });
-    void this.api
-      .setMany(
+    this.track(
+      ids,
+      'read',
+      this.api.setMany(
         this.fb.db,
         ids.map((id) => ({
           path: paths.feedItem(uid, id),
@@ -1428,8 +1509,9 @@ export class ItemsService {
             updatedAt: this.api.serverTime(),
           },
         })),
-      )
-      .catch((err) => console.error('read marks not saved', err));
+      ),
+      'read marks not saved',
+    );
     return ids.length;
   }
 

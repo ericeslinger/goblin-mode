@@ -282,6 +282,13 @@ export class ReaderBar {
    * chips show only where it is given (All and a folder's list).
    */
   readonly folder = input<string | undefined>(undefined);
+  /**
+   * In the two panes (2026-11-22), the folder's or the feed's name the
+   * list shows under Folders: the Folders tab shows it in place of its
+   * own, so the tab says where the gardener is, and is named "Folders:
+   * Games". Never on a phone, where the list's heading says it.
+   */
+  readonly place = input<string | undefined>(undefined);
 
   protected readonly reader = inject(ReaderService);
   protected readonly items = inject(ItemsService);
@@ -327,9 +334,17 @@ export class ReaderBar {
     return [
       { name: 'All', link: '/reader', count: count(ALL), counts: 'unread', current: at('all') },
       { name: 'Saved', link: ['/reader/f', SAVED], current: at('saved') },
-      { name: 'Folders', link: '/reader/folders', current: at('folders') },
+      this.folderTab(at('folders')),
     ];
   });
+
+  /** The Folders tab, or in the panes the folder shown under it, by name. */
+  private folderTab(current: 'page' | 'true' | undefined): ModuleTab {
+    const place = current === 'true' ? this.place() : undefined;
+    return place
+      ? { name: place, before: 'Folders: ', link: '/reader/folders', current }
+      : { name: 'Folders', link: '/reader/folders', current };
+  }
 
   protected readonly searchOpen = signal(false);
   /** Search across every article (#175): what the last search found, and what it said. */

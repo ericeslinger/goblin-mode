@@ -10,6 +10,13 @@ export interface ModuleTab {
   /** What the count counts, for the screen reader ("to buy", "unread"). */
   counts?: string;
   /**
+   * Words before the name for the screen reader alone, where the name
+   * shown stands in for the tab's own: the Reader's Folders tab showing
+   * the folder open under it, "Folders: " (2026-11-22). The name is
+   * then cut short with an ellipsis rather than wrapped.
+   */
+  before?: string;
+  /**
    * `page` on the tab whose screen this is; `true` where the screen is
    * one the tab leads to, such as a folder's shelf under Folders.
    */
@@ -28,7 +35,11 @@ export interface ModuleTab {
     <nav [attr.aria-label]="label()">
       @for (t of tabs(); track t.name) {
         <a [routerLink]="t.link" [attr.aria-current]="t.current ?? null"
-          >{{ t.name }}
+          >{{ t.before ? '' : t.name }}
+          @if (t.before) {
+            <span class="visually-hidden">{{ t.before }}</span
+            ><span class="named">{{ t.name }}</span>
+          }
           @if (t.count !== undefined) {
             <span class="count">{{ t.count }}</span>
             @if (t.counts) {
@@ -70,6 +81,12 @@ export interface ModuleTab {
       color: var(--ink);
       background: var(--surface);
       box-shadow: 0 1px 0 var(--rule);
+    }
+    .named {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .count {
       font-family: var(--font-mono);
