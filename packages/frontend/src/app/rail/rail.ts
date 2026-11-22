@@ -8,6 +8,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -18,12 +19,15 @@ import { GroceryService } from '../kitchen/grocery.service';
 import { kitchenTabOf } from '../kitchen/kitchen-tabs';
 import { ModulesService } from '../modules/modules.service';
 import { NotesService } from '../notes/notes.service';
+import { LocalStore } from '../platform/local-store';
 import { Icon } from '../home/icon';
 import { PLACES, PlacesService, type PlaceId, RAIL_PLACES, placeLabel } from '../home/places';
 
 /**
  * The full rail, its places named, from this width (#289), as the two
  * panes do (DESIGN.md, Layout); the map's wide screen reads it too.
+ * Since 2026-11-22 only the default: the menu button's choice, once
+ * made, decides instead.
  */
 export const RAIL_QUERY = '(min-width: 900px)';
 /**
@@ -34,6 +38,18 @@ export const RAIL_QUERY = '(min-width: 900px)';
 export const ICON_RAIL_QUERY = '(min-width: 641px)';
 /** The class on `<html>` while the rail is drawn; styles.css gives `--rail-width` by it. */
 export const RAIL_CLASS = 'has-rail';
+/**
+ * The class on `<html>` while the drawn rail is icons alone: with it
+ * `--rail-width` is 64 px, without it 176 (2026-11-22).
+ */
+export const RAIL_ICONS_CLASS = 'rail-icons';
+/**
+ * Where this device keeps the rail's menu button's choice (Eric,
+ * 2026-11-22): "icons" or "words", one choice for every width the
+ * rail is drawn at. Nothing stored, the width decides.
+ */
+export const RAIL_KEY = 'goblin.rail';
+export type RailChoice = 'icons' | 'words';
 
 /**
  * The address the page was opened at, path and query, from the document
@@ -63,6 +79,12 @@ function matches(media: string): Signal<boolean> {
     inject(DestroyRef).onDestroy(() => query.removeEventListener?.('change', onChange));
   }
   return matched.asReadonly();
+}
+
+/** The rail's stored choice, or undefined for none or anything else stored. */
+function readChoice(store: LocalStore): RailChoice | undefined {
+  const stored = store.get<unknown>(RAIL_KEY);
+  return stored === 'icons' || stored === 'words' ? stored : undefined;
 }
 
 /** Screens that are not the garden's: sign-in for development, and Claude's consent page. */
@@ -128,12 +150,30 @@ export function currentPlace(
  * 2026-11-16) each is its icon alone: the name is still there for
  * screen readers, the link's name is as it was, its title is the same
  * words for a mouse, and the count is a badge on the icon.
+ *
+ * With `menu` (Eric, 2026-11-22) a menu button of three lines comes
+ * first, the first stop in the rail's Tab order: it asks for the other
+ * presentation through `toggled`, named for what it will do, its
+ * `aria-expanded` true while the names show.
  */
 @Component({
   selector: 'app-rail-nav',
   imports: [RouterLink, Icon],
   template: `
-    <nav aria-label="Places" [class.icons]="icons()">
+    <nav id="rail-places" aria-label="Places" [class.icons]="icons()">
+      @if (menu()) {
+        <button
+          type="button"
+          class="menu"
+          aria-controls="rail-places"
+          [attr.aria-expanded]="!icons()"
+          [attr.aria-label]="menuLabel()"
+          [attr.title]="menuLabel()"
+          (click)="toggled.emit()"
+        >
+          <app-icon name="menu" [size]="20" />
+        </button>
+      }
       @for (e of entries(); track e.id) {
         <a
           [routerLink]="e.link"
@@ -208,8 +248,39 @@ export function currentPlace(
     .foot {
       margin-top: auto;
     }
-    /* Icons alone (641 to 899 px, 2026-11-16): the strip is
-       --rail-width, 64 px, and each entry 48 px tall across it. */
+    /* The menu button (2026-11-22): a 44 px square whose icon lines up
+       with the entries' icons below it; across the strip, as an entry
+       is, while the rail is icons. */
+    .menu {
+      display: flex;
+      flex: none;
+      align-items: center;
+      box-sizing: border-box;
+      width: 44px;
+      min-height: 44px;
+      margin-bottom: var(--space-1);
+      padding: 0 var(--space-2);
+      color: var(--ink);
+      background: none;
+      border: none;
+      border-radius: var(--radius-control);
+    }
+    .menu:hover {
+      background: var(--chip-bg);
+    }
+    .menu:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .icons .menu {
+      justify-content: center;
+      width: auto;
+      min-height: 48px;
+      padding: 0;
+    }
+    /* Icons alone (641 to 899 px, 2026-11-16, or as the menu button
+       chose, 2026-11-22): the strip is --rail-width, 64 px, and each
+       entry 48 px tall across it. */
     nav.icons {
       padding: var(--space-2) var(--space-1);
       overflow-x: hidden;
@@ -255,8 +326,15 @@ export function currentPlace(
 export class RailNav {
   /** The URL shown, for the current entry. */
   readonly url = input.required<string>();
-  /** Icons alone, the tablet's rail (641 to 899 px). */
+  /** Icons alone: the tablet's rail (641 to 899 px), or as chosen. */
   readonly icons = input(false);
+  /** The menu button, to switch between names and icons (2026-11-22). */
+  readonly menu = input(false);
+  /** The menu button was pressed: the other presentation is asked for. */
+  readonly toggled = output<void>();
+  protected readonly menuLabel = computed(() =>
+    this.icons() ? 'Expand navigation' : 'Collapse navigation',
+  );
   private readonly places = inject(PlacesService);
   private readonly notes = inject(NotesService);
   private readonly modules = inject(ModulesService);
@@ -298,6 +376,13 @@ export class RailNav {
  * consent page, nor under 641 px, where nothing changes. While it is
  * drawn, `<html>` has RAIL_CLASS, by which styles.css sets
  * `--rail-width` and the body's left padding.
+ *
+ * Its menu button (Eric, 2026-11-22) switches it between the two
+ * presentations, names and icons, at any width it is drawn at. Until
+ * it is first pressed the width decides, as before; then the choice,
+ * one for every width, is kept on this device (RAIL_KEY) and decides
+ * instead. While the rail is icons `<html>` has RAIL_ICONS_CLASS too,
+ * by which `--rail-width` is 64 px rather than 176.
  */
 @Component({
   selector: 'app-rail',
@@ -305,7 +390,7 @@ export class RailNav {
   template: `
     @if (shown()) {
       <a class="skip" href="#content" (click)="skip($event)">Skip to content</a>
-      <app-rail-nav [url]="url()" [icons]="!wide()" />
+      <app-rail-nav [url]="url()" [icons]="icons()" [menu]="true" (toggled)="toggle()" />
     }
   `,
   styles: `
@@ -333,9 +418,17 @@ export class Rail {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly doc = inject(DOCUMENT);
+  private readonly store = inject(LocalStore);
 
-  /** The window is 900 px or wider: the full rail. */
-  protected readonly wide = matches(RAIL_QUERY);
+  /** The window is 900 px or wider: the full rail, unless chosen otherwise. */
+  private readonly wide = matches(RAIL_QUERY);
+  /** The menu button's choice on this device; undefined until it is first pressed. */
+  private readonly choice = signal<RailChoice | undefined>(readChoice(this.store));
+  /** Icons alone: as chosen, else under 900 px. */
+  protected readonly icons = computed(() => {
+    const choice = this.choice();
+    return choice ? choice === 'icons' : !this.wide();
+  });
   /** The window is 641 px or wider: a rail, of icons until `wide`. */
   private readonly drawn = matches(ICON_RAIL_QUERY);
   protected readonly url = toSignal(
@@ -359,8 +452,21 @@ export class Rail {
   );
 
   constructor() {
-    effect(() => this.doc.documentElement.classList.toggle(RAIL_CLASS, this.shown()));
-    inject(DestroyRef).onDestroy(() => this.doc.documentElement.classList.remove(RAIL_CLASS));
+    effect(() => {
+      const classes = this.doc.documentElement.classList;
+      classes.toggle(RAIL_CLASS, this.shown());
+      classes.toggle(RAIL_ICONS_CLASS, this.shown() && this.icons());
+    });
+    inject(DestroyRef).onDestroy(() =>
+      this.doc.documentElement.classList.remove(RAIL_CLASS, RAIL_ICONS_CLASS),
+    );
+  }
+
+  /** The menu button: the other presentation, kept on this device. */
+  protected toggle(): void {
+    const next: RailChoice = this.icons() ? 'words' : 'icons';
+    this.choice.set(next);
+    this.store.set(RAIL_KEY, next);
   }
 
   /**

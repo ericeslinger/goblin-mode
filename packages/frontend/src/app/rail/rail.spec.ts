@@ -27,7 +27,17 @@ import {
   fakeFirebase,
   noteRecord,
 } from '../testing/fakes';
-import { OPENED_AT, RAIL_CLASS, Rail, RailNav, currentPlace, offRail } from './rail';
+import { STORAGE } from '../platform/platform';
+import {
+  OPENED_AT,
+  RAIL_CLASS,
+  RAIL_ICONS_CLASS,
+  RAIL_KEY,
+  Rail,
+  RailNav,
+  currentPlace,
+  offRail,
+} from './rail';
 
 @Component({ template: '' })
 class Blank {}
@@ -152,7 +162,7 @@ const entry = (el: HTMLElement, name: string) =>
 describe('the rail (#289)', () => {
   afterEach(() => {
     delete (window as { matchMedia?: unknown }).matchMedia;
-    document.documentElement.classList.remove(RAIL_CLASS);
+    document.documentElement.classList.remove(RAIL_CLASS, RAIL_ICONS_CLASS);
   });
 
   it('lists the places in order, Settings last, a module that is off left out', async () => {
@@ -300,7 +310,7 @@ describe('the rail (#289)', () => {
 describe('where the rail is drawn (#289)', () => {
   afterEach(() => {
     delete (window as { matchMedia?: unknown }).matchMedia;
-    document.documentElement.classList.remove(RAIL_CLASS);
+    document.documentElement.classList.remove(RAIL_CLASS, RAIL_ICONS_CLASS);
   });
 
   async function shell(url: string, setup: Setup = {}) {
@@ -423,5 +433,146 @@ describe('currentPlace and offRail', () => {
     expect(offRail('/oauth/authorize?x=1')).toBe(true);
     expect(offRail('/settings')).toBe(false);
     expect(offRail('/')).toBe(false);
+  });
+});
+
+describe('the rail’s menu button (2026-11-22)', () => {
+  afterEach(() => {
+    delete (window as { matchMedia?: unknown }).matchMedia;
+    document.documentElement.classList.remove(RAIL_CLASS, RAIL_ICONS_CLASS);
+  });
+
+  /** The rail at `width`, with `stored` put on the device first. */
+  async function shell(width: number, stored?: string) {
+    configure({ width });
+    if (stored !== undefined) localStorage.setItem(RAIL_KEY, stored);
+    const fixture = TestBed.createComponent(Rail);
+    await TestBed.inject(Router).navigateByUrl('/home');
+    await fixture.whenStable();
+    return fixture;
+  }
+  const menu = (el: HTMLElement) => el.querySelector<HTMLButtonElement>('nav button.menu')!;
+  const icons = (el: HTMLElement) => el.querySelector('nav')!.classList.contains('icons');
+  const htmlIcons = () => document.documentElement.classList.contains(RAIL_ICONS_CLASS);
+
+  it('comes first in the rail, after Skip to content, and controls the rail', async () => {
+    const el = (await shell(1440)).nativeElement as HTMLElement;
+    const nav = el.querySelector('nav')!;
+    const focusable = [...el.querySelectorAll<HTMLElement>('a, button')];
+    expect(focusable[0].textContent?.trim()).toBe('Skip to content');
+    expect(focusable[1]).toBe(menu(el));
+    expect(nav.firstElementChild).toBe(menu(el));
+    expect(menu(el).getAttribute('type')).toBe('button');
+    expect(menu(el).getAttribute('aria-controls')).toBe(nav.id);
+    expect(nav.id).toBeTruthy();
+    expect(menu(el).querySelector('app-icon')).not.toBeNull();
+  });
+
+  it('collapses the rail to icons and expands it again, saying which it will do', async () => {
+    const fixture = await shell(1440);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(icons(el)).toBe(false);
+    expect(htmlIcons()).toBe(false);
+    expect(menu(el).getAttribute('aria-label')).toBe('Collapse navigation');
+    expect(menu(el).getAttribute('title')).toBe('Collapse navigation');
+    expect(menu(el).getAttribute('aria-expanded')).toBe('true');
+
+    menu(el).click();
+    await fixture.whenStable();
+    expect(icons(el)).toBe(true);
+    expect(htmlIcons()).toBe(true);
+    expect(document.documentElement.classList).toContain(RAIL_CLASS);
+    expect(menu(el).getAttribute('aria-label')).toBe('Expand navigation');
+    expect(menu(el).getAttribute('aria-expanded')).toBe('false');
+    // The entries as the tablet's icons: named as before, with a title.
+    expect(entry(el, 'Map').getAttribute('aria-label')).toBe('Map');
+    expect(entry(el, 'Map').getAttribute('title')).toBe('Map');
+    expect(current(el)).toEqual(['Home']);
+    expect(localStorage.getItem(RAIL_KEY)).toBe('"icons"');
+
+    menu(el).click();
+    await fixture.whenStable();
+    expect(icons(el)).toBe(false);
+    expect(htmlIcons()).toBe(false);
+    expect(menu(el).getAttribute('aria-label')).toBe('Collapse navigation');
+    expect(menu(el).getAttribute('aria-expanded')).toBe('true');
+    expect(entry(el, 'Map').hasAttribute('title')).toBe(false);
+    expect(current(el)).toEqual(['Home']);
+    expect(localStorage.getItem(RAIL_KEY)).toBe('"words"');
+  });
+
+  it('with nothing chosen, the width decides: icons under 900 px, names from it', async () => {
+    for (const [width, expected] of [
+      [641, true],
+      [768, true],
+      [899, true],
+      [900, false],
+      [1440, false],
+    ] as [number, boolean][]) {
+      const el = (await shell(width)).nativeElement as HTMLElement;
+      expect([width, icons(el), htmlIcons()]).toEqual([width, expected, expected]);
+      expect([width, menu(el).getAttribute('aria-expanded')]).toEqual([width, `${!expected}`]);
+      TestBed.resetTestingModule();
+    }
+  });
+
+  it('keeps one choice for every width once it is made', async () => {
+    // Expanded on a tablet's width, then a fresh page there and wider.
+    let fixture = await shell(768);
+    menu(fixture.nativeElement).click();
+    await fixture.whenStable();
+    expect(icons(fixture.nativeElement)).toBe(false);
+    expect(localStorage.getItem(RAIL_KEY)).toBe('"words"');
+    for (const width of [641, 768, 1440]) {
+      TestBed.resetTestingModule();
+      fixture = await shell(width, '"words"');
+      expect([width, icons(fixture.nativeElement)]).toEqual([width, false]);
+    }
+    // Contracted, at every width too.
+    for (const width of [641, 900, 1440]) {
+      TestBed.resetTestingModule();
+      fixture = await shell(width, '"icons"');
+      expect([width, icons(fixture.nativeElement), htmlIcons()]).toEqual([width, true, true]);
+    }
+  });
+
+  it('reads anything else stored as no choice', async () => {
+    for (const stored of ['"tiny"', '{not json', 'true']) {
+      const el = (await shell(1440, stored)).nativeElement as HTMLElement;
+      expect([stored, icons(el)]).toEqual([stored, false]);
+      TestBed.resetTestingModule();
+    }
+  });
+
+  it('works where storage throws, forgetting the choice', async () => {
+    const throwing = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+      removeItem: () => {
+        throw new Error('denied');
+      },
+    } as unknown as Storage;
+    configure({ width: 1440 });
+    TestBed.overrideProvider(STORAGE, { useValue: throwing });
+    const fixture = TestBed.createComponent(Rail);
+    await TestBed.inject(Router).navigateByUrl('/home');
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(icons(el)).toBe(false);
+    menu(el).click();
+    await fixture.whenStable();
+    expect(icons(el)).toBe(true);
+    expect(menu(el).getAttribute('aria-expanded')).toBe('false');
+    expect(localStorage.getItem(RAIL_KEY)).toBeNull();
+  });
+
+  it('is not drawn where the rail is not', async () => {
+    const el = (await shell(640, '"words"')).nativeElement as HTMLElement;
+    expect(el.querySelector('button, nav')).toBeNull();
+    expect(htmlIcons()).toBe(false);
   });
 });
