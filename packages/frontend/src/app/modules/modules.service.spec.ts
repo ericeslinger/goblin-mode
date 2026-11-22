@@ -93,6 +93,24 @@ describe('ModulesService (#126)', () => {
     });
   });
 
+  it('sets Habits’ week start, keeping its switch and quiet hours (step 5 of #324)', () => {
+    const { modules, api, push } = setup();
+    push({ habits: { enabled: true, config: { quietFrom: '23:00' } } });
+    modules.configureHabits({ weekStart: 'Sun' });
+    expect(modules.habitsConfig()).toEqual({
+      weekStart: 'Sun',
+      quietFrom: '23:00',
+      quietTo: '06:00',
+    });
+    expect(api.set).toHaveBeenLastCalledWith({}, 'users/u1/settings/modules', {
+      habits: {
+        enabled: true,
+        config: { weekStart: 'Sun', quietFrom: '23:00', quietTo: '06:00' },
+      },
+      updatedAt: 'NOW',
+    });
+  });
+
   it('takes no older snapshot while its own writes are unacknowledged (2026-10-18)', async () => {
     const { modules, push } = setup();
     push({ kitchen: { enabled: true } });

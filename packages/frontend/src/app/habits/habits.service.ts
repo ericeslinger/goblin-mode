@@ -30,6 +30,7 @@ import {
   habitLogMonths,
   habitMonth,
   habitPeriodState,
+  habitSettledOn,
   habitStreak,
   habitStrip,
   paths,
@@ -73,6 +74,8 @@ export interface PlacedHabit extends HabitRecord {
   due: boolean;
   /** How the period holding the day stands: done, skipped, or nothing yet. */
   state: 'done' | 'skipped' | 'none';
+  /** The day that settled that period (`habitSettledOn`), if it is. */
+  settledOn?: string;
   /** The day's own entry, if any. */
   today?: 'done' | 'skipped';
   /** Yesterday's own entry, if any. */
@@ -164,12 +167,16 @@ export const HABITS_API = new InjectionToken<HabitsApi>('habits-api', {
   }),
 });
 
-/** A new habit from the add form: a name, and a time of day if any. */
+/** A new habit from the add form: a name, how often, and a time of day if any. */
 export interface NewHabit {
   name: string;
+  /** Daily unless given (step 5 of #324). */
+  schedule?: HabitSchedule;
   /** "HH:MM", local. */
   time?: string;
 }
+
+const SCHEDULES: readonly HabitSchedule[] = ['daily', 'weekly', 'monthly'];
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -385,10 +392,12 @@ export class HabitsService {
           firstMonth && !(createdOn && habitMonth(createdOn) >= firstMonth)
             ? `${firstMonth}-01`
             : undefined;
+        const settledOn = habitSettledOn(h, entries, today, weekStart);
         return {
           ...h,
           due: habitDue(h, entries, today, weekStart),
           state: habitPeriodState(h, entries, today, weekStart),
+          ...(settledOn !== undefined ? { settledOn } : {}),
           today: entries.get(today)?.state,
           yesterday: entries.get(yesterday)?.state,
           yesterdayLoggable,
@@ -486,7 +495,10 @@ export class HabitsService {
     };
   }
 
-  /** Adds a daily, done-only habit; a name past HABIT_NAME_MAX is cut. */
+  /**
+   * Adds a done-only habit, daily unless a schedule is given (step 5 of
+   * #324); a name past HABIT_NAME_MAX is cut.
+   */
   add(input: NewHabit): string | undefined {
     const name = input.name.trim().slice(0, HABIT_NAME_MAX).trim();
     if (!name) return undefined;
@@ -494,7 +506,7 @@ export class HabitsService {
     const id = autoId(this.random);
     const data: Record<string, unknown> = {
       name,
-      schedule: 'daily',
+      schedule: input.schedule && SCHEDULES.includes(input.schedule) ? input.schedule : 'daily',
       tz: this.tz,
       answer: 'done',
       nudge: false,
@@ -542,6 +554,18 @@ export class HabitsService {
     const h = this.habits().find((x) => x.id === id);
     if (nudge && h?.time === undefined) return;
     this.update(id, { nudge });
+  }
+
+  /**
+   * How often (step 5 of #324, 2026-11-22): only the schedule is
+   * written. The logs stay as they are and are read again by the new
+   * schedule's periods, so nothing logged is lost and a change back
+   * reads them as before. A nudge stays as it was, sent or not by
+   * `habitNudgePlan`.
+   */
+  setSchedule(id: string, schedule: HabitSchedule): void {
+    if (!SCHEDULES.includes(schedule)) return;
+    this.update(id, { schedule });
   }
 
   archive(id: string, archived: boolean): void {

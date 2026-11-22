@@ -329,6 +329,26 @@ describe('Settings', () => {
     expect(modules.set).toHaveBeenCalledWith('projects', false);
   });
 
+  it('sets the week Habits’ weekly habits count in, only while Habits is on (step 5 of #324)', async () => {
+    const auth = new FakeAuthService();
+    auth.signInAs('eric@example.com');
+    const modules = new FakeModules();
+    const off = await render(auth, 'modules', fakePush(), new FakeNotes(), modules);
+    expect(off.querySelector('#habits')).toBeNull();
+    modules.set('habits', true);
+    TestBed.tick();
+    const heading = off.querySelector('#habits')!;
+    expect(heading.textContent).toBe('Habits');
+    const select = heading.nextElementSibling!.querySelector('select')!;
+    expect(select.closest('label')?.textContent).toContain('Weeks start on');
+    expect(select.value).toBe('Mon');
+    select.value = 'Sun';
+    select.dispatchEvent(new Event('change'));
+    expect(modules.configureHabits).toHaveBeenCalledWith({ weekStart: 'Sun' });
+    TestBed.tick();
+    expect(select.value).toBe('Sun');
+  });
+
   it('says the switches are busy until the stored modules are read (#290)', async () => {
     const auth = new FakeAuthService();
     auth.signInAs('eric@example.com');

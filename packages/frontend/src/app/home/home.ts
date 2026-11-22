@@ -822,7 +822,11 @@ export class Home {
   /**
    * The Habits tile's line (#324): how many of today's habits are done
    * or skipped, of those due ("2 of 5 today"); with none, what a habit
-   * is. Empty (#288) when there is nothing left to do today.
+   * is. Empty (#288) when there is nothing left to do today. A weekly or
+   * monthly habit counts on each day of its period until it is settled,
+   * as one to do, then as settled on that day only; after it, not due,
+   * it is not counted at all (step 5 of #324, 2026-11-22), so the count
+   * is not held up all week by one done on Monday.
    */
   private habitsLine(): { status: string; empty: boolean } {
     const due = this.habits.placed().filter((h) => h.due);

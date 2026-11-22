@@ -1048,7 +1048,8 @@ export function buildServer(
         'it in his own words. time is the time of day it is for ("around 11am" is 11:00), in ' +
         'timeZone; nudge asks for one push at that time on a day it is not yet logged, never a ' +
         'second, and needs a time; quiet hours hold it to their end, and nudgeNote says when it ' +
-        'goes. Daily habits only: a weekly or monthly one is not nudged yet. A ' +
+        'goes. Only a daily habit is nudged for now: a weekly or monthly one keeps the ' +
+        'setting but is sent no push yet. A ' +
         'habit is done or not for now: no answer, mood or note. A name an unarchived habit ' +
         'already has is refused: change that one with update_habit. Habits only.',
       inputSchema: {

@@ -132,6 +132,28 @@ export function habitPeriodState(
 }
 
 /**
+ * The day that settled the period holding `day` (step 5 of #324,
+ * 2026-11-22): its first done day, else its first skipped day; none
+ * while nothing in it is logged. As `habitPeriodState` decides the
+ * period, so the two always agree.
+ */
+export function habitSettledOn(
+  habit: Pick<Habit, 'schedule'>,
+  entries: ReadonlyMap<string, HabitEntry>,
+  day: string,
+  weekStart: Weekday = 'Mon',
+): string | undefined {
+  const { start, end } = habitPeriod(habit.schedule, day, weekStart);
+  let skipped: string | undefined;
+  for (let d = start; d <= end; d = addDays(d, 1)) {
+    const state = entries.get(d)?.state;
+    if (state === 'done') return d;
+    if (state === 'skipped') skipped ??= d;
+  }
+  return skipped;
+}
+
+/**
  * Whether a habit is on the list for `day`: never when archived; a
  * daily one every day; a weekly or monthly one on every day of its
  * period until the day it is done or skipped, that day included (so it

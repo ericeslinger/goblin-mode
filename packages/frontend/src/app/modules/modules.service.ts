@@ -1,5 +1,6 @@
 import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
 import {
+  type HabitsConfig,
   type KitchenConfig,
   MODULES,
   type ModuleId,
@@ -44,7 +45,7 @@ export class ModulesService {
   readonly habits = computed(() => moduleOn(this.stored(), 'habits'));
   /** Kitchen's configuration (#129): week start, meals, the fish's day. */
   readonly kitchenConfig = computed(() => kitchenConfig(this.stored()?.kitchen?.config));
-  /** Habits' configuration (#324): the day its weeks start on. */
+  /** Habits' configuration (#324): the day its weeks start on, the quiet hours. */
   readonly habitsConfig = computed(() => habitsConfig(this.stored()?.habits?.config));
   /** Whether the stored settings have been read, so a plan is made to them. */
   readonly loaded = computed(() => this.read());
@@ -100,6 +101,19 @@ export class ModulesService {
     this.write({
       ...this.stored(),
       kitchen: { enabled: current?.enabled ?? this.kitchen(), config },
+    });
+  }
+
+  /**
+   * Changes Habits' configuration (step 5 of #324, 2026-11-22: its week
+   * start), keeping whether it is on, as `configureKitchen` does.
+   */
+  configureHabits(change: Partial<HabitsConfig>): void {
+    const current = this.stored()?.habits;
+    const config = { ...current?.config, ...this.habitsConfig(), ...change };
+    this.write({
+      ...this.stored(),
+      habits: { enabled: current?.enabled ?? this.habits(), config },
     });
   }
 

@@ -16,14 +16,16 @@ import { AuthService } from '../auth.service';
 import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { SignIn } from '../sign-in/sign-in';
+import type { HabitSchedule } from '@mossgoblin/schema';
 import { HabitCard } from './habit-card';
+import { SCHEDULE_CHOICES } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
 import { type HabitUndoable, HabitsService } from './habits.service';
 
 /**
  * The Habits screen (`/habits`, #324 step 2): each habit with its week
- * strip, its streak and today's Done and Skip; + adds one (a name, a
- * time of day if any), daily and done-only in this step; Archived,
+ * strip, its streak and today's Done and Skip; + adds one (a name, how
+ * often, a time of day if any), done-only for now; Archived,
  * under them, keeps each archived habit's history in view, with
  * Unarchive. A write the server refused is said under the Undo line,
  * with Try again (2026-11-21). Streaks are read back as far as they
@@ -75,6 +77,16 @@ import { type HabitUndoable, HabitsService } from './habits.service';
                 />
               </label>
               <label>
+                How often
+                <select name="schedule" (change)="schedule.set($any(value($event)))">
+                  @for (s of schedules; track s.value) {
+                    <option [value]="s.value" [selected]="schedule() === s.value">
+                      {{ s.label }}
+                    </option>
+                  }
+                </select>
+              </label>
+              <label>
                 Time of day <span class="hint">(optional)</span>
                 <input type="time" name="time" [value]="time()" (input)="time.set(value($event))" />
               </label>
@@ -94,9 +106,10 @@ import { type HabitUndoable, HabitsService } from './habits.service';
           @if (habits.loaded() && !habits.active().length && !adding()) {
             <div class="empty">
               <p>
-                A habit is something you mean to do every day: a walk, a page of reading, the
-                watering. Each day it waits in Right Now until you tick it done or skip it, and here
-                you see its last seven days and how long it has kept going.
+                A habit is something you mean to do every day, or once a week or a month: a walk, a
+                page of reading, the watering, the gutters. It waits in Right Now until you tick it
+                done or skip it for its day, week or month, and here you see its last seven days and
+                how long it has kept going.
               </p>
               <button type="button" class="primary" (click)="adding.set(true)">
                 Add your first habit
@@ -150,7 +163,8 @@ import { type HabitUndoable, HabitsService } from './habits.service';
       padding: 8px 0 16px;
       border-bottom: 1px solid var(--rule);
     }
-    .new input {
+    .new input,
+    .new select {
       display: block;
       width: 100%;
       box-sizing: border-box;
@@ -209,6 +223,8 @@ export class Habits {
   protected readonly adding = signal(false);
   protected readonly name = signal('');
   protected readonly time = signal('');
+  protected readonly schedule = signal<HabitSchedule>('daily');
+  protected readonly schedules = SCHEDULE_CHOICES;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private readonly undoButton = viewChild<ElementRef<HTMLButtonElement>>('undoButton');
@@ -276,13 +292,18 @@ export class Habits {
   protected add(event: Event): void {
     event.preventDefault();
     if (!this.name().trim()) return;
-    this.habits.add({ name: this.name(), time: this.time() || undefined });
+    this.habits.add({
+      name: this.name(),
+      schedule: this.schedule(),
+      time: this.time() || undefined,
+    });
     this.close();
   }
 
   protected close(): void {
     this.name.set('');
     this.time.set('');
+    this.schedule.set('daily');
     this.adding.set(false);
   }
 }

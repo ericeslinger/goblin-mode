@@ -169,4 +169,34 @@ describe('Right Now’s Habits (#324)', () => {
     expect(alert().textContent?.trim()).toBe('');
     expect(r.api.set).toHaveBeenCalledTimes(3);
   });
+
+  it('shows a weekly or monthly habit each day of its period until settled (step 5)', async () => {
+    const r = await render();
+    const made = { createdAt: NOW - 30 * DAY };
+    await r.habits(
+      [
+        habitDoc('pots', { name: 'Pots', schedule: 'weekly', ...made }),
+        habitDoc('rent', { name: 'Rent', schedule: 'monthly', ...made }),
+        habitDoc('bins', { name: 'Bins', schedule: 'weekly', ...made }),
+      ],
+      // Bins was put out Monday: settled, so gone for the rest of the week.
+      { 'bins_2026-10': { '05': { state: 'done' } } },
+    );
+    expect(rows(r.el)).toEqual(['Pots', 'Rent']);
+    const when = [...section(r.el)!.querySelectorAll('li .when')].map((w) => w.textContent);
+    expect(when).toEqual(['This week', 'This month']);
+    // Tuesday is not the first day of the week nor of the month: no Yesterday?.
+    expect(section(r.el)!.querySelector('[aria-label^="Yesterday?"]')).toBeNull();
+    expect(section(r.el)!.textContent).not.toContain('Bins');
+
+    buttonNamed(r.el, 'Done: Pots')!.click();
+    r.api.pushLog('pots_2026-10', { '06': { state: 'done' } });
+    buttonNamed(r.el, 'Skip: Rent')!.click();
+    r.api.pushLog('rent_2026-10', { '06': { state: 'skipped' } });
+    await r.fixture.whenStable();
+    expect(rows(r.el)).toEqual([]);
+    expect(section(r.el)!.querySelector('.settled')?.textContent).toBe(
+      'Done today: Pots · Skipped today: Rent',
+    );
+  });
 });
