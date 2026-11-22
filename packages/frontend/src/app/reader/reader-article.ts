@@ -335,6 +335,11 @@ export function articleHtml(markdown: string, images: boolean): string {
       line-height: 1.25;
       overflow-wrap: anywhere;
     }
+    /* Focused by script as another article opens in the pane, never by
+       Tab: no ring (Eric, 2026-11-22), as the page header's heading. */
+    h2.title:focus {
+      outline: none;
+    }
     .meta,
     .muted,
     .status {
