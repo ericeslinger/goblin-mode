@@ -7,6 +7,7 @@ import {
   isSealed,
   newDataKey,
   noteTextHash,
+  noteTitleHash,
   openText,
   sealText,
   textHash,
@@ -325,6 +326,45 @@ describe('noteTitle', () => {
     expect(open('title', now['title'])).toBe('Plumber visit');
     expect(now['titleSource']).toBe('llm');
     expect(now['body']).toBe(after['body']);
+  });
+
+  it('keeps a keyed hash of what the title was made from, and asks nothing of the same text again (2026-11-22)', async () => {
+    const titler = vi.fn(async () => 'Plumber visit');
+    const settle = async (before: Data, after: Data) => {
+      store.set(NOTE, copy(after) as Data);
+      return titleOnWrite(
+        fakeDb(store),
+        new NoteCodec(UID, keyFor),
+        titler,
+        UID,
+        ID,
+        snapOf(before),
+        snapOf(after),
+        log,
+      );
+    };
+    expect(await settle(sealedNote(body), sealedNote(body, settled))).toBe('written');
+    const titled = store.get(NOTE)!;
+    const hash = titled['titleHash'];
+    expect(isKeyedHash(hash)).toBe(true);
+    expect(hash).toBe(noteTitleHash(ID, 'Plumber visit', body, () => key));
+    // Neither the words nor a plain hash of them.
+    expect(JSON.stringify(titled)).not.toContain('plumber');
+    expect(JSON.stringify(titled)).not.toContain(textHash(body));
+    // Settled again with the text as it was (a line typed and taken out).
+    const again = { ...titled, settledAt: Timestamp.fromMillis(T + 60_000) };
+    expect(await settle(titled, again)).toBe('same');
+    expect(titler).toHaveBeenCalledTimes(1);
+    // Settled with the text changed: asked again.
+    const changed = {
+      ...again,
+      body: seal('body', `${body}\nand the tap`),
+      settledAt: Timestamp.fromMillis(T + 120_000),
+    };
+    expect(await settle(again, changed)).toBe('written');
+    expect(titler).toHaveBeenCalledTimes(2);
+    expect(titler).toHaveBeenLastCalledWith(`${body}\nand the tap`);
+    expect(store.get(NOTE)!['titleHash']).not.toBe(hash);
   });
 
   it('a note it cannot open gets no model title and is not written', async () => {

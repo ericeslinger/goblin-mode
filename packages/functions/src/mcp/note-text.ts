@@ -56,6 +56,7 @@ import {
   itemHash,
   noteTextHash,
   noteTextHashMatches,
+  noteTitleHash,
   openHabitAnswer,
   openText,
   refileNamesHash,
@@ -216,6 +217,18 @@ export class NoteCodec {
   async hashText(noteId: string, text: string): Promise<string> {
     const key = await this.dataKey(noteId);
     const hash = noteTextHash(noteId, text, 'sealed', () => key);
+    if (hash === undefined) throw new SealedNoteError(noteId, 'no-key');
+    return hash;
+  }
+
+  /**
+   * The `titleHash` of a model title of note `noteId` and the text it
+   * was made from (`noteTitleHash`, 2026-11-22): always keyed. No key
+   * throws SealedNoteError, so no plain hash is stored in its place.
+   */
+  async titleHash(noteId: string, title: string, text: string): Promise<string> {
+    const key = await this.dataKey(noteId);
+    const hash = noteTitleHash(noteId, title, text, () => key);
     if (hash === undefined) throw new SealedNoteError(noteId, 'no-key');
     return hash;
   }

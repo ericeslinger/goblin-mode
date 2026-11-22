@@ -5,11 +5,18 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { claudeTitler, federationFromEnv } from './claude-titler';
 import { NoteCodec } from '../mcp/note-text';
 import { dataKeyFor } from '../note-keys/client';
+import { KeptTimes } from './history';
 import { historyOnWrite, titleOnWrite } from './on-write';
 import type { Titler } from './title';
 import { firestoreTrashStore, sweepTrash } from './trash';
 
 const NOTE = 'users/{uid}/notes/{noteId}';
+
+/**
+ * When this instance saw versions kept, so a typing save inside the
+ * interval reads nothing of History (2026-11-22, history.ts).
+ */
+const kept = new KeptTimes();
 
 /**
  * On every note write: keep the version it replaced, when the rules say
@@ -30,15 +37,19 @@ export const noteHistory = onDocumentWritten(NOTE, async (event) => {
     event.data?.after,
     Date.now(),
     logger,
+    kept,
   );
 });
 
 let titler: Titler | null | undefined;
 
 /**
- * On every note write: a Claude title when the finished first line
- * changed. Runs as its own Google service account (`goblin-titles`),
- * the identity the Claude federation rule trusts. A sealed body is
+ * On every note write: a Claude title when a settle asks for one (the
+ * note was left after a change, Eric, 2026-10-06) and the text a title
+ * is made from is not the one its model title was made from (`titleHash`,
+ * 2026-11-22; until then each settle asked, whatever changed). Runs
+ * as its own Google service account (`goblin-titles`), the identity
+ * the Claude federation rule trusts. A sealed body is
  * opened for the model and its title written sealed; a note that cannot
  * be opened here gets no title and is not written (on-write.ts).
  */

@@ -1,12 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { oidcFederationProvider } from '@anthropic-ai/sdk/lib/credentials/oidc-federation';
-import type { Titler } from './title';
+import { type Titler, titleText } from './title';
 
 /** A small, cheap model is plenty for a few words (DESIGN.md, Titles). */
 export const TITLE_MODEL = 'claude-haiku-4-5';
-/** How much of a note the model sees. */
-export const TITLE_CONTEXT_CHARS = 2000;
-
 const AUDIENCE = 'https://api.anthropic.com';
 const METADATA_URL =
   'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity' +
@@ -62,14 +59,12 @@ export function claudeClient(config: FederationConfig): Anthropic {
 
 export function claudeTitler(config: FederationConfig): Titler {
   const client = claudeClient(config);
-  return async (body) => {
+  return async (text) => {
     const message = await client.messages.create({
       model: TITLE_MODEL,
       max_tokens: 64,
       system: SYSTEM,
-      messages: [
-        { role: 'user', content: `<note>\n${body.slice(0, TITLE_CONTEXT_CHARS)}\n</note>` },
-      ],
+      messages: [{ role: 'user', content: `<note>\n${titleText(text)}\n</note>` }],
     });
     for (const block of message.content) if (block.type === 'text') return block.text;
     return '';

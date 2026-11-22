@@ -289,6 +289,13 @@ export const Note = z.object({
    * Claude title.
    */
   settledAt: Timestamp.optional(),
+  /**
+   * Written by noteTitle beside a model title (2026-11-22): the keyed
+   * hash of that title and the text it was made from (`noteTitleHash`),
+   * so a settle over the same text asks the model nothing. Only ever
+   * keyed; a stale one only means the model is asked again.
+   */
+  titleHash: z.string().optional(),
   createdAt: Timestamp,
   updatedAt: Timestamp,
   updatedBy: Author,
