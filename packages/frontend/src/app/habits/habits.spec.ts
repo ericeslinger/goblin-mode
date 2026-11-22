@@ -316,8 +316,28 @@ describe('habit lines', () => {
       'No push: 23:00 is in the quiet hours (22:00 to 06:00), which end after its day does.',
     );
     expect(nudgeHint('weekly', '07:30', config)).toBe('Nudges are for daily habits for now.');
-    expect(habitWhen({ schedule: 'daily', time: '07:30', nudge: true })).toBe('07:30 · Nudge on');
-    expect(habitWhen({ schedule: 'daily', nudge: true })).toBe('');
+    expect(habitWhen({ schedule: 'daily', time: '07:30', nudge: true }, config)).toBe(
+      '07:30 · Nudge on',
+    );
+    expect(habitWhen({ schedule: 'daily', nudge: true }, config)).toBe('');
+  });
+
+  it('puts on a habit’s line only the nudge its Edit hint says will go (review of #330)', () => {
+    const config = habitsConfig({});
+    const daily = { schedule: 'daily', nudge: true } as const;
+    expect(habitWhen({ ...daily, time: '05:00' }, config)).toBe('05:00 · Nudge at 06:00');
+    expect(habitWhen({ ...daily, time: '22:30' }, config)).toBe('22:30');
+    expect(habitWhen({ ...daily, time: '21:00', nudge: false }, config)).toBe('21:00');
+    expect(habitWhen({ schedule: 'weekly', time: '21:00', nudge: true }, config)).toBe(
+      'This week · 21:00',
+    );
+    expect(habitWhen({ schedule: 'monthly', time: '21:00', nudge: true }, config)).toBe(
+      'This month · 21:00',
+    );
+    // Quiet hours set otherwise move the line with the hint.
+    const noon = habitsConfig({ quietFrom: '12:00', quietTo: '14:00' });
+    expect(habitWhen({ ...daily, time: '22:30' }, noon)).toBe('22:30 · Nudge on');
+    expect(habitWhen({ ...daily, time: '13:00' }, noon)).toBe('13:00 · Nudge at 14:00');
   });
 
   it('gives every strip state a mark or words of its own', () => {

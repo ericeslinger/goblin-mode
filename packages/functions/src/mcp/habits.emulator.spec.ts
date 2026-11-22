@@ -245,6 +245,10 @@ describe('the Habits tools (#324 step 3)', () => {
       nudge: true,
       createdBy: 'user',
     });
+    expect(renamed).toHaveProperty(
+      'nudgeNote',
+      expect.stringMatching(/^One push at 21:00 in Europe\/London/),
+    );
     await expect(t.updateHabit({ habit: 'floss', time: null })).rejects.toThrow(
       /a nudge needs a time of day/,
     );

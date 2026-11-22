@@ -4545,6 +4545,16 @@ above changed.
   (`HABIT_NUDGE_LATE_MS`, the hourly run's reach) is let go. A time a
   clock change skips goes just after the gap, one it repeats the first
   time, as a reminder's (`zonedTimeOn` in `reminders.ts`).
+  *2026-11-22, review of #330:* nor is one ever sent while it is quiet
+  (`now`, on the habit's clock, inside the quiet hours): the 65 minutes
+  let a 21:30 nudge whose wake was lost go at 22:35, so now one late
+  past the quiet hours' start is let go, its day ending before they
+  do; one held to their end goes as they end, which is not in them.
+  This holds for quiet hours that do not wrap midnight too (12:00 to
+  14:00: 11:30 late past 12:00 is let go, 13:00 goes at 14:00). The
+  wake is for the same moment (`habitNextNudge`, from `habitNudgeAt`),
+  so none is queued in them; a moment a clock change pushes into
+  them sends none that day.
 - *Quiet hours* are one setting for every nudge, `quietFrom` and
   `quietTo` in `HabitsConfig` (`settings/modules` habits.config, as
   `weekStart` is), 22:00 to 06:00 unless set; a start equal to its
@@ -4554,10 +4564,13 @@ above changed.
   for Eric:* a time in them before midnight (22:00 to 23:59) would
   be held to 06:00 the next morning, when its day has ended, and a
   late nudge is never sent for a day that has ended; so such a habit
-  sends no nudge at all, and Edit and the assistant say so. Sending
+  sends no nudge at all, and Edit, its line and the assistant say so
+  (its line since 2026-11-22). Sending
   it at 22:00 instead, early, or the next morning for yesterday, are
   his to choose. No screen sets the quiet hours in this step: the
-  config takes them, and nothing writes them but by hand.
+  config takes them, and nothing writes them but by hand. Any
+  `HH:MM` pair is valid: a start after its end wraps midnight (the
+  default), one before it does not (12:00 to 14:00), equal is none.
 - *Where "sent" is marked:* `users/{uid}/usage/habitNudges`,
   `sent.<habitId>` the last day (YYYY-MM-DD in the habit's zone) a
   nudge was sent for that habit, as the digest marks `usage/digest`.
@@ -4608,6 +4621,13 @@ above changed.
   turns it off (a nudge needs a time), and the switch alone writes
   only `nudge` (`setNudge`), keeping the time and zone. A habit's line
   on the screen and on Right Now says "21:00 · Nudge on".
+  *2026-11-22, review of #330:* it said so for any timed habit with
+  the switch on, weekly, monthly or 22:00 to 23:59 included. Now the
+  line, the Edit hint and the assistant's `nudgeNote` read one rule,
+  `habitNudgePlan` (`habits.ts`; `habitNudgeAt` reads it too): "Nudge
+  on" only when a push goes at the habit's time, "05:00 · Nudge at
+  06:00" when the quiet hours hold it, and nothing about a nudge when
+  none goes (the hint says why).
 - *The assistant* is told what is now true (`INSTRUCTIONS`, and
   `create_habit` and `update_habit`): one push at its time on a day
   not yet logged, never a second, held through the quiet hours, none

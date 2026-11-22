@@ -114,7 +114,7 @@ import {
   canLogHabitDay,
   habitDayKey,
   habitDayLoggable,
-  habitNudgeTime,
+  habitNudgePlan,
   habitDue,
   habitEntries,
   habitLogId,
@@ -639,26 +639,37 @@ const HABIT_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * Said with a habit whose nudge is on (step 4 of #324, 2026-11-21): what
- * is sent and when, by the shared rule (`habitNudgeTime`).
+ * is sent and when, by the shared rule (`habitNudgePlan`, as the app's
+ * line and Edit hint read it, review of #330, 2026-11-22).
  */
 function nudgeNoteFor(h: Habit, config: HabitsConfig): string {
-  if (h.schedule !== 'daily')
-    return (
-      'Nudges are sent for daily habits only for now: weekly and monthly habits are not ' +
-      'nudged yet, so promise Eric no push for this one.'
-    );
+  const plan = habitNudgePlan({ ...h, nudge: true }, config);
   const quiet = `the quiet hours (${config.quietFrom} to ${config.quietTo})`;
-  const time = h.time === undefined ? undefined : habitNudgeTime(h.time, config);
-  if (time === undefined)
-    return (
-      `${h.time} is in ${quiet} before midnight, so no nudge is sent for it: it would wait ` +
-      `until ${config.quietTo}, when its day has ended. Promise Eric no push for it.`
-    );
-  const when = time === h.time ? `at ${time}` : `at ${time}, held through ${quiet}`;
-  return (
-    `One push ${when} in ${h.tz}, on a day it is not yet done or skipped, to each device ` +
-    'with notifications on; never a second.'
-  );
+  switch (plan.kind) {
+    case 'not-daily':
+      return (
+        'Nudges are sent for daily habits only for now: weekly and monthly habits are not ' +
+        'nudged yet, so promise Eric no push for this one.'
+      );
+    case 'off':
+      return 'This habit is archived, so no nudge is sent for it while it stays so.';
+    case 'no-time':
+      return 'A nudge needs a time of day: this one has none, so no push is sent for it.';
+    case 'quiet':
+      return (
+        `${h.time} is in ${quiet} before midnight, so no nudge is sent for it: it would wait ` +
+        `until ${config.quietTo}, when its day has ended. Promise Eric no push for it.`
+      );
+    case 'at':
+    case 'held': {
+      const when =
+        plan.kind === 'at' ? `at ${plan.time}` : `at ${plan.time}, held through ${quiet}`;
+      return (
+        `One push ${when} in ${h.tz}, on a day it is not yet done or skipped, to each device ` +
+        'with notifications on; never a second.'
+      );
+    }
+  }
 }
 
 /** A habit's name as given, trimmed; refused when empty or too long. */

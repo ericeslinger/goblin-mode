@@ -247,6 +247,6 @@ export class RightNowHabits {
   }
 
   protected when(h: PlacedHabit): string {
-    return habitWhen(h);
+    return habitWhen(h, this.modules.habitsConfig());
   }
 }

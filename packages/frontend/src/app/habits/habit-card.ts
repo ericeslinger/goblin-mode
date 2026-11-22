@@ -314,7 +314,7 @@ export class HabitCard {
   protected readonly meta = computed(() => {
     const h = this.habit();
     return [
-      habitWhen(h),
+      habitWhen(h, this.modules.habitsConfig()),
       ...(h.streak ? [streakLine(h.schedule, h.streak.count, h.streak.complete)] : []),
     ]
       .filter(Boolean)

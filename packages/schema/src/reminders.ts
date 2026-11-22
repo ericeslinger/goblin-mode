@@ -210,6 +210,12 @@ export function zonedHour(ms: number, tz: string): number {
   return parts(ms, tz)['hour']!;
 }
 
+/** The time of day of instant `ms` on the clock in `tz`, "HH:MM". */
+export function zonedTime(ms: number, tz: string): string {
+  const p = parts(ms, tz);
+  return `${pad2(p['hour']!)}:${pad2(p['minute']!)}`;
+}
+
 /**
  * The instant day `iso` (YYYY-MM-DD) begins in `tz`: its midnight, or
  * just after the gap where a clock change skips midnight.
