@@ -204,7 +204,11 @@ SWEEPS='every theme, light and dark, passes axe'
 if [ "$#" -eq 0 ]; then
   status=0
   npx playwright test -c packages/e2e/playwright.config.ts --grep-invert "$SWEEPS" || status=$?
-  npx playwright test -c packages/e2e/playwright.config.ts --grep "$SWEEPS" || status=$?
+  # Its results go beside the first run's, not over them: Playwright
+  # empties its output folder as it starts, and took a failure's trace
+  # and context with it.
+  npx playwright test -c packages/e2e/playwright.config.ts --grep "$SWEEPS" \
+    --output packages/e2e/test-results-sweeps || status=$?
   exit "$status"
 fi
 npx playwright test -c packages/e2e/playwright.config.ts "$@"

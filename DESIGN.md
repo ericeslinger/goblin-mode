@@ -4337,7 +4337,9 @@ rules take.
 - When a weekly or monthly habit's nudge goes: every day of the
   period at its time until done, or on one day (step 4 or 5). Left to
   step 5 (2026-11-21, step 4): until then such a habit's nudge is
-  stored and not sent, and the app and the assistant say so.
+  stored and not sent, and the app and the assistant say so. *Still
+  open after step 5 (2026-11-22):* the options and a recommendation
+  are under Weekly and monthly, below, for Eric.
 - A sealed value shows its length, so a choice can be told from
   another of a different length; step 6 may pad a choice before
   sealing it.
@@ -4438,6 +4440,8 @@ overruling; nothing in this section above them changed.
   functions: on Right Now each day of its period until settled, on the
   screen "Done this week" once settled on another day, and can be
   ticked done or skipped (an answer it would ask for is not asked).
+  *Changed 2026-11-22, step 5:* weekly and monthly are offered now
+  (Weekly and monthly, below); another kind of answer is still not.
 - *The day a tick means* (review of #328, 2026-11-21). The clock is
   read again when the app comes back to the screen (`visibilitychange`,
   `pageshow`), and afresh at every tick, clear and Yesterday?: with the
@@ -4632,7 +4636,8 @@ above changed.
   `create_habit` and `update_habit`): one push at its time on a day
   not yet logged, never a second, held through the quiet hours, none
   for a time in them before midnight, daily habits only for now.
-- *Not done:* weekly and monthly nudges (step 5, For later, above); a
+- *Not done:* weekly and monthly nudges (left open by step 5 for Eric:
+  Weekly and monthly, below); a
   screen for the quiet hours; a tick from the notification itself.
   *Not tried on a real device:* the push arriving, its words and tag
   replacing an older one, and the tap opening Right Now (the
@@ -4643,6 +4648,128 @@ above changed.
   is the reminders' hour, so a nudge at 21:30 to a phone offline
   could still arrive at 22:20, inside the quiet hours.
 
+**Weekly and monthly in the app (step 5, 2026-11-22).** Built: making
+and changing a weekly or monthly habit on the Habits screen, its week
+or month there and on Right Now, Habits' own week start, and the Home
+count for them. Not built: their nudges, a decision of Eric's (below).
+As in the steps before, the choices are this step's own and open to
+his overruling; nothing decided above changed.
+
+- *How often.* The add form and Edit have How often, a select of Every
+  day, Once a week and Once a month, Every day unless chosen, as a
+  reminder's Repeat is offered (a select, labelled above it). The add
+  form opens at Every day each time.
+- *A change of schedule* writes `schedule` alone (`setSchedule`): the
+  month logs are left as they are, and every reading (due, strip,
+  streak, the period's line) is made again from them by the new
+  schedule's periods, so nothing logged is lost, and a change back
+  reads them exactly as before. Made weekly, a daily habit's week
+  with any day done counts as a week done (ticks on three Mondays in a
+  row: a streak of 3 weeks), the rest of that week's days on the strip
+  read covered. Made daily, a weekly habit's days between its ticks
+  read as missed days, so its streak usually falls to the run of days
+  it was ticked (often 0 or 1). Edit says so while the choice differs
+  from the habit's ("What is logged stays, read again by the new
+  schedule."). The nudge switch and time stay as they were; whether a
+  push goes is `habitNudgePlan`'s, as for any habit (made weekly, none;
+  made daily again, from its next moment after the change, the bound of
+  step 4). Specs in `habits.spec.ts` (schema) cover both rereadings.
+- *Its kind, said.* On Right Now the period it is for, under its name,
+  "This week" or "This month" (step 4's `habitWhen`, as it was). On the
+  Habits screen, how often in the form's own words, "Once a week ·
+  Streak: 3 weeks", "Once a month · No streak yet". *Changed
+  2026-11-22:* the screen said "This week" until now, which read as a
+  second period line beside the one below. The streak's words are
+  step 2's ("Streak: 3 weeks", "Streak: 2 months"), checked by spec.
+- *Its week or month, on the Habits screen.* A weekly or monthly
+  habit, unarchived, has a plain line under its strip for the period
+  holding today: "Not done yet this week", "Done this week, today",
+  "Done this week, yesterday", "Done this week, on Monday", "Skipped
+  this month, on the 3rd". The day is `habitSettledOn` (`habits.ts`):
+  the period's first done day, else its first skipped day, so it always
+  agrees with `habitPeriodState`. A seven-day strip shows a week but
+  little of a month, so the line says the period whole; the strip is
+  shown as it is for both. A month grid (a calendar of the month's
+  ticks) was considered and not built: the line says what the grid
+  would, for one tick a month. Once the period is settled on another
+  day the Today row goes (the line says why: nothing is left to log);
+  it replaces step 2's "Done this week" in that row. Settled today, the
+  row stays, Done or Skip pressed, to clear it.
+- *The strip,* checked, not changed: a weekly habit's week reads its
+  done day ✓ and the rest of the week "settled that week" (spoken
+  "Tue 6 Oct: settled that week"), a week before it with nothing
+  "missed", and a strip across a week's start shows each week by its
+  own check-ins (a spec reads it with weeks from Sunday).
+- *Right Now,* checked, not changed: a weekly or monthly habit is on
+  the list every day of its period until done or skipped; that day it
+  is in the settled line ("Done today: Clean the pots") as a daily one
+  is; after it, it is in neither, until the next period. "Yesterday?"
+  shows for one only on a new period's first day, when the last period
+  is still empty (`habitDayLoggable`).
+- *Week start.* Settings, Modules has a Habits section under the
+  switches while Habits is on, with Weeks start on, exactly as
+  Kitchen's (a select of the seven days, `configureHabits`, the whole
+  parsed config written back with the change, so the quiet hours are
+  then stored as their defaults where none were set, as Kitchen's
+  config is). Unlike the Kitchen's, a change reads every week again,
+  past ones too, so a weekly habit's strip and streak can change with
+  it; the section says so. The assistant's tools read the same
+  setting already.
+- *The Home count.* "N of M today" counts the habits due today
+  (`habitDue`) and, of them, those settled. A weekly or monthly habit
+  counts on each day of its period until it is settled, as one still
+  to do; on the day it is settled, as settled; after that day it is
+  not due, so not counted at all, and the count does not stay inflated
+  ("1 of 1 today" all week for one done on Monday). Specced on the
+  service and in the journey.
+- *The assistant.* No tool changed: the four already took `schedule`.
+  `INSTRUCTIONS` were true as they stood (weekly and monthly habits are
+  not nudged yet) and are unchanged; `create_habit`'s description said
+  "Daily habits only", which could read as making only daily ones, and
+  now says only a daily one is nudged for now, a weekly or monthly one
+  keeping the setting. The tool table's words hold. `garden-this`
+  names rescheduling under `update_habit`.
+- *Tests.* Schema specs for `habitSettledOn` and the rereadings; the
+  app's for the select, the change, the period line, Right Now, the
+  setting and the count; a journey (`habits.spec.ts`, "once a week and
+  once a month") that sets the week to start yesterday, makes both
+  yesterday on a clock set back a day, ticks the weekly one, sees it
+  gone today and "Done this week, yesterday" with its strip, skips the
+  monthly one, reads the Home count, and makes the weekly one daily.
+
+*For Eric: when a weekly or monthly habit's nudge goes (open,
+2026-11-22).* Nudges are one push at the habit's time, only if not
+logged yet, never a second (decided). A weekly or monthly habit has a
+time of day but no day, so until he chooses, its nudge is stored and
+not sent, and Edit, the habit's line and the assistant say so, as step
+4 left them. The options:
+
+1. *The last day of the period,* at its time, if the period is still
+   not done or skipped: Sunday for weeks from Monday, the 30th or 31st
+   (the 28th or 29th in February). One push a period, a last chance;
+   no new field. Against: no slack, as the push comes with one day
+   left, and a gardener who does the weekly shop on Saturdays is
+   nudged after his day has gone.
+2. *The first day of the period,* at its time: a heads-up. Against:
+   it nags about something with a week or a month to go, and is the
+   push most easily ignored.
+3. *A chosen day:* a new optional field on `Habit` (say `nudgeDay`,
+   a weekday for a weekly habit, a day of the month for a monthly one,
+   held to the month's last day where it has fewer), with a picker in
+   Edit beside Nudge me, and the push on that day if not settled. A
+   stored-schema change: the generated validators, rules tests and the
+   assistant's tools with it.
+4. *Every day of the period* at its time until done: refused by "never
+   a second", unless he means one a day.
+
+Recommended: 1 now, and 3 later only if he asks for a day of his own,
+with 1 as its default when the field is absent, so 3 needs no
+migration. 1 fits "one push, never a second" per period and needs only
+`habitNudgePlan` and `habitNudgeDue` to look at the period (its last
+day, and a period with nothing logged, which for a week across two
+months is two month logs in the claim), with the quiet hours as for a
+daily habit. None of it is built.
+
 **Build order (#324).**
 
 1. Design: this section, the stored schemas with generated rules and
@@ -4652,7 +4779,8 @@ above changed.
 3. The assistant's tools. Done 2026-11-21 (The assistant's tools,
    above).
 4. Nudges. Done 2026-11-21, daily habits only (Nudges, below).
-5. Weekly and monthly.
+5. Weekly and monthly. Done 2026-11-22 in the app (Weekly and
+   monthly, above); their nudges open, for Eric (options there).
 6. Answers.
 7. The feelings journal's reminders become habits.
 8. Delight.

@@ -2,6 +2,7 @@ import {
   type HabitDayState,
   type HabitSchedule,
   type HabitsConfig,
+  addDays,
   habitNudgePlan,
 } from '@mossgoblin/schema';
 
@@ -13,6 +14,29 @@ const UNIT: Record<HabitSchedule, [string, string]> = {
   daily: ['day', 'days'],
   weekly: ['week', 'weeks'],
   monthly: ['month', 'months'],
+};
+
+/**
+ * How often, as the add form and Edit offer it and the Habits screen
+ * names it (step 5 of #324, 2026-11-22), in that order.
+ */
+export const SCHEDULE_LABELS: Record<HabitSchedule, string> = {
+  daily: 'Every day',
+  weekly: 'Once a week',
+  monthly: 'Once a month',
+};
+
+/** The choices of how often, in the order the forms offer them. */
+export const SCHEDULE_CHOICES = (['daily', 'weekly', 'monthly'] as const).map((value) => ({
+  value,
+  label: SCHEDULE_LABELS[value],
+}));
+
+/** The period a weekly or monthly habit is for now, as Right Now marks it. */
+const THIS_PERIOD: Record<HabitSchedule, string> = {
+  daily: '',
+  weekly: 'This week',
+  monthly: 'This month',
 };
 
 /**
@@ -29,7 +53,9 @@ export function streakLine(schedule: HabitSchedule, count: number, complete = tr
 
 /**
  * What a habit's row says under its name: a weekly or monthly one's
- * period ("This week"), its time of day if it has one ("07:30"), and
+ * kind, on Right Now the period it is for ("This week"), on the Habits
+ * screen how often ("Once a week", the form's own words; step 5 of
+ * #324, 2026-11-22); its time of day if it has one ("07:30"), and
  * its nudge (step 4 of #324) by `habitNudgePlan`, as the Edit hint
  * says it (review of #330, 2026-11-22): "Nudge on" only when a push
  * goes at its time, "Nudge at 06:00" when the quiet hours hold it, and
@@ -39,10 +65,17 @@ export function streakLine(schedule: HabitSchedule, count: number, complete = tr
 export function habitWhen(
   h: { schedule: HabitSchedule; time?: string; nudge?: boolean; archived?: boolean },
   config: HabitsConfig,
+  on: 'right-now' | 'screen' = 'right-now',
 ): string {
   const plan = habitNudgePlan(h, config);
+  const kind =
+    h.schedule === 'daily'
+      ? ''
+      : on === 'screen'
+        ? SCHEDULE_LABELS[h.schedule]
+        : THIS_PERIOD[h.schedule];
   const parts = [
-    ...(h.schedule === 'weekly' ? ['This week'] : h.schedule === 'monthly' ? ['This month'] : []),
+    ...(kind ? [kind] : []),
     ...(h.time ? [h.time] : []),
     ...(plan.kind === 'at' ? ['Nudge on'] : plan.kind === 'held' ? [`Nudge at ${plan.time}`] : []),
   ];
@@ -57,6 +90,47 @@ export function dayName(day: string): string {
     month: 'short',
     timeZone: 'UTC',
   }).format(new Date(`${day}T12:00:00Z`));
+}
+
+/** "1st", "2nd", "3rd", "11th", "22nd": a day of the month. */
+export function ordinal(n: number): string {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
+  return `${n}${suffix}`;
+}
+
+/**
+ * How a weekly or monthly habit's period stands, as a plain line on the
+ * Habits screen (step 5 of #324, 2026-11-22): "Not done yet this week",
+ * "Done this week, today", "Done this week, on Monday", "Skipped this
+ * month, on the 3rd". A seven-day strip shows most of a week but little
+ * of a month, so the line says the period whole. None for a daily
+ * habit, whose strip and Today row say it all.
+ */
+export function periodLine(
+  h: { schedule: HabitSchedule; state: 'done' | 'skipped' | 'none'; settledOn?: string },
+  today: string,
+): string {
+  if (h.schedule === 'daily') return '';
+  const period = h.schedule === 'weekly' ? 'this week' : 'this month';
+  if (h.state === 'none' || h.settledOn === undefined) return `Not done yet ${period}`;
+  const day = h.settledOn;
+  const when =
+    day === today
+      ? 'today'
+      : day === addDays(today, -1)
+        ? 'yesterday'
+        : h.schedule === 'weekly'
+          ? `on ${weekday(day)}`
+          : `on the ${ordinal(Number(day.slice(8, 10)))}`;
+  return `${h.state === 'done' ? 'Done' : 'Skipped'} ${period}, ${when}`;
+}
+
+/** A day's weekday, whole: "Monday". */
+function weekday(day: string): string {
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' }).format(
+    new Date(`${day}T12:00:00Z`),
+  );
 }
 
 /** The weekday's first letter, over a day of the strip. */

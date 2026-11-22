@@ -5,7 +5,7 @@ import { HOUR, NOW, buttonNamed, renderWithReminders } from '../testing/reminder
 import { habitsConfig } from '@mossgoblin/schema';
 import { PushService } from '../push/push.service';
 import type { FakePush } from '../testing/fakes';
-import { dayState, habitWhen, nudgeHint, streakLine } from './habit-lines';
+import { dayState, habitWhen, nudgeHint, ordinal, periodLine, streakLine } from './habit-lines';
 import { Habits } from './habits';
 import { HABITS_API } from './habits.service';
 
@@ -290,9 +290,122 @@ describe('The Habits screen (#324)', () => {
       },
     );
     const c = card(r.el, 'Pots');
-    expect(c.textContent).toContain('Done this week');
-    expect(buttonNamed(c, 'Done today: Pots')).toBeUndefined();
-    expect(c.querySelector('.meta')?.textContent).toBe('This week · Streak: 1 week');
+    expect(c.querySelector('.period')?.textContent).toBe('Done this week, yesterday');
+    // Nothing to log today: no Today row at all, nor yesterday's, the
+    // week being one period.
+    expect(c.querySelector('[role="group"]')).toBeNull();
+    expect(c.querySelector('.meta')?.textContent).toBe('Once a week · Streak: 1 week');
+    // The strip: the week from Monday the 5th; the week before missed.
+    const said = [...c.querySelectorAll('.strip li .visually-hidden')].map((d) => d.textContent);
+    expect(said).toEqual([
+      expect.stringMatching(/^Wed 30 Sept?: missed$/),
+      'Thu 1 Oct: missed',
+      'Fri 2 Oct: missed',
+      'Sat 3 Oct: missed',
+      'Sun 4 Oct: missed',
+      'Mon 5 Oct: done',
+      'Tue 6 Oct: settled that week',
+    ]);
+  });
+
+  it('adds a habit once a week or once a month (step 5 of #324)', async () => {
+    const r = await render();
+    await r.habits([]);
+    buttonNamed(r.el, 'Add your first habit')!.click();
+    await r.fixture.whenStable();
+    const form = r.el.querySelector<HTMLElement>('form[aria-label="New habit"]')!;
+    const select = form.querySelector<HTMLSelectElement>('select[name="schedule"]')!;
+    expect(select.closest('label')?.textContent).toContain('How often');
+    expect([...select.options].map((o) => o.textContent?.trim())).toEqual([
+      'Every day',
+      'Once a week',
+      'Once a month',
+    ]);
+    expect(select.value).toBe('daily');
+    type(form, 'input[name="name"]', 'Gutters');
+    select.value = 'monthly';
+    select.dispatchEvent(new Event('change'));
+    await r.fixture.whenStable();
+    buttonNamed(form, 'Add')!.click();
+    expect(r.api.set.mock.lastCall![2]).toMatchObject({ name: 'Gutters', schedule: 'monthly' });
+    await r.fixture.whenStable();
+    // The form opens again at Every day.
+    buttonNamed(r.el, 'Add a habit')!.click();
+    await r.fixture.whenStable();
+    expect(r.el.querySelector<HTMLSelectElement>('select[name="schedule"]')!.value).toBe('daily');
+  });
+
+  it('changes how often in Edit, saying what is logged stays, and nothing else', async () => {
+    const r = await render();
+    await r.habits([habitDoc('floss', { name: 'Floss', time: '21:00', nudge: true })]);
+    buttonNamed(r.el, 'Edit Floss')!.click();
+    await r.fixture.whenStable();
+    const form = r.el.querySelector<HTMLElement>('form[aria-label="Edit Floss"]')!;
+    const select = form.querySelector<HTMLSelectElement>('select[name="schedule"]')!;
+    expect(select.value).toBe('daily');
+    expect(form.textContent).not.toContain('read again by the new schedule');
+    select.value = 'weekly';
+    select.dispatchEvent(new Event('change'));
+    await r.fixture.whenStable();
+    expect(form.textContent).toContain('What is logged stays, read again by the new schedule.');
+    // The hint is for the schedule chosen, before it is saved.
+    expect(form.textContent).toContain('Nudges are for daily habits for now.');
+    r.api.set.mockClear();
+    buttonNamed(form, 'Save')!.click();
+    expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
+      { schedule: 'weekly', updatedAt: expect.anything() },
+    ]);
+  });
+
+  it('says how a month stands, done on a day, skipped, or not yet (step 5 of #324)', async () => {
+    const r = await render();
+    const made = { schedule: 'monthly', createdAt: NOW - 60 * DAY };
+    await r.habits(
+      [
+        habitDoc('rent', { name: 'Rent', ...made }),
+        habitDoc('gutters', { name: 'Gutters', ...made }),
+        habitDoc('bins', { name: 'Bins', ...made }),
+      ],
+      {
+        'rent_2026-10': { '03': { state: 'done' } },
+        'gutters_2026-10': { '06': { state: 'skipped' } },
+      },
+    );
+    expect(card(r.el, 'Rent').querySelector('.period')?.textContent).toBe(
+      'Done this month, on the 3rd',
+    );
+    expect(card(r.el, 'Gutters').querySelector('.period')?.textContent).toBe(
+      'Skipped this month, today',
+    );
+    // Skipped today: its Today row stays, Skip pressed, to clear it.
+    expect(
+      buttonNamed(card(r.el, 'Gutters'), 'Skip today: Gutters')!.getAttribute('aria-pressed'),
+    ).toBe('true');
+    const bins = card(r.el, 'Bins');
+    expect(bins.querySelector('.period')?.textContent).toBe('Not done yet this month');
+    expect(bins.querySelector('.meta')?.textContent).toBe('Once a month · No streak yet');
+    expect(card(r.el, 'Rent').querySelector('.meta')?.textContent).toBe(
+      'Once a month · Streak: 1 month',
+    );
+  });
+
+  it('reads a week start other than Monday from the module’s setting', async () => {
+    const r = await render();
+    // From Sunday: the week of Sun 4 Oct, done on Monday the 5th.
+    r.modules.configureHabits({ weekStart: 'Sun' });
+    await r.habits(
+      [habitDoc('pots', { name: 'Pots', schedule: 'weekly', createdAt: NOW - 30 * DAY })],
+      { 'pots_2026-10': { '05': { state: 'done' } } },
+    );
+    const said = [...card(r.el, 'Pots').querySelectorAll('.strip li .visually-hidden')].map(
+      (d) => d.textContent,
+    );
+    expect(said.slice(-3)).toEqual([
+      'Sun 4 Oct: settled that week',
+      'Mon 5 Oct: done',
+      'Tue 6 Oct: settled that week',
+    ]);
+    expect(said[3]).toBe('Sat 3 Oct: missed');
   });
 });
 
@@ -302,6 +415,9 @@ describe('habit lines', () => {
     expect(streakLine('daily', 1)).toBe('Streak: 1 day');
     expect(streakLine('daily', 5)).toBe('Streak: 5 days');
     expect(streakLine('weekly', 2)).toBe('Streak: 2 weeks');
+    expect(streakLine('weekly', 3)).toBe('Streak: 3 weeks');
+    expect(streakLine('monthly', 1)).toBe('Streak: 1 month');
+    expect(streakLine('monthly', 2)).toBe('Streak: 2 months');
     expect(streakLine('daily', 30, false)).toBe('Streak: at least 30 days');
   });
 
@@ -338,6 +454,47 @@ describe('habit lines', () => {
     const noon = habitsConfig({ quietFrom: '12:00', quietTo: '14:00' });
     expect(habitWhen({ ...daily, time: '22:30' }, noon)).toBe('22:30 · Nudge on');
     expect(habitWhen({ ...daily, time: '13:00' }, noon)).toBe('13:00 · Nudge at 14:00');
+  });
+
+  it('names a weekly or monthly habit’s kind: the period on Right Now, how often here', () => {
+    const config = habitsConfig({});
+    expect(habitWhen({ schedule: 'weekly' }, config)).toBe('This week');
+    expect(habitWhen({ schedule: 'weekly' }, config, 'screen')).toBe('Once a week');
+    expect(habitWhen({ schedule: 'monthly', time: '09:00' }, config, 'screen')).toBe(
+      'Once a month · 09:00',
+    );
+    expect(habitWhen({ schedule: 'daily', time: '09:00' }, config, 'screen')).toBe('09:00');
+  });
+
+  it('says how a week or month stands, by the day that settled it', () => {
+    const today = '2026-11-18'; // a Wednesday
+    const line = (
+      schedule: 'daily' | 'weekly' | 'monthly',
+      state: 'done' | 'skipped' | 'none',
+      settledOn?: string,
+    ) => periodLine({ schedule, state, ...(settledOn ? { settledOn } : {}) }, today);
+    expect(line('daily', 'done', today)).toBe('');
+    expect(line('weekly', 'none')).toBe('Not done yet this week');
+    expect(line('monthly', 'none')).toBe('Not done yet this month');
+    expect(line('weekly', 'done', today)).toBe('Done this week, today');
+    expect(line('weekly', 'done', '2026-11-17')).toBe('Done this week, yesterday');
+    expect(line('weekly', 'skipped', '2026-11-16')).toBe('Skipped this week, on Monday');
+    expect(line('monthly', 'done', '2026-11-01')).toBe('Done this month, on the 1st');
+    expect(line('monthly', 'done', '2026-11-03')).toBe('Done this month, on the 3rd');
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 30, 31].map(ordinal)).toEqual([
+      '1st',
+      '2nd',
+      '3rd',
+      '4th',
+      '11th',
+      '12th',
+      '13th',
+      '21st',
+      '22nd',
+      '23rd',
+      '30th',
+      '31st',
+    ]);
   });
 
   it('gives every strip state a mark or words of its own', () => {

@@ -224,6 +224,31 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
               </p>
             </div>
           }
+          @if (modules.habits()) {
+            <!-- Habits' own week start (step 5 of #324, 2026-11-22), as
+                 Kitchen's is offered above. -->
+            <h2 id="habits">Habits</h2>
+            <div class="kitchen">
+              <label>
+                Weeks start on
+                <select
+                  #habitsStart
+                  (change)="modules.configureHabits({ weekStart: $any(habitsStart.value) })"
+                >
+                  @for (d of weekdays; track d) {
+                    <option [value]="d" [selected]="modules.habitsConfig().weekStart === d">
+                      {{ d }}
+                    </option>
+                  }
+                </select>
+              </label>
+              <p class="muted">
+                A weekly habit is due once in each week from this day; past weeks, and their
+                streaks, are read from it too.
+              </p>
+              <a routerLink="/habits">Habits</a>
+            </div>
+          }
         } @else {
           <p>Not signed in.</p>
         }

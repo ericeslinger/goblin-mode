@@ -1,6 +1,7 @@
 // Spec-support helpers; never imported from production code.
 import { computed, signal } from '@angular/core';
 import {
+  type HabitsConfig,
   type KitchenConfig,
   type ModuleId,
   conceptId,
@@ -334,7 +335,11 @@ export class FakeModules {
   readonly reader = computed(() => this.on('reader'));
   readonly podcasts = computed(() => this.on('podcasts'));
   readonly habits = computed(() => this.on('habits'));
-  readonly habitsConfig = computed(() => habitsConfig({}));
+  readonly habitsSetting = signal<Partial<HabitsConfig>>({});
+  readonly habitsConfig = computed(() => habitsConfig(this.habitsSetting()));
+  configureHabits = vi.fn((change: Partial<HabitsConfig>) =>
+    this.habitsSetting.update((c) => ({ ...c, ...change })),
+  );
   readonly config = signal<Partial<KitchenConfig>>({});
   readonly kitchenConfig = computed(() => kitchenConfig(this.config()));
   readonly loaded = signal(true);

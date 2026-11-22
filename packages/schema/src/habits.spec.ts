@@ -11,6 +11,7 @@ import {
   habitMonth,
   habitPeriod,
   habitPeriodState,
+  habitSettledOn,
   habitStreak,
   habitNextNudge,
   habitNudgeAt,
@@ -532,6 +533,91 @@ describe('habitStrip (#324)', () => {
       '2026-11-04',
     ]);
     expect(habitStreak(daily, entries, tday).count).toBe(4);
+  });
+});
+
+describe('weekly and monthly in the app (step 5 of #324, 2026-11-22)', () => {
+  const states = (strip: { state: string }[]) => strip.map((d) => d.state);
+
+  it('names the day that settled a period: its first done, else its first skip', () => {
+    const entries = log({ '2026-11-17': skipped, '2026-11-19': done, '2026-11-20': done });
+    expect(habitSettledOn(weekly, entries, '2026-11-22')).toBe('2026-11-19');
+    expect(habitSettledOn(weekly, log({ '2026-11-17': skipped }), '2026-11-16')).toBe('2026-11-17');
+    expect(habitSettledOn(weekly, entries, '2026-11-23')).toBeUndefined();
+    expect(habitSettledOn(monthly, entries, '2026-11-01')).toBe('2026-11-19');
+    expect(habitSettledOn(daily, entries, '2026-11-18')).toBeUndefined();
+    // A week across two months, from both months' check-ins.
+    const across = habitEntries([{ month: '2026-10', days: { '28': done } }]);
+    expect(habitSettledOn(weekly, across, '2026-11-01')).toBe('2026-10-28');
+    // It always agrees with how the period stands.
+    for (const day of ['2026-11-16', '2026-11-18', '2026-11-23']) {
+      const on = habitSettledOn(weekly, entries, day);
+      const state = habitPeriodState(weekly, entries, day);
+      expect(on === undefined ? 'none' : entries.get(on)?.state).toBe(state);
+    }
+  });
+
+  it('rereads a daily habit’s ticks as weeks once it is made weekly', () => {
+    // Done on most days of three weeks from Monday, none in the week of Nov 2.
+    const entries = doneOn(
+      '2026-10-27',
+      '2026-10-28',
+      '2026-11-10',
+      '2026-11-11',
+      '2026-11-12',
+      '2026-11-17',
+    );
+    const today = '2026-11-19';
+    // Daily: today open, yesterday empty and spared, the 17th done, then
+    // the 16th empty ends it.
+    expect(habitStreak(daily, entries, today).count).toBe(1);
+    // Weekly: this week and last week are done, the week of Nov 2 is
+    // empty and ends it.
+    expect(habitStreak(weekly, entries, today).count).toBe(2);
+    // The strip keeps each day ticked, the rest of a done week covered.
+    expect(states(habitStrip(weekly, entries, today))).toEqual([
+      'covered',
+      'covered',
+      'covered',
+      'covered',
+      'done',
+      'covered',
+      'covered',
+    ]);
+    // Monthly: November done, October done.
+    expect(habitStreak(monthly, entries, today).count).toBe(2);
+  });
+
+  it('rereads a weekly habit’s ticks as days once it is made daily', () => {
+    // Once a week, on the Wednesday, for three weeks.
+    const entries = doneOn('2026-11-04', '2026-11-11', '2026-11-18');
+    expect(habitStreak(weekly, entries, '2026-11-20').count).toBe(3);
+    // As days: the 19th is empty and no longer loggable on the 21st.
+    expect(habitStreak(daily, entries, '2026-11-21').count).toBe(0);
+    expect(states(habitStrip(daily, entries, '2026-11-21'))).toEqual([
+      'missed',
+      'missed',
+      'missed',
+      'done',
+      'missed',
+      'open',
+      'open',
+    ]);
+    // Nothing is lost: made weekly again, it reads as it did.
+    expect(habitStreak(weekly, entries, '2026-11-20').count).toBe(3);
+  });
+
+  it('lists a weekly habit on the day it is settled, never after it in the week', () => {
+    // The truthful count for Home (2026-11-22): due and settled on that
+    // day, then not due at all, so not counted again that week.
+    const entries = log({ '2026-11-17': skipped });
+    expect([16, 17, 18, 22].map((d) => habitDue(weekly, entries, `2026-11-${d}`))).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+    expect(habitPeriodState(weekly, entries, '2026-11-17')).toBe('skipped');
   });
 });
 

@@ -2,7 +2,17 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import { RouterLink } from '@angular/router';
 import { ModulesService } from '../modules/modules.service';
 import { PushService } from '../push/push.service';
-import { dayInitial, dayName, dayState, habitWhen, nudgeHint, streakLine } from './habit-lines';
+import type { HabitSchedule } from '@mossgoblin/schema';
+import {
+  SCHEDULE_CHOICES,
+  dayInitial,
+  dayName,
+  dayState,
+  habitWhen,
+  nudgeHint,
+  periodLine,
+  streakLine,
+} from './habit-lines';
 import { type PlacedHabit, HabitsService } from './habits.service';
 
 /**
@@ -10,8 +20,10 @@ import { type PlacedHabit, HabitsService } from './habits.service';
  * for and its streak as a plain line; the seven days ending today, each
  * a mark and words (never colour alone); today's Done and Skip, each
  * pressed while it is so, and pressed again to clear it; yesterday's
- * too, while it can still be logged; and Edit, for its name, its time
- * and Archive. Edit has Nudge me too (step 4 of #324), a switch that
+ * too, while it can still be logged; and Edit, for its name, how often
+ * (step 5 of #324), its time and Archive. A weekly or monthly habit has
+ * a line for its week or month ("Done this month, on the 3rd"), and no
+ * Today row once that period was settled on another day. Edit has Nudge me too (step 4 of #324), a switch that
  * needs a time, turning this device's notifications on the first time
  * it is used, through Settings' own path (PushService.enable). An
  * archived habit keeps its strip and has Unarchive.
@@ -57,12 +69,15 @@ import { type PlacedHabit, HabitsService } from './habits.service';
         </li>
       }
     </ol>
+    @if (period(); as p) {
+      <p class="period">{{ p }}</p>
+    }
     @if (!h.archived) {
-      <div class="log" role="group" [attr.aria-label]="'Today, ' + h.name">
-        <span class="when">Today</span>
-        @if (settledElsewhere(); as s) {
-          <span class="settled">{{ s }}</span>
-        } @else {
+      <!-- A week or month settled on another day has nothing to log
+           today: the period line above says how it stands (step 5). -->
+      @if (!settledElsewhere()) {
+        <div class="log" role="group" [attr.aria-label]="'Today, ' + h.name">
+          <span class="when">Today</span>
           <button
             type="button"
             [attr.aria-pressed]="h.today === 'done'"
@@ -79,8 +94,8 @@ import { type PlacedHabit, HabitsService } from './habits.service';
           >
             Skip
           </button>
-        }
-      </div>
+        </div>
+      }
       @if (h.yesterdayLoggable) {
         <div class="log" role="group" [attr.aria-label]="'Yesterday, ' + h.name">
           <span class="when">Yesterday</span>
@@ -116,6 +131,17 @@ import { type PlacedHabit, HabitsService } from './habits.service';
             (input)="name.set(value($event))"
           />
         </label>
+        <label>
+          How often
+          <select name="schedule" (change)="schedule.set($any(value($event)))">
+            @for (s of schedules; track s.value) {
+              <option [value]="s.value" [selected]="schedule() === s.value">{{ s.label }}</option>
+            }
+          </select>
+        </label>
+        @if (schedule() !== h.schedule) {
+          <p class="hint">What is logged stays, read again by the new schedule.</p>
+        }
         <label>
           Time of day <span class="hint">(leave empty for any time)</span>
           <input type="time" name="time" [value]="time()" (input)="time.set(value($event))" />
@@ -240,13 +266,15 @@ import { type PlacedHabit, HabitsService } from './habits.service';
       border-color: var(--accent);
       background: var(--chip-bg);
     }
-    .settled {
+    .period {
+      margin: var(--space-1, 4px) 0 0;
       font-size: 14px;
     }
     .edit {
       margin-top: var(--space-2);
     }
-    .edit input {
+    .edit input,
+    .edit select {
       display: block;
       width: 100%;
       box-sizing: border-box;
@@ -300,10 +328,12 @@ export class HabitCard {
   protected readonly name = signal('');
   protected readonly time = signal('');
   protected readonly nudge = signal(false);
+  protected readonly schedule = signal<HabitSchedule>('daily');
+  protected readonly schedules = SCHEDULE_CHOICES;
 
   /** What a nudge at the time in the form would do. */
   protected readonly hint = computed(() =>
-    nudgeHint(this.habit().schedule, this.time(), this.modules.habitsConfig()),
+    nudgeHint(this.schedule(), this.time(), this.modules.habitsConfig()),
   );
 
   /** This device cannot be sent a nudge as things stand. */
@@ -314,7 +344,7 @@ export class HabitCard {
   protected readonly meta = computed(() => {
     const h = this.habit();
     return [
-      habitWhen(h, this.modules.habitsConfig()),
+      habitWhen(h, this.modules.habitsConfig(), 'screen'),
       ...(h.streak ? [streakLine(h.schedule, h.streak.count, h.streak.complete)] : []),
     ]
       .filter(Boolean)
@@ -332,9 +362,13 @@ export class HabitCard {
   /** A weekly or monthly habit settled on another day of its period. */
   protected readonly settledElsewhere = computed(() => {
     const h = this.habit();
-    if (h.today || h.state === 'none') return '';
-    const period = h.schedule === 'monthly' ? 'month' : 'week';
-    return `${h.state === 'done' ? 'Done' : 'Skipped'} this ${period}`;
+    return !h.today && h.state !== 'none';
+  });
+
+  /** How a weekly or monthly habit's week or month stands; none archived. */
+  protected readonly period = computed(() => {
+    const h = this.habit();
+    return h.archived ? '' : periodLine(h, this.habits.today());
   });
 
   /** Opens the form on the habit as it is now. */
@@ -342,6 +376,7 @@ export class HabitCard {
     this.name.set(this.habit().name);
     this.time.set(this.habit().time ?? '');
     this.nudge.set(this.habit().nudge);
+    this.schedule.set(this.habit().schedule);
     this.editing.set(true);
   }
 
@@ -371,6 +406,7 @@ export class HabitCard {
     const name = this.name().trim();
     if (!name) return;
     if (name !== h.name) this.habits.rename(h.id, name);
+    if (this.schedule() !== h.schedule) this.habits.setSchedule(h.id, this.schedule());
     const time = this.time() || undefined;
     const nudge = this.nudge() && time !== undefined;
     if (time !== h.time) this.habits.setTime(h.id, time, nudge);

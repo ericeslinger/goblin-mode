@@ -4,6 +4,7 @@ packages/functions/lib/
 .angular/
 .wrangler/
 test-results/
+test-results-sweeps/
 playwright-report/
 *.log
 .env

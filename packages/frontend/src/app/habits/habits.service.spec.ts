@@ -465,6 +465,56 @@ describe('HabitsService (#324)', () => {
     expect(habits.add({ name: '   ' })).toBeUndefined();
   });
 
+  it('adds a weekly or monthly habit, and changes how often keeping its history (step 5)', () => {
+    const { habits, api, push } = setup();
+    const id = habits.add({ name: 'Gutters', schedule: 'monthly' });
+    expect(lastWrite(api).data).toMatchObject({ name: 'Gutters', schedule: 'monthly' });
+    expect(id).toBeDefined();
+    // Not a schedule: daily, as the schema has no other.
+    habits.add({ name: 'Odd', schedule: 'hourly' as never });
+    expect(lastWrite(api).data).toMatchObject({ schedule: 'daily' });
+
+    habits.setSchedule('floss', 'weekly');
+    expect(lastWrite(api)).toEqual({
+      path: 'users/u1/habits/floss',
+      data: { schedule: 'weekly', updatedAt: NOW },
+      merge: true,
+    });
+    // Its ticks, read again as weeks: done Monday the 5th settles the week.
+    push([habitDoc('floss', { name: 'Floss', schedule: 'weekly', createdAt: NOW - 30 * DAY })], {
+      'floss_2026-10': { '01': { state: 'done' }, '05': { state: 'done' } },
+    });
+    const floss = habits.placed()[0];
+    expect(floss).toMatchObject({ state: 'done', settledOn: '2026-10-05', due: false });
+    expect(floss.streak).toEqual({ count: 2, complete: true });
+    expect(habits.toDo()).toEqual([]);
+    expect(habits.settled()).toEqual([]);
+  });
+
+  it('counts a weekly habit due until settled, then settled that day only (step 5)', () => {
+    // Home's "N of M today" reads placed: due, and how its period stands.
+    const { habits, push, setNow, api } = setup();
+    push([habitDoc('pots', { name: 'Pots', schedule: 'weekly', createdAt: NOW - 30 * DAY })]);
+    expect(habits.placed().map((h) => [h.due, h.state])).toEqual([[true, 'none']]);
+    api.pushLog('pots_2026-10', { '06': { state: 'skipped' } });
+    TestBed.tick();
+    expect(habits.placed().map((h) => [h.due, h.state, h.settledOn])).toEqual([
+      [true, 'skipped', '2026-10-06'],
+    ]);
+    setNow(NOW + DAY);
+    vi.advanceTimersByTime(TICK_MS);
+    TestBed.tick();
+    expect(habits.placed().map((h) => h.due)).toEqual([false]);
+    expect(habits.placed()[0].yesterdayLoggable).toBe(false);
+    // Monday the 12th, a new week: due again; last week's Sunday can
+    // still be logged, though the skip settled that week already.
+    setNow(NOW + 6 * DAY);
+    vi.advanceTimersByTime(TICK_MS);
+    TestBed.tick();
+    expect(habits.placed().map((h) => [h.due, h.state])).toEqual([[true, 'none']]);
+    expect(habits.placed()[0]).toMatchObject({ yesterdayLoggable: true, yesterdayOpen: false });
+  });
+
   it('renames, sets or clears the time, and archives with merged writes', () => {
     const { habits, api } = setup();
     habits.rename('floss', ' Floss twice ');

@@ -11,7 +11,8 @@ import {
 import { OWNER } from '../src/personas';
 
 // Habits (#324, step 2, 2026-11-21): a module, off until switched on;
-// daily, done-only habits added on their own screen, ticked, skipped or
+// done-only habits added on their own screen (daily; weekly and monthly
+// since step 5, 2026-11-22, their own journey below), ticked, skipped or
 // logged for yesterday on Right Now, with Undo; the week strip and the
 // streak on the Habits screen; Archived. The page's zone is UTC, and
 // the habits are made with the page's clock set back a day, so
@@ -36,13 +37,17 @@ const card = (page: Page, name: string) =>
 const noSidewaysScroll = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-/** Adds a habit on the Habits screen, from + or the empty state's button. */
-async function addHabit(page: Page, name: string, time?: string): Promise<void> {
+/**
+ * Adds a habit on the Habits screen, from + or the empty state's button;
+ * every day unless `often` ("Once a week", "Once a month") is given.
+ */
+async function addHabit(page: Page, name: string, time?: string, often?: string): Promise<void> {
   const first = page.getByRole('button', { name: 'Add your first habit' });
   if (await first.isVisible()) await first.click();
   else await page.getByRole('button', { name: 'Add a habit' }).click();
   const form = page.getByRole('form', { name: 'New habit' });
   await form.getByRole('textbox', { name: 'Habit' }).fill(name);
+  if (often) await form.getByRole('combobox', { name: 'How often' }).selectOption({ label: often });
   if (time) await form.getByLabel(/Time of day/).fill(time);
   await form.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(card(page, name)).toBeVisible();
@@ -370,6 +375,100 @@ test('habits: Nudge me needs a time and turns notifications on', async ({ page, 
   await form.getByRole('button', { name: 'Save' }).click();
   await letItSave(page);
   await expect.poll(storedNudges).toEqual({ Floss: false });
+});
+
+// Weekly and monthly (step 5 of #324, 2026-11-22). The module's week is
+// set to start yesterday, so yesterday and today are one week whatever
+// day the run is on, and the weekly habit, made and done yesterday with
+// the page's clock set back a day (never ahead: the emulator's tokens),
+// is settled for the rest of its week today. A monthly one is skipped.
+test('habits: once a week and once a month, settled and gone for the period', async ({ page }) => {
+  test.setTimeout(150_000);
+  await signInAs(page, OWNER);
+  await switchModulesOn(page, 'Habits');
+  const realNow = Date.now();
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][
+    new Date(realNow - DAY).getUTCDay()
+  ];
+  // Settings, Modules: Habits' own week start, as Kitchen's.
+  await expect(page.getByRole('heading', { name: 'Habits', level: 2 })).toBeVisible();
+  const weekStart = page.getByRole('combobox', { name: 'Weeks start on' });
+  await expect(weekStart).toHaveValue('Mon');
+  await weekStart.selectOption(weekday);
+  await expect(weekStart).toHaveValue(weekday);
+  await noSeriousViolations(page);
+  await letItSave(page);
+
+  // Yesterday: both are made, and the weekly one done on Right Now.
+  await page.clock.setFixedTime(realNow - DAY);
+  await page.goto('/habits');
+  await addHabit(page, 'Clean the pots', undefined, 'Once a week');
+  await addHabit(page, 'Pay the rent', undefined, 'Once a month');
+  await expect(card(page, 'Clean the pots')).toContainText('Not done yet this week');
+  await letItSave(page);
+  await page.goto('/right-now');
+  const section = habitsOnRightNow(page);
+  await expect(section.getByRole('listitem')).toHaveText([
+    /^Clean the pots\s*This week/,
+    /^Pay the rent\s*This month/,
+  ]);
+  await section.getByRole('button', { name: 'Done: Clean the pots' }).click();
+  await expect(section).toContainText('Done today: Clean the pots');
+  await letItSave(page);
+
+  // Today: settled yesterday, the pots are gone for the rest of the week,
+  // from the list and from the settled line both.
+  await page.clock.setFixedTime(realNow);
+  await page.goto('/right-now');
+  await expect(section.getByRole('listitem')).toHaveText([/^Pay the rent\s*This month/]);
+  await expect(section).not.toContainText('Clean the pots');
+  await noSeriousViolations(page);
+  await section.getByRole('button', { name: 'Skip: Pay the rent' }).click();
+  await expect(section).toContainText('Skipped today: Pay the rent');
+  await expect(section.getByRole('listitem')).toHaveCount(0);
+  await letItSave(page);
+
+  // Home counts what is due today: the rent, settled; not the pots.
+  await page.goto('/home');
+  await expect(page.getByRole('link', { name: /^Habits/ })).toContainText('1 of 1 today');
+
+  // The Habits screen: the week's line and strip, the month's line.
+  await page.goto('/habits');
+  const pots = card(page, 'Clean the pots');
+  await expect(pots).toContainText('Once a week · Streak: 1 week');
+  await expect(pots).toContainText('Done this week, yesterday');
+  const days = pots
+    .getByRole('list', { name: 'The last seven days of Clean the pots' })
+    .getByRole('listitem');
+  await expect(days.nth(4)).toContainText(': before the habit began');
+  await expect(days.nth(5)).toContainText(': done');
+  await expect(days.nth(6)).toContainText(': settled that week');
+  // Nothing to log today, the week being settled.
+  await expect(pots.getByRole('group', { name: 'Today, Clean the pots' })).toHaveCount(0);
+  const rent = card(page, 'Pay the rent');
+  await expect(rent).toContainText('Once a month');
+  await expect(rent).toContainText('Skipped this month, today');
+  await expect(rent.getByRole('button', { name: 'Skip today: Pay the rent' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(await noSidewaysScroll(page)).toBe(true);
+  await noSeriousViolations(page);
+
+  // Made daily, its history stays, read again as days: yesterday done,
+  // today to do.
+  await pots.getByRole('button', { name: 'Edit Clean the pots' }).click();
+  const form = page.getByRole('form', { name: 'Edit Clean the pots' });
+  await form.getByRole('combobox', { name: 'How often' }).selectOption({ label: 'Every day' });
+  await expect(form).toContainText('What is logged stays, read again by the new schedule.');
+  await form.getByRole('button', { name: 'Save' }).click();
+  await letItSave(page);
+  await page.reload();
+  await expect(pots).toContainText('Streak: 1 day');
+  await expect(pots).not.toContainText('this week');
+  await expect(days.nth(5)).toContainText(': done');
+  await expect(days.nth(6)).toContainText(': not logged yet');
+  await expect(pots.getByRole('button', { name: 'Done today: Clean the pots' })).toBeVisible();
 });
 
 for (const { label, viewport, rail } of [
