@@ -278,7 +278,12 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             <button type="button" (click)="newTemplate('entry')">New template</button>
             <button type="button" (click)="newTemplate('living')">New living template</button>
             @if (!hasFeelingsJournal()) {
-              <button type="button" (click)="newFeelingsJournal()">Add a feelings journal</button>
+              <!-- Its three habits or reminders depend on whether Habits is
+                   on: not until that is read (2026-11-22). Tapped sooner, a
+                   journal made with Habits on got reminders. -->
+              <button type="button" [disabled]="!modules.loaded()" (click)="newFeelingsJournal()">
+                Add a feelings journal
+              </button>
             }
           </div>
         } @else {
