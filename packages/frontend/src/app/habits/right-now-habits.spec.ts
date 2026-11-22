@@ -254,6 +254,32 @@ describe('Right Now’s Habits (#324)', () => {
       expect(JSON.stringify(r.api.set.mock.lastCall![2])).not.toContain('river');
     });
 
+    it('gives the focus back to Yesterday? when its ask is put away (review of #332)', async () => {
+      const r = await render();
+      (TestBed.inject(NoteKeyService) as unknown as FakeNoteKeys).key.set(newDataKey());
+      await r.push([]);
+      await r.habits([
+        habitDoc('walk', { name: 'Walk', answer: 'text', createdAt: NOW - 2 * DAY }),
+      ]);
+      const yesterday = buttonNamed(r.el, 'Yesterday? Mark Walk done yesterday')!;
+      yesterday.click();
+      await r.fixture.whenStable();
+      const input = section(r.el)!.querySelector<HTMLInputElement>('input[type="text"]')!;
+      expect(document.activeElement).toBe(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await r.fixture.whenStable();
+      expect(document.activeElement).toBe(buttonNamed(r.el, 'Yesterday? Mark Walk done yesterday'));
+      // Today's tick still gets it back from today's ask.
+      buttonNamed(r.el, 'Done: Walk')!.click();
+      await r.fixture.whenStable();
+      section(r.el)!
+        .querySelector<HTMLInputElement>('input[type="text"]')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await r.fixture.whenStable();
+      expect(document.activeElement).toBe(buttonNamed(r.el, 'Done: Walk'));
+      expect(r.api.set).not.toHaveBeenCalled();
+    });
+
     it('opens a note habit’s entry on its tick, and leaves Skip a plain skip', async () => {
       const r = await render();
       await r.push([]);

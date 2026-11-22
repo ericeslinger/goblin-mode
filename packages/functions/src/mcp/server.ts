@@ -108,8 +108,9 @@ export const INSTRUCTIONS = [
     'A habit is answered with done, one of a short list of choices (a mood), one line of ' +
     'text, or a note opened from a template (create_habit and update_habit: answer, with ' +
     'choices or template). When he tells you how a choice or text habit went, log it done ' +
-    'with answer in his words: one of its choices, or his line as he said it. For a note ' +
-    'habit, make the entry with use_template from its template, then log_habit with its ' +
+    'with answer in his words: one of its choices, or his line, kept to one line (a line ' +
+    'break is refused; tabs and runs of spaces become one space, the ends trimmed). For a ' +
+    'note habit, make the entry with use_template from its template, then log_habit with its ' +
     'noteId. Answers are sealed like his notes; list_habits gives them opened, his own ' +
     'words: keep them as they are, and leave one marked answerSealed as it is.',
   'A project can list stages its items move through and tags they carry (refile: stages, ' +
@@ -1150,8 +1151,9 @@ export function buildServer(
         'week or month (else log today); none clears that day. date is ' +
         'YYYY-MM-DD (list_habits gives today and yesterday); today when left out. A skip ' +
         'never breaks a streak. Refused for an archived habit. With state done, answer is a ' +
-        "choice habit's choice or a text habit's one line (at most 500), sealed before it is " +
-        "stored; noteId is a note habit's entry, made first with use_template from its " +
+        "choice habit's choice or a text habit's one line (at most 500; a line break is " +
+        'refused, and tabs and runs of spaces become one space, the ends trimmed), sealed ' +
+        "before it is stored; noteId is a note habit's entry, made first with use_template from its " +
         'template. Gives back the day, its state and the streak. Habits only.',
       inputSchema: {
         habit,

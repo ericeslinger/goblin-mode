@@ -22,6 +22,7 @@ import { HabitAnswerFields } from './habit-answer-fields';
 import { HabitCard } from './habit-card';
 import { SCHEDULE_CHOICES } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
+import { JournalOfferLine } from './journal-offer';
 import { type HabitUndoable, HabitsService, answerFields } from './habits.service';
 
 /**
@@ -43,7 +44,15 @@ import { type HabitUndoable, HabitsService, answerFields } from './habits.servic
  */
 @Component({
   selector: 'app-habits',
-  imports: [HabitAnswerFields, HabitCard, HabitRefusals, PageHeader, RouterLink, SignIn],
+  imports: [
+    HabitAnswerFields,
+    HabitCard,
+    HabitRefusals,
+    JournalOfferLine,
+    PageHeader,
+    RouterLink,
+    SignIn,
+  ],
   template: `
     @if (auth.user() === null) {
       <app-sign-in />
@@ -113,6 +122,7 @@ import { type HabitUndoable, HabitsService, answerFields } from './habits.servic
             }
           </div>
           <app-habit-refusals />
+          <app-journal-offer />
           @if (habits.loaded() && !habits.active().length && !adding()) {
             <div class="empty">
               <p>

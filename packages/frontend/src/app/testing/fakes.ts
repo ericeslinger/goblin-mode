@@ -211,6 +211,7 @@ export class FakeRemindersApi implements RemindersApi {
   set = vi.fn((_db: unknown, _path: string, _data: Record<string, unknown>, _merge: boolean) =>
     Promise.resolve(),
   );
+  drop = vi.fn((_db: unknown, _path: string) => Promise.resolve());
   remove = () => 'DELETE';
   timestamp = (ms: number) => ({ toMillis: () => ms });
 

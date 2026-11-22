@@ -833,7 +833,10 @@ export class Settings {
       .some((t) => t.body.split('\n').some((line) => moodLine(line) !== undefined)),
   );
 
-  /** The feelings journal template and its three reminders (#40), opened to look over. */
+  /**
+   * The feelings journal template (#40), opened to look over, with its
+   * three reminders, or with Habits on its three habits (#324 step 7).
+   */
   protected newFeelingsJournal(): void {
     void this.router.navigate(['/n', this.templates.createFeelingsJournal()]);
   }

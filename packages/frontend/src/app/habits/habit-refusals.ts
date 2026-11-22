@@ -6,6 +6,10 @@ import { HabitsService } from './habits.service';
  * where habits show, as the note key line says a refused write: plain
  * words naming the habit and the day, Try again (the same write, sent
  * again) and Dismiss. Empty, it takes no room.
+ *
+ * Under them, in the same words' style, an answer held on this device
+ * for the note key and let go because its day was changed elsewhere
+ * (review of #332, 2026-11-22), with Dismiss.
  */
 @Component({
   selector: 'app-habit-refusals',
@@ -27,6 +31,19 @@ import { HabitsService } from './habits.service';
             class="link"
             [attr.aria-label]="'Dismiss: ' + r.name"
             (click)="habits.dismiss(r.key)"
+          >
+            Dismiss
+          </button>
+        </p>
+      }
+      @for (l of habits.lostAnswers(); track l.key) {
+        <p>
+          <span>{{ l.message }}</span>
+          <button
+            type="button"
+            class="link"
+            [attr.aria-label]="'Dismiss: your answer for ' + l.name"
+            (click)="habits.dismissLost(l.key)"
           >
             Dismiss
           </button>

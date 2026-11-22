@@ -708,7 +708,10 @@ type AnswerView = { answer?: string; answerSealed?: true; noteId?: string };
  * A check-in's answer as given to log_habit (step 6), checked against
  * the habit's kind: for a choice habit one of its choices (case and
  * spacing aside), as the list spells it; for a text habit one line, at
- * most HABIT_TEXT_MAX, empty meaning none; none for any other kind.
+ * most HABIT_TEXT_MAX, empty meaning none, a line break refused and the
+ * rest tidied to one line as the app tidies it (`habitAnswerLine`: tabs
+ * and other control characters a space, runs of spaces one, trimmed);
+ * none for any other kind.
  */
 function habitAnswerText(h: Habit, answer: string | undefined): string | undefined {
   if (answer === undefined) return undefined;
