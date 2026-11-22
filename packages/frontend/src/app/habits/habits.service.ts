@@ -1115,11 +1115,16 @@ export class HabitsService {
    * so a day logged on another device, its entry's note with it, is
    * never written over. Needs the server: offline, or with the gardener
    * not known, it rejects and nothing is written. False when the day
-   * held an entry, or cannot be logged.
+   * held an entry, or cannot be logged. With `forUid`, it rejects unless
+   * that gardener is the one signed in and the habits heard are his.
    */
-  markDoneIfEmpty(habit: string, day: string): Promise<boolean> {
+  markDoneIfEmpty(habit: string, day: string, forUid?: string): Promise<boolean> {
     const uid = this.auth.user()?.uid;
     if (!uid) return Promise.reject(new Error('not signed in'));
+    // Asked for one gardener (review of #333, 2026-11-22): refused once
+    // another is signed in, or while the habits heard are not his yet.
+    if (forUid !== undefined && (forUid !== uid || forUid !== this.uid))
+      return Promise.reject(new Error('signed in as someone else'));
     if (!canLogHabitDay(day, this.today())) return Promise.resolve(false);
     const month = habitMonth(day);
     const key = habitDayKey(day);

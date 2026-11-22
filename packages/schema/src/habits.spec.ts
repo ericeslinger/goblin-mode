@@ -19,7 +19,9 @@ import {
   habitNudgePlan,
   habitNudgeTime,
   habitStrip,
+  habitZone,
   habitsConfig,
+  lastWeekday,
   parseHabitLogId,
 } from './habits';
 import { HABIT_DAY_KEYS, Habit, type HabitEntry, HabitLog } from './model';
@@ -651,7 +653,7 @@ describe('which days can be logged (review of #329)', () => {
   });
 });
 
-describe('nudges (step 4 of #324)', () => {
+describe('nudges (step 4 of #324; Eric’s decisions, 2026-11-22)', () => {
   const NY = 'America/New_York';
   const config = habitsConfig({});
   const floss = {
@@ -673,8 +675,14 @@ describe('nudges (step 4 of #324)', () => {
   });
 
   it('is not due once the day holds a done or a skip', () => {
-    expect(habitNudgeDue(floss, AT, { ...on, logged: done })).toBeUndefined();
-    expect(habitNudgeDue(floss, AT, { ...on, logged: skipped })).toBeUndefined();
+    const day = (e: HabitEntry) => ({ ...on, entries: log({ '2026-11-21': e }) });
+    expect(habitNudgeDue(floss, AT, day(done))).toBeUndefined();
+    expect(habitNudgeDue(floss, AT, day(skipped))).toBeUndefined();
+    // Yesterday's entry is another day's: today is still due.
+    expect(habitNudgeDue(floss, AT, { ...on, entries: log({ '2026-11-20': done }) })).toEqual({
+      day: '2026-11-21',
+      at: AT,
+    });
   });
 
   it('is not due archived, with the nudge off, without a time, or with Habits off', () => {
@@ -682,12 +690,6 @@ describe('nudges (step 4 of #324)', () => {
     expect(habitNudgeDue({ ...floss, nudge: false }, AT, on)).toBeUndefined();
     expect(habitNudgeDue({ ...floss, time: undefined }, AT, on)).toBeUndefined();
     expect(habitNudgeDue(floss, AT, { ...on, on: false })).toBeUndefined();
-  });
-
-  it('leaves a weekly or monthly habit unnudged until step 5', () => {
-    expect(habitNudgeDue({ ...floss, schedule: 'weekly' }, AT, on)).toBeUndefined();
-    expect(habitNudgeDue({ ...floss, schedule: 'monthly' }, AT, on)).toBeUndefined();
-    expect(habitNextNudge({ ...floss, schedule: 'weekly' }, AT, config)).toBeUndefined();
   });
 
   it('is sent once: not again for a day already sent, nor an earlier one', () => {
@@ -712,35 +714,98 @@ describe('nudges (step 4 of #324)', () => {
     expect(habitNudgeDue(early, six, on)).toEqual({ day: '2026-11-21', at: six });
   });
 
-  it('sends none for a time in the quiet hours before midnight: its day would have ended', () => {
-    expect(habitNudgeTime('22:00', config)).toBeUndefined();
-    expect(habitNudgeTime('23:30', config)).toBeUndefined();
+  it('sends a time in the quiet hours before midnight as they begin (Eric, 2026-11-22)', () => {
+    expect(habitNudgeTime('22:00', config)).toBe('22:00');
+    expect(habitNudgeTime('22:30', config)).toBe('22:00');
+    expect(habitNudgeTime('23:59', config)).toBe('22:00');
     const late = { ...floss, time: '22:30' };
-    expect(habitNudgeAt(late, '2026-11-21', config)).toBeUndefined();
-    expect(habitNextNudge(late, AT, config)).toBeUndefined();
+    const ten = Date.parse('2026-11-22T03:00:00Z'); // 22:00 in New York on the 21st
+    expect(habitNudgeAt(late, '2026-11-21', config)).toBe(ten);
+    expect(habitNudgeDue(late, ten - 1, on)).toBeUndefined();
+    expect(habitNudgeDue(late, ten, on)).toEqual({ day: '2026-11-21', at: ten });
+    expect(habitNextNudge(late, AT, config)).toBe(ten);
+    expect(habitNextNudge(late, ten, config)).toBe(ten + 24 * 60 * 60_000);
+    // A habit timed at 22:00 exactly goes at its own time, the same moment.
+    expect(habitNudgeDue({ ...floss, time: '22:00' }, ten, on)).toEqual({
+      day: '2026-11-21',
+      at: ten,
+    });
     // Quiet hours that end before midnight hold to their end that day.
     const noon = habitsConfig({ quietFrom: '12:00', quietTo: '14:00' });
+    expect(habitNudgeTime('12:00', noon)).toBe('14:00');
     expect(habitNudgeTime('13:00', noon)).toBe('14:00');
     expect(habitNudgeTime('23:30', noon)).toBe('23:30');
+    // Other quiet hours past midnight: 23:00 to 07:00 send 23:45 at 23:00.
+    const late23 = habitsConfig({ quietFrom: '23:00', quietTo: '07:00' });
+    expect(habitNudgeTime('23:45', late23)).toBe('23:00');
+    expect(habitNudgeTime('00:15', late23)).toBe('07:00');
+    expect(habitNudgeTime('22:59', late23)).toBe('22:59');
     // None at all when they start where they end.
     expect(habitNudgeTime('23:30', habitsConfig({ quietFrom: '00:00', quietTo: '00:00' }))).toBe(
       '23:30',
     );
   });
 
+  it('catches up a lost wake at the start of the quiet hours for 65 minutes only', () => {
+    const late = { ...floss, time: '23:30' };
+    const ten = Date.parse('2026-11-22T03:00:00Z'); // 22:00 in New York
+    // The hourly run, at 22:40 or at 23:05, still sends it...
+    expect(habitNudgeDue(late, ten + 40 * 60_000, on)).toEqual({ day: '2026-11-21', at: ten });
+    expect(habitNudgeDue(late, ten + HABIT_NUDGE_LATE_MS, on)).toEqual({
+      day: '2026-11-21',
+      at: ten,
+    });
+    // ...and never later than that, deep in the quiet hours.
+    expect(habitNudgeDue(late, ten + HABIT_NUDGE_LATE_MS + 1, on)).toBeUndefined();
+    // Nor ever past midnight: quiet hours from 23:30 lose it at 00:00.
+    const half = habitsConfig({ quietFrom: '23:30', quietTo: '06:00' });
+    const t2330 = Date.parse('2026-11-22T04:30:00Z');
+    expect(
+      habitNudgeDue({ ...floss, time: '23:45' }, t2330 + 29 * 60_000, { on: true, config: half }),
+    ).toEqual({
+      day: '2026-11-21',
+      at: t2330,
+    });
+    expect(
+      habitNudgeDue({ ...floss, time: '23:45' }, t2330 + 31 * 60_000, { on: true, config: half }),
+    ).toBeUndefined();
+    // Any other nudge is still never sent while it is quiet: a 21:30 one
+    // late past 22:00 is let go, as before (review of #330).
+    const evening = { ...floss, time: '21:30' };
+    expect(habitNudgeDue(evening, ten + 60_000, on)).toBeUndefined();
+  });
+
   it('says what a nudge will do, the one answer for the line, Edit and the assistant', () => {
-    expect(habitNudgePlan(floss, config)).toEqual({ kind: 'at', time: '21:00' });
+    const daily = { schedule: 'daily' } as const;
+    expect(habitNudgePlan(floss, config)).toEqual({ kind: 'at', time: '21:00', ...daily });
     expect(habitNudgePlan({ ...floss, time: '03:00' }, config)).toEqual({
       kind: 'held',
       time: '06:00',
+      ...daily,
     });
-    expect(habitNudgePlan({ ...floss, time: '22:00' }, config)).toEqual({ kind: 'quiet' });
-    expect(habitNudgePlan({ ...floss, time: '23:59' }, config)).toEqual({ kind: 'quiet' });
+    expect(habitNudgePlan({ ...floss, time: '22:00' }, config)).toEqual({
+      kind: 'at',
+      time: '22:00',
+      ...daily,
+    });
+    expect(habitNudgePlan({ ...floss, time: '23:59' }, config)).toEqual({
+      kind: 'early',
+      time: '22:00',
+      ...daily,
+    });
     expect(habitNudgePlan({ ...floss, schedule: 'weekly' }, config)).toEqual({
-      kind: 'not-daily',
+      kind: 'at',
+      time: '21:00',
+      schedule: 'weekly',
+      lastDay: 'Sun',
     });
-    expect(habitNudgePlan({ ...floss, schedule: 'monthly' }, config)).toEqual({
-      kind: 'not-daily',
+    expect(
+      habitNudgePlan({ ...floss, schedule: 'weekly' }, habitsConfig({ weekStart: 'Sun' })),
+    ).toEqual({ kind: 'at', time: '21:00', schedule: 'weekly', lastDay: 'Sat' });
+    expect(habitNudgePlan({ ...floss, schedule: 'monthly', time: '23:00' }, config)).toEqual({
+      kind: 'early',
+      time: '22:00',
+      schedule: 'monthly',
     });
     expect(habitNudgePlan({ ...floss, time: undefined }, config)).toEqual({ kind: 'no-time' });
     expect(habitNudgePlan({ ...floss, time: '' }, config)).toEqual({ kind: 'no-time' });
@@ -779,6 +844,7 @@ describe('nudges (step 4 of #324)', () => {
     expect(habitNudgePlan({ ...floss, time: '13:00' }, noon)).toEqual({
       kind: 'held',
       time: '14:00',
+      schedule: 'daily',
     });
     expect(habitNudgeDue({ ...floss, time: '13:00' }, two, quietOn)).toEqual({
       day: '2026-11-21',
@@ -853,5 +919,209 @@ describe('nudges (step 4 of #324)', () => {
     expect(habitNextNudge(floss, AT - 60_000, config)).toBe(AT);
     expect(habitNextNudge(floss, AT, config)).toBe(Date.parse('2026-11-23T02:00:00Z'));
     expect(habitNextNudge({ ...floss, nudge: false }, AT, config)).toBeUndefined();
+  });
+});
+
+describe('weekly and monthly nudges: the last day of the period (Eric, 2026-11-22)', () => {
+  const NY = 'America/New_York';
+  const config = habitsConfig({});
+  const on = { on: true, config };
+  const shop = { schedule: 'weekly', time: '21:00', tz: NY, nudge: true, archived: false } as const;
+  const rent = { ...shop, schedule: 'monthly' } as const;
+  /** 21:00 in New York on Sunday 2026-11-22, the last day of a week from Monday. */
+  const SUN = Date.parse('2026-11-23T02:00:00Z');
+  /** 21:00 in New York on Saturday 2026-11-21. */
+  const SAT = Date.parse('2026-11-22T02:00:00Z');
+
+  it('names the last day of the week by the module’s week start', () => {
+    expect(lastWeekday('Mon')).toBe('Sun');
+    expect(lastWeekday('Sun')).toBe('Sat');
+    expect(lastWeekday('Wed')).toBe('Tue');
+  });
+
+  it('nudges a weekly habit on the last day of its week only, at its time', () => {
+    expect(habitNudgeAt(shop, '2026-11-22', config)).toBe(SUN);
+    expect(habitNudgeAt(shop, '2026-11-21', config)).toBeUndefined();
+    expect(habitNudgeAt(shop, '2026-11-16', config)).toBeUndefined();
+    expect(habitNudgeDue(shop, SAT, on)).toBeUndefined();
+    expect(habitNudgeDue(shop, SUN, on)).toEqual({ day: '2026-11-22', at: SUN });
+    // Weeks from Sunday end on Saturday.
+    const sunday = { on: true, config: habitsConfig({ weekStart: 'Sun' }) };
+    expect(habitNudgeDue(shop, SAT, sunday)).toEqual({ day: '2026-11-21', at: SAT });
+    expect(habitNudgeDue(shop, SUN, sunday)).toBeUndefined();
+  });
+
+  it('nudges a monthly habit on the last day of months of 28, 29, 30 and 31 days', () => {
+    for (const [last, before] of [
+      ['2026-02-28', '2026-02-27'],
+      ['2028-02-29', '2028-02-28'],
+      ['2026-04-30', '2026-04-29'],
+      ['2026-01-31', '2026-01-30'],
+      ['2026-12-31', '2026-12-30'],
+    ]) {
+      expect(habitNudgeAt(rent, last, config)).toBeDefined();
+      expect(habitNudgeAt(rent, before, config)).toBeUndefined();
+    }
+    // 2026-11-30, 21:00 EST.
+    const end = Date.parse('2026-12-01T02:00:00Z');
+    expect(habitNudgeDue(rent, end, on)).toEqual({ day: '2026-11-30', at: end });
+    expect(habitNextNudge(rent, Date.parse('2026-11-01T12:00:00Z'), config)).toBe(end);
+  });
+
+  it('sends none for a period already done or skipped, any day of it', () => {
+    const week = (days: Record<string, HabitEntry>) => ({ ...on, entries: log(days) });
+    expect(habitNudgeDue(shop, SUN, week({ '2026-11-17': done }))).toBeUndefined();
+    expect(habitNudgeDue(shop, SUN, week({ '2026-11-16': skipped }))).toBeUndefined();
+    expect(habitNudgeDue(shop, SUN, week({ '2026-11-22': done }))).toBeUndefined();
+    // Last week's tick is last week's.
+    expect(habitNudgeDue(shop, SUN, week({ '2026-11-15': done }))).toEqual({
+      day: '2026-11-22',
+      at: SUN,
+    });
+    // A week across a month's start reads both months' days.
+    const dec6 = Date.parse('2026-12-07T02:00:00Z'); // Sunday 2026-12-06, 21:00 EST
+    expect(habitNudgeDue(shop, dec6, on)).toEqual({ day: '2026-12-06', at: dec6 });
+    expect(habitNudgeDue(shop, dec6, week({ '2026-11-30': done }))).toBeUndefined();
+    const end = Date.parse('2026-12-01T02:00:00Z');
+    expect(habitNudgeDue(rent, end, week({ '2026-11-03': skipped }))).toBeUndefined();
+  });
+
+  it('is sent once a period, even when the schedule changed within it', () => {
+    expect(habitNudgeDue(shop, SUN, { ...on, sentFor: '2026-11-22' })).toBeUndefined();
+    // Nudged on Wednesday as a daily habit, then made weekly: none again
+    // that week.
+    expect(habitNudgeDue(shop, SUN, { ...on, sentFor: '2026-11-18' })).toBeUndefined();
+    expect(habitNudgeDue(shop, SUN, { ...on, sentFor: '2026-11-15' })).toEqual({
+      day: '2026-11-22',
+      at: SUN,
+    });
+    // Monthly, nudged on the 10th as daily or weekly: none on the 30th.
+    const end = Date.parse('2026-12-01T02:00:00Z');
+    expect(habitNudgeDue(rent, end, { ...on, sentFor: '2026-11-10' })).toBeUndefined();
+    expect(habitNudgeDue(rent, end, { ...on, sentFor: '2026-10-31' })).toEqual({
+      day: '2026-11-30',
+      at: end,
+    });
+    // Made daily again the next week: a day each, from its next day.
+    const mon = Date.parse('2026-11-24T02:00:00Z'); // Monday 2026-11-23, 21:00
+    expect(
+      habitNudgeDue({ ...shop, schedule: 'daily' }, mon, { ...on, sentFor: '2026-11-22' }),
+    ).toEqual({ day: '2026-11-23', at: mon });
+  });
+
+  it('keeps the quiet hours on the last day as on any day', () => {
+    // 23:00 on Sunday goes at 22:00; 03:00 at 06:00.
+    const ten = Date.parse('2026-11-23T03:00:00Z');
+    expect(habitNudgeDue({ ...shop, time: '23:00' }, ten, on)).toEqual({
+      day: '2026-11-22',
+      at: ten,
+    });
+    const six = Date.parse('2026-11-22T11:00:00Z');
+    expect(habitNudgeDue({ ...shop, time: '03:00' }, six, on)).toEqual({
+      day: '2026-11-22',
+      at: six,
+    });
+  });
+
+  it('wakes for the next period’s last day once this one’s has passed', () => {
+    expect(habitNextNudge(shop, Date.parse('2026-11-16T15:00:00Z'), config)).toBe(SUN);
+    expect(habitNextNudge(shop, SUN, config)).toBe(Date.parse('2026-11-30T02:00:00Z'));
+    expect(habitNextNudge(rent, Date.parse('2026-12-01T02:00:00Z'), config)).toBe(
+      Date.parse('2027-01-01T02:00:00Z'),
+    );
+  });
+
+  it('keeps the wall clock on a last day a clock change falls on', () => {
+    // Sunday 2026-11-01: New York falls back; 21:00 that evening is EST.
+    expect(habitNudgeAt(shop, '2026-11-01', config)).toBe(Date.parse('2026-11-02T02:00:00Z'));
+    // Saturday 2026-10-31 ends October: 21:00 EDT.
+    expect(habitNudgeAt(rent, '2026-10-31', config)).toBe(Date.parse('2026-11-01T01:00:00Z'));
+    // Sunday 2026-03-08 springs forward: 02:30 is skipped, and with no
+    // quiet hours it goes just after the gap, still that Sunday.
+    const none = habitsConfig({ quietFrom: '00:00', quietTo: '00:00' });
+    const at = habitNudgeAt({ ...shop, time: '02:30' }, '2026-03-08', none)!;
+    expect(zonedDay(at, NY)).toBe('2026-03-08');
+  });
+});
+
+describe('the day follows the device (Eric, 2026-11-22)', () => {
+  const NY = 'America/New_York';
+  const floss = { schedule: 'daily', time: '21:00', tz: NY, nudge: true, archived: false } as const;
+  const inZone = (tz?: string) => ({ on: true, config: habitsConfig(tz ? { tz } : {}) });
+
+  it('reads the module’s zone, the habit’s own only while it has none', () => {
+    expect(habitZone({ tz: NY }, habitsConfig({ tz: 'Asia/Tokyo' }))).toBe('Asia/Tokyo');
+    expect(habitZone({ tz: NY }, habitsConfig({}))).toBe(NY);
+    expect(habitZone({ tz: NY }, habitsConfig({ tz: 'Not/AZone' }))).toBe(NY);
+    expect(habitsConfig({ tz: 5 })).not.toHaveProperty('tz');
+    expect(habitsConfig({ tz: 'x'.repeat(65) }).tz).toBeUndefined();
+  });
+
+  it('nudges at the habit’s time where the device last was', () => {
+    // 21:00 in Paris on 2026-11-21 is 20:00 UTC.
+    const paris = Date.parse('2026-11-21T20:00:00Z');
+    expect(habitNudgeDue(floss, paris, inZone('Europe/Paris'))).toEqual({
+      day: '2026-11-21',
+      at: paris,
+    });
+    expect(habitNudgeDue(floss, paris, inZone())).toBeUndefined();
+  });
+
+  it('eastward across midnight: today moves on, and the new day is nudged once', () => {
+    // Nudged at 21:00 in New York on the 21st (02:00 UTC on the 22nd).
+    const sent = { sentFor: '2026-11-21' };
+    // The device lands in Tokyo, where it is already the 22nd; 21:00
+    // there is 12:00 UTC on the 22nd.
+    const tokyo = Date.parse('2026-11-22T12:00:00Z');
+    expect(habitNudgeDue(floss, tokyo, { ...inZone('Asia/Tokyo'), ...sent })).toEqual({
+      day: '2026-11-22',
+      at: tokyo,
+    });
+    // Left New York at 18:00 on the 21st, before its nudge: the 21st is
+    // jumped over in Tokyo and never nudged (it can still be logged as
+    // yesterday); the 22nd is.
+    expect(habitNudgeDue(floss, tokyo, { ...inZone('Asia/Tokyo'), sentFor: '2026-11-20' })).toEqual(
+      { day: '2026-11-22', at: tokyo },
+    );
+  });
+
+  it('westward across midnight: a day already nudged or logged is not again', () => {
+    // Nudged at 21:00 in Paris on the 21st, then flown to New York,
+    // where 21:00 on the 21st comes again: no second push.
+    const ny21 = Date.parse('2026-11-22T02:00:00Z');
+    expect(habitNudgeDue(floss, ny21, { ...inZone(NY), sentFor: '2026-11-21' })).toBeUndefined();
+    // The next day is nudged as usual.
+    expect(
+      habitNudgeDue(floss, ny21 + 24 * 60 * 60_000, { ...inZone(NY), sentFor: '2026-11-21' }),
+    ).toEqual({ day: '2026-11-22', at: ny21 + 24 * 60 * 60_000 });
+    // Nudged for the 22nd in Paris just after midnight (no quiet hours),
+    // then back in New York on the 21st: today has gone back a day, and
+    // a mark ahead of it holds, so neither the 21st nor the 22nd is
+    // nudged again there.
+    const none = {
+      on: true,
+      config: habitsConfig({ tz: NY, quietFrom: '00:00', quietTo: '00:00' }),
+    };
+    const ahead = { ...none, sentFor: '2026-11-22' };
+    expect(habitNudgeDue(floss, ny21, ahead)).toBeUndefined();
+    expect(habitNudgeDue(floss, ny21 + 24 * 60 * 60_000, ahead)).toBeUndefined();
+    // A day logged in Paris is the same day in New York: logged, no push.
+    const morning = { ...floss, time: '08:00' };
+    const ny22at8 = Date.parse('2026-11-22T13:00:00Z');
+    expect(
+      habitNudgeDue(morning, ny22at8, { ...inZone(NY), entries: log({ '2026-11-22': done }) }),
+    ).toBeUndefined();
+  });
+
+  it('follows the module’s zone through its clock changes', () => {
+    // The habit was made in Tokyo, which has none; the device is in New
+    // York, which falls back on 2026-11-01: 21:00 there is EST.
+    const tea = { ...floss, tz: 'Asia/Tokyo' };
+    expect(habitNudgeAt(tea, '2026-11-01', habitsConfig({ tz: NY }))).toBe(
+      Date.parse('2026-11-02T02:00:00Z'),
+    );
+    expect(habitNudgeAt(tea, '2026-10-31', habitsConfig({ tz: NY }))).toBe(
+      Date.parse('2026-11-01T01:00:00Z'),
+    );
   });
 });

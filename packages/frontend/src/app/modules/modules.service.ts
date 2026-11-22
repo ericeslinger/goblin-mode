@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import {
   type HabitsConfig,
   type KitchenConfig,
@@ -12,6 +12,7 @@ import {
 } from '@mossgoblin/schema';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
+import { TIME_ZONE } from '../platform/platform';
 import { SETTINGS_API } from '../theme/theme-sync.service';
 
 type Stored = Partial<Record<ModuleId, ModuleSetting>>;
@@ -32,6 +33,12 @@ export class ModulesService {
   private stop?: () => void;
   /** This device's writes the server has not acknowledged yet. */
   private unacked = 0;
+  /** The device's zone, the one the app reads today in. */
+  private readonly tz = inject(TIME_ZONE);
+  /** Each return to the app is a new use (`visibilitychange`). */
+  private readonly use = signal(0);
+  /** The use (by uid) whose zone this device has written, once a use. */
+  private zoneWritten?: string;
 
   /** Projects: types, the pill, the lens, items and stages (#41, #122). */
   readonly projects = computed(() => moduleOn(this.stored(), 'projects'));
@@ -45,7 +52,10 @@ export class ModulesService {
   readonly habits = computed(() => moduleOn(this.stored(), 'habits'));
   /** Kitchen's configuration (#129): week start, meals, the fish's day. */
   readonly kitchenConfig = computed(() => kitchenConfig(this.stored()?.kitchen?.config));
-  /** Habits' configuration (#324): the day its weeks start on, the quiet hours. */
+  /**
+   * Habits' configuration (#324): the day its weeks start on, the quiet
+   * hours, and since 2026-11-22 the zone of the device last used.
+   */
   readonly habitsConfig = computed(() => habitsConfig(this.stored()?.habits?.config));
   /** Whether the stored settings have been read, so a plan is made to them. */
   readonly loaded = computed(() => this.read());
@@ -82,7 +92,36 @@ export class ModulesService {
         (err) => console.error('modules listener', err),
       );
     });
-    inject(DestroyRef).onDestroy(() => this.stop?.());
+    // The day follows the device (Eric, 2026-11-22): with Habits on,
+    // this device's zone is the module's, so the server reads a habit's
+    // today and nudge in the zone the app shows. Decided once a use of
+    // the app (opened, or brought back to the front) and never while
+    // the page is hidden: the stored zone is looked at then, not
+    // watched, so another device's zone arriving later is left alone
+    // until this one is used again, whether or not this one wrote
+    // (review on #336: a tab that matched at first wrote its zone back
+    // over the phone's). Two devices open in two zones never write
+    // back and forth: the one last used wins.
+    effect(() => {
+      const uid = this.auth.user()?.uid;
+      const use = this.use();
+      if (!uid || !this.read() || !this.habits()) return;
+      untracked(() => {
+        if (globalThis.document?.visibilityState === 'hidden') return;
+        const key = `${uid}|${use}`;
+        if (this.zoneWritten === key) return;
+        this.zoneWritten = key;
+        if (this.habitsConfig().tz !== this.tz) this.configureHabits({ tz: this.tz });
+      });
+    });
+    const back = () => {
+      if (globalThis.document?.visibilityState !== 'hidden') this.use.update((n) => n + 1);
+    };
+    globalThis.document?.addEventListener('visibilitychange', back);
+    inject(DestroyRef).onDestroy(() => {
+      this.stop?.();
+      globalThis.document?.removeEventListener('visibilitychange', back);
+    });
   }
 
   on(id: ModuleId): boolean {

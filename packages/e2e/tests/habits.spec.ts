@@ -338,6 +338,18 @@ async function deviceTokens(): Promise<string[]> {
   return documents.map((d) => d.fields?.token?.stringValue ?? '');
 }
 
+/** The Habits module's stored zone, as admin (Eric, 2026-11-22: the device's). */
+async function storedHabitsZone(): Promise<string | undefined> {
+  const res = await fetch(
+    `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents/users/${OWNER.uid}/settings/modules`,
+    { headers: { authorization: 'Bearer owner' } },
+  );
+  type Fields = Record<string, { mapValue?: { fields?: Fields }; stringValue?: string }>;
+  const doc = (await res.json()) as { fields?: Fields };
+  return doc.fields?.['habits']?.mapValue?.fields?.['config']?.mapValue?.fields?.['tz']
+    ?.stringValue;
+}
+
 // Nudges (step 4 of #324, 2026-11-21): Nudge me in Edit needs a time,
 // and switched on the first time it turns this device's notifications
 // on, through Settings' own path (on localhost a stand-in token, as
@@ -348,6 +360,9 @@ test('habits: Nudge me needs a time and turns notifications on', async ({ page, 
   await context.grantPermissions(['notifications']);
   await signInAs(page, OWNER);
   await switchModulesOn(page, 'Habits');
+  // The day follows the device (Eric, 2026-11-22): with Habits on, the
+  // app stores this device's zone (UTC here) as the module's.
+  await expect.poll(storedHabitsZone).toMatch(/^(Etc\/)?UTC$/);
   await page.goto('/habits');
   await addHabit(page, 'Floss');
   await letItSave(page);

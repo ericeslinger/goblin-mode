@@ -368,6 +368,20 @@ describe('client-written collections: notes, reminders, devices, settings, attac
     await assertSucceeds(
       ref.set({ ...modules(), habits: { enabled: false, config: { weekStart: 'Sun' } } }),
     );
+    // The device's zone (Eric, 2026-11-22) is one more key of the
+    // module's config, a map the rules take whole: the app's merge write
+    // of it is allowed, and another gardener's is not.
+    await assertSucceeds(
+      ref.set(
+        { habits: { enabled: true, config: { weekStart: 'Mon', tz: 'Europe/Paris' } } },
+        { merge: true },
+      ),
+    );
+    await assertFails(
+      intruder()
+        .doc('users/owner/settings/modules')
+        .set({ habits: { enabled: true, config: { tz: 'Europe/Paris' } } }, { merge: true }),
+    );
     await assertFails(ref.set({ ...modules(), habits: true }));
     await assertFails(ref.set({ ...modules(), garden: { enabled: true } }));
     // Each doc keeps its own shape.

@@ -44,9 +44,12 @@ function sender() {
   return { sent, send };
 }
 
-async function gardener(uid: string, opts: { on?: boolean; devices?: string[] } = {}) {
+async function gardener(
+  uid: string,
+  opts: { on?: boolean; devices?: string[]; config?: Record<string, unknown> } = {},
+) {
   await db.doc(`users/${uid}/settings/modules`).set({
-    habits: { enabled: opts.on ?? true },
+    habits: { enabled: opts.on ?? true, ...(opts.config ? { config: opts.config } : {}) },
     updatedAt: at(MADE),
   });
   for (const [i, token] of (opts.devices ?? ['tok']).entries()) {
@@ -163,5 +166,72 @@ describe('sendNudges over Firestore', () => {
     };
     expect(await wakeUpcomingNudges(firestoreNudgeStore(db), queue, AT - 20 * 60_000)).toBe(1);
     expect(queued).toEqual(['floss']);
+  });
+
+  it('sends a 22:30 habit at 22:00, as the quiet hours begin (Eric, 2026-11-22)', async () => {
+    await gardener('u1');
+    await habit('u1', 'tea', { name: 'Tea', time: '22:30' });
+    const s = sender();
+    const ten = AT + 60 * 60_000; // 22:00 in New York
+    expect((await sendNudges(firestoreNudgeStore(db), s.send, ten - 60_000)).pushed).toBe(0);
+    expect((await sendNudges(firestoreNudgeStore(db), s.send, ten)).pushed).toBe(1);
+    expect((await db.doc(nudgeStatePath('u1')).get()).get('sent')).toEqual({
+      tea: '2026-11-21',
+    });
+  });
+});
+
+describe('weekly and monthly nudges over Firestore (Eric, 2026-11-22)', () => {
+  /** 21:00 in New York on Sunday 2026-12-06, ending a week that began in November. */
+  const DEC6 = Date.parse('2026-12-07T02:00:00Z');
+
+  it('reads both months of a week across a month’s start in the claim', async () => {
+    await gardener('u1');
+    await habit('u1', 'shop', { name: 'Shop', schedule: 'weekly' });
+    await habit('u1', 'pots', { name: 'Pots', schedule: 'weekly' });
+    await tick('u1', 'shop', '2026-11-30', 'done');
+    const s = sender();
+    const report = await sendNudges(firestoreNudgeStore(db), s.send, DEC6);
+    expect(report.pushed).toBe(1);
+    expect(s.sent.map((x) => x.message)).toEqual([
+      {
+        tag: 'habit-pots',
+        title: 'Pots',
+        body: 'Right Now · not done yet this week',
+        url: '/right-now',
+      },
+    ]);
+    expect((await db.doc(nudgeStatePath('u1')).get()).get('sent')).toEqual({
+      pots: '2026-12-06',
+    });
+  });
+
+  it('nudges a monthly habit on the month’s last day only, once', async () => {
+    await gardener('u1');
+    await habit('u1', 'rent', { name: 'Rent', schedule: 'monthly' });
+    const s = sender();
+    const store = firestoreNudgeStore(db);
+    expect((await sendNudges(store, s.send, AT)).pushed).toBe(0);
+    const end = Date.parse('2026-12-01T02:00:00Z'); // 2026-11-30, 21:00 EST
+    expect((await sendNudges(store, s.send, end)).pushed).toBe(1);
+    expect((await sendNudges(store, s.send, end + 60_000)).pushed).toBe(0);
+    expect(s.sent[0].message.body).toBe('Right Now · not done yet this month');
+  });
+});
+
+describe('nudges follow the device’s zone over Firestore (Eric, 2026-11-22)', () => {
+  it('reads the day and time in the module’s zone', async () => {
+    await gardener('u1', { config: { tz: 'Asia/Tokyo' } });
+    await habit('u1', 'floss');
+    const s = sender();
+    const store = firestoreNudgeStore(db);
+    // 21:00 in New York is 11:00 the next morning in Tokyo: nothing.
+    expect((await sendNudges(store, s.send, AT)).pushed).toBe(0);
+    // 21:00 in Tokyo on the 22nd is 12:00 UTC.
+    const tokyo = Date.parse('2026-11-22T12:00:00Z');
+    expect((await sendNudges(store, s.send, tokyo)).pushed).toBe(1);
+    expect((await db.doc(nudgeStatePath('u1')).get()).get('sent')).toEqual({
+      floss: '2026-11-22',
+    });
   });
 });

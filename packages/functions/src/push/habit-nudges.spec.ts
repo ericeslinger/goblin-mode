@@ -1,4 +1,4 @@
-import { type Habit, type HabitEntry, habitsConfig } from '@mossgoblin/schema';
+import { type Habit, type HabitEntry, addDays, habitsConfig } from '@mossgoblin/schema';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type HabitsModule,
@@ -39,6 +39,8 @@ function fakes(
     module?: HabitsModule;
     sent?: Record<string, string>;
     logged?: Record<string, HabitEntry>;
+    /** The habit as the claim reads it again, where it changed since the query. */
+    fresh?: Record<string, Habit>;
     devices?: Device[];
   } = {},
 ) {
@@ -47,12 +49,18 @@ function fakes(
     nudging: vi.fn(async () => habits),
     module: vi.fn(async () => opts.module ?? { on: true, config: habitsConfig({}) }),
     sent: vi.fn(async (uid: string) => ({ ...marks[uid] })),
-    claim: vi.fn<NudgeStore['claim']>(async (uid, id, day, stillDue) => {
+    claim: vi.fn<NudgeStore['claim']>(async (uid, id, day, period, stillDue) => {
       const h = habits.find((x) => x.uid === uid && x.id === id);
+      // The period's check-ins, as the store reads them from its months.
+      const entries = new Map<string, HabitEntry>();
+      for (let d = period.start; d <= period.end; d = addDays(d, 1)) {
+        const e = opts.logged?.[`${id}/${d}`];
+        if (e) entries.set(d, e);
+      }
       const ok = stillDue({
-        habit: h?.habit,
+        habit: opts.fresh?.[id] ?? h?.habit,
         changedAt: h?.changedAt,
-        logged: opts.logged?.[`${id}/${day}`],
+        entries,
         sentFor: marks[uid]?.[id],
       });
       if (ok) (marks[uid] ??= {})[id] = day;
@@ -147,6 +155,91 @@ describe('sendNudges (step 4 of #324)', () => {
       body: 'Right Now · not logged yet today',
       url: '/right-now',
     });
+    expect(nudgeMessage('h1', 'Shop', 'weekly').body).toBe('Right Now · not done yet this week');
+    expect(nudgeMessage('h1', 'Rent', 'monthly').body).toBe('Right Now · not done yet this month');
+  });
+
+  it('sends a time in the quiet hours before midnight at their start (Eric, 2026-11-22)', async () => {
+    const ten = AT + 60 * 60_000; // 22:00 in New York
+    const { store, sender, marks } = fakes([
+      { uid: 'u1', id: 'tea', habit: habit({ time: '22:45' }) },
+    ]);
+    expect((await sendNudges(store, sender, ten - 60_000)).pushed).toBe(0);
+    expect((await sendNudges(store, sender, ten + 20 * 60_000)).pushed).toBe(1);
+    expect(marks['u1']).toEqual({ tea: '2026-11-21' });
+  });
+});
+
+describe('weekly and monthly nudges (Eric, 2026-11-22)', () => {
+  /** 21:00 in New York on Sunday 2026-11-22, the last day of a week from Monday. */
+  const SUN = Date.parse('2026-11-23T02:00:00Z');
+  const done: HabitEntry = { state: 'done', at: { seconds: 1, nanoseconds: 0 } };
+
+  it('pushes a weekly habit once on the last day of its week, saying the week', async () => {
+    const h = { uid: 'u1', id: 'shop', habit: habit({ name: 'Shop', schedule: 'weekly' }) };
+    const { store, sender, marks } = fakes([h]);
+    expect((await sendNudges(store, sender, AT)).pushed).toBe(0); // Saturday
+    expect((await sendNudges(store, sender, SUN)).pushed).toBe(1);
+    expect(store.claim.mock.calls[0].slice(2, 4)).toEqual([
+      '2026-11-22',
+      { start: '2026-11-16', end: '2026-11-22' },
+    ]);
+    expect(sender.send).toHaveBeenCalledWith(
+      ['t1'],
+      expect.objectContaining({ body: 'Right Now · not done yet this week' }),
+    );
+    expect(marks['u1']).toEqual({ shop: '2026-11-22' });
+    expect((await sendNudges(store, sender, SUN + 60_000)).pushed).toBe(0);
+  });
+
+  it('sends none for a week settled earlier, a week across two months read whole', async () => {
+    const h = { uid: 'u1', id: 'shop', habit: habit({ schedule: 'weekly' }) };
+    const dec6 = Date.parse('2026-12-07T02:00:00Z'); // Sunday 2026-12-06, 21:00 EST
+    const settled = fakes([h], { logged: { 'shop/2026-11-30': done } });
+    expect((await sendNudges(settled.store, settled.sender, dec6)).pushed).toBe(0);
+    expect(settled.store.claim.mock.calls[0][3]).toEqual({
+      start: '2026-11-30',
+      end: '2026-12-06',
+    });
+    expect(settled.marks['u1']).toEqual({});
+  });
+
+  it('sends none on the 30th for a month already nudged as a weekly habit', async () => {
+    const h = { uid: 'u1', id: 'rent', habit: habit({ schedule: 'monthly' }) };
+    const end = Date.parse('2026-12-01T02:00:00Z'); // 2026-11-30, 21:00 EST
+    const nudged = fakes([h], { sent: { rent: '2026-11-22' } });
+    expect((await sendNudges(nudged.store, nudged.sender, end)).pushed).toBe(0);
+    const fresh = fakes([h], { sent: { rent: '2026-10-31' } });
+    expect((await sendNudges(fresh.store, fresh.sender, end)).pushed).toBe(1);
+  });
+
+  it('claims nothing when the schedule changed since the query', async () => {
+    const h = { uid: 'u1', id: 'shop', habit: habit({ schedule: 'weekly' }) };
+    const { store, sender } = fakes([h], {
+      fresh: { shop: habit({ schedule: 'monthly' }) },
+    });
+    expect((await sendNudges(store, sender, SUN)).pushed).toBe(0);
+    expect(store.claim).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('nudges follow the device’s zone (Eric, 2026-11-22)', () => {
+  it('reads the day and time in the module’s zone, not the habit’s', async () => {
+    // Made in New York; the app last ran in Paris, where 21:00 on the
+    // 21st is 20:00 UTC.
+    const paris = Date.parse('2026-11-21T20:00:00Z');
+    const module = { on: true, config: habitsConfig({ tz: 'Europe/Paris' }) };
+    const { store, sender, marks } = fakes([{ uid: 'u1', id: 'floss', habit: habit() }], {
+      module,
+    });
+    expect((await sendNudges(store, sender, paris)).pushed).toBe(1);
+    expect(marks['u1']).toEqual({ floss: '2026-11-21' });
+    // Back in New York (westward), 21:00 on the 21st again: no second push.
+    const ny = fakes([{ uid: 'u1', id: 'floss', habit: habit() }], {
+      sent: { floss: '2026-11-21' },
+      module: { on: true, config: habitsConfig({ tz: 'America/New_York' }) },
+    });
+    expect((await sendNudges(ny.store, ny.sender, AT)).pushed).toBe(0);
   });
 });
 
@@ -160,6 +253,18 @@ describe('waking for nudges', () => {
     expect(await wakeForNudge(q, h, config, AT - 3_600_000)).toBe(true);
     expect(q.enqueue).toHaveBeenCalledWith('u1', 'floss', AT, nudgeWakeName('u1', 'floss', AT));
     expect(await wakeForNudge(q, { ...h, habit: habit({ nudge: false }) }, config, AT)).toBe(false);
+  });
+
+  it('queues no wake beyond a task’s reach: the hourly run queues it later', async () => {
+    const q = queue();
+    // A monthly habit on 2026-12-02: its nudge is on the 31st, 29 days on.
+    const h = { uid: 'u1', id: 'rent', habit: habit({ schedule: 'monthly' }) };
+    expect(await wakeForNudge(q, h, config, Date.parse('2026-12-01T12:00:00Z'))).toBe(false);
+    expect(q.enqueue).not.toHaveBeenCalled();
+    // On the 30th it is a day away, and queued at its moment.
+    const end = Date.parse('2027-01-01T02:00:00Z');
+    expect(await wakeForNudge(q, h, config, Date.parse('2026-12-30T12:00:00Z'))).toBe(true);
+    expect(q.enqueue).toHaveBeenCalledWith('u1', 'rent', end, nudgeWakeName('u1', 'rent', end));
   });
 
   it('queues the next hour’s nudges only, and none with Habits off', async () => {
