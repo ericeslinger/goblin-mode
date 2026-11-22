@@ -40,22 +40,22 @@ body {
 /* Room for the mini-player while it shows (#179), and beside the
    desktop rail while it is drawn (#289): `--rail-width` is 0 unless
    the rail (app/rail/rail.ts) has put RAIL_CLASS on <html>, which it
-   does only from 641 px: 64 px of icons to 899 (2026-11-16), 176 px
-   from 900. Anything fixed to the viewport's left or right edge
-   starts at the rail's edge instead (the mini-player and the
-   keyboard's ribbon, below; the Reader's status bar). */
+   does only from 641 px: 176 px with names, or 64 px of icons while
+   it also has RAIL_ICONS_CLASS. Which one was the width's until
+   2026-11-22 (icons to 899, 2026-11-16; names from 900); since then
+   the rail's menu button can choose either at any width, so the class
+   says, not a media query. Anything fixed to the viewport's left or
+   right edge starts at the rail's edge instead (the mini-player and
+   the keyboard's ribbon, below; the Reader's status bar). The width
+   changes at once, with no transition: the page beside it reflows. */
 :root {
   --rail-width: 0px;
 }
-@media (min-width: 641px) {
-  :root.has-rail {
-    --rail-width: 64px;
-  }
+:root.has-rail {
+  --rail-width: 176px;
 }
-@media (min-width: 900px) {
-  :root.has-rail {
-    --rail-width: 176px;
-  }
+:root.has-rail.rail-icons {
+  --rail-width: 64px;
 }
 body {
   padding-bottom: var(--mini-player-height, 0px);

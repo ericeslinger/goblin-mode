@@ -101,6 +101,8 @@ const PATHS = {
     'M18.25 12a.75.75 0 1 0 1.5 0a.75.75 0 1 0-1.5 0',
   ],
   grip: ['M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01'],
+  // The rail's menu button (2026-11-22): three even lines.
+  menu: ['M4 6h16M4 12h16M4 18h16'],
   // Podcasts' Shows (#246): by folder, as one grid, and the sort.
   folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
   grid: [

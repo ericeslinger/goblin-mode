@@ -19,7 +19,8 @@ import { OWNER } from '../src/personas';
 // measure. Its second (2026-11-16): from 1400 px a saved note's back
 // kept open as a column beside its text. From 641 to 899 px
 // (2026-11-16) the rail is icons alone beside the phone's layout;
-// under 641 px nothing changes.
+// under 641 px nothing changes. Since 2026-11-22 a menu button at the
+// rail's top switches it between names and icons at any of its widths.
 
 async function noSeriousViolations(page: Page): Promise<void> {
   const { violations } = await new AxeBuilder({ page })
@@ -30,6 +31,9 @@ async function noSeriousViolations(page: Page): Promise<void> {
 }
 
 const rail = (page: Page) => page.getByRole('navigation', { name: 'Places', exact: true });
+/** The rail's menu button (2026-11-22), named for what it will do. */
+const menuButton = (page: Page) =>
+  rail(page).getByRole('button', { name: /^(Collapse|Expand) navigation$/ });
 /** An entry by its name, whatever its count says after it. */
 const entry = (page: Page, name: string) =>
   rail(page).getByRole('link', { name: new RegExp(`^${name}(,|$)`) });
@@ -301,6 +305,9 @@ test.describe('on a wide screen', () => {
     const skip = page.getByRole('link', { name: 'Skip to content' });
     await expect(skip).toBeFocused();
     await expect(skip).toBeInViewport();
+    // The rail's menu button (2026-11-22), then its entries.
+    await page.keyboard.press('Tab');
+    await expect(menuButton(page)).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(entry(page, 'Home')).toBeFocused();
     await expect(entry(page, 'Home')).toHaveAttribute('aria-current', 'page');
@@ -308,6 +315,8 @@ test.describe('on a wide screen', () => {
     await expect(page.getByRole('navigation', { name: 'Modules' })).toBeVisible();
     await noSeriousViolations(page);
 
+    await page.keyboard.press('Shift+Tab');
+    await expect(menuButton(page)).toBeFocused();
     await page.keyboard.press('Shift+Tab');
     await expect(skip).toBeFocused();
     await page.keyboard.press('Enter');
@@ -457,6 +466,8 @@ test.describe('on a tablet, 768 by 1024', () => {
     await page.keyboard.press('Tab');
     await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
     await page.keyboard.press('Tab');
+    await expect(menuButton(page)).toBeFocused();
+    await page.keyboard.press('Tab');
     await expect(entry(page, 'Home')).toBeFocused();
     await expect(entry(page, 'Home')).toHaveAttribute('aria-current', 'page');
     await noSeriousViolations(page);
@@ -545,6 +556,150 @@ test.describe('on a touch tablet', () => {
     await expect(page).toHaveURL(/\/browse/);
     await expect(entry(page, 'Notes')).toHaveAttribute('aria-current', 'page');
     expect(await noSidewaysScroll(page)).toBe(true);
+  });
+});
+
+// The rail's menu button (Eric, 2026-11-22): it switches the rail
+// between names (176 px) and icons alone (64 px) at any width it is
+// drawn at, the page taking the width; until it is pressed the width
+// decides, and then the choice is kept on the device.
+
+/** The rail's state as the button and the page say it. */
+async function expectRail(page: Page, state: 'words' | 'icons'): Promise<void> {
+  const words = state === 'words';
+  await expect(menuButton(page)).toHaveAccessibleName(
+    words ? 'Collapse navigation' : 'Expand navigation',
+  );
+  await expect(menuButton(page)).toHaveAttribute('aria-expanded', `${words}`);
+  await expect.poll(() => railWidth(page)).toBe(words ? '176px' : '64px');
+  const box = (await rail(page).boundingBox())!;
+  expect([box.x, box.width]).toEqual([0, words ? 176 : 64]);
+  // The names show beside the icons, or are a title for a mouse.
+  const map = entry(page, 'Map');
+  await expect(map).toHaveAccessibleName('Map');
+  if (words) {
+    expect((await map.locator('.name').boundingBox())!.width).toBeGreaterThan(20);
+    await expect(map).not.toHaveAttribute('title');
+  } else {
+    await expect(map).toHaveAttribute('title', 'Map');
+    expect((await map.boundingBox())!.width).toBeLessThanOrEqual(64);
+  }
+  // A 44 px target either way, at the top of the rail.
+  const button = (await menuButton(page).boundingBox())!;
+  expect(button.width).toBeGreaterThanOrEqual(44);
+  expect(button.height).toBeGreaterThanOrEqual(44);
+  expect(button.y).toBeLessThan((await entry(page, 'Home').boundingBox())!.y);
+  // The page beside the rail, never under it, and no sideways scroll.
+  expect(await contentLeft(page)).toBeGreaterThanOrEqual(box.width - 0.5);
+  expect(await noSidewaysScroll(page)).toBe(true);
+}
+
+test.describe('the rail’s menu button at 1440 by 900', () => {
+  test.use({ isMobile: false, hasTouch: false, viewport: { width: 1440, height: 900 } });
+
+  test('contracts the rail to icons, kept across a reload, and expands it again', async ({
+    page,
+  }) => {
+    test.setTimeout(150_000);
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    const id = await aNote(call, `Kiln notes\n${LONG}`);
+    await modulesOn(page);
+    await page.goto(`/n/${id}`);
+    const editor = page.getByRole('textbox', { name: 'New note' });
+    await expect(editor).toContainText('Kiln notes', { timeout: 15_000 });
+    await expect(column(page)).toBeVisible();
+
+    // With nothing chosen, names at this width.
+    await expectRail(page, 'words');
+    const controls = await menuButton(page).getAttribute('aria-controls');
+    expect(await rail(page).getAttribute('id')).toBe(controls);
+    await expect(entry(page, 'Notes')).toHaveAttribute('aria-current', 'page');
+    const before = (await editor.boundingBox())!;
+    await noSeriousViolations(page);
+
+    // Contracted: icons, the page takes the 112 px, the column stays.
+    await menuButton(page).click();
+    await expectRail(page, 'icons');
+    await expect(menuButton(page)).toBeFocused();
+    await expect(entry(page, 'Notes')).toHaveAttribute('aria-current', 'page');
+    const after = (await editor.boundingBox())!;
+    expect(after.x).toBeLessThan(before.x);
+    expect(after.width).toBeGreaterThan(before.width);
+    await expect(column(page)).toBeVisible();
+    await expectReadingMeasure(editor);
+    await noSeriousViolations(page);
+
+    // Kept on the device: a reload keeps it contracted, on every screen.
+    await page.reload();
+    await expect(editor).toContainText('Kiln notes', { timeout: 15_000 });
+    await expectRail(page, 'icons');
+    for (const [url, lands, current] of screens(id)) {
+      await page.goto(url);
+      await expect(page).toHaveURL(lands, { timeout: 15_000 });
+      await expect.poll(() => currentName(page), { message: url }).toEqual([current]);
+      const box = (await rail(page).boundingBox())!;
+      expect([url, box.x, box.width]).toEqual([url, 0, 64]);
+      expect(await contentLeft(page), url).toBeGreaterThanOrEqual(63.5);
+      expect(await noSidewaysScroll(page), url).toBe(true);
+    }
+
+    // Expanded again, from the keyboard.
+    await page.goto('/home');
+    await expect(rail(page)).toBeVisible();
+    await menuButton(page).focus();
+    await page.keyboard.press('Enter');
+    await expectRail(page, 'words');
+    await expect(entry(page, 'Home')).toHaveAttribute('aria-current', 'page');
+    await page.reload();
+    await expect(rail(page)).toBeVisible();
+    await expectRail(page, 'words');
+  });
+});
+
+test.describe('the rail’s menu button on a tablet, 768 by 1024', () => {
+  test.use({ isMobile: false, hasTouch: false, viewport: { width: 768, height: 1024 } });
+
+  test('expands the icons to names, and the page still fits, down to 641 px', async ({ page }) => {
+    test.setTimeout(150_000);
+    await signInAs(page, OWNER);
+    const call = await connectClaude(page);
+    const id = await aNote(call, `Kiln notes\n${LONG}`);
+    await modulesOn(page);
+    await page.goto('/home');
+    await expect(rail(page)).toBeVisible();
+
+    // With nothing chosen, icons at this width.
+    await expectRail(page, 'icons');
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(menuButton(page)).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expectRail(page, 'words');
+    await expect(entry(page, 'Home')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('navigation', { name: 'Modules' })).toBeVisible();
+    await noSeriousViolations(page);
+
+    // The narrowest rail width, names shown: every screen still fits.
+    await page.setViewportSize({ width: 641, height: 1024 });
+    for (const [url, lands, current] of screens(id)) {
+      await page.goto(url);
+      await expect(page).toHaveURL(lands, { timeout: 15_000 });
+      await expect.poll(() => currentName(page), { message: url }).toEqual([current]);
+      const box = (await rail(page).boundingBox())!;
+      expect([url, box.x, box.width]).toEqual([url, 0, 176]);
+      expect(await contentLeft(page), url).toBeGreaterThanOrEqual(175.5);
+      expect(await noSidewaysScroll(page), url).toBe(true);
+    }
+
+    // Contracted again: the tablet's icons.
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto('/home');
+    await expect(rail(page)).toBeVisible();
+    await menuButton(page).click();
+    await expectRail(page, 'icons');
+    await noSeriousViolations(page);
   });
 });
 

@@ -1597,7 +1597,9 @@ journeys are as they were. (Changed 2026-11-16, Eric's decision of
 2026-11-15 for the tablet gap: from 641 to 899 px the rail is drawn
 too, as icons alone; see The tablet's rail, below. Under 641 px
 nothing changes.) While it is drawn `<html>` has the class
-`has-rail`, by which `--rail-width` is 176 px (0 otherwise, as
+`has-rail`, by which `--rail-width` is 176 px (64 px with
+`rail-icons` too, since 2026-11-22; see The rail's menu button,
+below; 0 otherwise, as
 `--mini-player-height` is 0 with no player): the body is padded by it,
 so every screen moves right by the rail and a 640 px column is centred
 in what is left. What is fixed to the window's edges starts at the
@@ -1673,6 +1675,47 @@ any width with a rail. Everything else is the phone's one column,
 shifted: on a saved note Right Now is its line and sheet, the notes
 list is not beside the note, Home keeps its tiles, and the maps are
 the phone's.
+
+**The rail's menu button (Eric, 2026-11-22: "the nav rail ... should
+collapse into a three line overflow (down into icon only), toggled
+between expanded and contracted when you click the menu icon").**
+Changed 2026-11-22: until then the window's width alone chose the
+rail's presentation (icons from 641 to 899 px, names from 900). Now a
+menu button of three lines sits at the top of the rail, the first
+stop in its Tab order after Skip to content, a 44 px target: it
+switches the rail between its two existing presentations, names
+(176 px, the wide rail above) and icons alone (64 px, the tablet's
+rail above, each link named and titled as there, counts as badges).
+It is a toggle in place, not a drawer over the page. Its name says
+what it will do, "Collapse navigation" or "Expand navigation", its
+`aria-expanded` is true while the names show, and its `aria-controls`
+is the rail (`nav#rail-places`). With nothing chosen the width
+decides as before. Once pressed, the choice is kept on the device
+(`goblin.rail` in localStorage, "icons" or "words", through
+`LocalStore`, so storage missing or throwing only forgets it) and
+decides at every width the rail is drawn at: one choice, not one per
+width band, since each device keeps its own already and a choice that
+changed back when a window was dragged across 900 px would read as
+forgotten. Under 641 px there is still no rail and nothing changes.
+While the rail is icons `<html>` has `rail-icons` beside `has-rail`,
+and `--rail-width` follows the classes, not a media query; so the
+body's padding, the mini-player, the keyboard's ribbon and the
+Reader's status bar follow the choice. Everything beside the rail
+takes the freed or lost width as it takes a window's: the note's
+measure re-centres in its pane, Kitchen's 640 px column and the
+maps fit the page. The breakpoints that sum the rail (two panes at
+900, the context column at 1400, the Reader's panes at 1320, the
+maps' wide screen at 900) still read the window's width, not the
+width beside the rail: those sums assumed the 176 px rail, so
+contracting it only adds room, and pressing the button never shows
+or hides a pane or moves the Reader between its routes. (Contracted,
+the column would fit from about 1290 px and the panes from about
+1200; they do not show there.) Expanded on a window of 641 px the
+page is 465 px of the phone's one column, which fits. No transition:
+the width changes at once, so nothing reflows mid-way and reduced
+motion has nothing to turn off. No key: Ctrl B is the editor's bold
+and no other key is the obvious one, so the button is reached by Tab
+like the entries.
 
 **The desktop shell's keys (#289, step 5; Eric, 2026-11-15: "a
 command box on Ctrl/Cmd K, `g` then a letter for modules, `/` to
