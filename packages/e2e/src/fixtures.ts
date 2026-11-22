@@ -99,6 +99,11 @@ export async function typeLines(page: Page, lines: string[]): Promise<void> {
   const editor = page.getByRole('textbox', { name: 'New note' });
   for (const [i, line] of lines.entries()) {
     if (i > 0) {
+      // The line just typed is on the page before Enter is pressed
+      // (2026-11-22, #312): pressed while its last letters were still
+      // on their way, the Enter was lost twice in full runs.
+      const typed = lines[i - 1];
+      if (typed) await expect(editor).toContainText(typed);
       const before = await editor.locator('.cm-line').count();
       await page.keyboard.press('Enter');
       await expect(editor.locator('.cm-line')).toHaveCount(before + 1);
