@@ -21,9 +21,13 @@ import { OWNER } from '../src/personas';
 // set to the evening of Nov 6 and its zone to UTC, so the days are
 // Today, Yesterday and two dated ones whatever day the suite runs.
 //
-// From 1320 px (#289, part 3, 2026-11-16) the Reader is three panes:
-// the folders, the list and the article, under its header. Under that
-// width, and on the phone, it is the screens it was.
+// From 1320 px (#289, part 3, 2026-11-16) the Reader was three panes:
+// the folders, the list and the article, under its header. Since
+// 2026-11-22 (Eric: "too many columns") it is two from 1200 px: the
+// header and tabs over the list, and the article; the folders are the
+// Folders tab's, shown in the list pane, and a row's buttons are the
+// article toolbar's icons. Under that width, and on the phone, it is
+// the screens it was.
 
 test.use({ timezoneId: 'UTC' });
 
@@ -424,8 +428,14 @@ async function seedKilnLogs(n: number): Promise<void> {
   }
 }
 
-const foldersPane = (page: Page) => page.getByRole('navigation', { name: 'Folders', exact: true });
+const tabs = (page: Page) => page.getByRole('navigation', { name: 'Reader screens' });
+const allTab = (page: Page) => tabs(page).getByRole('link', { name: /^All/ });
+/** The folders column the panes had until 2026-11-22. */
+const foldersColumn = (page: Page) =>
+  page.getByRole('navigation', { name: 'Folders', exact: true });
 const listPane = (page: Page) => page.getByRole('region', { name: 'List of articles' });
+/** The list pane while it shows the Folders tab's folders (2026-11-22). */
+const foldersInPane = (page: Page) => page.getByRole('region', { name: 'Folders', exact: true });
 const articlePane = (page: Page) => page.getByRole('region', { name: 'Article', exact: true });
 /** The list pane's own scroll box. */
 const listBox = (page: Page) => listPane(page).locator('.pane-body');
@@ -433,45 +443,81 @@ const rowLink = (page: Page, id: string) => listPane(page).locator(`li[data-id="
 /** The page does not scroll sideways. */
 const noSidewaysScroll = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+/** Where a screenshot goes, when asked for one (READER_SHOTS, a directory). */
+const shot = (name: string) =>
+  process.env['READER_SHOTS'] ? `${process.env['READER_SHOTS']}/${name}` : undefined;
 
-test.describe('in three panes', () => {
-  test.use({ isMobile: false, hasTouch: false, viewport: { width: 1440, height: 900 } });
+/**
+ * A scroll box scrolled to its end: the gap from its last thing's foot
+ * to its own, and whether its own foot is on the screen.
+ */
+async function footOf(
+  box: Locator,
+  last: string,
+): Promise<{ gap: number; onScreen: boolean; scrolls: boolean }> {
+  return box.evaluate((el, sel) => {
+    el.scrollTop = el.scrollHeight;
+    const end = [...el.querySelectorAll(sel)].at(-1)!.getBoundingClientRect().bottom;
+    const own = el.getBoundingClientRect().bottom;
+    return {
+      gap: own - end,
+      onScreen: own <= innerHeight + 0.5,
+      scrolls: el.scrollHeight > el.clientHeight,
+    };
+  }, last);
+}
 
-  test('folders, list and article side by side; the list keeps its place', async ({ page }) => {
+/**
+ * At the list pane's top, how far its first row's top is below its
+ * first day's sticky heading: negative when the heading covers it.
+ */
+async function firstRowClear(page: Page): Promise<number> {
+  return listBox(page).evaluate((box) => {
+    box.scrollTop = 0;
+    const head = box.querySelector('.day-head')!.getBoundingClientRect();
+    const row = box.querySelector('li[data-id]')!.getBoundingClientRect();
+    return row.top - head.bottom;
+  });
+}
+
+test.describe('in two panes', () => {
+  test.use({
+    isMobile: false,
+    hasTouch: false,
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+  });
+
+  test('list and article side by side; the list keeps its place', async ({ page }) => {
     test.setTimeout(120_000);
     await readerWithFixtures(page);
     await seedKilnLogs(30);
     await page.goto('/reader');
 
-    // The folders, with their unread; All is the shelf shown.
-    await expect(foldersPane(page).getByRole('link')).toHaveText([
-      'All 35 unread',
-      'Saved',
-      'Design 33 unread',
-      'Games 2 unread',
-    ]);
-    await expect(foldersPane(page).getByRole('link', { name: /^All/ })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    await expect(foldersPane(page).locator('[aria-current]')).toHaveCount(1);
-    // No chips: the folders pane stands for them.
+    // Two panes: no folders column; the tabs over the list, All current.
+    await expect(foldersColumn(page)).toHaveCount(0);
+    await expect(tabs(page).getByRole('link')).toHaveText(['All 35 unread', 'Saved', 'Folders']);
+    await expect(allTab(page)).toHaveAttribute('aria-current', 'page');
+    // No chips: the Folders tab stands for them.
     await expect(page.getByRole('navigation', { name: 'By folder' })).toHaveCount(0);
     await expect(articles(page).getByRole('listitem')).toHaveCount(35);
     await expect(articlePane(page)).toHaveText('Choose an article');
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Reader');
-    // Side by side, in that order, under the header.
-    const [f, l, a] = [
-      (await foldersPane(page).boundingBox())!,
+    // The header and tabs top the list's column; the article has the
+    // window's height beside it, and the width the column gave up.
+    const [t, l, a] = [
+      (await tabs(page).boundingBox())!,
       (await listPane(page).boundingBox())!,
       (await articlePane(page).boundingBox())!,
     ];
-    expect(f.x + f.width).toBeLessThanOrEqual(l.x + 1);
+    expect(t.y + t.height).toBeLessThanOrEqual(l.y);
+    expect(t.x).toBeGreaterThanOrEqual(l.x - 0.5);
+    expect(t.x + t.width).toBeLessThanOrEqual(l.x + l.width + 0.5);
     expect(l.x + l.width).toBeLessThanOrEqual(a.x + 1);
-    expect(Math.abs(f.y - l.y)).toBeLessThanOrEqual(1);
-    expect(Math.abs(l.y - a.y)).toBeLessThanOrEqual(1);
+    expect(a.y).toBeLessThanOrEqual(t.y);
     expect(a.x + a.width).toBeLessThanOrEqual(1440 + 0.5);
+    expect(a.width).toBeGreaterThan(l.width);
     // The page neither scrolls sideways nor down: the list pane does.
     expect(await noSidewaysScroll(page)).toBe(true);
     expect(
@@ -479,6 +525,8 @@ test.describe('in three panes', () => {
         () => document.documentElement.scrollHeight <= document.documentElement.clientHeight,
       ),
     ).toBe(true);
+    // At its top, the first row is wholly below its day's heading.
+    expect(await firstRowClear(page)).toBeGreaterThanOrEqual(-0.5);
     await noSeriousViolations(page);
 
     // Down the list, then a row well inside the pane opens beside it.
@@ -518,14 +566,28 @@ test.describe('in three panes', () => {
     await expect(articles(page).getByRole('listitem')).toHaveCount(35);
     await expect(listBox(page)).toHaveAttribute('data-kept', 'yes');
     expect(await listBox(page).evaluate((box) => box.scrollTop)).toBe(scrolled);
-    // Opened as before: marked read, the folders' count down by one.
-    await expect(foldersPane(page).getByRole('link', { name: /^All/ })).toHaveText('All 34 unread');
+    // Opened as before: marked read, All's count down by one.
+    await expect(allTab(page)).toHaveText('All 34 unread');
     await noSeriousViolations(page);
+    const two = shot('reader-two-panes.png');
+    if (two) {
+      // The list at its top for the picture, then where it was.
+      await listBox(page).evaluate((box) => box.scrollTo(0, 0));
+      await page.screenshot({ path: two });
+      await listBox(page).evaluate((box, y) => box.scrollTo(0, y), scrolled);
+    }
 
     // j and k move the article along the list shown, and its current row with it.
     const next = ids[ids.indexOf(id) + 1];
     await page.keyboard.press('j');
     await expect(page).toHaveURL(new RegExp(`/reader/a/${next}\\?`));
+    // Opened by a key, the arriving title has the focus, with no ring:
+    // it was put there, not tabbed to (Eric, 2026-11-22). By key, since
+    // after a click the browser may show no ring whatever the rule.
+    const nextHeading = articlePane(page).getByRole('heading', { level: 2 });
+    await expect(nextHeading).not.toHaveText(title);
+    await expect(nextHeading).toBeFocused();
+    expect(await nextHeading.evaluate((h) => getComputedStyle(h).outlineStyle)).toBe('none');
     await expect(rowLink(page, next)).toHaveAttribute('aria-current', 'true');
     await expect(listPane(page).locator('a.open[aria-current]')).toHaveCount(1);
     await expect(articles(page).getByRole('listitem')).toHaveCount(35);
@@ -535,40 +597,210 @@ test.describe('in three panes', () => {
     await expect(rowLink(page, id)).toHaveAttribute('aria-current', 'true');
     await expect(listBox(page)).toHaveAttribute('data-kept', 'yes');
 
-    // A reload of the article: the same three panes, its row current and in view.
+    // A reload of the article: the same two panes, its row current and in view.
+    await letItSave(page);
     await page.reload();
     await expect(heading).toBeVisible();
-    await expect(foldersPane(page).getByRole('link')).toHaveCount(4);
+    await expect(tabs(page).getByRole('link')).toHaveCount(3);
+    await expect(foldersColumn(page)).toHaveCount(0);
     await expect(rowLink(page, id)).toHaveAttribute('aria-current', 'true');
     await expect(rowLink(page, id)).toBeInViewport();
     expect(await noSidewaysScroll(page)).toBe(true);
     await noSeriousViolations(page);
+  });
 
-    // A folder in the folders pane filters the list; no article beside it.
-    await foldersPane(page)
-      .getByRole('link', { name: /^Games/ })
-      .click();
-    await expect(page).toHaveURL(/\/reader\/f\/Games$/);
-    await expect(articles(page).getByRole('listitem')).toHaveCount(2);
-    await expect(foldersPane(page).getByRole('link', { name: /^Games/ })).toHaveAttribute(
+  test('Folders in the list pane: a folder chosen is the list, the tab named for it', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await readerWithFixtures(page);
+    await page.goto('/reader');
+    await expect(articles(page).getByRole('listitem')).toHaveCount(5);
+
+    // The Folders tab shows the folders where the list was, with their
+    // unread; the article pane stays as it was.
+    await tabs(page).getByRole('link', { name: 'Folders', exact: true }).click();
+    await expect(page).toHaveURL(/\/reader\/folders$/);
+    await expect(tabs(page).getByRole('link', { name: 'Folders', exact: true })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    await expect(foldersPane(page).locator('[aria-current]')).toHaveCount(1);
+    const folders = foldersInPane(page).getByRole('navigation', { name: 'Folders' });
+    await expect(folders.getByRole('link')).toHaveText(['Design 3 unread', 'Games 2 unread']);
+    await expect(listPane(page)).toHaveCount(0);
     await expect(articlePane(page)).toHaveText('Choose an article');
-    await expect(listPane(page).getByRole('heading', { name: 'Games', level: 2 })).toBeVisible();
+    expect(await noSidewaysScroll(page)).toBe(true);
+    await noSeriousViolations(page);
+    const shotFolders = shot('reader-folders.png');
+    if (shotFolders) await page.screenshot({ path: shotFolders });
+
+    // A folder chosen there: its list in the pane, the tab named for it
+    // and current, the list's heading focused, nothing open beside it.
+    await folders.getByRole('link', { name: /^Games/ }).click();
+    await expect(page).toHaveURL(/\/reader\/f\/Games$/);
+    await expect(articles(page).getByRole('listitem')).toHaveCount(2);
+    const gamesTab = tabs(page).getByRole('link', { name: 'Folders: Games', exact: true });
+    await expect(gamesTab).toHaveAttribute('aria-current', 'true');
+    await expect(gamesTab).toHaveText('Folders: Games');
+    await expect(gamesTab.locator('.named')).toHaveText('Games');
+    const listHeading = listPane(page).getByRole('heading', { name: 'Games', level: 2 });
+    await expect(listHeading).toBeFocused();
+    await expect(articlePane(page)).toHaveText('Choose an article');
+    await noSeriousViolations(page);
+
+    // The keys are the list's: j moves to a row, Enter opens it beside.
+    await page.keyboard.press('j');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/reader\/a\/.+\?in=f(:|%3A)Games$/);
+    await expect(articlePane(page).getByRole('heading', { level: 2 })).toBeFocused();
+    await expect(gamesTab).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/reader\/f\/Games$/);
+
     // Mark all read and Undo as ever, the status at the list pane's foot.
     await listPane(page).getByRole('button', { name: 'Mark all read' }).click();
     const status = listPane(page).getByRole('status');
-    await expect(status).toContainText('2 marked read.');
+    await expect(status).toContainText('marked read.');
     await expect(listPane(page).getByRole('button', { name: 'Undo' })).toBeFocused();
     const [s, pane] = [(await status.boundingBox())!, (await listPane(page).boundingBox())!];
     expect(s.x).toBeGreaterThanOrEqual(pane.x - 0.5);
     expect(s.x + s.width).toBeLessThanOrEqual(pane.x + pane.width + 0.5);
     expect(Math.abs(s.y + s.height - (pane.y + pane.height))).toBeLessThanOrEqual(1);
     await listPane(page).getByRole('button', { name: 'Undo' }).click();
-    await expect(status).toContainText('2 unread again.');
-    await expect(articles(page).getByRole('listitem')).toHaveCount(2);
+    await expect(status).toContainText('unread again.');
+
+    // Back to the folders by the list's own link, and to All by its tab.
+    await listPane(page).getByRole('link', { name: 'Folders', exact: true }).click();
+    await expect(page).toHaveURL(/\/reader\/folders$/);
+    await expect(folders).toBeVisible();
+    await allTab(page).click();
+    await expect(page).toHaveURL(/\/reader$/);
+    // Everything but the one opened from Games, read as it opened.
+    await expect(articles(page).getByRole('listitem')).toHaveCount(4);
+    await expect(tabs(page).getByRole('link', { name: 'Folders', exact: true })).toBeVisible();
+  });
+
+  test('a row’s icons are the toolbar’s: named, with tooltips, and kept in step', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await readerWithFixtures(page);
+    await page.goto('/reader/f/Design');
+    const row = listPane(page).locator('li[data-id]').filter({ hasText: 'Three chairs' });
+    const rowRead = row.getByRole('button', { name: 'Mark read: Three chairs', exact: true });
+    const rowSave = row.getByRole('button', { name: 'Save for later: Three chairs', exact: true });
+    // Icons, no words, each with its tooltip, side by side at the row's end.
+    for (const [control, tip] of [
+      [rowRead, 'Mark read'],
+      [rowSave, 'Save for later'],
+    ] as const) {
+      await expect(control).toHaveAttribute('title', tip);
+      await expect(control).toHaveText('');
+      await expect(control.locator('svg')).toBeVisible();
+    }
+    await expect(rowSave).toHaveAttribute('aria-pressed', 'false');
+    const [r, sv, text] = [
+      (await rowRead.boundingBox())!,
+      (await rowSave.boundingBox())!,
+      (await row.locator('a.open').boundingBox())!,
+    ];
+    expect(Math.abs(r.y - sv.y)).toBeLessThanOrEqual(1);
+    expect(r.x + r.width).toBeLessThanOrEqual(sv.x + 0.5);
+    expect(text.x + text.width).toBeLessThanOrEqual(r.x + 0.5);
+    // A keyboard reaches them, and the focus shows.
+    await rowRead.focus();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    await expect(rowRead).toBeFocused();
+    expect(await rowRead.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe('none');
+
+    // Save from the row: pressed there, and in the article's toolbar.
+    await rowSave.click();
+    await expect(rowSave).toHaveAttribute('aria-pressed', 'true');
+    await expect(rowSave).toHaveAttribute('title', 'Saved for later; press to unsave');
+    await row.locator('a.open').click();
+    const top = articlePane(page).locator('header.top');
+    const barSave = top.getByRole('button', { name: 'Save for later', exact: true });
+    await expect(barSave).toHaveAttribute('aria-pressed', 'true');
+    await expect(barSave).toHaveAttribute('title', 'Saved for later; press to unsave');
+    // Opened, so read: the row says Keep unread, as the toolbar does.
+    const barKeep = top.getByRole('button', { name: 'Keep unread', exact: true });
+    await expect(barKeep).toHaveAttribute('title', 'Keep unread');
+    const rowKeep = row.getByRole('button', { name: 'Keep unread: Three chairs', exact: true });
+    await expect(rowKeep).toHaveAttribute('title', 'Keep unread');
+    // The same icon in both places.
+    expect(await rowKeep.locator('svg').innerHTML()).toBe(await barKeep.locator('svg').innerHTML());
+    expect(await rowSave.locator('svg').innerHTML()).toBe(await barSave.locator('svg').innerHTML());
+    // Keep unread from the row: the toolbar follows; unsave from the toolbar: the row does.
+    await rowKeep.click();
+    await expect(top.getByRole('button', { name: 'Mark read', exact: true })).toBeVisible();
+    await expect(rowRead).toBeVisible();
+    await barSave.click();
+    await expect(rowSave).toHaveAttribute('aria-pressed', 'false');
+    // Every icon in the toolbar has a tooltip and a name.
+    const icons = top.locator('.icon');
+    expect(await icons.count()).toBeGreaterThanOrEqual(5);
+    for (const icon of await icons.all()) {
+      expect(await icon.getAttribute('title'), await icon.innerHTML()).toBeTruthy();
+      expect(await icon.getAttribute('aria-label')).toBeTruthy();
+    }
+    // A day's Mark these read is a tick with its words for a name and a tooltip.
+    const markThese = listPane(page).getByRole('button', { name: 'Mark these read' }).first();
+    await expect(markThese).toHaveAttribute('title', /^Mark these read/);
+    await expect(markThese).toHaveText('');
+    await noSeriousViolations(page);
+    // Closed, so the row is the list's again; after a reload it is as left.
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/reader\/f\/Design$/);
+    await letItSave(page);
+    await page.reload();
+    await expect(rowRead).toBeVisible();
+    await expect(rowSave).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('each pane scrolls to its own end, nothing cut and no dead band', async ({ page }) => {
+    test.setTimeout(120_000);
+    await readerWithFixtures(page);
+    await seedKilnLogs(30);
+    for (const [n, width] of [1200, 1440].entries()) {
+      await page.setViewportSize({ width, height: 900 });
+      // The list: its last row clear of the status bar's room, on screen.
+      await page.goto('/reader');
+      // 35, or 34 once the first width has opened its article.
+      await expect(articles(page).getByRole('listitem').nth(33)).toBeAttached();
+      expect(await firstRowClear(page), `${width}: the first row`).toBeGreaterThanOrEqual(-0.5);
+      const list = await footOf(listBox(page), 'li[data-id]');
+      expect(list.onScreen, `${width}: the list's foot`).toBe(true);
+      expect(list.gap, `${width}: the list's foot`).toBeGreaterThanOrEqual(8);
+      expect(list.gap, `${width}: the list's foot`).toBeLessThanOrEqual(80);
+      expect(list.scrolls, `${width}: the list scrolls`).toBe(true);
+      // The article: down to Next and previous, on a window short enough
+      // for even a fixture's article to scroll.
+      // One article per width: the first, read once opened, has left All.
+      await rowLink(page, `kiln-0${n + 1}`).click();
+      await expect(articlePane(page).getByRole('heading', { level: 2 })).toHaveText(
+        `Kiln log 0${n + 1}`,
+      );
+      await page.setViewportSize({ width, height: 260 });
+      const article = await footOf(articlePane(page).locator('app-reader-article'), '.prevnext');
+      expect(article.scrolls, `${width}: the article scrolls`).toBe(true);
+      expect(article.onScreen, `${width}: the article's foot`).toBe(true);
+      expect(article.gap, `${width}: the article's foot`).toBeGreaterThanOrEqual(8);
+      expect(article.gap, `${width}: the article's foot`).toBeLessThanOrEqual(64);
+      await page.setViewportSize({ width, height: 900 });
+      // The folders: the last on screen.
+      await page.goto('/reader/folders');
+      await expect(foldersInPane(page).getByRole('link', { name: /^Games/ })).toBeVisible();
+      const folders = await footOf(foldersInPane(page).locator('.pane-body'), 'nav li');
+      expect(folders.onScreen, `${width}: the folders' foot`).toBe(true);
+      expect(folders.gap, `${width}: the folders' foot`).toBeGreaterThanOrEqual(0);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollHeight <= document.documentElement.clientHeight,
+        ),
+        `${width}: the page itself does not scroll`,
+      ).toBe(true);
+    }
   });
 
   test('the list pane’s own scroll marks read; closing the article ends the run', async ({
@@ -597,12 +829,10 @@ test.describe('in three panes', () => {
     expect(passed).toBeLessThan(35);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expect(articles(page).getByRole('listitem')).toHaveCount(35);
-    await expect(foldersPane(page).getByRole('link', { name: /^All/ })).toHaveText(
-      `All ${35 - passed} unread`,
-    );
+    await expect(allTab(page)).toHaveText(`All ${35 - passed} unread`);
     await listPane(page).getByRole('button', { name: 'Undo' }).click();
     await expect(listPane(page).getByRole('status')).toContainText(`${passed} unread again.`);
-    await expect(foldersPane(page).getByRole('link', { name: /^All/ })).toHaveText('All 35 unread');
+    await expect(allTab(page)).toHaveText('All 35 unread');
     // The count shows the undo at once, but its write is still on its
     // way to the persistent cache: a reload within milliseconds of the
     // click, quicker than any gardener's, lost it under load
@@ -627,13 +857,14 @@ test.describe('in three panes', () => {
     await expect(articles(page).getByRole('listitem')).toHaveCount(1);
   });
 
-  test('no sideways page at its widths; under 1320 the Reader is as it was', async ({ page }) => {
+  test('no sideways page at its widths; under 1200 the Reader is as it was', async ({ page }) => {
     test.setTimeout(90_000);
     await readerWithFixtures(page);
-    for (const width of [1320, 1440, 1920]) {
+    for (const width of [1200, 1320, 1440, 1920]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/reader/f/Design');
-      await expect(foldersPane(page), `${width}`).toBeVisible();
+      await expect(listPane(page), `${width}`).toBeVisible();
+      await expect(foldersColumn(page), `${width}`).toHaveCount(0);
       await expect(articles(page).getByRole('listitem'), `${width}`).toHaveCount(3);
       expect(await noSidewaysScroll(page), `${width}`).toBe(true);
       // The article's pane has room for its measure.
@@ -650,10 +881,10 @@ test.describe('in three panes', () => {
       articlePane(page).getByRole('heading', { name: 'Three chairs', level: 2 }),
     ).toBeVisible();
     expect(await noSidewaysScroll(page)).toBe(true);
-    await page.setViewportSize({ width: 1319, height: 900 });
+    await page.setViewportSize({ width: 1199, height: 900 });
     await expect(page.getByRole('heading', { name: 'Three chairs', level: 1 })).toBeVisible();
     await expect(page).toHaveURL(/\/reader\/a\/.+\?in=f(:|%3A)Design$/);
-    await expect(foldersPane(page)).toHaveCount(0);
+    await expect(listPane(page)).toHaveCount(0);
     await expect(articles(page)).toHaveCount(0);
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(
@@ -661,12 +892,19 @@ test.describe('in three panes', () => {
     ).toBeVisible();
     await expect(articles(page)).toHaveCount(1);
 
+    // Folders too crosses the width: the screen of its own under it.
+    await page.goto('/reader/folders');
+    await expect(foldersInPane(page)).toBeVisible();
+    await page.setViewportSize({ width: 1199, height: 900 });
+    await expect(foldersInPane(page)).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Folders', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/reader\/folders$/);
+
     // Just under the width: the list with its chips, and a row opens the
     // article in place of the list.
-    await page.setViewportSize({ width: 1319, height: 900 });
     await page.goto('/reader/f/Design');
     await expect(page.getByRole('navigation', { name: 'By folder' })).toBeVisible();
-    await expect(foldersPane(page)).toHaveCount(0);
+    await expect(listPane(page)).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Article', exact: true })).toHaveCount(0);
     await articles(page)
       .getByRole('link', { name: /Celadon glazes/ })
@@ -684,7 +922,7 @@ test('on a phone the Reader is as it was: a row opens the article full screen', 
   await readerWithFixtures(page);
   await page.goto('/reader/f/Design');
   await expect(page.getByRole('navigation', { name: 'By folder' })).toBeVisible();
-  await expect(foldersPane(page)).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Folders', exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'List of articles' })).toHaveCount(0);
   await articles(page)
     .getByRole('link', { name: /Three chairs/ })

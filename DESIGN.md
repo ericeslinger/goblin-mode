@@ -1283,11 +1283,13 @@ and written once the notes load.
 note was written since the last one, not that the text a title is made
 from changed: the model sees the body's first 2000 characters
 (`titleText`, `packages/functions/src/notes/title.ts`), so a line added
-past them, a tick, a tool's edit or an edit put back settled the note
-and asked the model again, for every settle of a note of four or more
-words. Now `noteTitle` writes `titleHash` beside a model title: the
-keyed hash (`noteTitleHash`, purpose `note-title`, the note's id) of
-the title and the text it was made from. A settle whose note still has
+past them, a tick past them, or an edit put back settled the note and
+asked the model again, for every settle of a note of four or more
+words. (A tick or an edit inside them changes that text, and still
+asks; corrected 2026-11-22, review on #337.) Now `noteTitle` writes
+`titleHash` beside a model title: the keyed hash (`noteTitleHash`,
+purpose `note-title`, the note's id) of the title and the text it was
+made from. A settle whose note still has
 an `llm` title with a matching hash asks nothing (`same`). Any other
 title (first words, one Claude set through the tools, one from before
 this date) has no matching hash and is asked for as before; Eric's own
@@ -1689,7 +1691,11 @@ cursor.
 three panes under its header; see The Reader in three panes, under
 The Reader. 1320 is the sum: the rail 176, the folders 192, the list
 352, and the article's 70 characters (560 px at 16 px) with 16 px
-either side, 1312.
+either side, 1312. (Changed 2026-11-22, Eric: two panes, from 1200
+px: the rail 176, the list 384 and the article's 592 come to 1152,
+and 1200 leaves the article 640, takes in a 1280 laptop and keeps an
+iPad on its side, 1180 or 1194, the screens it was. See The Reader in
+two panes, under The Reader.)
 
 **The tablet's rail (#289, 2026-11-16; Eric, 2026-11-15: "the rail
 collapsed to icons plus one column").** From 641 to 899 px (an iPad
@@ -1737,7 +1743,8 @@ Reader's status bar follow the choice. Everything beside the rail
 takes the freed or lost width as it takes a window's: the note's
 measure re-centres in its pane, Kitchen's 640 px column and the
 maps fit the page. The breakpoints that sum the rail (two panes at
-900, the context column at 1400, the Reader's panes at 1320, the
+900, the context column at 1400, the Reader's panes at 1320, since
+2026-11-22 at 1200, the
 maps' wide screen at 900) still read the window's width, not the
 width beside the rail: those sums assumed the 176 px rail, so
 contracting it only adds room, and pressing the button never shows
@@ -1763,7 +1770,8 @@ the rail's widths were designed for.
 - `/` is the screen's own search where it has one, else Notes': on
   the Reader's screens with its header (its lists, Folders, the three
   panes) it opens Search articles with the cursor in it; anywhere
-  else, an article's own screen under 1320 px among them, it goes to
+  else, an article's own screen under 1320 px (1200 since 2026-11-22)
+  among them, it goes to
   `/browse` and focuses Search notes. Browse's own `/`
   (#288) still hears the key there and does the same.
 - `g` then a letter goes to a place, within 1.5 s; Escape or any other
@@ -2611,7 +2619,19 @@ Show read. The articles come through three listeners on the
 persistent cache (`ItemsService`): the newest thousand unread, the two
 hundred most recently read, and everything saved, filtered by folder on
 the device, which is also where the counts come from; a mark made
-here shows at once and the listener's echo takes over. Swipe a row
+here shows at once and the listener's echo takes over. (Changed
+2026-11-22: a read or saved mark is taken over only by a copy that
+agrees with it while its write is in flight. Any copy used to clear
+it, so an echo of an earlier press heard after a later one, Keep
+unread then Mark read at once, put the earlier state back on screen;
+a phone journey caught it. Once the server answers the write, the
+next copy any listener hears wins whatever it says, so a change made
+on another device afterwards shows; a refused write drops its mark
+at once, and signing out drops them all. Only Mark read, Keep
+unread, Save and their many-at-once forms are held this way: a
+played mark, and the read mark a finished episode sets, are written
+as before, so the same late echo can still show there; review on
+#338.) Swipe a row
 left to mark it read, right to save (`Swipe`, the reminder rows'
 pointer-event swipe as a directive; the row's buttons do the same
 where there is a fine pointer); tap to open. Mark all read marks what
@@ -2783,6 +2803,8 @@ decision of 2026-11-15, built 2026-11-16).** From 1320 px
 that width), drawn by `ReaderPanes`: the Reader's header and tabs
 across the top, then three panes, each scrolling on its own, the page
 the window's height less the mini-player's, so it never scrolls.
+(Changed 2026-11-22, Eric: two panes from 1200 px, the folders in
+the Folders tab; see The Reader in two panes, below.)
 
 - **Folders** (a `nav` named Folders, 192 px): All, Saved, then the
   folders with feeds in them in the Reader's order, each with its
@@ -2816,7 +2838,51 @@ focused. There is no swipe between articles in the panes. Under
 1320 px nothing changes: the same screens, routes and swipes; a window
 that crosses the width takes its Reader address through the router
 again, to the panes or out of them. Folders, Manage feeds and
-Downloads stay screens of their own.
+Downloads stay screens of their own. (Changed 2026-11-22: the panes
+are two, below, and Folders is one of their addresses.)
+
+**The Reader in two panes (Eric, 2026-11-22).** Eric, on his laptop:
+the Reader "has too many columns (three, four counting the nav)", its
+folders column says what the tabs above it say, and a row's Unread
+and Save were bare words that mirror the icons above the article's
+title. So, changing the three panes above: from 1200 px
+(`READER_PANES_MIN`, still the one place the width lives;
+`readerPanesMatcher` and `PanesWidth` as they were, the matcher now
+taking `/reader/folders` too) the Reader is two panes, the page still
+the window's height.
+
+- **The list pane** (384 px): the Reader's header (its h1, Search
+  articles, Downloads, Manage feeds) and the tabs All, Saved and
+  Folders at its top, then, scrolling on its own, the list as before.
+  The folders column is gone. Folders (`/reader/folders`) shows the
+  Folders screen in this pane in place of the list (Refresh, Continue
+  listening, each folder with its unread), as the tab always did on
+  its own screen; a folder chosen there is the list, its heading
+  focused (the link pressed went with the folders), and the Folders
+  tab then shows the folder's name, or a feed's, cut short if long,
+  current and named "Folders: Games" for a screen reader, so the tab
+  says where he is. The list's own "‹ Folders" goes back to them and
+  the All tab to everything. The All tab keeps its unread count, and
+  each folder its count on Folders. No folder chips here, as before.
+- **The article pane** (the rest, the window's full height): as
+  before, its text at the same 70 characters, centred.
+- **A row's buttons** are the article toolbar's Keep unread (Mark
+  read while unread) and Save for later: the same components
+  (`ReadAct`, `SaveAct` in `reader/item-acts.ts`), so icon, name,
+  tooltip and state cannot drift; Save is `aria-pressed` and filled
+  once saved, Keep unread changes its name as it always did. A row's
+  are 36 px with a mouse, side by side at its end, each named with
+  its article ("Save for later: Three chairs"); on touch they stay
+  hidden, as the words were, and the swipe does both. A day's Mark
+  these read is a tick in the panes, its words its name and tooltip.
+  Every icon in the article's toolbar and Next and Previous have a
+  tooltip (`title`).
+
+The keys are as they were: j, k, m, s and Enter on the list, the
+article's while one is open, Escape back to the list, `/` and the
+`g` keys. Under 1200 px, and on a phone or a tablet upright or on
+its side, nothing changes but the row's icons, which a touch screen
+does not show.
 
 **What is new, in Right Now (#173, 2026-11-07).** Opening a folder's
 list notes when it was seen, in `settings/reader.seenAt` by folder

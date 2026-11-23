@@ -159,6 +159,6 @@ import { Component, input } from '@angular/core';
 export class CaughtUp {
   /** The shelf's name, as its list's heading shows it. */
   readonly shelf = input.required<string>();
-  /** Its heading's level: 2 in the three panes, under the Reader's own h1 (#289). */
+  /** Its heading's level: 2 in the Reader's panes, under the Reader's own h1 (#289). */
   readonly level = input<1 | 2>(1);
 }

@@ -28,6 +28,7 @@ import { ReaderService } from './reader.service';
 import { Swipe } from './swipe';
 import { HomeLink } from '../home/home-link';
 import { Icon } from '../home/icon';
+import { ReadAct, SaveAct } from './item-acts';
 
 /**
  * The article's HTML for the page (#162): the stored markdown rendered
@@ -58,15 +59,29 @@ export function articleHtml(markdown: string, images: boolean): string {
  * Download keeps it on the device to play offline, with its progress,
  * then Remove (#180).
  *
- * In the Reader's three panes (#289, 2026-11-16) it is the article
- * pane, beside the list it was opened from: no swipe there, its title
- * an h2 under the Reader's h1, next and previous along the list as
- * the list pane draws it (`order`), and the pane scrolled to the top
- * and its title focused as another article opens in it.
+ * In the Reader's panes (#289, 2026-11-16; two since 2026-11-22) it is
+ * the article pane, beside the list it was opened from: no swipe
+ * there, its title an h2 under the Reader's h1, next and previous
+ * along the list as the list pane draws it (`order`), and the pane
+ * scrolled to the top and its title focused as another article opens
+ * in it.
+ *
+ * Since 2026-11-22 each icon has a tooltip, and Keep unread and Save
+ * for later are `ReadAct` and `SaveAct`, the list's rows' own.
  */
 @Component({
   selector: 'app-reader-article',
-  imports: [NgTemplateOutlet, RouterLink, Swipe, CaughtUp, EpisodePlayer, HomeLink, Icon],
+  imports: [
+    NgTemplateOutlet,
+    RouterLink,
+    Swipe,
+    CaughtUp,
+    EpisodePlayer,
+    HomeLink,
+    Icon,
+    ReadAct,
+    SaveAct,
+  ],
   host: { '[class.in-panes]': 'pane()' },
   template: `
     @if (pane()) {
@@ -119,20 +134,15 @@ export function articleHtml(markdown: string, images: boolean): string {
         @if (!pendingDone() && item(); as it) {
           <span class="actions">
             <!-- Keep unread and Reader mode (#288), here rather than under the title. -->
-            <button
-              type="button"
-              class="icon"
-              [attr.aria-label]="it.read ? 'Keep unread' : 'Mark read'"
-              (click)="items.setRead(it.id, !it.read)"
-            >
-              <app-icon [name]="it.read ? 'unread' : 'check'" [size]="22" />
-            </button>
+            <!-- Keep unread and Save for later are the list's rows' too (2026-11-22). -->
+            <button appReadAct class="icon" [item]="it"></button>
             @if (it.readerState === 'done') {
               <!-- Shown in reader mode: pressed, and nothing to undo. -->
               <button
                 type="button"
                 class="icon"
                 aria-label="Reader mode"
+                title="Reader mode: the page's text is shown"
                 aria-pressed="true"
                 aria-disabled="true"
               >
@@ -144,6 +154,7 @@ export function articleHtml(markdown: string, images: boolean): string {
                 type="button"
                 class="icon"
                 aria-label="Reader mode"
+                title="Reader mode: fetch the page's own text"
                 aria-pressed="false"
                 [attr.aria-busy]="it.readerState === 'working' || fetching() ? 'true' : null"
                 [disabled]="it.readerState === 'working' || fetching()"
@@ -158,6 +169,7 @@ export function articleHtml(markdown: string, images: boolean): string {
                   type="button"
                   class="icon"
                   aria-label="Remove download"
+                  title="Remove download"
                   (click)="downloads.remove(it.id)"
                 >
                   <app-icon name="download" [size]="22" />
@@ -168,6 +180,7 @@ export function articleHtml(markdown: string, images: boolean): string {
                   type="button"
                   class="icon"
                   aria-label="Download"
+                  title="Download, to play offline"
                   [disabled]="!!progress()"
                   (click)="download(it)"
                 >
@@ -175,17 +188,14 @@ export function articleHtml(markdown: string, images: boolean): string {
                 </button>
               }
             }
-            <button
-              type="button"
-              class="icon"
-              aria-label="Save for later"
-              [attr.aria-pressed]="it.saved ? 'true' : 'false'"
-              (click)="items.setSaved(it.id, !it.saved)"
-            >
-              <app-icon name="bookmark" [size]="22" [filled]="!!it.saved" />
-            </button>
+            <button appSaveAct class="icon" [item]="it"></button>
             @if (it.noteId) {
-              <a class="icon" [routerLink]="['/n', it.noteId]" aria-label="In the garden">
+              <a
+                class="icon"
+                [routerLink]="['/n', it.noteId]"
+                aria-label="In the garden"
+                title="In the garden: open its clipping"
+              >
                 <app-icon name="leaf" [size]="22" />
               </a>
             } @else {
@@ -193,6 +203,7 @@ export function articleHtml(markdown: string, images: boolean): string {
                 type="button"
                 class="icon"
                 aria-label="File in the garden"
+                title="File in the garden, as a clipping"
                 (click)="file(it.id)"
               >
                 <app-icon name="leaf-plus" [size]="22" />
@@ -205,6 +216,7 @@ export function articleHtml(markdown: string, images: boolean): string {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Open the page"
+                title="Open the page, in a new tab"
               >
                 <app-icon name="open-page" [size]="22" />
               </a>
@@ -255,6 +267,7 @@ export function articleHtml(markdown: string, images: boolean): string {
             type="button"
             class="icon"
             aria-label="Previous article"
+            title="Previous article"
             [disabled]="!prev()"
             (click)="go(-1)"
           >
@@ -265,6 +278,7 @@ export function articleHtml(markdown: string, images: boolean): string {
             type="button"
             class="icon"
             aria-label="Next article"
+            title="Next article"
             [disabled]="!next() && !atEnd()"
             (click)="go(1)"
           >
@@ -494,7 +508,7 @@ export class ReaderArticle {
   private readonly route = inject(ActivatedRoute);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
-  /** The article pane of the three panes (#289). */
+  /** The article pane of the Reader's panes (#289). */
   readonly pane = input(false, { transform: booleanAttribute });
   /**
    * The list beside it, as drawn (#289): next and previous go along

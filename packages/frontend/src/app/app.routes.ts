@@ -89,10 +89,10 @@ export const routes: Routes = [
     path: 'kitchen/:day',
     loadComponent: () => import('./kitchen/kitchen-week').then((m) => m.KitchenWeek),
   },
-  // From READER_PANES_MIN the Reader is three panes (#289, 2026-11-16):
-  // its lists, an article and the caught-up page are one route there,
-  // so opening an article keeps the list beside it. Under it, the
-  // routes below, as before.
+  // From READER_PANES_MIN the Reader is panes (#289, 2026-11-16; two
+  // since 2026-11-22): its lists, Folders, an article and the caught-up
+  // page are one route there, so opening an article keeps the list
+  // beside it. Under it, the routes below, as before.
   {
     matcher: readerPanesMatcher,
     canMatch: [panesWide],

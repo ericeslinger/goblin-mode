@@ -14,7 +14,7 @@ import { Swipe } from './swipe';
  * last article lands (`/reader/done?in=<shelf>`). Its header goes
  * back to the shelf's list, "‹ Design" (#286); a swipe right, or k,
  * goes back to the last article, and there is nothing further left.
- * In the Reader's three panes (#289, 2026-11-16) it is the article
+ * In the Reader's panes (#289, 2026-11-16; two since 2026-11-22) it is the article
  * pane's, under the Reader's header: no header or swipe of its own,
  * its heading an h2, and k and Escape as here.
  */
@@ -50,7 +50,7 @@ import { Swipe } from './swipe';
   `,
 })
 export class ReaderDone {
-  /** Drawn in the article pane of the three panes (#289). */
+  /** Drawn in the article pane of the Reader's panes (#289). */
   readonly pane = input(false, { transform: booleanAttribute });
   private readonly reader = inject(ReaderService);
   private readonly router = inject(Router);

@@ -49,7 +49,7 @@ export type TitleOutcome = 'written' | 'stale' | 'skipped' | 'same' | 'off' | 'f
  * A settle's title. The model is asked only when it could change the
  * title (2026-11-22): a settle means the note was written since the
  * last, but not that the text a title is made from changed (a line
- * past the first TITLE_CONTEXT_CHARS, a tick, an edit put back), so a
+ * or a tick past the first TITLE_CONTEXT_CHARS, an edit put back), so a
  * model title whose `titleHash` still matches it and the text is kept
  * as it is, at no cost. Any other title (first words, one Claude set
  * through the tools) has no matching hash and is asked for as before.

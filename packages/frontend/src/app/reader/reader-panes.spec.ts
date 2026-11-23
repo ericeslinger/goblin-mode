@@ -31,7 +31,7 @@ import {
   readerPanesMatcher,
 } from './panes-route';
 import { ReaderList } from './reader-list';
-import { ReaderPanes, panesFolders, panesPlace } from './reader-panes';
+import { ReaderPanes, panesPlace } from './reader-panes';
 import { READER_API } from './reader.service';
 
 const NOW_MS = Date.parse('2026-11-07T12:00:00Z');
@@ -61,8 +61,9 @@ describe('readerPanesMatcher (#289)', () => {
     );
     expect(readerPanesMatcher(segs('reader', 's', 'abc'))?.posParams?.['feedId']?.path).toBe('abc');
     expect(readerPanesMatcher(segs('reader', 'a', 'x1'))?.posParams?.['id']?.path).toBe('x1');
+    // Folders too, since the folders column went to its tab (2026-11-22).
+    expect(readerPanesMatcher(segs('reader', 'folders'))?.consumed).toHaveLength(2);
     for (const other of [
-      segs('reader', 'folders'),
       segs('reader', 'feeds'),
       segs('reader', 'downloads'),
       segs('reader', 'f'),
@@ -75,9 +76,12 @@ describe('readerPanesMatcher (#289)', () => {
     }
   });
 
-  it('starts from a width with room for the rail, the folders, the list and a measure', () => {
-    // 176 + 192 + 352 + 70 characters at 16 px (560) and 16 px either side.
-    expect(READER_PANES_MIN).toBeGreaterThanOrEqual(176 + 192 + 352 + 560 + 32);
+  it('starts from a width with room for the rail, the list and a measure (2026-11-22)', () => {
+    // 176 + 384 + 70 characters at 16 px (560) and 16 px either side.
+    expect(READER_PANES_MIN).toBeGreaterThanOrEqual(176 + 384 + 560 + 32);
+    // A 1280 laptop has the panes; an iPad on its side (1194) does not.
+    expect(READER_PANES_MIN).toBeLessThanOrEqual(1280);
+    expect(READER_PANES_MIN).toBeGreaterThan(1194);
   });
 });
 
@@ -120,7 +124,7 @@ describe('panesWide and PanesWidth (#289)', () => {
     );
     expect(navigate.mock.lastCall![1]).toEqual({ onSameUrlNavigation: 'reload', replaceUrl: true });
     // Elsewhere, nothing.
-    await router.navigateByUrl('/reader/folders');
+    await router.navigateByUrl('/reader/feeds');
     navigate.mockClear();
     changed!();
     expect(navigate).not.toHaveBeenCalled();
@@ -143,33 +147,12 @@ describe('panesPlace (#289)', () => {
     // Opened with no in (a search's hit, a clipping's link): All, as the article page has it.
     expect(panesPlace(['a', 'x1'], null).shelf).toEqual({ kind: 'folder', name: 'all' });
     expect(panesPlace(['done'], 's:f1')).toEqual({ shelf: { kind: 'feed', id: 'f1' }, done: true });
-  });
-});
-
-describe('panesFolders (#289)', () => {
-  const folders = [{ name: 'Design' }, { name: 'Games' }];
-  it('lists All, Saved and the folders with their unread, the shelf shown current', () => {
-    const list = panesFolders(
-      folders,
-      { all: 5, Design: 3, Games: 2 },
-      {
-        kind: 'folder',
-        name: 'Design',
-      },
-    );
-    expect(list.map((f) => [f.name, f.count, f.current])).toEqual([
-      ['All', 5, false],
-      ['Saved', 0, false],
-      ['Design', 3, true],
-      ['Games', 2, false],
-    ]);
-    expect(list[1].link).toEqual(['/reader/f', 'saved']);
-    expect(
-      panesFolders(folders, {}, { kind: 'folder', name: 'saved' }).filter((f) => f.current),
-    ).toHaveLength(1);
-    expect(panesFolders(folders, {}, { kind: 'feed', id: 'f1' }).some((f) => f.current)).toBe(
-      false,
-    );
+    // The folders in the list pane (2026-11-22), no article beside them.
+    expect(panesPlace(['folders'], null)).toEqual({
+      shelf: { kind: 'folder', name: 'all' },
+      done: false,
+      folders: true,
+    });
   });
 });
 
@@ -223,24 +206,37 @@ describe('ReaderPanes (#289)', () => {
     return { harness, el, list };
   }
 
-  it('draws the folders, the list and an empty article pane on a list', async () => {
+  it('draws two panes, the header over the list, and an empty article pane', async () => {
     const { el } = await panes('/reader/f/Design');
     expect(el().querySelectorAll('main')).toHaveLength(1);
     expect(el().querySelectorAll('h1')).toHaveLength(1);
-    const nav = el().querySelector('nav[aria-label="Folders"]')!;
-    expect([...nav.querySelectorAll('a')].map((a) => a.textContent!.trim())).toEqual([
+    // No folders column (2026-11-22): the header and tabs top the list pane.
+    expect(el().querySelector('nav[aria-label="Folders"]')).toBeNull();
+    const side = el().querySelector('.side')!;
+    expect(side.querySelector('nav[aria-label="Reader screens"]')).not.toBeNull();
+    const listPane = side.querySelector('section[aria-label="List of articles"]')!;
+    expect(listPane.querySelectorAll('li[data-id]')).toHaveLength(3);
+    // The Folders tab says where he is: the folder's name, current.
+    const tab = side.querySelector('nav[aria-label="Reader screens"] a[aria-current]')!;
+    expect(tab.textContent!.replace(/\s+/g, ' ').trim()).toBe('Folders: Design');
+    expect(tab.querySelector('.named')!.textContent).toBe('Design');
+    expect(tab.getAttribute('aria-current')).toBe('true');
+    expect(tab.getAttribute('href')).toBe('/reader/folders');
+    const article = el().querySelector('section[aria-label="Article"]')!;
+    expect(article.parentElement!.classList).toContain('panes');
+    expect(article.textContent!.trim()).toBe('Choose an article');
+    expect(el().querySelector('nav[aria-label="By folder"]')).toBeNull();
+  });
+
+  it('shows the Folders tab plain on All', async () => {
+    const { el } = await panes('/reader');
+    const tabs = [...el().querySelectorAll('nav[aria-label="Reader screens"] a')];
+    expect(tabs.map((a) => a.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
       'All 4 unread',
       'Saved',
-      'Design 3 unread',
-      'Games 1 unread',
+      'Folders',
     ]);
-    expect(nav.querySelector('[aria-current="page"]')!.textContent).toContain('Design');
-    const listPane = el().querySelector('section[aria-label="List of articles"]')!;
-    expect(listPane.querySelectorAll('li[data-id]')).toHaveLength(3);
-    const article = el().querySelector('section[aria-label="Article"]')!;
-    expect(article.textContent!.trim()).toBe('Choose an article');
-    // No chips: the folders pane stands for them.
-    expect(el().querySelector('nav[aria-label="By folder"]')).toBeNull();
+    expect(tabs[0].getAttribute('aria-current')).toBe('page');
   });
 
   it('opens an article beside the same list, its row current, and moves both with j', async () => {
@@ -303,14 +299,47 @@ describe('ReaderPanes (#289)', () => {
     expect(el().querySelectorAll('main')).toHaveLength(1);
   });
 
-  it('filters the list by a folder from the folders pane', async () => {
-    const { harness, el } = await panes('/reader');
-    expect(el().querySelectorAll('li[data-id]')).toHaveLength(4);
-    el()
-      .querySelector<HTMLAnchorElement>('nav[aria-label="Folders"] a[href="/reader/f/Games"]')!
-      .click();
+  it('shows the folders in the list pane; one chosen is the list, its heading focused', async () => {
+    const { harness, el, list } = await panes('/reader/folders');
+    await harness.fixture.whenStable();
+    expect(list()).toBeNull();
+    const pane = el().querySelector('section[aria-label="Folders"]')!;
+    const links = [...pane.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Folders"] a')];
+    expect(links.map((a) => a.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
+      'Design 3 unread',
+      'Games 1 unread',
+    ]);
+    const tab = el().querySelector('nav[aria-label="Reader screens"] a[aria-current]')!;
+    expect(tab.textContent!.trim()).toBe('Folders');
+    expect(tab.getAttribute('aria-current')).toBe('page');
+    expect(el().querySelector('section[aria-label="Article"]')!.textContent!.trim()).toBe(
+      'Choose an article',
+    );
+    // The link pressed goes with the folders, so the list's heading takes the focus.
+    links[1].focus();
+    links[1].click();
     await harness.fixture.whenStable();
     expect(TestBed.inject(Location).path()).toBe('/reader/f/Games');
     expect(el().querySelectorAll('li[data-id]')).toHaveLength(1);
+    const heading = el().querySelector('section[aria-label="List of articles"] h2')!;
+    expect(heading.textContent).toBe('Games');
+    expect(document.activeElement).toBe(heading);
+    expect(
+      el().querySelector('nav[aria-label="Reader screens"] a[aria-current] .named')!.textContent,
+    ).toBe('Games');
+    // Back to them by the list's own link: their heading takes the focus.
+    const up = el().querySelector<HTMLAnchorElement>('a.up')!;
+    up.focus();
+    up.click();
+    await harness.fixture.whenStable();
+    expect(TestBed.inject(Location).path()).toBe('/reader/folders');
+    expect(document.activeElement!.textContent).toBe('Folders');
+    expect(document.activeElement!.tagName).toBe('H2');
+  });
+
+  it('leaves the focus alone on a list drawn with the panes (a reload)', async () => {
+    const { harness } = await panes('/reader/f/Games');
+    await harness.fixture.whenStable();
+    expect(document.activeElement?.tagName).not.toBe('H2');
   });
 });
