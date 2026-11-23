@@ -1,9 +1,31 @@
 import { type Page, test as base, expect } from '@playwright/test';
 import type { Persona } from './personas';
-import { AUTH_EMULATOR, FIRESTORE_EMULATOR } from './stack';
+import { AUTH_EMULATOR, FIRESTORE_EMULATOR, HUB } from './stack';
 
 export { AUTH_EMULATOR, FIRESTORE_EMULATOR };
 const PROJECT = 'demo-mossgoblin';
+
+/**
+ * Stops this stack's idle functions workers at every RECYCLE_EVERY-th
+ * reset (2026-11-22, #312). The functions emulator starts a Node
+ * process of about 125 MB for a function the first time it runs and
+ * never stops it: by the end of a full run the two stacks held 58 of
+ * them, 7.2 GB of a 12.9 GB peak, and at the container's 14 GB limit
+ * the kernel killed Chrome renderers. The hub's
+ * enableBackgroundTriggers reloads the triggers, which leaves every
+ * trigger as it was and stops the idle workers (firebase-tools'
+ * RuntimeWorkerPool.refresh); a busy one finishes its request first.
+ * The next call to a function starts it afresh, as a first call
+ * always has.
+ */
+const RECYCLE_EVERY = 10;
+let resets = 0;
+
+async function recycleFunctionWorkers(): Promise<void> {
+  if (!HUB || ++resets % RECYCLE_EVERY !== 0) return;
+  const res = await fetch(`${HUB}/functions/enableBackgroundTriggers`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`could not recycle functions workers: ${await res.text()}`);
+}
 
 /**
  * Keeps journeys off the network. Off-box requests are aborted, not
@@ -21,6 +43,7 @@ export async function prepPage(page: Page): Promise<void> {
  * (./stack.ts) and runs one journey at a time, so a wipe is safe.
  */
 export async function resetAccount(persona: Persona): Promise<void> {
+  await recycleFunctionWorkers();
   const base = `http://${AUTH_EMULATOR}`;
   const wiped = await fetch(`${base}/emulator/v1/projects/${PROJECT}/accounts`, {
     method: 'DELETE',

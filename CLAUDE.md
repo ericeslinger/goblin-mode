@@ -194,12 +194,17 @@ kill your own shell.
 
 Run e2e as `flock /tmp/mossgoblin-e2e.lock npm run e2e` (2026-11-15):
 other sessions and agents on the container use the same ports, and two
-runs at once collide or starve each other. Memory is the limit: a
-stack's functions emulator keeps one Node process (about 115 MB) per
-function it has run, so a serial run peaks near 8 GB in use and the
-default two stacks near 12 GB of the container's 15 GB. Three stacks
-ran out of memory; do not raise `E2E_WORKERS` there, and do not run the
-gate or a build alongside e2e. Journeys record no trace (2026-11-16,
+runs at once collide or starve each other. Memory is the limit
+(2026-11-22, #312): the shell's memory cgroup allows 14 GB, and at it
+the kernel kills a Chrome renderer mid-journey. A stack's functions
+emulator never stops a function's Node process (about 125 MB) once it
+has run, so the journeys stop each stack's idle ones at every tenth
+account reset (`packages/e2e/src/fixtures.ts`). With that, the default
+two stacks peak near 10.2 GB, against 12.9 GB without it. What still
+grows is each Firestore emulator, to about 1.4 GB by the end of a
+two-stack run and 3.8 GB in a serial one. Three stacks ran out of
+memory; do not raise `E2E_WORKERS` there, and do not run the gate or a
+build alongside e2e. Journeys record no trace (2026-11-16,
 #312): to read a failure, run that journey again with `E2E_TRACE=on`.
 
 Journeys never drive the Google sign-in popup: `apis.google.com` is

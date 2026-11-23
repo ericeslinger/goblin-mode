@@ -8499,6 +8499,29 @@ kernel killed Chromium renderers and 13 journeys failed. Three would
 not be faster anyway: two stacks already average a load of 6 to 7 on
 four cores.
 
+Recycling idle functions workers (2026-11-22, #312). The suite grew
+to 193 journeys and 40 functions, and two-stack runs reached the
+shell's 14 GB memory cgroup near the end of the first phase, where
+the kernel killed a Chrome renderer (three full runs that day).
+Sampled every 3 s through a green two-stack run, the 12.9 GB peak
+was 7.2 GB of functions workers (58 processes, about 125 MB each),
+2.7 GB in the two Firestore emulators, 0.9 to 1.3 GB of Chrome and
+0.7 GB of Playwright. So `resetAccount` now calls each stack's hub
+(`PUT /functions/enableBackgroundTriggers`, the origin from the
+locator the suite writes, passed in `E2E_HUBS`) at every tenth
+reset. That reloads the triggers, leaving each one registered as it
+was, and stops the idle workers; a busy one finishes first. The next
+run peaked at 10.2 GB with at most 35 workers, 193 of 193 green, in
+1131 s against 1053 s. Weighed and not taken: capping the Firestore
+JVM's heap, because its live set grows through the run (180 MB after
+about 55 journeys a stack, 480 to 540 MB after about 92, mostly
+WebChannel buffers) and a cap would end in the emulator failing;
+running functions in the emulator's sequential mode, which comes
+only with the debugger (`--inspect-functions`), shares one process
+between functions and queues every call behind the last; restarting
+each stack's functions emulator part way, which needs the suite's
+other emulators started apart from it.
+
 Starting several suites at once exposed one real race: a suite that
 finds a param (`STORAGE_REGION`) missing from `.env.local` writes its
 default there, and the other suites then failed to load any function

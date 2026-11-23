@@ -14,3 +14,11 @@ export const APP_URL = `http://localhost:${4300 + STACK}`;
 export const AUTH_EMULATOR = `127.0.0.1:${9199 + offset}`;
 export const FIRESTORE_EMULATOR = `127.0.0.1:${8180 + offset}`;
 export const STORAGE_EMULATOR = `127.0.0.1:${9198 + offset}`;
+
+/**
+ * This stack's emulator hub, as its suite wrote it down (e2e.sh passes
+ * one origin per stack in E2E_HUBS, 2026-11-22). Stack 0's hub port is
+ * left to firebase-tools, so it is read, not computed. Undefined when
+ * the journeys run without e2e.sh.
+ */
+export const HUB = process.env['E2E_HUBS']?.split(',')[STACK];
