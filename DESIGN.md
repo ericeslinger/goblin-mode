@@ -1286,9 +1286,10 @@ from changed: the model sees the body's first 2000 characters
 past them, a tick past them, or an edit put back settled the note and
 asked the model again, for every settle of a note of four or more
 words. (A tick or an edit inside them changes that text, and still
-asks; corrected 2026-11-22, review on #337.) Now `noteTitle` writes `titleHash` beside a model title: the
-keyed hash (`noteTitleHash`, purpose `note-title`, the note's id) of
-the title and the text it was made from. A settle whose note still has
+asks; corrected 2026-11-22, review on #337.) Now `noteTitle` writes
+`titleHash` beside a model title: the keyed hash (`noteTitleHash`,
+purpose `note-title`, the note's id) of the title and the text it was
+made from. A settle whose note still has
 an `llm` title with a matching hash asks nothing (`same`). Any other
 title (first words, one Claude set through the tools, one from before
 this date) has no matching hash and is asked for as before; Eric's own
@@ -1742,7 +1743,8 @@ Reader's status bar follow the choice. Everything beside the rail
 takes the freed or lost width as it takes a window's: the note's
 measure re-centres in its pane, Kitchen's 640 px column and the
 maps fit the page. The breakpoints that sum the rail (two panes at
-900, the context column at 1400, the Reader's panes at 1320, the
+900, the context column at 1400, the Reader's panes at 1320, since
+2026-11-22 at 1200, the
 maps' wide screen at 900) still read the window's width, not the
 width beside the rail: those sums assumed the 176 px rail, so
 contracting it only adds room, and pressing the button never shows
@@ -2625,7 +2627,11 @@ unread then Mark read at once, put the earlier state back on screen;
 a phone journey caught it. Once the server answers the write, the
 next copy any listener hears wins whatever it says, so a change made
 on another device afterwards shows; a refused write drops its mark
-at once, and signing out drops them all.) Swipe a row
+at once, and signing out drops them all. Only Mark read, Keep
+unread, Save and their many-at-once forms are held this way: a
+played mark, and the read mark a finished episode sets, are written
+as before, so the same late echo can still show there; review on
+#338.) Swipe a row
 left to mark it read, right to save (`Swipe`, the reminder rows'
 pointer-event swipe as a directive; the row's buttons do the same
 where there is a fine pointer); tap to open. Mark all read marks what
