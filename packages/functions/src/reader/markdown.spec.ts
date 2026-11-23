@@ -159,7 +159,10 @@ describe('htmlToMarkdown on a very long table (review of #321)', () => {
     expect(Date.now() - started).toBeLessThan(10_000);
     expect(md.length).toBeLessThanOrEqual(CONTENT_MAX + 10);
     expect(md.split('\n')[2]).toBe('| a | c |');
-  });
+    // Its own bound is the 10 s above; vitest's default 5 s was the
+    // stricter one and failed it once on a loaded container
+    // (2026-11-22).
+  }, 20_000);
 });
 
 describe('htmlToMarkdown for reader mode (2026-11-16)', () => {

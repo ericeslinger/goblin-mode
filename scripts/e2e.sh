@@ -17,7 +17,9 @@
 # Two, because memory, not CPU, is the limit on the 15 GB cloud
 # container: each stack's functions emulator keeps a Node process of
 # about 115 MB for every function it has run, and three stacks ran the
-# container out of memory (DESIGN.md, Delivery, 2026-11-15).
+# container out of memory (DESIGN.md, Delivery, 2026-11-15). Since
+# 2026-11-22 the journeys stop each stack's idle workers every tenth
+# reset, through its hub (E2E_HUBS below).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -190,6 +192,17 @@ for stack in $(seq 0 $((WORKERS - 1))); do
   suffix=$([ "$stack" = 0 ] || echo "-$stack")
   wait_for_functions "$stack" "$functions" "$LOG_DIR/emulators$suffix.log"
 done
+
+# Each stack's hub origin, from the locator its suite wrote, for the
+# journeys' recycling of idle functions workers (2026-11-22, #312;
+# packages/e2e/src/fixtures.ts). Stack 0's hub may have moved off 4400.
+hubs=()
+for stack in $(seq 0 $((WORKERS - 1))); do
+  hubs+=("$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).origins[0]' \
+    "$LOG_DIR/tmp-$stack/hub-demo-mossgoblin.json")")
+done
+E2E_HUBS=$(IFS=,; echo "${hubs[*]}")
+export E2E_HUBS
 
 # The specs run against stack 0 before any journey starts: they clear
 # its emulators as they go.
