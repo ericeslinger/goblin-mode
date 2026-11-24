@@ -29,6 +29,33 @@ export const SCHEDULE_LABELS: Record<HabitSchedule, string> = {
   monthly: 'Once a month',
 };
 
+/**
+ * How often in words, a weekly habit's days a week with it (2026-11-23):
+ * "Once a week", "Twice a week", "3 times a week".
+ */
+export function scheduleLabel(schedule: HabitSchedule, times?: number): string {
+  if (schedule !== 'weekly' || !times || times < 2) return SCHEDULE_LABELS[schedule];
+  return times === 2 ? 'Twice a week' : `${times} times a week`;
+}
+
+/**
+ * How many times a week, as the add form and Edit offer it for a weekly
+ * habit (2026-11-23): 1 to 7, once unless chosen; once stores nothing.
+ */
+export const TIMES_CHOICES = [1, 2, 3, 4, 5, 6, 7].map((value) => ({
+  value,
+  label: value === 1 ? 'Once' : value === 2 ? 'Twice' : `${value} times`,
+}));
+
+/**
+ * A weekly habit's week so far (2026-11-23), for one of several days a
+ * week: "1 of 3 this week"; none for a habit of one a period.
+ */
+export function weekCount(count: { done: number; target: number } | undefined): string {
+  if (!count || count.target < 2) return '';
+  return `${Math.min(count.done, count.target)} of ${count.target} this week`;
+}
+
 /** The choices of how often, in the order the forms offer them. */
 export const SCHEDULE_CHOICES = (['daily', 'weekly', 'monthly'] as const).map((value) => ({
   value,
@@ -126,6 +153,9 @@ const WEEKDAY_NAMES: Record<Weekday, string> = {
 function nudgeWords(plan: HabitNudgePlan): string {
   if (plan.kind === 'off' || plan.kind === 'no-time') return '';
   const moved = plan.kind !== 'at';
+  // Several days a week (2026-11-23): on the late days still needed.
+  if (plan.times !== undefined)
+    return moved ? `Nudge late in the week at ${plan.time}` : 'Nudge late in the week';
   if (plan.schedule === 'weekly') {
     const day = WEEKDAY_NAMES[plan.lastDay ?? 'Sun'];
     return moved ? `Nudge ${day} at ${plan.time}` : `Nudge on ${day}`;
@@ -147,17 +177,27 @@ function nudgeWords(plan: HabitNudgePlan): string {
  * (Eric's decisions of 2026-11-22), and nothing when none goes.
  */
 export function habitWhen(
-  h: { schedule: HabitSchedule; time?: string; nudge?: boolean; archived?: boolean },
+  h: {
+    schedule: HabitSchedule;
+    times?: number;
+    time?: string;
+    nudge?: boolean;
+    archived?: boolean;
+    count?: { done: number; target: number };
+  },
   config: HabitsConfig,
   on: 'right-now' | 'screen' = 'right-now',
 ): string {
   const nudge = nudgeWords(habitNudgePlan(h, config));
+  // Several days a week (2026-11-23): on Right Now its week so far, "1 of
+  // 3 this week", where a weekly one says "This week"; on the screen how
+  // often, "3 times a week", its count on the period line below.
   const kind =
     h.schedule === 'daily'
       ? ''
       : on === 'screen'
-        ? SCHEDULE_LABELS[h.schedule]
-        : THIS_PERIOD[h.schedule];
+        ? scheduleLabel(h.schedule, h.times)
+        : weekCount(h.count) || THIS_PERIOD[h.schedule];
   const parts = [...(kind ? [kind] : []), ...(h.time ? [h.time] : []), ...(nudge ? [nudge] : [])];
   return parts.join(' · ');
 }
@@ -188,10 +228,19 @@ export function ordinal(n: number): string {
  * habit, whose strip and Today row say it all.
  */
 export function periodLine(
-  h: { schedule: HabitSchedule; state: 'done' | 'skipped' | 'none'; settledOn?: string },
+  h: {
+    schedule: HabitSchedule;
+    state: 'done' | 'skipped' | 'none';
+    settledOn?: string;
+    count?: { done: number; target: number };
+  },
   today: string,
 ): string {
   if (h.schedule === 'daily') return '';
+  // Several days a week (2026-11-23): its count, met or not, unless the
+  // week was skipped, which the line says as for any weekly habit.
+  const count = weekCount(h.count);
+  if (count && h.state !== 'skipped') return count;
   const period = h.schedule === 'weekly' ? 'this week' : 'this month';
   if (h.state === 'none' || h.settledOn === undefined) return `Not done yet ${period}`;
   const day = h.settledOn;
@@ -253,8 +302,13 @@ export function dayState(
  * day of its week ("One push on Sunday at 21:00 if not done this
  * week."), a monthly one on the last day of its month.
  */
-export function nudgeHint(schedule: HabitSchedule, time: string, config: HabitsConfig): string {
-  const plan = habitNudgePlan({ schedule, time, nudge: true }, config);
+export function nudgeHint(
+  schedule: HabitSchedule,
+  time: string,
+  config: HabitsConfig,
+  times?: number,
+): string {
+  const plan = habitNudgePlan({ schedule, time, nudge: true, times }, config);
   if (plan.kind === 'off' || plan.kind === 'no-time') return 'A nudge needs a time of day.';
   const quiet = `quiet hours (${config.quietFrom} to ${config.quietTo})`;
   const why =
@@ -263,6 +317,12 @@ export function nudgeHint(schedule: HabitSchedule, time: string, config: HabitsC
       : plan.kind === 'early'
         ? `, as the ${quiet} begin,`
         : '';
+  // Several days a week (2026-11-23): one a day at most, late in the week.
+  if (plan.times !== undefined)
+    return (
+      `One push at ${plan.time}${why} on a day not logged yet, once the days left in the ` +
+      `week are no more than those still needed: the last ${plan.times} days if none is done.`
+    );
   if (plan.schedule === 'weekly')
     return `One push on ${WEEKDAY_NAMES[plan.lastDay ?? 'Sun']} at ${plan.time}${why} if not done this week.`;
   if (plan.schedule === 'monthly')

@@ -7,6 +7,7 @@ import { HabitAnswerFields } from './habit-answer-fields';
 import { HabitAsk } from './habit-ask';
 import {
   SCHEDULE_CHOICES,
+  TIMES_CHOICES,
   answerWords,
   dayInitial,
   dayName,
@@ -149,7 +150,17 @@ import {
             }
           </select>
         </label>
-        @if (schedule() !== h.schedule) {
+        @if (schedule() === 'weekly') {
+          <label>
+            How many times a week
+            <select name="times" (change)="times.set(+value($event))">
+              @for (n of timesChoices; track n.value) {
+                <option [value]="n.value" [selected]="times() === n.value">{{ n.label }}</option>
+              }
+            </select>
+          </label>
+        }
+        @if (schedule() !== h.schedule || formTimes() !== (h.times ?? 1)) {
           <p class="hint">What is logged stays, read again by the new schedule.</p>
         }
         <label>
@@ -361,6 +372,11 @@ export class HabitCard {
   protected readonly nudge = signal(false);
   protected readonly schedule = signal<HabitSchedule>('daily');
   protected readonly schedules = SCHEDULE_CHOICES;
+  /** A weekly habit's days a week in the form (2026-11-23), 1 to 7. */
+  protected readonly times = signal(1);
+  protected readonly timesChoices = TIMES_CHOICES;
+  /** The days a week the form would save: 1 unless weekly. */
+  protected readonly formTimes = computed(() => (this.schedule() === 'weekly' ? this.times() : 1));
   protected readonly answer = signal<HabitAnswer>('done');
   protected readonly choices = signal<string[]>([]);
   protected readonly template = signal<string | undefined>(undefined);
@@ -417,7 +433,7 @@ export class HabitCard {
 
   /** What a nudge at the time in the form would do. */
   protected readonly hint = computed(() =>
-    nudgeHint(this.schedule(), this.time(), this.modules.habitsConfig()),
+    nudgeHint(this.schedule(), this.time(), this.modules.habitsConfig(), this.formTimes()),
   );
 
   /** This device cannot be sent a nudge as things stand. */
@@ -463,6 +479,7 @@ export class HabitCard {
     this.time.set(this.habit().time ?? '');
     this.nudge.set(this.habit().nudge);
     this.schedule.set(this.habit().schedule);
+    this.times.set(this.habit().times ?? 1);
     this.answer.set(this.habit().answer);
     this.choices.set([...(this.habit().choices ?? [])]);
     this.template.set(this.habit().template);
@@ -531,7 +548,8 @@ export class HabitCard {
     const name = this.name().trim();
     if (!name) return;
     if (name !== h.name) this.habits.rename(h.id, name);
-    if (this.schedule() !== h.schedule) this.habits.setSchedule(h.id, this.schedule());
+    if (this.schedule() !== h.schedule || this.formTimes() !== (h.times ?? 1))
+      this.habits.setSchedule(h.id, this.schedule(), this.formTimes());
     const choices = this.answer() === 'choice' ? this.choices() : undefined;
     const template = this.answer() === 'note' ? this.template() : undefined;
     if (

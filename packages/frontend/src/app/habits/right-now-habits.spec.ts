@@ -173,6 +173,40 @@ describe('Right Now’s Habits (#324)', () => {
     expect(r.api.set).toHaveBeenCalledTimes(3);
   });
 
+  it('lists a habit of twice a week each day until met, with its count (2026-11-23)', async () => {
+    const r = await render();
+    const made = { createdAt: NOW - 30 * DAY };
+    // Tuesday 6 October; Monday the 5th not logged.
+    await r.habits([habitDoc('pots', { name: 'Pottery', schedule: 'weekly', times: 2, ...made })]);
+    expect(rows(r.el)).toEqual(['Pottery']);
+    const when = () => section(r.el)!.querySelector('li .when')?.textContent;
+    expect(when()).toBe('0 of 2 this week');
+    // Yesterday counts as a day of its own, so it is offered.
+    expect(buttonNamed(r.el, 'Yesterday? Mark Pottery done yesterday')).toBeDefined();
+    buttonNamed(r.el, 'Done: Pottery')!.click();
+    r.api.pushLog('pots_2026-10', { '06': { state: 'done' } });
+    await r.fixture.whenStable();
+    // Done today: not offered again today, its week still open.
+    expect(rows(r.el)).toEqual([]);
+    expect(section(r.el)!.querySelector('.settled')?.textContent).toBe('Done today: Pottery');
+    // Logged yesterday too: 2 of 2, still settled today.
+    r.api.pushLog('pots_2026-10', { '05': { state: 'done' }, '06': { state: 'done' } });
+    await r.fixture.whenStable();
+    expect(section(r.el)!.querySelector('.settled')?.textContent).toBe('Done today: Pottery');
+  });
+
+  it('offers it again the next day while its week is unmet (2026-11-23)', async () => {
+    const r = await render();
+    const made = { createdAt: NOW - 30 * DAY };
+    await r.habits([habitDoc('pots', { name: 'Pottery', schedule: 'weekly', times: 2, ...made })], {
+      'pots_2026-10': { '05': { state: 'done' } },
+    });
+    expect(rows(r.el)).toEqual(['Pottery']);
+    expect(section(r.el)!.querySelector('li .when')?.textContent).toBe('1 of 2 this week');
+    // Yesterday is logged already: no Yesterday?.
+    expect(section(r.el)!.querySelector('[aria-label^="Yesterday?"]')).toBeNull();
+  });
+
   it('shows a weekly or monthly habit each day of its period until settled (step 5)', async () => {
     const r = await render();
     const made = { createdAt: NOW - 30 * DAY };

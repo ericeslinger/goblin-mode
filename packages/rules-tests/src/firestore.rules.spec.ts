@@ -908,6 +908,21 @@ describe('habits (#324): the gardener’s habits and their month logs', () => {
     await assertFails(owner().doc('users/owner/habits/h_1').set(habit()));
   });
 
+  it('takes a weekly habit’s target, 2 to 7 whole days, on weekly only (2026-11-23)', async () => {
+    const ref = owner().doc('users/owner/habits/h1');
+    await assertSucceeds(ref.set({ ...habit(), schedule: 'weekly', times: 2 }));
+    await assertSucceeds(ref.set({ ...habit(), schedule: 'weekly', times: 7 }));
+    // Made daily, the target goes in the same write, or it is refused.
+    await assertFails(ref.set({ schedule: 'daily' }, { merge: true }));
+    await assertSucceeds(ref.set({ schedule: 'weekly', times: 3 }, { merge: true }));
+    await assertFails(ref.set({ ...habit(), schedule: 'daily', times: 2 }));
+    await assertFails(ref.set({ ...habit(), schedule: 'monthly', times: 2 }));
+    await assertFails(ref.set({ ...habit(), schedule: 'weekly', times: 1 }));
+    await assertFails(ref.set({ ...habit(), schedule: 'weekly', times: 8 }));
+    await assertFails(ref.set({ ...habit(), schedule: 'weekly', times: 2.5 }));
+    await assertFails(ref.set({ ...habit(), schedule: 'weekly', times: '2' }));
+  });
+
   it('merges a day into a month’s log, as two devices ticking offline do', async () => {
     const ref = owner().doc('users/owner/habitLogs/h1_2026-11');
     await assertSucceeds(ref.set(habitLog()));

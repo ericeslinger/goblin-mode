@@ -20,7 +20,7 @@ import { SignIn } from '../sign-in/sign-in';
 import type { HabitAnswer, HabitSchedule } from '@mossgoblin/schema';
 import { HabitAnswerFields } from './habit-answer-fields';
 import { HabitCard } from './habit-card';
-import { SCHEDULE_CHOICES } from './habit-lines';
+import { SCHEDULE_CHOICES, TIMES_CHOICES } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
 import { JournalOfferLine } from './journal-offer';
 import { type HabitUndoable, HabitsService, answerFields } from './habits.service';
@@ -98,6 +98,18 @@ import { type HabitUndoable, HabitsService, answerFields } from './habits.servic
                   }
                 </select>
               </label>
+              @if (schedule() === 'weekly') {
+                <label>
+                  How many times a week
+                  <select name="times" (change)="times.set(+value($event))">
+                    @for (n of timesChoices; track n.value) {
+                      <option [value]="n.value" [selected]="times() === n.value">
+                        {{ n.label }}
+                      </option>
+                    }
+                  </select>
+                </label>
+              }
               <label>
                 Time of day <span class="hint">(optional)</span>
                 <input type="time" name="time" [value]="time()" (input)="time.set(value($event))" />
@@ -245,6 +257,9 @@ export class Habits {
   protected readonly time = signal('');
   protected readonly schedule = signal<HabitSchedule>('daily');
   protected readonly schedules = SCHEDULE_CHOICES;
+  /** A weekly habit's days a week (2026-11-23), 1 to 7: once unless chosen. */
+  protected readonly times = signal(1);
+  protected readonly timesChoices = TIMES_CHOICES;
   protected readonly answer = signal<HabitAnswer>('done');
   protected readonly choices = signal<string[]>([]);
   protected readonly template = signal<string | undefined>(undefined);
@@ -322,6 +337,7 @@ export class Habits {
     this.habits.add({
       name: this.name(),
       schedule: this.schedule(),
+      ...(this.schedule() === 'weekly' && this.times() > 1 ? { times: this.times() } : {}),
       time: this.time() || undefined,
       answer: this.answer(),
       ...(this.answer() === 'choice' ? { choices: this.choices() } : {}),
@@ -334,6 +350,7 @@ export class Habits {
     this.name.set('');
     this.time.set('');
     this.schedule.set('daily');
+    this.times.set(1);
     this.answer.set('done');
     this.choices.set([]);
     this.template.set(undefined);

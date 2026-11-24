@@ -487,6 +487,87 @@ test('habits: once a week and once a month, settled and gone for the period', as
   await expect(pots.getByRole('button', { name: 'Done today: Clean the pots' })).toBeVisible();
 });
 
+// N times a week (Eric, 2026-11-23): "pottery twice a week", on no set
+// day. As above, the module's week starts yesterday, so yesterday and
+// today are one week whatever day the run is on, and the habit is made
+// yesterday on a clock set back a day (never ahead). Ticked today it is
+// 1 of 2 and not offered again today; yesterday, a day of its own for a
+// habit of several days a week, logged after the fact on the Habits
+// screen, makes it 2 of 2.
+test('habits: twice a week, counted, ticked today and yesterday, kept', async ({ page }) => {
+  test.setTimeout(150_000);
+  await signInAs(page, OWNER);
+  await switchModulesOn(page, 'Habits');
+  const realNow = Date.now();
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][
+    new Date(realNow - DAY).getUTCDay()
+  ];
+  await page.getByRole('combobox', { name: 'Habits: weeks start on' }).selectOption(weekday);
+  await letItSave(page);
+
+  // Yesterday: made, twice a week.
+  await page.clock.setFixedTime(realNow - DAY);
+  await page.goto('/habits');
+  await page.getByRole('button', { name: 'Add your first habit' }).click();
+  const form = page.getByRole('form', { name: 'New habit' });
+  await form.getByRole('textbox', { name: 'Habit' }).fill('Pottery');
+  await expect(form.getByRole('combobox', { name: 'How many times a week' })).toHaveCount(0);
+  await form.getByRole('combobox', { name: 'How often' }).selectOption({ label: 'Once a week' });
+  const times = form.getByRole('combobox', { name: 'How many times a week' });
+  await expect(times).toHaveValue('1');
+  await times.selectOption({ label: 'Twice' });
+  await form.getByRole('button', { name: 'Add', exact: true }).click();
+  const pots = card(page, 'Pottery');
+  await expect(pots).toContainText('Twice a week');
+  await expect(pots).toContainText('0 of 2 this week');
+  await letItSave(page);
+
+  // Today, on Right Now: its count, then ticked, and not offered again.
+  await page.clock.setFixedTime(realNow);
+  await page.goto('/right-now');
+  const section = habitsOnRightNow(page);
+  await expect(section.getByRole('listitem')).toHaveText([/^Pottery\s*0 of 2 this week/]);
+  await section.getByRole('button', { name: 'Done: Pottery' }).click();
+  await expect(section).toContainText('Done today: Pottery');
+  await expect(section.getByRole('listitem')).toHaveCount(0);
+  await letItSave(page);
+  await page.reload();
+  await expect(section).toContainText('Done today: Pottery');
+  await expect(section.getByRole('listitem')).toHaveCount(0);
+  await page.goto('/home');
+  await expect(page.getByRole('link', { name: /^Habits/ })).toContainText('1 of 1 today');
+
+  // The Habits screen: 1 of 2, kept across a reload.
+  await page.goto('/habits');
+  await expect(pots).toContainText('1 of 2 this week');
+  await page.reload();
+  await expect(pots).toContainText('Twice a week · No streak yet');
+  await expect(pots).toContainText('1 of 2 this week');
+  await expect(pots.getByRole('button', { name: 'Done today: Pottery' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(await noSidewaysScroll(page)).toBe(true);
+  await noSeriousViolations(page);
+
+  // Yesterday, after the fact: 2 of 2, the week met.
+  await pots.getByRole('button', { name: 'Done yesterday: Pottery' }).click();
+  await expect(pots).toContainText('2 of 2 this week');
+  await letItSave(page);
+  await page.reload();
+  await expect(pots).toContainText('2 of 2 this week');
+  await expect(pots).toContainText('Twice a week · Streak: 1 week');
+  const days = pots
+    .getByRole('list', { name: 'The last seven days of Pottery' })
+    .getByRole('listitem');
+  await expect(days.nth(5)).toContainText(': done');
+  await expect(days.nth(6)).toContainText(': done');
+  const stored = Object.values(await storedLogs()).flatMap((d) => Object.values(d));
+  expect(stored).toEqual(['done', 'done']);
+  const habits = await storedDocs('habits');
+  expect(Object.values(habits).map((h) => h['times'])).toEqual([{ integerValue: '2' }]);
+});
+
 /** The owner's stored documents in `collection` as admin: each one's fields, by id. */
 async function storedDocs(collection: string): Promise<Record<string, Record<string, unknown>>> {
   const res = await fetch(

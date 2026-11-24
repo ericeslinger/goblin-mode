@@ -362,8 +362,123 @@ describe('The Habits screen (#324)', () => {
     r.api.set.mockClear();
     buttonNamed(form, 'Save')!.click();
     expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
-      { schedule: 'weekly', updatedAt: expect.anything() },
+      { schedule: 'weekly', times: 'DELETE', updatedAt: expect.anything() },
     ]);
+  });
+
+  describe('N times a week (2026-11-23)', () => {
+    it('adds a habit twice a week, offering how many only for weekly', async () => {
+      const r = await render();
+      await r.habits([]);
+      buttonNamed(r.el, 'Add your first habit')!.click();
+      await r.fixture.whenStable();
+      const form = r.el.querySelector<HTMLElement>('form[aria-label="New habit"]')!;
+      expect(form.querySelector('select[name="times"]')).toBeNull();
+      type(form, 'input[name="name"]', 'Pottery');
+      const schedule = form.querySelector<HTMLSelectElement>('select[name="schedule"]')!;
+      schedule.value = 'weekly';
+      schedule.dispatchEvent(new Event('change'));
+      await r.fixture.whenStable();
+      const times = form.querySelector<HTMLSelectElement>('select[name="times"]')!;
+      expect(times.closest('label')?.textContent).toContain('How many times a week');
+      expect([...times.options].map((o) => o.textContent?.trim())).toEqual([
+        'Once',
+        'Twice',
+        '3 times',
+        '4 times',
+        '5 times',
+        '6 times',
+        '7 times',
+      ]);
+      expect(times.value).toBe('1');
+      times.value = '2';
+      times.dispatchEvent(new Event('change'));
+      await r.fixture.whenStable();
+      buttonNamed(form, 'Add')!.click();
+      expect(r.api.set.mock.lastCall![2]).toMatchObject({
+        name: 'Pottery',
+        schedule: 'weekly',
+        times: 2,
+      });
+      await r.fixture.whenStable();
+      // Once a week stores no target.
+      buttonNamed(r.el, 'Add a habit')!.click();
+      await r.fixture.whenStable();
+      const again = r.el.querySelector<HTMLElement>('form[aria-label="New habit"]')!;
+      type(again, 'input[name="name"]', 'Shop');
+      const s2 = again.querySelector<HTMLSelectElement>('select[name="schedule"]')!;
+      s2.value = 'weekly';
+      s2.dispatchEvent(new Event('change'));
+      await r.fixture.whenStable();
+      expect(again.querySelector<HTMLSelectElement>('select[name="times"]')!.value).toBe('1');
+      buttonNamed(again, 'Add')!.click();
+      expect(r.api.set.mock.lastCall![2]).not.toHaveProperty('times');
+    });
+
+    it('changes how many in Edit, and clears it when made daily', async () => {
+      const r = await render();
+      await r.habits([
+        habitDoc('pots', { name: 'Pottery', schedule: 'weekly', times: 2, time: '19:00' }),
+      ]);
+      buttonNamed(r.el, 'Edit Pottery')!.click();
+      await r.fixture.whenStable();
+      const form = r.el.querySelector<HTMLElement>('form[aria-label="Edit Pottery"]')!;
+      const times = form.querySelector<HTMLSelectElement>('select[name="times"]')!;
+      expect(times.value).toBe('2');
+      times.value = '3';
+      times.dispatchEvent(new Event('change'));
+      await r.fixture.whenStable();
+      expect(form.textContent).toContain('read again by the new schedule');
+      expect(form.textContent).toContain('the last 3 days if none is done');
+      r.api.set.mockClear();
+      buttonNamed(form, 'Save')!.click();
+      expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
+        { schedule: 'weekly', times: 3, updatedAt: expect.anything() },
+      ]);
+      await r.fixture.whenStable();
+      buttonNamed(r.el, 'Edit Pottery')!.click();
+      await r.fixture.whenStable();
+      const edit = r.el.querySelector<HTMLElement>('form[aria-label="Edit Pottery"]')!;
+      const schedule = edit.querySelector<HTMLSelectElement>('select[name="schedule"]')!;
+      schedule.value = 'daily';
+      schedule.dispatchEvent(new Event('change'));
+      await r.fixture.whenStable();
+      expect(edit.querySelector('select[name="times"]')).toBeNull();
+      r.api.set.mockClear();
+      buttonNamed(edit, 'Save')!.click();
+      expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
+        { schedule: 'daily', times: 'DELETE', updatedAt: expect.anything() },
+      ]);
+    });
+
+    it('shows the week’s count, the Today row while unmet, and yesterday as a day', async () => {
+      const r = await render();
+      // Today is Tuesday 6 October; done Monday the 5th.
+      await r.habits(
+        [
+          habitDoc('pots', {
+            name: 'Pottery',
+            schedule: 'weekly',
+            times: 2,
+            createdAt: NOW - 30 * DAY,
+          }),
+        ],
+        { 'pots_2026-10': { '05': { state: 'done' } } },
+      );
+      const c = card(r.el, 'Pottery');
+      expect(c.querySelector('.meta')?.textContent).toBe('Twice a week · No streak yet');
+      expect(c.querySelector('.period')?.textContent).toBe('1 of 2 this week');
+      // Today can be logged; yesterday is done, a day of its own.
+      expect(buttonNamed(c, 'Done today: Pottery')).toBeDefined();
+      expect(buttonNamed(c, 'Done yesterday: Pottery')?.getAttribute('aria-pressed')).toBe('true');
+      const said = [...c.querySelectorAll('.strip li .visually-hidden')].map((d) => d.textContent);
+      expect(said.slice(5)).toEqual(['Mon 5 Oct: done', 'Tue 6 Oct: not logged yet']);
+      buttonNamed(c, 'Done today: Pottery')!.click();
+      r.api.pushLog('pots_2026-10', { '05': { state: 'done' }, '06': { state: 'done' } });
+      await r.fixture.whenStable();
+      expect(c.querySelector('.period')?.textContent).toBe('2 of 2 this week');
+      expect(c.querySelector('.meta')?.textContent).toBe('Twice a week · Streak: 1 week');
+    });
   });
 
   it('says how a month stands, done on a day, skipped, or not yet (step 5 of #324)', async () => {
@@ -488,6 +603,47 @@ describe('habit lines', () => {
     const noon = habitsConfig({ quietFrom: '12:00', quietTo: '14:00' });
     expect(habitWhen({ ...daily, time: '22:30' }, noon)).toBe('22:30 · Nudge on');
     expect(habitWhen({ ...daily, time: '13:00' }, noon)).toBe('13:00 · Nudge at 14:00');
+  });
+
+  it('words a habit of several days a week: how often, its count, its nudge (2026-11-23)', () => {
+    const config = habitsConfig({});
+    const pots = { schedule: 'weekly' as const, times: 3, time: '19:00', nudge: true };
+    const count = { done: 1, target: 3 };
+    expect(habitWhen({ ...pots, count }, config)).toBe(
+      '1 of 3 this week · 19:00 · Nudge late in the week',
+    );
+    expect(habitWhen({ ...pots, count }, config, 'screen')).toBe(
+      '3 times a week · 19:00 · Nudge late in the week',
+    );
+    expect(habitWhen({ ...pots, times: 2, nudge: false }, config, 'screen')).toBe(
+      'Twice a week · 19:00',
+    );
+    expect(habitWhen({ ...pots, time: '23:00', count }, config)).toBe(
+      '1 of 3 this week · 23:00 · Nudge late in the week at 22:00',
+    );
+    expect(periodLine({ schedule: 'weekly', state: 'none', count }, '2026-10-06')).toBe(
+      '1 of 3 this week',
+    );
+    expect(
+      periodLine({ schedule: 'weekly', state: 'done', count: { done: 3, target: 3 } }, 'x'),
+    ).toBe('3 of 3 this week');
+    expect(
+      periodLine(
+        { schedule: 'weekly', state: 'skipped', settledOn: '2026-10-06', count },
+        '2026-10-06',
+      ),
+    ).toBe('Skipped this week, today');
+    // Once a week, as before.
+    expect(
+      periodLine({ schedule: 'weekly', state: 'none', count: { done: 0, target: 1 } }, 'x'),
+    ).toBe('Not done yet this week');
+    expect(nudgeHint('weekly', '19:00', config, 2)).toBe(
+      'One push at 19:00 on a day not logged yet, once the days left in the week are no ' +
+        'more than those still needed: the last 2 days if none is done.',
+    );
+    expect(nudgeHint('weekly', '19:00', config, 1)).toBe(
+      'One push on Sunday at 19:00 if not done this week.',
+    );
   });
 
   it('names a weekly or monthly habit’s kind: the period on Right Now, how often here', () => {

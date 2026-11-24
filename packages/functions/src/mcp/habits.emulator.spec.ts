@@ -737,3 +737,82 @@ describe('the Habits tools (#324 step 3)', () => {
     });
   });
 });
+
+describe('N times a week (2026-11-23)', () => {
+  // T is Saturday 2026-11-21 in Los Angeles; the week runs from Monday the 16th.
+  it('makes, counts, logs and changes a habit of twice a week', async () => {
+    await habitsOn({ tz: LA });
+    const t = tools();
+    // Made on Thursday, so Friday can be logged after the fact.
+    const made = await tools(T - 2 * 86_400_000).createHabit({
+      name: 'Pottery',
+      schedule: 'weekly',
+      timesAWeek: 2,
+    });
+    expect(made).toMatchObject({ schedule: 'weekly', timesAWeek: 2 });
+    expect((await db.doc(`users/u1/habits/${made.id}`).get()).get('times')).toBe(2);
+    // Once a week stores no target.
+    const shop = await t.createHabit({ name: 'Shop', schedule: 'weekly', timesAWeek: 1 });
+    expect(shop).not.toHaveProperty('timesAWeek');
+    expect((await db.doc(`users/u1/habits/${shop.id}`).get()).get('times')).toBeUndefined();
+    await expect(t.createHabit({ name: 'Run', timesAWeek: 3 })).rejects.toThrow(
+      /timesAWeek goes only with a weekly habit/,
+    );
+    await expect(t.createHabit({ name: 'Run', schedule: 'weekly', timesAWeek: 8 })).rejects.toThrow(
+      /1 to 7/,
+    );
+
+    // Friday done; Saturday (today) done: 2 of 2.
+    const fri = await t.logHabit({ habit: 'Pottery', state: 'done', date: '2026-11-20' });
+    expect(fri).toMatchObject({ thisPeriod: 'none', thisWeek: { done: 1, target: 2 } });
+    const sat = await t.logHabit({ habit: 'Pottery', state: 'done' });
+    expect(sat).toMatchObject({
+      date: '2026-11-21',
+      thisPeriod: 'done',
+      thisWeek: { done: 2, target: 2 },
+      streak: { count: 1, unit: 'weeks' },
+    });
+    const [listed] = (await t.listHabits({})).filter((h) => h.name === 'Pottery');
+    expect(listed).toMatchObject({ timesAWeek: 2, due: true, thisWeek: { done: 2, target: 2 } });
+    // get_context: done today, its week still open, with its count.
+    await t.createHabit({ name: 'Write', schedule: 'weekly', timesAWeek: 3 });
+    await t.logHabit({ habit: 'Write', state: 'done' });
+    const context = (await t.getContext({ habits: true })) as {
+      habits?: { name: string; state: string; thisWeek?: unknown }[];
+    };
+    expect(context.habits?.find((h) => h.name === 'Write')).toEqual({
+      id: expect.any(String),
+      name: 'Write',
+      state: 'done',
+      thisWeek: { done: 1, target: 3 },
+    });
+
+    // Made monthly, the target goes in the same write; refused on a daily one.
+    await expect(
+      t.updateHabit({ habit: 'Pottery', timesAWeek: 3, schedule: 'daily' }),
+    ).rejects.toThrow(/timesAWeek goes only with a weekly habit/);
+    await t.updateHabit({ habit: 'Pottery', timesAWeek: 3 });
+    expect((await db.doc(`users/u1/habits/${made.id}`).get()).get('times')).toBe(3);
+    const monthly = await t.updateHabit({ habit: 'Pottery', schedule: 'monthly' });
+    expect(monthly).not.toHaveProperty('timesAWeek');
+    expect((await db.doc(`users/u1/habits/${made.id}`).get()).get('times')).toBeUndefined();
+    await t.updateHabit({ habit: 'Pottery', schedule: 'weekly', timesAWeek: 2 });
+    const once = await t.updateHabit({ habit: 'Pottery', timesAWeek: null });
+    expect(once).toMatchObject({ changed: true, schedule: 'weekly' });
+    expect(once).not.toHaveProperty('timesAWeek');
+  });
+
+  it('says when a habit of three a week is nudged', async () => {
+    await habitsOn({ tz: LA });
+    const made = await tools().createHabit({
+      name: 'Write',
+      schedule: 'weekly',
+      timesAWeek: 3,
+      time: '20:00',
+      nudge: true,
+    });
+    expect(made.nudgeNote).toMatch(
+      /^One push at 20:00 on each day not yet logged, late in the week .* on the last 3 days of the week; .*never a second that day\.$/,
+    );
+  });
+});

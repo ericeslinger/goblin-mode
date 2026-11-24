@@ -223,6 +223,64 @@ describe('weekly and monthly nudges (Eric, 2026-11-22)', () => {
   });
 });
 
+describe('nudges for N times a week (2026-11-23)', () => {
+  const done: HabitEntry = { state: 'done', at: { seconds: 1, nanoseconds: 0 } };
+  /** 21:00 in New York, Friday 20 to Sunday 22 November 2026. */
+  const FRI = Date.parse('2026-11-21T02:00:00Z');
+  const SAT = Date.parse('2026-11-22T02:00:00Z');
+  const SUN = Date.parse('2026-11-23T02:00:00Z');
+  const write = () => ({
+    uid: 'u1',
+    id: 'write',
+    habit: habit({ name: 'Write', schedule: 'weekly', times: 3 }),
+  });
+
+  it('nudges each of the last three days with none done, once a day, saying the count', async () => {
+    const { store, sender, marks } = fakes([write()]);
+    expect((await sendNudges(store, sender, FRI - 86_400_000)).pushed).toBe(0); // Thursday
+    expect((await sendNudges(store, sender, FRI)).pushed).toBe(1);
+    expect(marks['u1']).toEqual({ write: '2026-11-20' });
+    // A rerun, an overlapping run or a duplicate wake the same day: none.
+    expect((await sendNudges(store, sender, FRI + 60_000)).pushed).toBe(0);
+    expect((await sendNudges(store, sender, SAT)).pushed).toBe(1);
+    expect((await sendNudges(store, sender, SUN)).pushed).toBe(1);
+    expect(marks['u1']).toEqual({ write: '2026-11-22' });
+    expect(sender.send).toHaveBeenCalledTimes(3);
+    expect(sender.send).toHaveBeenLastCalledWith(
+      ['t1'],
+      expect.objectContaining({ body: 'Right Now · 0 of 3 this week' }),
+    );
+  });
+
+  it('with two done by Friday, only on the last day; once met, none', async () => {
+    const two = { 'write/2026-11-17': done, 'write/2026-11-19': done };
+    const { store, sender } = fakes([write()], { logged: two });
+    expect((await sendNudges(store, sender, FRI)).pushed).toBe(0);
+    expect((await sendNudges(store, sender, SAT)).pushed).toBe(0);
+    expect((await sendNudges(store, sender, SUN)).pushed).toBe(1);
+    expect(sender.send).toHaveBeenCalledWith(
+      ['t1'],
+      expect.objectContaining({ body: 'Right Now · 2 of 3 this week' }),
+    );
+    const met = fakes([write()], { logged: { ...two, 'write/2026-11-21': done } });
+    expect((await sendNudges(met.store, met.sender, SUN)).pushed).toBe(0);
+  });
+
+  it('sends none on a day already ticked', async () => {
+    const { store, sender } = fakes([write()], { logged: { 'write/2026-11-20': done } });
+    expect((await sendNudges(store, sender, FRI)).pushed).toBe(0);
+  });
+
+  it('words the push with the week’s count', () => {
+    expect(nudgeMessage('w', 'Write', 'weekly', { done: 1, target: 3 }).body).toBe(
+      'Right Now · 1 of 3 this week',
+    );
+    expect(nudgeMessage('w', 'Shop', 'weekly', { done: 0, target: 1 }).body).toBe(
+      'Right Now · not done yet this week',
+    );
+  });
+});
+
 describe('nudges follow the device’s zone (Eric, 2026-11-22)', () => {
   it('reads the day and time in the module’s zone, not the habit’s', async () => {
     // Made in New York; the app last ran in Paris, where 21:00 on the

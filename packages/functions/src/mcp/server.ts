@@ -96,13 +96,19 @@ export const INSTRUCTIONS = [
   'Habits (a module) are things Eric means to do every day, week or month, each at a time ' +
     'of day or any time, shown in Right Now until done or skipped: create_habit makes one ' +
     '("a habit to drink metamucil for fiber every day around 11am": daily, 11:00), ' +
-    'named in his own words; list_habits shows each with today, yesterday and its streak; ' +
+    'named in his own words; a weekly one can be for a number of days a week with no set ' +
+    'day ("pottery twice a week": weekly, timesAWeek 2), its week met once that many days ' +
+    'are done, shown each day until then; ' +
+    "list_habits shows each with today, yesterday, a weekly one's week so far (thisWeek: " +
+    'done of target) and its streak; ' +
     'update_habit renames, reschedules, retimes or archives one; log_habit marks today or ' +
     'yesterday done or skipped, or clears it. When he says he did one, log it with ' +
     'log_habit, never a reminder; a reminder is for a one-off or a repeat he wants pushed. ' +
     "A habit's nudge is one push at its time, never a second: a daily habit's on a day not " +
     "yet logged; a weekly or monthly habit's on the last day of its week or month, only if " +
-    'that week or month is not yet done or skipped. In the quiet hours (22:00 to 06:00 ' +
+    'that week or month is not yet done or skipped; one of several days a week on each late ' +
+    'day not yet logged where the days left are no more than those still needed, never two ' +
+    'a day. In the quiet hours (22:00 to 06:00 ' +
     'unless he set others) a time before midnight is sent as they begin (22:30 at 22:00) ' +
     'and one after it held until they end (03:00 at 06:00); nudgeNote says when. ' +
     "A habit's today, and its nudge's time, are in the zone of the device Eric last used " +
@@ -1043,7 +1049,20 @@ export function buildServer(
     .describe("The habit's id, or its name as list_habits gives it (case aside)");
   const schedule = z
     .enum(['daily', 'weekly', 'monthly'])
-    .describe('daily: every day; weekly or monthly: once in the week or month, any day');
+    .describe(
+      'daily: every day; weekly or monthly: once in the week or month, any day (weekly can ' +
+        'be more than once: timesAWeek)',
+    );
+  // N a week (2026-11-23): a weekly habit's target, any days of the week.
+  const timesAWeek = z
+    .number()
+    .int()
+    .min(1)
+    .max(7)
+    .describe(
+      'Only with weekly: how many days of the week, any days ("twice a week": 2); 1, the ' +
+        'default, is once a week',
+    );
   const habitTime = z
     .string()
     .describe('A local time of day, HH:MM on a 24-hour clock, e.g. 11:00');
@@ -1075,12 +1094,16 @@ export function buildServer(
       title: 'Make a habit',
       description:
         'A habit in the Habits module: something Eric means to do daily (the default), weekly ' +
-        'or monthly, shown in Right Now and on the Habits screen until done or skipped. Name ' +
+        'or monthly, shown in Right Now and on the Habits screen until done or skipped; a ' +
+        'weekly one with timesAWeek (2 to 7) is for that many days of the week, no set day, ' +
+        'shown each day until that many are done. Name ' +
         'it in his own words. time is the time of day it is for ("around 11am" is 11:00), in ' +
         'the zone of the device he last used the app on (give timeZone only when a refusal ' +
         'asks for it); nudge asks for one push at that time, never a second, and ' +
         'needs a time: a daily habit on a day not yet logged, a weekly or monthly one on the ' +
-        'last day of its week or month if not yet done or skipped; in the quiet hours a time ' +
+        'last day of its week or month if not yet done or skipped (one of several days a ' +
+        'week on each late day where the days left are no more than those still needed); in ' +
+        'the quiet hours a time ' +
         'before midnight goes as they begin, one after it as they end, and nudgeNote says ' +
         'when it goes. answer is done unless asked: choice with ' +
         'choices (a mood check-in), text (one line a day), or note with template (each ' +
@@ -1089,6 +1112,7 @@ export function buildServer(
       inputSchema: {
         name: z.string().min(1),
         schedule: schedule.optional(),
+        timesAWeek: timesAWeek.optional(),
         time: habitTime.optional(),
         timeZone: timeZone.optional(),
         nudge: z.boolean().optional(),
@@ -1113,7 +1137,9 @@ export function buildServer(
         'here; noteId, the entry a note habit made), recentAnswers for a choice habit (the ' +
         'last seven days answered, newest first), in timeZone (the zone of the device Eric ' +
         'last used the app on, so today is the day the app shows), thisPeriod for ' +
-        'a weekly or monthly one, and its streak (days, weeks or months done in a row, skips ' +
+        'a weekly or monthly one, timesAWeek for one of several days a week, thisWeek for a ' +
+        'weekly one (done days this week of its target), and its streak (days, weeks or ' +
+        'months done in a row, a week counting once its target is met, skips ' +
         'passed over, today and a yesterday still open not counted against it; capped when ' +
         'read back no further). Habits only.',
       inputSchema: { includeArchived: z.boolean().optional() },
@@ -1127,7 +1153,9 @@ export function buildServer(
     {
       title: 'Change a habit',
       description:
-        'Renames a habit, changes its schedule, its time (null: any time; in the zone of the ' +
+        'Renames a habit, changes its schedule, how many days a week a weekly one is for ' +
+        '(timesAWeek; 1 or null is once; made daily or monthly it goes), its time (null: any ' +
+        'time; in the zone of the ' +
         'device Eric last used the app on, timeZone only when a refusal asks for it), its ' +
         'nudge (one push at its time if not yet logged, a weekly or monthly habit on the last ' +
         'day of its week or month; needs a time; nudgeNote says when it goes), what it is ' +
@@ -1139,6 +1167,7 @@ export function buildServer(
         habit,
         name: z.string().min(1).optional(),
         schedule: schedule.optional(),
+        timesAWeek: timesAWeek.nullable().optional(),
         time: habitTime.nullable().optional(),
         timeZone: timeZone.optional(),
         nudge: z.boolean().optional(),
@@ -1161,13 +1190,15 @@ export function buildServer(
         'further back, in the zone of the device Eric last used the app on (the day the app ' +
         'shows; say which day you logged); never a day before ' +
         'the habit began, and yesterday for a weekly or monthly one only when it ended a ' +
-        'week or month (else log today); none clears that day. date is ' +
+        'week or month (else log today), unless it is for several days a week, where each ' +
+        'day counts; none clears that day. date is ' +
         'YYYY-MM-DD (list_habits gives today and yesterday); today when left out. A skip ' +
         'never breaks a streak. Refused for an archived habit. With state done, answer is a ' +
         "choice habit's choice or a text habit's one line (at most 500; a line break is " +
         'refused, and tabs and runs of spaces become one space, the ends trimmed), sealed ' +
         "before it is stored; noteId is a note habit's entry, made first with use_template from its " +
-        'template. Gives back the day, its state and the streak. Habits only.',
+        "template. Gives back the day, its state, a weekly habit's week so far (thisWeek: " +
+        'done of target) and the streak. Habits only.',
       inputSchema: {
         habit,
         state: z.enum(['done', 'skipped', 'none']),

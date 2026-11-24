@@ -242,7 +242,9 @@ export class RightNowHabits {
     const settled = this.habits.settled();
     const named = (state: 'done' | 'skipped') =>
       settled
-        .filter((h) => h.state === state)
+        // A habit of several days a week is named by today's own entry,
+        // its week still open (2026-11-23).
+        .filter((h) => (h.today ?? h.state) === state)
         .map((h) => h.name)
         .join(', ');
     const done = named('done');

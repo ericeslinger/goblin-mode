@@ -4295,7 +4295,9 @@ small proposals there. What is decided:
 
 - **Schedules:** daily, weekly or monthly. Weekly means once a week at
   some point: the habit shows on every day of the week until it is
-  done. Monthly likewise for the month.
+  done. Monthly likewise for the month. *Added 2026-11-23 (Eric, "N per
+  week"):* a weekly habit can be for 2 to 7 days of the week, on no set
+  day (N times a week, below).
 - **Answers,** four kinds and no more: done; one of a short list of
   strings (a mood); one line of text; opens a note (a template's
   entry).
@@ -4336,6 +4338,8 @@ derived; letters, digits and hyphens, at most 64, never an underscore:
 interface Habit {
   name: string;          // 1 to 80 (HABIT_NAME_MAX), plain, never sealed
   schedule: 'daily' | 'weekly' | 'monthly';
+  times?: number;        // only with weekly: 2 to 7 days a week, whole
+                         // (2026-11-23); none: once
   time?: string;         // "HH:MM", local, as a recurrence's; none: any
   tz: string;            // IANA zone `time` is in, 1 to 64; the device's
                          // when made or its time last set; since
@@ -5441,6 +5445,106 @@ assistant's `nudgeNote` and the journal offer's line all read them.
   and the TTL of an hour, which still lets a 22:00 nudge to a phone
   offline arrive later inside the quiet hours.
 
+**N times a week (2026-11-23).** Eric asked: "I want to add an N per
+week habit. Like 'write 3 times a week' or 'pottery twice a week' with
+no particular day, just a goal of doing it a couple times a week
+without a set day." Built as below. As in the steps before, the
+choices are the build's own, not Eric's, and open to his overruling,
+the nudge rule above all; nothing decided above changed but where
+marked. Monthly stays once a month: no N a month.
+
+- *Stored.* `Habit.times`, optional, a whole 2 to 7
+  (`HABIT_TIMES_MIN`, `_MAX`), only with `schedule: 'weekly'`; absent
+  is once, so every habit stored before is as it was and there is no
+  migration. The generated `isValidHabit` takes it as a number; by
+  hand, `isHabitInBounds` holds it to an int of 2 to 7 on a weekly
+  habit, so a habit made daily or monthly must lose it in the same
+  write (a rules test says so, with 1, 8, 2.5 and a string refused).
+  `habitTimes` reads the target: the stored one on a weekly habit,
+  else one.
+- *A week met.* One entry per day, as before. A week is met (done)
+  when it holds `times` done days (`habitPeriodState`); a skip, as a
+  weekly habit's, settles the week as skipped unless it is met, and
+  the streak passes over it. `habitPeriodCount` gives the week's done
+  days and its target. `habitSettledOn` is the day the target was met,
+  else the first skip.
+- *Due.* Every day of the week until the day it is met or skipped, that
+  day included, and not after (`habitDue`). A day done before then
+  shows done, and the habit is due again the next day.
+- *The streak* counts weeks met; the current week does not count
+  against it, and last week is spared on the first day of the next, as
+  for any weekly habit. A past week short of `times` with no skip ends
+  it.
+- *The strip.* A done day reads done; the other days of a met (or
+  skipped) week read covered; a week that ended short reads missed on
+  its days not done, by the same rule as a week that ended with
+  nothing; else open.
+- *Yesterday.* Diverged from the rule of 2026-11-21 (review of #329),
+  where a weekly habit's yesterday is loggable only at a week's start,
+  as within a week today's tick settles it. For a habit of several days
+  a week that reason does not hold: each day counts, so its yesterday
+  is loggable within a week too, as a daily habit's
+  (`habitDayLoggable`), for the app and `log_habit` alike. Right Now's
+  Yesterday? shows for it while yesterday holds nothing and the week is
+  neither met nor skipped; the Habits screen has its Yesterday row.
+- *In the app.* The add form and Edit offer How many times a week (a
+  select of Once, Twice, 3 times to 7 times) while How often is Once a
+  week; Once stores nothing (`storedTimes`). A change of schedule
+  writes `times` with it, or removes it (`setSchedule`), so a habit made
+  daily or monthly loses it. On Right Now its row says the week so far
+  where a weekly one says This week ("1 of 3 this week"), and once
+  ticked today it leaves the list for the settled line ("Done today:
+  Pottery") until tomorrow, its week still open (`settledToday`). On
+  the Habits screen how often is said in words ("Twice a week", "3
+  times a week") and the period line is the count ("1 of 2 this week",
+  "2 of 2 this week"; a skipped week as before). Home counts it settled
+  on a day it is ticked. The words are plain text on the row, read as
+  they are; no separate accessible name was needed.
+- *Nudges, the build's rule (Eric's to overrule).* Eric's decision of
+  2026-11-22, the last day of the period, generalised: a nudge goes at
+  the habit's time on each day of its week with no entry, the week
+  neither met nor skipped, where the days left, today counted, are no
+  more than the done days still needed (`habitNudgeDue`). So three a
+  week with none done is nudged on the week's last three days; with
+  two done by Friday, on Sunday only; once met, never. With `times`
+  absent it is exactly the rule before. The quiet hours, the zone and
+  the lateness bound are as for any nudge. The push says the count:
+  "Right Now · 1 of 3 this week".
+- *The sent mark.* `usage/habitNudges` keeps one day per habit, as
+  before, no shape changed. For a habit of `times` a mark stops a
+  nudge on that day or an earlier one only (it stopped any in the
+  period), so a second and third can go in a week and never two for
+  one day; for every other habit a mark anywhere in the period still
+  stops another. The claim is the same transaction: it reads the
+  habit, the week's month logs and the marks, checks the nudge is
+  still due on them and marks the day, so a rerun or a duplicate wake
+  sends nothing. A wake is queued for each day a nudge could go (the
+  week's last `times` days), and the claim decides on the check-ins.
+- *The assistant.* `create_habit` and `update_habit` take `timesAWeek`
+  (1 to 7, with weekly only; 1 or null is once, refused with another
+  schedule, and removed when a habit is made daily or monthly);
+  `list_habits` gives `timesAWeek` and a weekly habit's `thisWeek`
+  (`{ done, target }`), and `log_habit` gives `thisWeek` back;
+  `get_context` says one done today `done`, its week still open, with
+  its `thisWeek`.
+  `timesAWeek` rather than `times` in the tools, to say what it counts.
+  `INSTRUCTIONS`, the descriptions, `nudgeNote`, the tool table and
+  `garden-this` say it.
+- *Tests.* Schema specs for the shape, due, met, the count, the strip,
+  the streak across weeks spanning two months, the skip, weeks from
+  Sunday, yesterday within a week and at its boundary, and the nudge
+  days and marks; the sender's unit and emulator specs (each of the
+  last days, one a day, the count in the push); the tools' emulator
+  specs; rules tests; the app's for the forms, the words, Right Now and
+  the screen; a journey (`habits.spec.ts`, "twice a week") that makes
+  Pottery twice a week, ticks it today on Right Now, sees it gone from
+  the list and "1 of 2 this week" across a reload, logs yesterday on
+  the Habits screen and sees "2 of 2 this week" and a streak of a week.
+- *Not established.* Nudges on a real device (as for every nudge); the
+  week's count on Right Now on a narrow phone with a long name and a
+  nudge on (one line of quiet text, wrapping as the row's other words
+  do).
+
 **Build order (#324).**
 
 1. Design: this section, the stored schemas with generated rules and
@@ -5936,10 +6040,10 @@ it, one backticked tool name per row.
 | `list_reminders` | Open and snoozed reminders in Right Now, soonest first | Right Now (as built) |
 | `create_reminder` | A reminder, with a time, a repeat or Someday; a project task's stage and tags | Right Now (as built), Stages and items |
 | `update_reminder` | Changes, moves, snoozes or finishes a reminder; a project task's stage and tags | Right Now (as built), Stages and items |
-| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly, a time of day in the zone of the device he last used the app on (`timeZone` optional since 2026-11-22, needed only while the app has stored none), a nudge (one push at its time if not logged, never a second; a weekly or monthly habit's on the last day of its period; in the quiet hours a time before midnight goes as they begin, one after it as they end; Eric, 2026-11-22); answered with done, one of 2 to 12 choices, one line of text, or a note from a template by id or name (step 6, 2026-11-22); a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3, 4 and 6 |
-| `list_habits` | Each habit (archived ones when asked) with its schedule, time, nudge, kind with its choices or template, whether due today, today's and yesterday's state and what each holds (its answer opened, `answerSealed` when it cannot be, or the entry's `noteId`), a choice habit's `recentAnswers` over seven days, and its streak, in the zone of the device Eric last used the app on, given as `timeZone` (2026-11-22); Habits only | Habits (#324), steps 3 and 6 |
-| `update_habit` | Renames, reschedules, retimes, nudges (as `create_habit`), changes what it is answered with (its logs kept) or archives a habit, by id or name; never deletes; Habits only | Habits (#324), steps 3, 4 and 6 |
-| `log_habit` | Marks a habit done or skipped for today or yesterday in the zone of the device Eric last used the app on (the day the app shows, 2026-11-22), or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21); with done, a choice habit's choice or a text habit's one line (at most 500, a line break refused, spacing tidied to one line), sealed on the server as the app seals it, or a note habit's entry made with `use_template` (`noteId`); Habits only | Habits (#324), steps 3 and 6 |
+| `create_habit` | A habit: its name in Eric's words, daily, weekly or monthly (weekly with `timesAWeek`, 2 to 7 days a week on no set day, 2026-11-23), a time of day in the zone of the device he last used the app on (`timeZone` optional since 2026-11-22, needed only while the app has stored none), a nudge (one push at its time if not logged, never a second; a weekly or monthly habit's on the last day of its period, one of several days a week on each late day not logged where the days left are no more than those still needed, never two a day; in the quiet hours a time before midnight goes as they begin, one after it as they end; Eric, 2026-11-22); answered with done, one of 2 to 12 choices, one line of text, or a note from a template by id or name (step 6, 2026-11-22); a name an unarchived habit has is refused; Habits only | Habits (#324), steps 3, 4 and 6 |
+| `list_habits` | Each habit (archived ones when asked) with its schedule (and `timesAWeek`), time, nudge, kind with its choices or template, whether due today, today's and yesterday's state and what each holds (its answer opened, `answerSealed` when it cannot be, or the entry's `noteId`), a choice habit's `recentAnswers` over seven days, a weekly one's `thisWeek` (done days of its target, 2026-11-23), and its streak, in the zone of the device Eric last used the app on, given as `timeZone` (2026-11-22); Habits only | Habits (#324), steps 3 and 6 |
+| `update_habit` | Renames, reschedules (with `timesAWeek` for a weekly one, removed when made daily or monthly, 2026-11-23), retimes, nudges (as `create_habit`), changes what it is answered with (its logs kept) or archives a habit, by id or name; never deletes; Habits only | Habits (#324), steps 3, 4 and 6 |
+| `log_habit` | Marks a habit done or skipped for today or yesterday in the zone of the device Eric last used the app on (the day the app shows, 2026-11-22), or clears the day, one merged day of its month log as the app writes it; never a day before it began, nor a yesterday in the same week or month (`habitDayLoggable`, 2026-11-21) unless it is for several days a week (2026-11-23); gives back a weekly one's `thisWeek`; with done, a choice habit's choice or a text habit's one line (at most 500, a line break refused, spacing tidied to one line), sealed on the server as the app seals it, or a note habit's entry made with `use_template` (`noteId`); Habits only | Habits (#324), steps 3 and 6 |
 
 Search in the MVP is a scan of the owner's notes in the function
 (hundreds to low thousands of documents). A real index waits until it

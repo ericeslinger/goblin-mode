@@ -10,8 +10,10 @@ import {
   habitLogMonths,
   habitMonth,
   habitPeriod,
+  habitPeriodCount,
   habitPeriodState,
   habitSettledOn,
+  habitTimes,
   habitStreak,
   habitNextNudge,
   habitNudgeAt,
@@ -1123,5 +1125,263 @@ describe('the day follows the device (Eric, 2026-11-22)', () => {
     expect(habitNudgeAt(tea, '2026-10-31', habitsConfig({ tz: NY }))).toBe(
       Date.parse('2026-11-01T01:00:00Z'),
     );
+  });
+});
+
+describe('N times a week (Eric, 2026-11-23)', () => {
+  // Weeks from Monday: 2026-11-16 to 22, 23 to 29, then 11-30 to 12-06.
+  const pottery = { schedule: 'weekly', times: 2, archived: false } as const;
+  const write = { schedule: 'weekly', times: 3, archived: false } as const;
+
+  it('stores a target of 2 to 7 days, whole, on a weekly habit only', () => {
+    for (const times of [2, 3, 7]) {
+      expect(Habit.safeParse(habit({ schedule: 'weekly', times })).success).toBe(true);
+    }
+    expect(Habit.safeParse(habit({ schedule: 'weekly' })).success).toBe(true);
+    for (const times of [0, 1, 8, 2.5, '2']) {
+      expect(Habit.safeParse(habit({ schedule: 'weekly', times })).success).toBe(false);
+    }
+    expect(Habit.safeParse(habit({ schedule: 'daily', times: 2 })).success).toBe(false);
+    expect(Habit.safeParse(habit({ schedule: 'monthly', times: 2 })).success).toBe(false);
+  });
+
+  it('reads the target: a weekly habit’s times, else once', () => {
+    expect(habitTimes(pottery)).toBe(2);
+    expect(habitTimes(weekly)).toBe(1);
+    expect(habitTimes(daily)).toBe(1);
+    // Whatever is stored, a month or a day is once.
+    expect(habitTimes({ schedule: 'monthly', times: 3 })).toBe(1);
+  });
+
+  it('is met when that many days of the week are done, and counts them', () => {
+    const one = doneOn('2026-11-17');
+    expect(habitPeriodState(pottery, one, '2026-11-20')).toBe('none');
+    expect(habitPeriodCount(pottery, one, '2026-11-20')).toEqual({ done: 1, target: 2 });
+    expect(habitSettledOn(pottery, one, '2026-11-20')).toBeUndefined();
+    const two = doneOn('2026-11-17', '2026-11-19');
+    expect(habitPeriodState(pottery, two, '2026-11-20')).toBe('done');
+    expect(habitPeriodCount(pottery, two, '2026-11-20')).toEqual({ done: 2, target: 2 });
+    // Settled on the day the target was met.
+    expect(habitSettledOn(pottery, two, '2026-11-20')).toBe('2026-11-19');
+    // Last week's days are last week's.
+    expect(habitPeriodCount(pottery, two, '2026-11-23')).toEqual({ done: 0, target: 2 });
+    // Once a week, as before: one done day meets it.
+    expect(habitPeriodState(weekly, one, '2026-11-20')).toBe('done');
+    expect(habitPeriodCount(weekly, one, '2026-11-20')).toEqual({ done: 1, target: 1 });
+  });
+
+  it('is due every day of the week until met, again the day after a done day', () => {
+    const one = doneOn('2026-11-17');
+    expect(habitDue(pottery, one, '2026-11-16')).toBe(true);
+    // Done that day: shown done.
+    expect(habitDue(pottery, one, '2026-11-17')).toBe(true);
+    // Due again while unmet.
+    expect(habitDue(pottery, one, '2026-11-18')).toBe(true);
+    expect(habitDue(pottery, one, '2026-11-22')).toBe(true);
+    const two = doneOn('2026-11-17', '2026-11-19');
+    // Met that day: shown done; after it, no longer due.
+    expect(habitDue(pottery, two, '2026-11-19')).toBe(true);
+    expect(habitDue(pottery, two, '2026-11-20')).toBe(false);
+    expect(habitDue(pottery, two, '2026-11-22')).toBe(false);
+    // The next week starts afresh.
+    expect(habitDue(pottery, two, '2026-11-23')).toBe(true);
+    expect(habitDue({ ...pottery, archived: true }, one, '2026-11-18')).toBe(false);
+  });
+
+  it('settles the week with a skip, as a weekly habit’s skip does', () => {
+    const days = log({ '2026-11-17': done, '2026-11-18': skipped });
+    expect(habitPeriodState(pottery, days, '2026-11-18')).toBe('skipped');
+    expect(habitSettledOn(pottery, days, '2026-11-20')).toBe('2026-11-18');
+    expect(habitDue(pottery, days, '2026-11-18')).toBe(true);
+    expect(habitDue(pottery, days, '2026-11-19')).toBe(false);
+    // The streak is spared: the week before still counts.
+    const spared = log({
+      '2026-11-10': done,
+      '2026-11-12': done,
+      '2026-11-17': done,
+      '2026-11-18': skipped,
+    });
+    expect(habitStreak(pottery, spared, '2026-11-25').count).toBe(1);
+  });
+
+  it('shows a done day done, a met week’s other days covered, an unmet past week missed', () => {
+    const one = doneOn('2026-11-10', '2026-11-17');
+    // Friday 2026-11-20: last week (to the 15th) ended one short of two.
+    expect(habitStrip(pottery, one, '2026-11-20').map((d) => d.state)).toEqual([
+      'missed', // Sat 14
+      'missed', // Sun 15
+      'open',
+      'done',
+      'open',
+      'open',
+      'open',
+    ]);
+    const two = doneOn('2026-11-17', '2026-11-19');
+    expect(
+      habitStrip(pottery, two, '2026-11-20')
+        .map((d) => d.state)
+        .slice(2),
+    ).toEqual(['covered', 'done', 'covered', 'done', 'covered']);
+    // Monday: last week, one short, can still be logged as yesterday, so
+    // its days stay open, not yet missed.
+    expect(habitStrip(pottery, doneOn('2026-11-17'), '2026-11-23').map((d) => d.state)).toEqual(
+      // Tue 17 to Mon 23.
+      ['done', 'open', 'open', 'open', 'open', 'open', 'open'],
+    );
+  });
+
+  it('counts weeks met as a streak, across two months, and a week short ends it', () => {
+    const days = doneOn(
+      '2026-11-24',
+      '2026-11-27',
+      // The week of 11-30 to 12-06, its two days in two months.
+      '2026-11-30',
+      '2026-12-02',
+      '2026-12-08',
+      '2026-12-10',
+    );
+    // Monday 2026-12-14: this week empty, not counted against.
+    expect(habitStreak(pottery, days, '2026-12-14')).toEqual({ count: 3, complete: true });
+    // Met this week too.
+    const more = new Map([...days, ['2026-12-14', done], ['2026-12-15', done]]);
+    expect(habitStreak(pottery, more, '2026-12-15').count).toBe(4);
+    // This week one of two: not against it while it can still be met.
+    const part = new Map([...days, ['2026-12-14', done]]);
+    expect(habitStreak(pottery, part, '2026-12-19').count).toBe(3);
+    // A week before with only one done day and no skip is a miss.
+    const short = doneOn('2026-11-24', '2026-11-27', '2026-12-02', '2026-12-08', '2026-12-10');
+    expect(habitStreak(pottery, short, '2026-12-14').count).toBe(1);
+    // As once a week, every one of those weeks counts.
+    expect(habitStreak(weekly, short, '2026-12-14').count).toBe(3);
+  });
+
+  it('spares last week on the first day of the next, while yesterday can be logged', () => {
+    const days = doneOn('2026-11-10', '2026-11-12', '2026-11-17');
+    // Monday 2026-11-23: last week one short, yesterday its last day.
+    expect(habitStreak(pottery, days, '2026-11-23').count).toBe(1);
+    // Tuesday: that chance has gone.
+    expect(habitStreak(pottery, days, '2026-11-24').count).toBe(0);
+    // Logged yesterday after the fact on the Monday, it counts.
+    const late = new Map([...days, ['2026-11-22', done]]);
+    expect(habitStreak(pottery, late, '2026-11-23').count).toBe(2);
+  });
+
+  it('keeps weeks by the module’s week start (weeks from Sunday)', () => {
+    const weekStart = 'Sun' as const;
+    // Weeks from Sunday: 2026-11-15 to 21, then 22 to 28.
+    const days = doneOn('2026-11-16', '2026-11-21', '2026-11-22');
+    expect(habitPeriodState(pottery, days, '2026-11-21', weekStart)).toBe('done');
+    expect(habitPeriodCount(pottery, days, '2026-11-23', weekStart)).toEqual({
+      done: 1,
+      target: 2,
+    });
+    expect(habitDue(pottery, days, '2026-11-23', weekStart)).toBe(true);
+    // From Monday, the 16th and the 21st are one week, the 22nd the same.
+    expect(habitPeriodCount(pottery, days, '2026-11-22')).toEqual({ done: 3, target: 2 });
+    expect(habitStreak(pottery, days, '2026-11-23', { weekStart }).count).toBe(1);
+  });
+
+  it('logs yesterday within the week too, as each day counts, never before it began', () => {
+    expect(habitDayLoggable(pottery, '2026-11-18', '2026-11-19')).toBe(true);
+    // Once a week, as before: within one week, no.
+    expect(habitDayLoggable(weekly, '2026-11-18', '2026-11-19')).toBe(false);
+    // At a week’s boundary, both.
+    expect(habitDayLoggable(pottery, '2026-11-22', '2026-11-23')).toBe(true);
+    expect(habitDayLoggable(weekly, '2026-11-22', '2026-11-23')).toBe(true);
+    expect(habitDayLoggable(pottery, '2026-11-18', '2026-11-19', { createdOn: '2026-11-19' })).toBe(
+      false,
+    );
+    expect(habitDayLoggable(pottery, '2026-11-17', '2026-11-19')).toBe(false);
+    // Logged on the Monday for the Sunday, it counts for the week before.
+    const late = doneOn('2026-11-17', '2026-11-22');
+    expect(habitPeriodState(pottery, late, '2026-11-22')).toBe('done');
+    expect(habitDue(pottery, late, '2026-11-23')).toBe(true);
+  });
+
+  describe('its nudges (a rule of the build’s, Eric’s to overrule)', () => {
+    const NY = 'America/New_York';
+    const config = habitsConfig({});
+    const on = { on: true, config };
+    const nudged = { ...write, time: '21:00', tz: NY, nudge: true } as const;
+    /** 21:00 in New York, Thursday 19 to Sunday 22 November 2026 (EST). */
+    const THU = Date.parse('2026-11-20T02:00:00Z');
+    const FRI = Date.parse('2026-11-21T02:00:00Z');
+    const SAT = Date.parse('2026-11-22T02:00:00Z');
+    const SUN = Date.parse('2026-11-23T02:00:00Z');
+    const withDays = (days: Record<string, HabitEntry>, sentFor?: string) => ({
+      ...on,
+      entries: log(days),
+      ...(sentFor ? { sentFor } : {}),
+    });
+
+    it('can go on the week’s last three days for three a week, never before', () => {
+      expect(habitNudgeAt(nudged, '2026-11-19', config)).toBeUndefined();
+      expect(habitNudgeAt(nudged, '2026-11-20', config)).toBe(FRI);
+      expect(habitNudgeAt(nudged, '2026-11-22', config)).toBe(SUN);
+      expect(habitNudgeDue(nudged, THU, on)).toBeUndefined();
+      expect(habitNudgePlan(nudged, config)).toEqual({
+        kind: 'at',
+        time: '21:00',
+        schedule: 'weekly',
+        lastDay: 'Sun',
+        times: 3,
+      });
+    });
+
+    it('with none done, nudges on each of the last three days', () => {
+      expect(habitNudgeDue(nudged, FRI, withDays({}))).toEqual({ day: '2026-11-20', at: FRI });
+      expect(habitNudgeDue(nudged, SAT, withDays({}, '2026-11-20'))).toEqual({
+        day: '2026-11-21',
+        at: SAT,
+      });
+      expect(habitNudgeDue(nudged, SUN, withDays({}, '2026-11-21'))).toEqual({
+        day: '2026-11-22',
+        at: SUN,
+      });
+    });
+
+    it('with two done by Friday, only on the last day; once met, never', () => {
+      const two = { '2026-11-17': done, '2026-11-19': done };
+      expect(habitNudgeDue(nudged, FRI, withDays(two))).toBeUndefined();
+      expect(habitNudgeDue(nudged, SAT, withDays(two))).toBeUndefined();
+      expect(habitNudgeDue(nudged, SUN, withDays(two))).toEqual({ day: '2026-11-22', at: SUN });
+      const met = { ...two, '2026-11-21': done };
+      expect(habitNudgeDue(nudged, SUN, withDays(met))).toBeUndefined();
+      // One done on Saturday: needed two, two days left on Saturday? No:
+      // Saturday holds an entry, so none that day; Sunday, one day left
+      // and two still needed, it goes.
+      const sat = { '2026-11-21': done };
+      expect(habitNudgeDue(nudged, SAT, withDays(sat))).toBeUndefined();
+      expect(habitNudgeDue(nudged, SUN, withDays(sat))).toEqual({ day: '2026-11-22', at: SUN });
+    });
+
+    it('sends none for a day holding an entry, nor a week skipped', () => {
+      expect(habitNudgeDue(nudged, FRI, withDays({ '2026-11-20': done }))).toBeUndefined();
+      expect(habitNudgeDue(nudged, FRI, withDays({ '2026-11-18': skipped }))).toBeUndefined();
+    });
+
+    it('never sends two for one day: the mark stops today and earlier only', () => {
+      expect(habitNudgeDue(nudged, FRI, withDays({}, '2026-11-20'))).toBeUndefined();
+      // A mark ahead of today (the device went west) holds too.
+      expect(habitNudgeDue(nudged, FRI, withDays({}, '2026-11-21'))).toBeUndefined();
+      expect(habitNudgeDue(nudged, FRI, withDays({}, '2026-11-19'))).toEqual({
+        day: '2026-11-20',
+        at: FRI,
+      });
+      // Once a week, a mark anywhere in the week still stops the Sunday.
+      const once = { ...nudged, times: undefined };
+      expect(habitNudgeDue(once, SUN, withDays({}, '2026-11-18'))).toBeUndefined();
+      expect(habitNudgeDue(once, SUN, withDays({}))).toEqual({ day: '2026-11-22', at: SUN });
+    });
+
+    it('wakes for each candidate day in turn', () => {
+      expect(habitNextNudge(nudged, Date.parse('2026-11-16T15:00:00Z'), config)).toBe(FRI);
+      expect(habitNextNudge(nudged, FRI, config)).toBe(SAT);
+      expect(habitNextNudge(nudged, SUN, config)).toBe(Date.parse('2026-11-28T02:00:00Z'));
+      // Twice a week: from Saturday.
+      expect(
+        habitNextNudge({ ...nudged, times: 2 }, Date.parse('2026-11-16T15:00:00Z'), config),
+      ).toBe(SAT);
+    });
   });
 });
