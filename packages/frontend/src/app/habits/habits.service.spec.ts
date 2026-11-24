@@ -500,9 +500,20 @@ describe('HabitsService (#324)', () => {
     habits.setSchedule('floss', 'weekly');
     expect(lastWrite(api)).toEqual({
       path: 'users/u1/habits/floss',
-      data: { schedule: 'weekly', updatedAt: NOW },
+      data: { schedule: 'weekly', times: 'DELETE', updatedAt: NOW },
       merge: true,
     });
+    // Twice a week (2026-11-23): written with it; a target on another
+    // schedule, or of one, is none.
+    habits.setSchedule('floss', 'weekly', 2);
+    expect(lastWrite(api).data).toEqual({ schedule: 'weekly', times: 2, updatedAt: NOW });
+    habits.setSchedule('floss', 'monthly', 2);
+    expect(lastWrite(api).data).toEqual({ schedule: 'monthly', times: 'DELETE', updatedAt: NOW });
+    habits.add({ name: 'Pots', schedule: 'weekly', times: 2 });
+    expect(lastWrite(api).data).toMatchObject({ schedule: 'weekly', times: 2 });
+    habits.add({ name: 'Bins', schedule: 'daily', times: 2 });
+    expect(lastWrite(api).data).not.toHaveProperty('times');
+    habits.setSchedule('floss', 'weekly');
     // Its ticks, read again as weeks: done Monday the 5th settles the week.
     push([habitDoc('floss', { name: 'Floss', schedule: 'weekly', createdAt: NOW - 30 * DAY })], {
       'floss_2026-10': { '01': { state: 'done' }, '05': { state: 'done' } },

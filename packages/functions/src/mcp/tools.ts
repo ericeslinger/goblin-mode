@@ -109,6 +109,7 @@ import {
   HabitLog,
   HABIT_ID,
   HABIT_NAME_MAX,
+  HABIT_TIMES_MAX,
   HABIT_TEXT_MAX,
   type HabitAnswer,
   type HabitEntry,
@@ -125,6 +126,7 @@ import {
   habitLogId,
   habitLogMonths,
   habitMonth,
+  habitPeriodCount,
   habitPeriodState,
   habitsConfig,
   habitZone,
@@ -628,6 +630,8 @@ function habitFields(id: string, h: Habit, zone: string) {
     id,
     name: h.name,
     schedule: h.schedule,
+    // A weekly habit's target, days a week (2026-11-23); none: once.
+    ...(h.times !== undefined ? { timesAWeek: h.times } : {}),
     ...(h.time !== undefined ? { time: h.time } : {}),
     timeZone: zone,
     answer: h.answer,
@@ -686,15 +690,24 @@ function nudgeNoteFor(h: Habit, config: HabitsConfig, zone: string): string {
   const when =
     plan.schedule === 'daily'
       ? `${at}, on a day it is not yet done or skipped`
-      : plan.schedule === 'weekly'
-        ? `on the last day of each week (${WEEKDAY_NAMES[plan.lastDay ?? 'Sun']}, as weeks ` +
-          `start on ${WEEKDAY_NAMES[config.weekStart]}) ${at}, only if that week is not yet ` +
-          'done or skipped'
-        : `on the last day of each month ${at}, only if that month is not yet done or skipped`;
+      : plan.schedule === 'weekly' && plan.times !== undefined
+        ? `${at} on each day not yet logged, late in the week (weeks start on ` +
+          `${WEEKDAY_NAMES[config.weekStart]}), where the days left, that day counted, are no ` +
+          `more than the ${plan.times} done days still needed: with none done, on the last ` +
+          `${plan.times} days of the week; once done ${plan.times} times that week, or skipped, none`
+        : plan.schedule === 'weekly'
+          ? `on the last day of each week (${WEEKDAY_NAMES[plan.lastDay ?? 'Sun']}, as weeks ` +
+            `start on ${WEEKDAY_NAMES[config.weekStart]}) ${at}, only if that week is not yet ` +
+            'done or skipped'
+          : `on the last day of each month ${at}, only if that month is not yet done or skipped`;
   return (
     `One push ${when}, in ${zone} (the zone of the device Eric last used the app on), to ` +
     `each device with notifications on; never a second that ${
-      plan.schedule === 'daily' ? 'day' : plan.schedule === 'weekly' ? 'week' : 'month'
+      plan.schedule === 'daily' || plan.times !== undefined
+        ? 'day'
+        : plan.schedule === 'weekly'
+          ? 'week'
+          : 'month'
     }.`
   );
 }
@@ -755,6 +768,27 @@ function habitAnswerText(h: Habit, answer: string | undefined): string | undefin
     `${h.name} is ${h.answer === 'note' ? 'answered with a note: give noteId' : 'done or not'}; ` +
       'it takes no answer',
   );
+}
+
+/**
+ * A weekly habit's target as given (2026-11-23): a whole 1 to 7 days a
+ * week, on a weekly habit only; 1 (or null) is once a week, stored as
+ * none. Undefined when not given.
+ */
+function habitTimesArg(
+  times: number | null | undefined,
+  schedule: Habit['schedule'],
+): number | null | undefined {
+  if (times === undefined) return undefined;
+  if (times === null || times === 1) return null;
+  if (!Number.isInteger(times) || times < 1 || times > HABIT_TIMES_MAX)
+    throw new ToolError(`timesAWeek is a whole number of days, 1 to ${HABIT_TIMES_MAX}`);
+  if (schedule !== 'weekly')
+    throw new ToolError(
+      `timesAWeek goes only with a weekly habit; this one is ${schedule}: give schedule weekly ` +
+        'with it',
+    );
+  return times;
 }
 
 /** A time of day for a habit; refused unless HH:MM. */
@@ -3825,6 +3859,10 @@ export class NotesTools {
           ...(h.habit.schedule === 'daily'
             ? {}
             : { thisPeriod: habitPeriodState(h.habit, entries, h.today, weekStart) }),
+          // How far this week has come (2026-11-23): its done days and target.
+          ...(h.habit.schedule === 'weekly'
+            ? { thisWeek: habitPeriodCount(h.habit, entries, h.today, weekStart) }
+            : {}),
         };
         if (!streaks) return { ...view, streak: undefined as HabitStreakView | undefined };
         const createdOn = h.createdAt === undefined ? undefined : habitToday(h.createdAt, h.zone);
@@ -3936,6 +3974,7 @@ export class NotesTools {
   async createHabit(args: {
     name: string;
     schedule?: Habit['schedule'];
+    timesAWeek?: number;
     time?: string;
     timeZone?: string;
     nudge?: boolean;
@@ -3945,6 +3984,7 @@ export class NotesTools {
   }) {
     await this.requireModule('habits', 'making a habit');
     const name = habitName(args.name);
+    const times = habitTimesArg(args.timesAWeek, args.schedule ?? 'daily');
     const answered = (await this.habitAnswerArgs(args)) ?? { answer: 'done' as const };
     const time = args.time === undefined ? undefined : habitTime(args.time);
     const config = await this.habitsSettings();
@@ -3955,6 +3995,7 @@ export class NotesTools {
     const data = Habit.parse({
       name,
       schedule: args.schedule ?? 'daily',
+      ...(typeof times === 'number' ? { times } : {}),
       ...(time !== undefined ? { time } : {}),
       tz,
       ...answered,
@@ -4033,6 +4074,7 @@ export class NotesTools {
     habit: string;
     name?: string;
     schedule?: Habit['schedule'];
+    timesAWeek?: number | null;
     time?: string | null;
     timeZone?: string;
     nudge?: boolean;
@@ -4045,6 +4087,7 @@ export class NotesTools {
     const asked = [
       'name',
       'schedule',
+      'timesAWeek',
       'time',
       'timeZone',
       'nudge',
@@ -4055,8 +4098,8 @@ export class NotesTools {
     ] as const;
     if (!asked.some((k) => args[k] !== undefined))
       throw new ToolError(
-        'say what to change: name, schedule, time, timeZone, nudge, archived, answer, ' +
-          'choices or template',
+        'say what to change: name, schedule, timesAWeek, time, timeZone, nudge, archived, ' +
+          'answer, choices or template',
       );
     // The template is found before the transaction: it reads the notes.
     const template =
@@ -4078,6 +4121,13 @@ export class NotesTools {
       if (name !== undefined && name !== was.name) update['name'] = name;
       if (args.schedule !== undefined && args.schedule !== was.schedule)
         update['schedule'] = args.schedule;
+      // A weekly habit's target (2026-11-23): checked against the schedule
+      // it will have; made daily or monthly, it goes in the same write.
+      const schedule = args.schedule ?? was.schedule;
+      const times = habitTimesArg(args.timesAWeek, schedule);
+      const nextTimes =
+        schedule !== 'weekly' ? undefined : times === undefined ? was.times : (times ?? undefined);
+      if (nextTimes !== was.times) update['times'] = nextTimes ?? FieldValue.delete();
       if (time === null && was.time !== undefined) update['time'] = FieldValue.delete();
       if (typeof time === 'string' && time !== was.time) update['time'] = time;
       if (tz !== undefined && tz !== was.tz) update['tz'] = tz;
@@ -4102,7 +4152,7 @@ export class NotesTools {
           next: undefined,
         };
       const merged: Data = { ...was, ...update };
-      for (const k of ['time', 'choices', 'template'])
+      for (const k of ['time', 'times', 'choices', 'template'])
         if (update[k] instanceof FieldValue) delete merged[k];
       if (merged['nudge'] === true && merged['time'] === undefined)
         throw new ToolError(
@@ -4264,6 +4314,7 @@ export class NotesTools {
       today: view.today,
       yesterday: view.yesterday,
       ...('thisPeriod' in view ? { thisPeriod: view.thisPeriod } : {}),
+      ...('thisWeek' in view ? { thisWeek: view.thisWeek } : {}),
       streak: view.streak,
       ...(unanswered ? { note: unanswered } : {}),
     };
@@ -4297,13 +4348,17 @@ export class NotesTools {
           (a.time ?? '99:99').localeCompare(b.time ?? '99:99') || a.name.localeCompare(b.name),
       )
       .map((h) => {
-        // A weekly or monthly habit stands as its period does.
-        const settled = 'thisPeriod' in h ? h.thisPeriod : h.today.state;
+        // A weekly or monthly habit stands as its period does; one of
+        // several days a week, done today with its week still open, as
+        // today does (2026-11-23).
+        const period = 'thisPeriod' in h ? h.thisPeriod : 'none';
+        const settled = period !== 'none' ? period : h.today.state;
         return {
           id: h.id,
           name: h.name,
           ...(h.time !== undefined ? { time: h.time } : {}),
           state: settled === 'none' ? ('due' as const) : settled,
+          ...(h.thisWeek && h.thisWeek.target > 1 ? { thisWeek: h.thisWeek } : {}),
         };
       });
   }

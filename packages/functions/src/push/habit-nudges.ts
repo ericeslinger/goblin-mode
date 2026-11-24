@@ -2,7 +2,9 @@
 // one push at a habit's time, only if its period has nothing logged,
 // never a second, kept out of the quiet hours; a weekly or monthly
 // habit's on the last day of its period, and every day read in the
-// module's zone (Eric's decisions, 2026-11-22). The core, over a small
+// module's zone (Eric's decisions, 2026-11-22). A weekly habit of
+// `times` (2026-11-23) on each late day of its week where the days left
+// are no more than the done days still needed, never two for a day. The core, over a small
 // store, so it runs in specs without Firestore or FCM
 // (habit-nudge-store.ts is the store over Firestore, habit-nudge-push.ts
 // the wiring). What is due is the schema's `habitNudgeDue`; nothing here
@@ -15,6 +17,7 @@ import {
   habitNextNudge,
   habitNudgeDue,
   habitPeriod,
+  habitPeriodCount,
 } from '@mossgoblin/schema';
 import type { Device, PushMessage, PushSender, PushStore } from './send-due';
 import { MAX_AHEAD_MS, UPCOMING_MS, type WakeQueue } from './wake';
@@ -69,17 +72,26 @@ const NOT_YET: Record<Habit['schedule'], string> = {
   monthly: 'not done yet this month',
 };
 
-/** The push for a habit's nudge: its name, and a tap opens Right Now. */
+/**
+ * The push for a habit's nudge: its name, and a tap opens Right Now. A
+ * weekly habit of `times` (2026-11-23) says how far its week has come,
+ * "Right Now · 1 of 3 this week", when `progress` is given.
+ */
 export function nudgeMessage(
   id: string,
   name: string,
   schedule: Habit['schedule'] = 'daily',
+  progress?: { done: number; target: number },
 ): PushMessage {
+  const body =
+    progress && progress.target > 1
+      ? `${progress.done} of ${progress.target} this week`
+      : NOT_YET[schedule];
   return {
     // One per habit: a later one replaces it.
     tag: `habit-${id}`,
     title: name,
-    body: `Right Now · ${NOT_YET[schedule]}`,
+    body: `Right Now · ${body}`,
     url: '/right-now',
   };
 }
@@ -134,6 +146,8 @@ export async function sendNudges(
     });
     if (!due) continue;
     const period = habitPeriod(h.habit.schedule, due.day, module.config.weekStart);
+    // How far the week has come, as the claim read it, for the push's words.
+    let progress: { done: number; target: number } | undefined;
     const claimed = await store.claim(h.uid, h.id, due.day, period, (fresh) => {
       // A schedule changed since the query may need other months read:
       // the change queues its own wake, and the next run decides.
@@ -145,7 +159,9 @@ export async function sendNudges(
         changedAt: fresh.changedAt,
         entries: fresh.entries,
       });
-      return again?.day === due.day;
+      if (again?.day !== due.day) return false;
+      progress = habitPeriodCount(fresh.habit, fresh.entries, due.day, module.config.weekStart);
+      return true;
     });
     if (!claimed) continue;
     report.pushed++;
@@ -154,7 +170,7 @@ export async function sendNudges(
     if (!targets.length) continue;
     const results = await sender.send(
       targets.map((d) => d.token),
-      nudgeMessage(h.id, h.habit.name, h.habit.schedule),
+      nudgeMessage(h.id, h.habit.name, h.habit.schedule, progress),
     );
     for (const [i, result] of results.entries()) {
       if (result === 'sent') report.sent++;

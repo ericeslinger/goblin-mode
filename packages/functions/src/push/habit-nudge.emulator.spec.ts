@@ -86,6 +86,30 @@ async function tick(uid: string, id: string, day: string, state: 'done' | 'skipp
 }
 
 describe('sendNudges over Firestore', () => {
+  it('nudges a habit of three a week on each of the last days, one a day (2026-11-23)', async () => {
+    await gardener('u1');
+    await habit('u1', 'write', { name: 'Write', schedule: 'weekly', times: 3 });
+    // Monday 2026-11-30 done: the week of 11-30 to 12-06 spans two months.
+    await tick('u1', 'write', '2026-11-30', 'done');
+    const s = sender();
+    const store = firestoreNudgeStore(db);
+    // 21:00 EST, Friday 4 to Sunday 6 December: two still needed, so
+    // none on Friday, then Saturday and Sunday.
+    const fri = Date.parse('2026-12-05T02:00:00Z');
+    const day = 86_400_000;
+    expect((await sendNudges(store, s.send, fri)).pushed).toBe(0);
+    expect((await sendNudges(store, s.send, fri + day)).pushed).toBe(1);
+    expect((await sendNudges(store, s.send, fri + day + 60_000)).pushed).toBe(0);
+    expect((await sendNudges(store, s.send, fri + 2 * day)).pushed).toBe(1);
+    expect(s.sent.map((x) => x.message.body)).toEqual([
+      'Right Now · 1 of 3 this week',
+      'Right Now · 1 of 3 this week',
+    ]);
+    expect((await db.doc(nudgeStatePath('u1')).get()).get('sent')).toEqual({
+      write: '2026-12-06',
+    });
+  });
+
   it('pushes a due nudge once, marks the day server-side, and not again', async () => {
     await gardener('u1');
     await habit('u1', 'floss');

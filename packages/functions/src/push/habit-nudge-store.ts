@@ -18,7 +18,10 @@ import type { NudgeStore, NudgingHabit } from './habit-nudges';
  * One document per gardener, `sent.<habitId>` the last day (YYYY-MM-DD
  * in the zone the nudge was read in, `habitZone`) a nudge was sent for
  * that habit: a weekly or monthly habit's is the last day of its period,
- * and a mark anywhere in a period stops a second nudge in it.
+ * and a mark anywhere in a period stops a second nudge in it. A weekly
+ * habit of `times` (2026-11-23) can be nudged on several days of a week,
+ * so its mark stops one for that day or an earlier one only: the same
+ * one field, the day it was last sent, no shape changed.
  */
 export const nudgeStatePath = (uid: string) => paths.usage(uid, 'habitNudges');
 

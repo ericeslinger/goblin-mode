@@ -17,6 +17,8 @@ import {
   HABIT_ID,
   HABIT_NAME_MAX,
   HABIT_TEXT_MAX,
+  HABIT_TIMES_MAX,
+  HABIT_TIMES_MIN,
   Habit,
   HabitEntry,
   type HabitAnswer,
@@ -36,6 +38,7 @@ import {
   habitLogId,
   habitLogMonths,
   habitMonth,
+  habitPeriodCount,
   habitPeriodState,
   habitSettledOn,
   habitStreak,
@@ -72,6 +75,8 @@ export interface HabitRecord {
   id: string;
   name: string;
   schedule: HabitSchedule;
+  /** A weekly habit's days a week, 2 to 7 (2026-11-23); none: once. */
+  times?: number;
   /** "HH:MM", local; none: any time. */
   time?: string;
   /** One push at its time on a day not yet logged (step 4 of #324). */
@@ -164,8 +169,19 @@ type RawEntry = Record<string, unknown> & { state: 'done' | 'skipped' };
 export interface PlacedHabit extends HabitRecord {
   /** Due on the day (`habitDue`). */
   due: boolean;
-  /** How the period holding the day stands: done, skipped, or nothing yet. */
+  /**
+   * How the period holding the day stands: done (for a habit of several
+   * days a week, its target met), skipped, or not yet.
+   */
   state: 'done' | 'skipped' | 'none';
+  /** The period's done days and its target (2026-11-23): "1 of 3 this week". */
+  count: { done: number; target: number };
+  /**
+   * Due today and logged today or settled: Right Now's line, not its
+   * list. A habit of several days a week done today is so, its week
+   * still open (2026-11-23).
+   */
+  settledToday: boolean;
   /** The day that settled that period (`habitSettledOn`), if it is. */
   settledOn?: string;
   /** The day's own entry, if any. */
@@ -178,7 +194,11 @@ export interface PlacedHabit extends HabitRecord {
    * then. Logged or not; `yesterdayOpen` says whether it is empty.
    */
   yesterdayLoggable: boolean;
-  /** Loggable, and nothing in yesterday's period yet. */
+  /**
+   * Loggable, and nothing in yesterday's period yet; for a habit of
+   * several days a week (2026-11-23), nothing on yesterday itself and its
+   * week neither met nor skipped.
+   */
   yesterdayOpen: boolean;
   /** The seven days ending today, each with its answer, if any. */
   strip: { day: string; state: HabitDayState; answer?: HabitShownAnswer }[];
@@ -303,6 +323,8 @@ export interface NewHabit {
   name: string;
   /** Daily unless given (step 5 of #324). */
   schedule?: HabitSchedule;
+  /** A weekly habit's days a week (2026-11-23): 2 to 7 stored, else none. */
+  times?: number;
   /** "HH:MM", local. */
   time?: string;
   /** Done unless given (step 6 of #324), with its choices or its template. */
@@ -341,6 +363,24 @@ export function answerFields(
 
 const SCHEDULES: readonly HabitSchedule[] = ['daily', 'weekly', 'monthly'];
 
+/**
+ * A weekly habit's target as stored (2026-11-23): a whole 2 to 7, only
+ * on a weekly habit; 1, or anything else, is once a week and stores
+ * none.
+ */
+export function storedTimes(
+  schedule: HabitSchedule,
+  times: number | undefined,
+): number | undefined {
+  return schedule === 'weekly' &&
+    times !== undefined &&
+    Number.isInteger(times) &&
+    times >= HABIT_TIMES_MIN &&
+    times <= HABIT_TIMES_MAX
+    ? times
+    : undefined;
+}
+
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
@@ -369,6 +409,7 @@ function toRecord(id: string, data: Record<string, unknown>): HabitRecord | unde
     id,
     name: h.name,
     schedule: h.schedule,
+    ...(h.times !== undefined ? { times: h.times } : {}),
     ...(h.time !== undefined ? { time: h.time } : {}),
     nudge: h.nudge,
     answer: h.answer,
@@ -602,16 +643,25 @@ export class HabitsService {
         const answerOn = (day: string) => this.shownAnswer(h.id, day, entries.get(day));
         const todayAnswer = answerOn(today);
         const yesterdayAnswer = answerOn(yesterday);
+        const due = habitDue(h, entries, today, weekStart);
+        const state = habitPeriodState(h, entries, today, weekStart);
+        const todayState = entries.get(today)?.state;
         return {
           ...h,
-          due: habitDue(h, entries, today, weekStart),
-          state: habitPeriodState(h, entries, today, weekStart),
+          due,
+          state,
+          count: habitPeriodCount(h, entries, today, weekStart),
+          settledToday: due && (state !== 'none' || todayState !== undefined),
           ...(settledOn !== undefined ? { settledOn } : {}),
-          today: entries.get(today)?.state,
+          today: todayState,
           yesterday: entries.get(yesterday)?.state,
           yesterdayLoggable,
+          // A day of its own, for a habit of several days a week: one
+          // already logged is not offered again (2026-11-23).
           yesterdayOpen:
-            yesterdayLoggable && habitPeriodState(h, entries, yesterday, weekStart) === 'none',
+            yesterdayLoggable &&
+            !entries.has(yesterday) &&
+            habitPeriodState(h, entries, yesterday, weekStart) === 'none',
           strip: habitStrip(h, entries, today, { weekStart, createdOn }).map((d) => {
             const answer = answerOn(d.day);
             return answer ? { ...d, answer } : d;
@@ -633,10 +683,14 @@ export class HabitsService {
   readonly active = computed(() => this.placed().filter((h) => !h.archived));
   /** Archived habits, their history still shown. */
   readonly archived = computed(() => this.placed().filter((h) => h.archived));
-  /** Due today, nothing logged in its period yet: Right Now's list. */
-  readonly toDo = computed(() => this.placed().filter((h) => h.due && h.state === 'none'));
+  /**
+   * Due today, nothing logged in its period yet: Right Now's list. A
+   * habit of several days a week (2026-11-23) is on it while its week is
+   * not met, on each day not yet logged.
+   */
+  readonly toDo = computed(() => this.placed().filter((h) => h.due && !h.settledToday));
   /** Due today and done or skipped today: Right Now's line under it. */
-  readonly settled = computed(() => this.placed().filter((h) => h.due && h.state !== 'none'));
+  readonly settled = computed(() => this.placed().filter((h) => h.settledToday));
 
   constructor() {
     // The habits, while signed in with the module on.
@@ -776,9 +830,13 @@ export class HabitsService {
     const id = input.id && HABIT_ID.test(input.id) ? input.id : autoId(this.random);
     const time = input.time && TIME.test(input.time) ? input.time : undefined;
     const tz = input.tz && input.tz.length <= 64 ? input.tz : this.tz;
+    const schedule =
+      input.schedule && SCHEDULES.includes(input.schedule) ? input.schedule : 'daily';
+    const times = storedTimes(schedule, input.times);
     const data: Record<string, unknown> = {
       name,
-      schedule: input.schedule && SCHEDULES.includes(input.schedule) ? input.schedule : 'daily',
+      schedule,
+      ...(times !== undefined ? { times } : {}),
       tz,
       ...answer,
       nudge: !!input.nudge && time !== undefined,
@@ -826,11 +884,14 @@ export class HabitsService {
    * written. The logs stay as they are and are read again by the new
    * schedule's periods, so nothing logged is lost and a change back
    * reads them as before. A nudge stays as it was, sent or not by
-   * `habitNudgePlan`.
+   * `habitNudgePlan`. With it a weekly habit's days a week (2026-11-23):
+   * 2 to 7 written, else removed, so a habit made daily or monthly loses
+   * its target in the same write, as the rules require.
    */
-  setSchedule(id: string, schedule: HabitSchedule): void {
+  setSchedule(id: string, schedule: HabitSchedule, times?: number): void {
     if (!SCHEDULES.includes(schedule)) return;
-    this.update(id, { schedule });
+    const target = storedTimes(schedule, times);
+    this.update(id, { schedule, times: target ?? this.api.remove() });
   }
 
   /**

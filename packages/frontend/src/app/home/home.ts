@@ -831,7 +831,9 @@ export class Home {
   private habitsLine(): { status: string; empty: boolean } {
     const due = this.habits.placed().filter((h) => h.due);
     if (!due.length) return { status: 'Something to do each day', empty: true };
-    const settled = due.filter((h) => h.state !== 'none').length;
+    // A habit of several days a week done today counts as settled today,
+    // its week still open (2026-11-23).
+    const settled = due.filter((h) => h.state !== 'none' || h.today !== undefined).length;
     return { status: `${settled} of ${due.length} today`, empty: settled === due.length };
   }
 

@@ -875,6 +875,12 @@ export const HABIT_TEXT_MAX = 500;
  * to under 2,800).
  */
 export const HABIT_ANSWER_STORED_MAX = 4000;
+/**
+ * A weekly habit's target (Eric, 2026-11-23, "N per week"): done on this
+ * many days of the week, 2 at least and 7 at most; absent, once.
+ */
+export const HABIT_TIMES_MIN = 2;
+export const HABIT_TIMES_MAX = 7;
 /** A habit's id: generated (`autoId`) or derived, never an underscore. */
 export const HABIT_ID = /^[A-Za-z0-9-]{1,64}$/;
 
@@ -894,6 +900,12 @@ export const Habit = z
   .object({
     name: z.string().min(1).max(HABIT_NAME_MAX),
     schedule: HabitSchedule,
+    /**
+     * Only on `weekly` (2026-11-23): how many days of the week it is for,
+     * "write 3 times a week", on no set day; HABIT_TIMES_MIN to
+     * HABIT_TIMES_MAX. Absent: once a week.
+     */
+    times: z.number().int().min(HABIT_TIMES_MIN).max(HABIT_TIMES_MAX).optional(),
     /**
      * Local time of day, "HH:MM", the habit is for ("around 11am"): the
      * nudge's time, and an order for the day's list. None: any time.
@@ -935,6 +947,7 @@ export const Habit = z
       problem('a template goes with, and only with, a note answer');
     }
     if (h.nudge && h.time === undefined) problem('a nudge needs a time');
+    if (h.times !== undefined && h.schedule !== 'weekly') problem('times only on a weekly habit');
   });
 export type Habit = z.infer<typeof Habit>;
 

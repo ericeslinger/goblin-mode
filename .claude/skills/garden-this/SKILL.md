@@ -54,13 +54,16 @@ Follow them; they are not repeated here.
   has on hand with `update_pantry`, not `capture`. For what to cook,
   `suggest_recipes`.
 - A habit is not gardened either (#324, Habits on): Eric's "set up a
-  habit to..." is `create_habit`, in his words, its time read in the
+  habit to..." is `create_habit`, in his words ("pottery twice a
+  week" is weekly with `timesAWeek` 2, on no set day; 2026-11-23),
+  its time read in the
   zone of the device he last used the app on (`timeZone` only when a
   refusal asks for it, 2026-11-22); "I did it" is
   `log_habit`, with `answer` in his words for a habit answered with
   a choice or a line of text, and for one that opens a note, the
   entry made first with `use_template` and given as `noteId`;
-  renaming, rescheduling (daily, weekly or monthly), retiming,
+  renaming, rescheduling (daily, weekly or monthly, and how many days
+  a week a weekly one is for), retiming,
   changing what it is answered with (`answer`, `choices`, `template`)
   or archiving one is `update_habit`. None of them goes through
   `capture`.
