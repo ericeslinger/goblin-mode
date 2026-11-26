@@ -26,6 +26,8 @@ import {
   type HabitDayState,
   type HabitSchedule,
   type HabitStreak,
+  WEEKDAYS,
+  type Weekday,
   addDays,
   autoId,
   canLogHabitDay,
@@ -38,6 +40,9 @@ import {
   habitLogId,
   habitLogMonths,
   habitMonth,
+  habitNextDueDay,
+  habitWeekday,
+  weekdayOf,
   habitPeriodCount,
   habitPeriodState,
   habitSettledOn,
@@ -77,6 +82,8 @@ export interface HabitRecord {
   schedule: HabitSchedule;
   /** A weekly habit's days a week, 2 to 7 (2026-11-23); none: once. */
   times?: number;
+  /** A weekly habit's own day of the week (2026-11-25); none: any day. */
+  weekday?: Weekday;
   /** "HH:MM", local; none: any time. */
   time?: string;
   /** One push at its time on a day not yet logged (step 4 of #324). */
@@ -184,6 +191,11 @@ export interface PlacedHabit extends HabitRecord {
   settledToday: boolean;
   /** The day that settled that period (`habitSettledOn`), if it is. */
   settledOn?: string;
+  /**
+   * A weekly habit with its own weekday (2026-11-25): the next day it is
+   * due, today included (`habitNextDueDay`); none for any other habit.
+   */
+  nextDue?: string;
   /** The day's own entry, if any. */
   today?: 'done' | 'skipped';
   /** Yesterday's own entry, if any. */
@@ -325,6 +337,8 @@ export interface NewHabit {
   schedule?: HabitSchedule;
   /** A weekly habit's days a week (2026-11-23): 2 to 7 stored, else none. */
   times?: number;
+  /** A weekly habit's own day of the week (2026-11-25), never with `times`. */
+  weekday?: Weekday;
   /** "HH:MM", local. */
   time?: string;
   /** Done unless given (step 6 of #324), with its choices or its template. */
@@ -381,7 +395,34 @@ export function storedTimes(
     : undefined;
 }
 
+/**
+ * A weekly habit's own day as stored (2026-11-25): one of the seven, only
+ * on a weekly habit of once a week (a target of several days has no set
+ * day); else none.
+ */
+export function storedWeekday(
+  schedule: HabitSchedule,
+  times: number | undefined,
+  weekday: string | undefined,
+): Weekday | undefined {
+  return schedule === 'weekly' &&
+    storedTimes(schedule, times) === undefined &&
+    (WEEKDAYS as readonly string[]).includes(weekday ?? '')
+    ? (weekday as Weekday)
+    : undefined;
+}
+
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Whether `day` is one the habit can be logged on by its day of the week
+ * (2026-11-25): any day, but for a weekly habit with its own weekday
+ * only that one, as `habitDayLoggable` holds it.
+ */
+function onItsDay(habit: HabitRecord, day: string): boolean {
+  const weekday = habitWeekday(habit);
+  return weekday === undefined || weekdayOf(day) === weekday;
+}
 
 /**
  * How old the clock may be and still be what the screen shows now: two
@@ -410,6 +451,7 @@ function toRecord(id: string, data: Record<string, unknown>): HabitRecord | unde
     name: h.name,
     schedule: h.schedule,
     ...(h.times !== undefined ? { times: h.times } : {}),
+    ...(h.weekday !== undefined ? { weekday: h.weekday } : {}),
     ...(h.time !== undefined ? { time: h.time } : {}),
     nudge: h.nudge,
     answer: h.answer,
@@ -646,6 +688,7 @@ export class HabitsService {
         const due = habitDue(h, entries, today, weekStart);
         const state = habitPeriodState(h, entries, today, weekStart);
         const todayState = entries.get(today)?.state;
+        const nextDue = habitNextDueDay(h, today);
         return {
           ...h,
           due,
@@ -653,6 +696,7 @@ export class HabitsService {
           count: habitPeriodCount(h, entries, today, weekStart),
           settledToday: due && (state !== 'none' || todayState !== undefined),
           ...(settledOn !== undefined ? { settledOn } : {}),
+          ...(nextDue !== undefined ? { nextDue } : {}),
           today: todayState,
           yesterday: entries.get(yesterday)?.state,
           yesterdayLoggable,
@@ -833,10 +877,12 @@ export class HabitsService {
     const schedule =
       input.schedule && SCHEDULES.includes(input.schedule) ? input.schedule : 'daily';
     const times = storedTimes(schedule, input.times);
+    const weekday = storedWeekday(schedule, input.times, input.weekday);
     const data: Record<string, unknown> = {
       name,
       schedule,
       ...(times !== undefined ? { times } : {}),
+      ...(weekday !== undefined ? { weekday } : {}),
       tz,
       ...answer,
       nudge: !!input.nudge && time !== undefined,
@@ -886,12 +932,19 @@ export class HabitsService {
    * reads them as before. A nudge stays as it was, sent or not by
    * `habitNudgePlan`. With it a weekly habit's days a week (2026-11-23):
    * 2 to 7 written, else removed, so a habit made daily or monthly loses
-   * its target in the same write, as the rules require.
+   * its target in the same write, as the rules require. And its own day
+   * of the week (2026-11-25), written or removed the same way: a habit
+   * made daily or monthly, or given a target, loses it in that write.
    */
-  setSchedule(id: string, schedule: HabitSchedule, times?: number): void {
+  setSchedule(id: string, schedule: HabitSchedule, times?: number, weekday?: Weekday): void {
     if (!SCHEDULES.includes(schedule)) return;
     const target = storedTimes(schedule, times);
-    this.update(id, { schedule, times: target ?? this.api.remove() });
+    const day = storedWeekday(schedule, times, weekday);
+    this.update(id, {
+      schedule,
+      times: target ?? this.api.remove(),
+      weekday: day ?? this.api.remove(),
+    });
   }
 
   /**
@@ -927,7 +980,7 @@ export class HabitsService {
     answer?: HabitAnswerGiven,
   ): void {
     const day = this.dayOf(shown);
-    if (day) this.logOn(habit, day, state, answer);
+    if (day && onItsDay(habit, day)) this.logOn(habit, day, state, answer);
   }
 
   /**
@@ -940,7 +993,7 @@ export class HabitsService {
    */
   logNote(habit: HabitRecord, shown: string): { id: string; text: string } | undefined {
     const day = this.dayOf(shown);
-    if (!day) return undefined;
+    if (!day || !onItsDay(habit, day)) return undefined;
     // A second tap (review of #332, 2026-11-22): the day already being
     // logged, or already holding its entry, makes no second one; the
     // entry it has is opened instead.

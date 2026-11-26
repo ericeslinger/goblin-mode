@@ -7,7 +7,7 @@
 // change never moves a day. Weeks start on `HabitsConfig.weekStart`,
 // Monday unless set, in the Kitchen's way (`periodStartFor`).
 import { z } from 'zod';
-import { WEEKDAYS, type Weekday, addDays, periodStartFor } from './mealplan';
+import { WEEKDAYS, type Weekday, addDays, periodStartFor, weekdayOf } from './mealplan';
 import type { Habit, HabitEntry, HabitLog } from './model';
 import { zonedDay, zonedTime, zonedTimeOn } from './reminders';
 
@@ -83,8 +83,11 @@ export interface HabitPeriod {
   end: string;
 }
 
-/** The habit fields that decide its periods: its schedule, and a week's target. */
-export type HabitTarget = Pick<Habit, 'schedule'> & { times?: number };
+/**
+ * The habit fields that decide its periods: its schedule, a week's
+ * target, and a week's own day (2026-11-25).
+ */
+export type HabitTarget = Pick<Habit, 'schedule'> & { times?: number; weekday?: Weekday };
 
 /**
  * How many done days settle a period (2026-11-23, "N per week"): a
@@ -95,6 +98,59 @@ export function habitTimes(habit: HabitTarget): number {
   return habit.schedule === 'weekly' && habit.times !== undefined && habit.times > 1
     ? habit.times
     : 1;
+}
+
+/**
+ * A weekly habit's own day of the week (Eric, 2026-11-25, "every
+ * Wednesday"): the stored `weekday` on a weekly habit of once a week;
+ * none (any day of the week) otherwise, whatever is stored.
+ */
+export function habitWeekday(habit: HabitTarget): Weekday | undefined {
+  return habit.schedule === 'weekly' && habit.weekday !== undefined && habitTimes(habit) === 1
+    ? habit.weekday
+    : undefined;
+}
+
+/** The day in the week `period` that is `weekday`. */
+function dayOfWeekIn(period: HabitPeriod, weekday: Weekday): string {
+  const ahead = (WEEKDAYS.indexOf(weekday) - WEEKDAYS.indexOf(weekdayOf(period.start)) + 7) % 7;
+  return addDays(period.start, ahead);
+}
+
+/**
+ * The days of `period` whose check-ins count: the whole period, but for
+ * a habit with its own weekday (2026-11-25) that one day of the week.
+ */
+function countedDays(habit: HabitTarget, period: HabitPeriod): HabitPeriod {
+  const weekday = habitWeekday(habit);
+  if (weekday === undefined) return period;
+  const day = dayOfWeekIn(period, weekday);
+  return { start: day, end: day };
+}
+
+/**
+ * A habit with its own weekday (2026-11-25): its day in the week holding
+ * `day`, the one day of that week it is due; none for any other habit.
+ */
+export function habitDayInWeek(
+  habit: HabitTarget,
+  day: string,
+  weekStart: Weekday = 'Mon',
+): string | undefined {
+  if (habitWeekday(habit) === undefined) return undefined;
+  return countedDays(habit, habitPeriod('weekly', day, weekStart)).start;
+}
+
+/**
+ * A habit with its own weekday (2026-11-25): the first day from `day` on,
+ * `day` included, that is its weekday, so the next day it is due; none
+ * for any other habit.
+ */
+export function habitNextDueDay(habit: HabitTarget, day: string): string | undefined {
+  const weekday = habitWeekday(habit);
+  if (weekday === undefined) return undefined;
+  const ahead = (WEEKDAYS.indexOf(weekday) - WEEKDAYS.indexOf(weekdayOf(day)) + 7) % 7;
+  return addDays(day, ahead);
 }
 
 /** The period holding `day`: the day, its week, or its month. */
@@ -162,7 +218,9 @@ function doneBetween(
 
 /**
  * How the period holding `day` stands: done (its target met: a weekly
- * habit's `times` done days, else one), skipped, or not yet.
+ * habit's `times` done days, else one), skipped, or not yet. A habit
+ * with its own weekday (2026-11-25) is read by that day of the week
+ * alone: done or skipped as it is, whatever the other days hold.
  */
 export function habitPeriodState(
   habit: HabitTarget,
@@ -170,7 +228,7 @@ export function habitPeriodState(
   day: string,
   weekStart: Weekday = 'Mon',
 ): 'done' | 'skipped' | 'none' {
-  const { start, end } = habitPeriod(habit.schedule, day, weekStart);
+  const { start, end } = countedDays(habit, habitPeriod(habit.schedule, day, weekStart));
   return stateBetween(entries, start, end, habitTimes(habit));
 }
 
@@ -185,7 +243,7 @@ export function habitPeriodCount(
   day: string,
   weekStart: Weekday = 'Mon',
 ): { done: number; target: number } {
-  const { start, end } = habitPeriod(habit.schedule, day, weekStart);
+  const { start, end } = countedDays(habit, habitPeriod(habit.schedule, day, weekStart));
   return { done: doneBetween(entries, start, end), target: habitTimes(habit) };
 }
 
@@ -195,7 +253,8 @@ export function habitPeriodCount(
  * while nothing in it is logged. As `habitPeriodState` decides the
  * period, so the two always agree: for a weekly habit of `times`
  * (2026-11-23), the day its target was met (the third done day of three),
- * else its first skipped day, else none, however many are done.
+ * else its first skipped day, else none, however many are done. With its
+ * own weekday (2026-11-25), that day if it holds an entry.
  */
 export function habitSettledOn(
   habit: HabitTarget,
@@ -203,7 +262,7 @@ export function habitSettledOn(
   day: string,
   weekStart: Weekday = 'Mon',
 ): string | undefined {
-  const { start, end } = habitPeriod(habit.schedule, day, weekStart);
+  const { start, end } = countedDays(habit, habitPeriod(habit.schedule, day, weekStart));
   const target = habitTimes(habit);
   let skipped: string | undefined;
   let done = 0;
@@ -222,7 +281,8 @@ export function habitSettledOn(
  * shows ticked), and not after. A weekly one of `times` (2026-11-23):
  * every day until the day its target is met or it is skipped, that day
  * included; a day it was done on before then shows done, and it is due
- * again the next.
+ * again the next. A weekly one with its own weekday (2026-11-25): on that
+ * day of the week only, logged or not, and on no other.
  */
 export function habitDue(
   habit: HabitTarget & Pick<Habit, 'archived'>,
@@ -232,6 +292,8 @@ export function habitDue(
 ): boolean {
   if (habit.archived) return false;
   if (habit.schedule === 'daily') return true;
+  const weekday = habitWeekday(habit);
+  if (weekday !== undefined) return weekdayOf(day) === weekday;
   const { start } = habitPeriod(habit.schedule, day, weekStart);
   return (
     start === day || stateBetween(entries, start, addDays(day, -1), habitTimes(habit)) === 'none'
@@ -252,7 +314,10 @@ export function canLogHabitDay(day: string, today: string): boolean {
  * one period, today's tick settles it). Never a day before the habit
  * began. A weekly habit of `times` (2026-11-23) counts each day done,
  * so today's tick does not settle yesterday: its yesterday is loggable
- * within a week too, as a daily habit's.
+ * within a week too, as a daily habit's. A weekly habit with its own
+ * weekday (2026-11-25) can be logged only on that day of the week: today
+ * when today is it, or yesterday, after the fact, when yesterday was it,
+ * even when yesterday ended a week; no other day.
  */
 export function habitDayLoggable(
   habit: HabitTarget,
@@ -262,6 +327,8 @@ export function habitDayLoggable(
 ): boolean {
   if (!canLogHabitDay(day, today)) return false;
   if (options.createdOn !== undefined && day < options.createdOn) return false;
+  const weekday = habitWeekday(habit);
+  if (weekday !== undefined) return weekdayOf(day) === weekday;
   if (day === today) return true;
   if (habitTimes(habit) > 1) return true;
   const weekStart = options.weekStart ?? 'Mon';
@@ -308,7 +375,12 @@ export interface HabitStreak {
  * the fact counts as any other. A weekly
  * habit's streak counts weeks, a monthly one's months; a week of a
  * habit of `times` (2026-11-23) counts when that many days are done, and
- * a past week with fewer and no skip ends the streak. `loadedFrom` is
+ * a past week with fewer and no skip ends the streak. A weekly habit with
+ * its own weekday (2026-11-25) counts a week by that day: a week is spared,
+ * neither counted nor breaking, while its day is still to come or can
+ * still be logged (today or yesterday), so the current week does count
+ * against the streak once its day and the day after have gone by empty,
+ * and last week is spared only when its day was yesterday. `loadedFrom` is
  * the first day the logs given cover (the first of the earliest month
  * read); none means they are all the history there is.
  */
@@ -324,9 +396,22 @@ export function habitStreak(
   const unread = (p: HabitPeriod) =>
     options.loadedFrom !== undefined && p.start < options.loadedFrom;
   if (unread(period)) return { count: 0, complete: false };
+  const pinned = habitWeekday(habit) !== undefined;
+  const yesterday = addDays(today, -1);
+  /** How a period stands, by the days that count in it. */
+  const stateOf = (p: HabitPeriod) => {
+    const counted = countedDays(habit, p);
+    return stateBetween(entries, counted.start, counted.end, target);
+  };
   let count = 0;
-  // The current period: counted when done, never against.
-  if (stateBetween(entries, period.start, period.end, target) === 'done') count++;
+  // The current period: counted when done, never against; for a habit
+  // with its own weekday (2026-11-25), against once its day can no
+  // longer be logged.
+  const current = stateOf(period);
+  if (current === 'done') count++;
+  if (current === 'none' && pinned && countedDays(habit, period).start < yesterday) {
+    return { count, complete: true };
+  }
   // Bounded: a skip can only pass over a logged period, so the walk
   // ends at the first period before the earliest check-in.
   const earliest = [...entries.keys()].sort()[0];
@@ -336,13 +421,15 @@ export function habitStreak(
   let first = true;
   for (;;) {
     period = previousPeriod(habit.schedule, period, weekStart);
-    const spared = first && canLogHabitDay(period.end, today);
+    const spared = pinned
+      ? countedDays(habit, period).start >= yesterday
+      : first && canLogHabitDay(period.end, today);
     first = false;
     if (unread(period)) return { count, complete: false };
     if (!spared && (earliest === undefined || period.end < earliest)) {
       return { count, complete: true };
     }
-    const state = stateBetween(entries, period.start, period.end, target);
+    const state = stateOf(period);
     if (state === 'none' && !spared) return { count, complete: true };
     if (state === 'done') count++;
   }
@@ -360,9 +447,11 @@ export function habitStreak(
  * `times` (2026-11-23) a week is settled once that many days are done
  * (or one skipped): its other days read `covered` then; a week that ended
  * short of it reads `missed` on its days not done, as one that ended
- * with nothing.
+ * with nothing. `off` (2026-11-25): a day of the week that is not the
+ * habit's own weekday, on which it is never due; its weekday reads done,
+ * skipped, open, or missed once it can no longer be logged.
  */
-export type HabitDayState = 'done' | 'skipped' | 'covered' | 'missed' | 'open' | 'before';
+export type HabitDayState = 'done' | 'skipped' | 'covered' | 'missed' | 'open' | 'before' | 'off';
 
 /**
  * The seven days ending `today`, oldest first, and how each stands.
@@ -396,6 +485,11 @@ function dayState(
   const own = entries.get(day)?.state;
   if (own) return own;
   if (createdOn !== undefined && day < createdOn) return 'before';
+  const weekday = habitWeekday(habit);
+  if (weekday !== undefined) {
+    if (weekdayOf(day) !== weekday) return 'off';
+    return canLogHabitDay(day, today) ? 'open' : 'missed';
+  }
   const period = habitPeriod(habit.schedule, day, weekStart);
   if (stateBetween(entries, period.start, period.end, habitTimes(habit)) !== 'none') {
     return 'covered';
@@ -474,6 +568,7 @@ export function habitNudgeTime(time: string, config: HabitsConfig): string {
 /** The habit fields a nudge reads. */
 export type NudgeHabit = Pick<Habit, 'schedule' | 'time' | 'tz' | 'nudge' | 'archived'> & {
   times?: number;
+  weekday?: Weekday;
 };
 
 /** The weekday before `weekStart`: the last day of a week starting on it. */
@@ -493,7 +588,9 @@ export function lastWeekday(weekStart: Weekday): Weekday {
  * of `times` (2026-11-23, `times` on the plan): on each of the week's
  * last days while the days left, today counted, are no more than the
  * done days still needed (`habitNudgeDue`), so on its last `times` days
- * at most. `off` (the switch off, or archived) and `no-time` send none.
+ * at most. A weekly one with its own weekday (2026-11-25, `weekday` on the
+ * plan, no `lastDay`): on that day of the week. `off` (the switch off, or
+ * archived) and `no-time` send none.
  */
 export type HabitNudgePlan =
   | {
@@ -502,6 +599,8 @@ export type HabitNudgePlan =
       schedule: Habit['schedule'];
       /** A weekly habit's nudge day: the last of its week. */
       lastDay?: Weekday;
+      /** A weekly habit's own day of the week, its nudge day (2026-11-25). */
+      weekday?: Weekday;
       /** A weekly habit's target, when more than once (2026-11-23). */
       times?: number;
     }
@@ -517,11 +616,16 @@ export function habitNudgePlan(
   const time = habitNudgeTime(habit.time, config);
   const kind = time === habit.time ? 'at' : time === config.quietFrom ? 'early' : 'held';
   const times = habitTimes(habit);
+  const weekday = habitWeekday(habit);
   return {
     kind,
     time,
     schedule: habit.schedule,
-    ...(habit.schedule === 'weekly' ? { lastDay: lastWeekday(config.weekStart) } : {}),
+    ...(weekday !== undefined
+      ? { weekday }
+      : habit.schedule === 'weekly'
+        ? { lastDay: lastWeekday(config.weekStart) }
+        : {}),
     ...(times > 1 ? { times } : {}),
   };
 }
@@ -554,9 +658,13 @@ function daysLeft(day: string, end: string): number {
  * monthly one; for a weekly one of `times` (2026-11-23), the first of the
  * week's last `times` days, the earliest the days left can be no more
  * than those still needed (which only the check-ins, read in the claim,
- * decide: `habitNudgeDue`).
+ * decide: `habitNudgeDue`); for one with its own weekday (2026-11-25),
+ * the next of that day of the week, `day` included, in this week or the
+ * next.
  */
 function nudgeDayFrom(habit: HabitTarget, day: string, weekStart: Weekday): string {
+  const own = habitNextDueDay(habit, day);
+  if (own !== undefined) return own;
   const { end } = habitPeriod(habit.schedule, day, weekStart);
   const first = addDays(end, 1 - habitTimes(habit));
   return day > first ? day : first;
@@ -630,7 +738,8 @@ export interface HabitNudgeContext {
  * nor skipped, where the days left, today counted, are no more than the
  * done days still needed; and no nudge sent for today or a later day.
  * With one a week that is exactly the rule above: the last day, nothing
- * logged.
+ * logged. A weekly habit with its own weekday (2026-11-25): due on that
+ * day of the week, which holds no entry, nothing sent this week.
  * Only today is ever looked at, so a nudge late past midnight is never
  * sent. None is sent while `now` is in the quiet hours (review of #330,
  * 2026-11-22), so a 21:30 nudge late past 22:00 is let go, with one
@@ -658,10 +767,13 @@ export function habitNudgeDue(
   const markedFrom = target > 1 ? day : period.start;
   if (ctx.sentFor !== undefined && ctx.sentFor >= markedFrom) return undefined;
   if (ctx.entries) {
+    // With its own weekday (2026-11-25) only that day counts, and today
+    // is it or `habitNudgeAt` below finds no moment.
+    const counted = countedDays(habit, period);
     if (ctx.entries.has(day)) return undefined;
-    if (stateBetween(ctx.entries, period.start, period.end, target) !== 'none') return undefined;
-    const needed = target - doneBetween(ctx.entries, period.start, period.end);
-    if (daysLeft(day, period.end) > needed) return undefined;
+    if (stateBetween(ctx.entries, counted.start, counted.end, target) !== 'none') return undefined;
+    const needed = target - doneBetween(ctx.entries, counted.start, counted.end);
+    if (daysLeft(day, counted.end) > needed) return undefined;
   }
   const at = habitNudgeAt(habit, day, ctx.config);
   if (at === undefined || at > now || now - at > HABIT_NUDGE_LATE_MS) return undefined;
@@ -679,7 +791,8 @@ export function habitNudgeDue(
  * does not nudge. A daily habit's nudge days are every day, a weekly or
  * monthly one's the last day of each period, a weekly one of `times`
  * each of its week's last `times` days (2026-11-23; whether one goes
- * there is the claim's, on the check-ins).
+ * there is the claim's, on the check-ins), one with its own weekday that
+ * day of each week (2026-11-25).
  */
 export function habitNextNudge(
   habit: NudgeHabit,

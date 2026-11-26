@@ -30,6 +30,7 @@
 // schemas into firestore.rules; that generator lands with the first
 // real client write (build order step 3). Claude's MCP writes go through
 // functions and are validated against the same schemas there.
+import { WEEKDAYS } from './mealplan';
 import { isSealed } from './sealed';
 import { z } from 'zod';
 
@@ -907,6 +908,12 @@ export const Habit = z
      */
     times: z.number().int().min(HABIT_TIMES_MIN).max(HABIT_TIMES_MAX).optional(),
     /**
+     * Only on `weekly`, never with `times` (Eric, 2026-11-25, "Take out
+     * the garbage every Wednesday"): the day of the week it is for, due
+     * and nudged on that day only. Absent: any day of the week.
+     */
+    weekday: z.enum(WEEKDAYS).optional(),
+    /**
      * Local time of day, "HH:MM", the habit is for ("around 11am"): the
      * nudge's time, and an order for the day's list. None: any time.
      */
@@ -948,6 +955,12 @@ export const Habit = z
     }
     if (h.nudge && h.time === undefined) problem('a nudge needs a time');
     if (h.times !== undefined && h.schedule !== 'weekly') problem('times only on a weekly habit');
+    if (h.weekday !== undefined && h.schedule !== 'weekly') {
+      problem('a weekday only on a weekly habit');
+    }
+    if (h.weekday !== undefined && h.times !== undefined) {
+      problem('a weekday or times a week, not both');
+    }
   });
 export type Habit = z.infer<typeof Habit>;
 

@@ -148,6 +148,11 @@ itself (functions queue wakes as it). Without the API or
 already shipped); without the last two it deploys, and pushes still
 go, up to an hour late, from the hourly `sendDuePush`.
 
+On an Android phone a push can be held back while the phone sits idle
+(2026-11-25: Eric's 13:00 nudge was sent on time and never shown).
+Give the installed app, or Chrome, unrestricted battery use in the
+phone's settings; with that the nudges arrive on time.
+
 The photo checker and thumbnailer (`attachmentUploaded`) is a Cloud
 Storage trigger. Once, a project owner grants the Cloud Storage service
 agent `roles/pubsub.publisher`:

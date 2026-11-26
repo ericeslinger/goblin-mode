@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { MEALS, MODULES, type ModuleId, SEND_OUTCOME_MAX } from '@mossgoblin/schema';
+import { MEALS, MODULES, type ModuleId, SEND_OUTCOME_MAX, WEEKDAYS } from '@mossgoblin/schema';
 import { type NotesTools, ToolError } from './tools';
 
 /** What every Claude conversation using the connector is told. */
@@ -98,7 +98,9 @@ export const INSTRUCTIONS = [
     '("a habit to drink metamucil for fiber every day around 11am": daily, 11:00), ' +
     'named in his own words; a weekly one can be for a number of days a week with no set ' +
     'day ("pottery twice a week": weekly, timesAWeek 2), its week met once that many days ' +
-    'are done, shown each day until then; ' +
+    'are done, shown each day until then; a weekly one can instead be for one day of the ' +
+    'week ("take out the garbage every Wednesday at 7pm": weekly, weekday Wed, 19:00), due ' +
+    'and shown on that day only and loggable only for it, that day or the day after; ' +
     "list_habits shows each with today, yesterday, a weekly one's week so far (thisWeek: " +
     'done of target) and its streak; ' +
     'update_habit renames, reschedules, retimes or archives one; log_habit marks today or ' +
@@ -106,7 +108,8 @@ export const INSTRUCTIONS = [
     'log_habit, never a reminder; a reminder is for a one-off or a repeat he wants pushed. ' +
     "A habit's nudge is one push at its time, never a second: a daily habit's on a day not " +
     "yet logged; a weekly or monthly habit's on the last day of its week or month, only if " +
-    'that week or month is not yet done or skipped; one of several days a week on each late ' +
+    'that week or month is not yet done or skipped; one with a weekday on that day, if it ' +
+    'is not yet done or skipped; one of several days a week on each late ' +
     'day not yet logged where the days left are no more than those still needed, never two ' +
     'a day. In the quiet hours (22:00 to 06:00 ' +
     'unless he set others) a time before midnight is sent as they begin (22:30 at 22:00) ' +
@@ -1051,7 +1054,7 @@ export function buildServer(
     .enum(['daily', 'weekly', 'monthly'])
     .describe(
       'daily: every day; weekly or monthly: once in the week or month, any day (weekly can ' +
-        'be more than once: timesAWeek)',
+        'be more than once: timesAWeek, or on one day of the week: weekday)',
     );
   // N a week (2026-11-23): a weekly habit's target, any days of the week.
   const timesAWeek = z
@@ -1062,6 +1065,14 @@ export function buildServer(
     .describe(
       'Only with weekly: how many days of the week, any days ("twice a week": 2); 1, the ' +
         'default, is once a week',
+    );
+  // One day of the week (2026-11-25): a weekly habit's own day.
+  const weekday = z
+    .enum(WEEKDAYS)
+    .describe(
+      'Only with weekly, once a week: the one day of the week it is for ("every ' +
+        'Wednesday": Wed), due, shown and nudged on that day only; left out, any day of the ' +
+        'week. Refused with timesAWeek above 1',
     );
   const habitTime = z
     .string()
@@ -1096,12 +1107,14 @@ export function buildServer(
         'A habit in the Habits module: something Eric means to do daily (the default), weekly ' +
         'or monthly, shown in Right Now and on the Habits screen until done or skipped; a ' +
         'weekly one with timesAWeek (2 to 7) is for that many days of the week, no set day, ' +
-        'shown each day until that many are done. Name ' +
+        'shown each day until that many are done; a weekly one with weekday is for that day ' +
+        'of the week only ("every Wednesday"), shown and due on it. Name ' +
         'it in his own words. time is the time of day it is for ("around 11am" is 11:00), in ' +
         'the zone of the device he last used the app on (give timeZone only when a refusal ' +
         'asks for it); nudge asks for one push at that time, never a second, and ' +
         'needs a time: a daily habit on a day not yet logged, a weekly or monthly one on the ' +
-        'last day of its week or month if not yet done or skipped (one of several days a ' +
+        'last day of its week or month if not yet done or skipped (one with a weekday on that ' +
+        'day; one of several days a ' +
         'week on each late day where the days left are no more than those still needed); in ' +
         'the quiet hours a time ' +
         'before midnight goes as they begin, one after it as they end, and nudgeNote says ' +
@@ -1113,6 +1126,7 @@ export function buildServer(
         name: z.string().min(1),
         schedule: schedule.optional(),
         timesAWeek: timesAWeek.optional(),
+        weekday: weekday.optional(),
         time: habitTime.optional(),
         timeZone: timeZone.optional(),
         nudge: z.boolean().optional(),
@@ -1137,7 +1151,9 @@ export function buildServer(
         'here; noteId, the entry a note habit made), recentAnswers for a choice habit (the ' +
         'last seven days answered, newest first), in timeZone (the zone of the device Eric ' +
         'last used the app on, so today is the day the app shows), thisPeriod for ' +
-        'a weekly or monthly one, timesAWeek for one of several days a week, thisWeek for a ' +
+        'a weekly or monthly one, timesAWeek for one of several days a week, weekday and ' +
+        'nextDue (the next day it is due, today included) for one on its own day of the ' +
+        'week, thisWeek for a ' +
         'weekly one (done days this week of its target), and its streak (days, weeks or ' +
         'months done in a row, a week counting once its target is met, skips ' +
         'passed over, today and a yesterday still open not counted against it; capped when ' +
@@ -1154,11 +1170,13 @@ export function buildServer(
       title: 'Change a habit',
       description:
         'Renames a habit, changes its schedule, how many days a week a weekly one is for ' +
-        '(timesAWeek; 1 or null is once; made daily or monthly it goes), its time (null: any ' +
+        '(timesAWeek; 1 or null is once; made daily or monthly it goes), the one day of the ' +
+        'week a weekly one is for (weekday; null: any day; it goes when the habit is made ' +
+        'daily or monthly or given timesAWeek above 1), its time (null: any ' +
         'time; in the zone of the ' +
         'device Eric last used the app on, timeZone only when a refusal asks for it), its ' +
         'nudge (one push at its time if not yet logged, a weekly or monthly habit on the last ' +
-        'day of its week or month; needs a time; nudgeNote says when it goes), what it is ' +
+        'day of its week or month, one with a weekday on that day; needs a time; nudgeNote says when it goes), what it is ' +
         'answered with ' +
         '(answer, choices, template; earlier days keep what they hold), or ' +
         'archives it (archived false brings it back). An archived habit keeps its history; ' +
@@ -1168,6 +1186,7 @@ export function buildServer(
         name: z.string().min(1).optional(),
         schedule: schedule.optional(),
         timesAWeek: timesAWeek.nullable().optional(),
+        weekday: weekday.nullable().optional(),
         time: habitTime.nullable().optional(),
         timeZone: timeZone.optional(),
         nudge: z.boolean().optional(),
@@ -1191,14 +1210,15 @@ export function buildServer(
         'shows; say which day you logged); never a day before ' +
         'the habit began, and yesterday for a weekly or monthly one only when it ended a ' +
         'week or month (else log today), unless it is for several days a week, where each ' +
-        'day counts; none clears that day. date is ' +
+        'day counts; one with a weekday only for that day, on it or the day after (refused ' +
+        'on any other day); none clears that day. date is ' +
         'YYYY-MM-DD (list_habits gives today and yesterday); today when left out. A skip ' +
         'never breaks a streak. Refused for an archived habit. With state done, answer is a ' +
         "choice habit's choice or a text habit's one line (at most 500; a line break is " +
         'refused, and tabs and runs of spaces become one space, the ends trimmed), sealed ' +
         "before it is stored; noteId is a note habit's entry, made first with use_template from its " +
         "template. Gives back the day, its state, a weekly habit's week so far (thisWeek: " +
-        'done of target) and the streak. Habits only.',
+        'done of target), its weekday and nextDue if it has one, and the streak. Habits only.',
       inputSchema: {
         habit,
         state: z.enum(['done', 'skipped', 'none']),

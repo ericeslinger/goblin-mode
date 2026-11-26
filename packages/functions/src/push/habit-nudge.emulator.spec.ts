@@ -110,6 +110,28 @@ describe('sendNudges over Firestore', () => {
     });
   });
 
+  it('nudges a habit on its own weekday, across a week of two months (2026-11-25)', async () => {
+    await gardener('u1');
+    await habit('u1', 'bins', { name: 'Bins', schedule: 'weekly', weekday: 'Tue' });
+    await habit('u1', 'ticked', { name: 'Ticked', schedule: 'weekly', weekday: 'Tue' });
+    // The week of 11-30 to 12-06: Monday done is not its day.
+    await tick('u1', 'bins', '2026-11-30', 'done');
+    await tick('u1', 'ticked', '2026-12-01', 'done');
+    const s = sender();
+    const store = firestoreNudgeStore(db);
+    // 21:00 EST on Monday 30 November, Tuesday 1 and Wednesday 2 December.
+    const tue = Date.parse('2026-12-02T02:00:00Z');
+    const day = 86_400_000;
+    expect((await sendNudges(store, s.send, tue - day)).pushed).toBe(0);
+    expect((await sendNudges(store, s.send, tue)).pushed).toBe(1);
+    expect((await sendNudges(store, s.send, tue + 60_000)).pushed).toBe(0);
+    expect((await sendNudges(store, s.send, tue + day)).pushed).toBe(0);
+    expect(s.sent.map((x) => [x.message.title, x.message.body])).toEqual([
+      ['Bins', 'Right Now · not done yet today'],
+    ]);
+    expect((await db.doc(nudgeStatePath('u1')).get()).get('sent')).toEqual({ bins: '2026-12-01' });
+  });
+
   it('pushes a due nudge once, marks the day server-side, and not again', async () => {
     await gardener('u1');
     await habit('u1', 'floss');

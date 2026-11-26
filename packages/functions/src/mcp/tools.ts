@@ -122,6 +122,8 @@ import {
   habitDayLoggable,
   habitNudgePlan,
   habitDue,
+  habitNextDueDay,
+  habitWeekday,
   habitEntries,
   habitLogId,
   habitLogMonths,
@@ -632,6 +634,8 @@ function habitFields(id: string, h: Habit, zone: string) {
     schedule: h.schedule,
     // A weekly habit's target, days a week (2026-11-23); none: once.
     ...(h.times !== undefined ? { timesAWeek: h.times } : {}),
+    // A weekly habit's own day of the week (2026-11-25); none: any day.
+    ...(h.weekday !== undefined ? { weekday: h.weekday } : {}),
     ...(h.time !== undefined ? { time: h.time } : {}),
     timeZone: zone,
     answer: h.answer,
@@ -690,16 +694,19 @@ function nudgeNoteFor(h: Habit, config: HabitsConfig, zone: string): string {
   const when =
     plan.schedule === 'daily'
       ? `${at}, on a day it is not yet done or skipped`
-      : plan.schedule === 'weekly' && plan.times !== undefined
-        ? `${at} on each day not yet logged, late in the week (weeks start on ` +
-          `${WEEKDAY_NAMES[config.weekStart]}), where the days left, that day counted, are no ` +
-          `more than the ${plan.times} done days still needed: with none done, on the last ` +
-          `${plan.times} days of the week; once done ${plan.times} times that week, or skipped, none`
-        : plan.schedule === 'weekly'
-          ? `on the last day of each week (${WEEKDAY_NAMES[plan.lastDay ?? 'Sun']}, as weeks ` +
-            `start on ${WEEKDAY_NAMES[config.weekStart]}) ${at}, only if that week is not yet ` +
-            'done or skipped'
-          : `on the last day of each month ${at}, only if that month is not yet done or skipped`;
+      : plan.weekday !== undefined
+        ? `on ${WEEKDAY_NAMES[plan.weekday]} each week ${at}, only if that day is not yet ` +
+          'done or skipped'
+        : plan.schedule === 'weekly' && plan.times !== undefined
+          ? `${at} on each day not yet logged, late in the week (weeks start on ` +
+            `${WEEKDAY_NAMES[config.weekStart]}), where the days left, that day counted, are no ` +
+            `more than the ${plan.times} done days still needed: with none done, on the last ` +
+            `${plan.times} days of the week; once done ${plan.times} times that week, or skipped, none`
+          : plan.schedule === 'weekly'
+            ? `on the last day of each week (${WEEKDAY_NAMES[plan.lastDay ?? 'Sun']}, as weeks ` +
+              `start on ${WEEKDAY_NAMES[config.weekStart]}) ${at}, only if that week is not yet ` +
+              'done or skipped'
+            : `on the last day of each month ${at}, only if that month is not yet done or skipped`;
   return (
     `One push ${when}, in ${zone} (the zone of the device Eric last used the app on), to ` +
     `each device with notifications on; never a second that ${
@@ -789,6 +796,30 @@ function habitTimesArg(
         'with it',
     );
   return times;
+}
+
+/**
+ * A weekly habit's own day as given (2026-11-25): one of the seven names
+ * (the schema holds them), on a weekly habit of once a week only; null
+ * clears it. Undefined when not given.
+ */
+function habitWeekdayArg(
+  weekday: Weekday | null | undefined,
+  schedule: Habit['schedule'],
+  times: number | undefined,
+): Weekday | null | undefined {
+  if (weekday === undefined || weekday === null) return weekday;
+  if (schedule !== 'weekly')
+    throw new ToolError(
+      `weekday goes only with a weekly habit; this one would be ${schedule}: give schedule ` +
+        'weekly with it',
+    );
+  if (times !== undefined && times > 1)
+    throw new ToolError(
+      `weekday is for a habit once a week; one of ${times} days a week has no set day: give ` +
+        'timesAWeek 1 with it, or leave weekday out',
+    );
+  return weekday;
 }
 
 /** A time of day for a habit; refused unless HH:MM. */
@@ -3849,6 +3880,10 @@ export class NotesTools {
           ...habitFields(h.id, h.habit, h.zone),
           ...(h.zoneKnown ? {} : { timeZoneUnknown: true, todayIn: 'UTC' }),
           due: habitDue(h.habit, entries, h.today, weekStart),
+          // Its own weekday (2026-11-25): the next day it is due, today included.
+          ...(habitNextDueDay(h.habit, h.today) !== undefined
+            ? { nextDue: habitNextDueDay(h.habit, h.today) }
+            : {}),
           today: { date: h.today, state: dayState(entries, h.today), ...(await answer(h.today)) },
           yesterday: {
             date: yesterday,
@@ -3975,6 +4010,7 @@ export class NotesTools {
     name: string;
     schedule?: Habit['schedule'];
     timesAWeek?: number;
+    weekday?: Weekday;
     time?: string;
     timeZone?: string;
     nudge?: boolean;
@@ -3985,6 +4021,7 @@ export class NotesTools {
     await this.requireModule('habits', 'making a habit');
     const name = habitName(args.name);
     const times = habitTimesArg(args.timesAWeek, args.schedule ?? 'daily');
+    const weekday = habitWeekdayArg(args.weekday, args.schedule ?? 'daily', times ?? undefined);
     const answered = (await this.habitAnswerArgs(args)) ?? { answer: 'done' as const };
     const time = args.time === undefined ? undefined : habitTime(args.time);
     const config = await this.habitsSettings();
@@ -3996,6 +4033,7 @@ export class NotesTools {
       name,
       schedule: args.schedule ?? 'daily',
       ...(typeof times === 'number' ? { times } : {}),
+      ...(weekday ? { weekday } : {}),
       ...(time !== undefined ? { time } : {}),
       tz,
       ...answered,
@@ -4075,6 +4113,7 @@ export class NotesTools {
     name?: string;
     schedule?: Habit['schedule'];
     timesAWeek?: number | null;
+    weekday?: Weekday | null;
     time?: string | null;
     timeZone?: string;
     nudge?: boolean;
@@ -4088,6 +4127,7 @@ export class NotesTools {
       'name',
       'schedule',
       'timesAWeek',
+      'weekday',
       'time',
       'timeZone',
       'nudge',
@@ -4098,8 +4138,8 @@ export class NotesTools {
     ] as const;
     if (!asked.some((k) => args[k] !== undefined))
       throw new ToolError(
-        'say what to change: name, schedule, timesAWeek, time, timeZone, nudge, archived, ' +
-          'answer, choices or template',
+        'say what to change: name, schedule, timesAWeek, weekday, time, timeZone, nudge, ' +
+          'archived, answer, choices or template',
       );
     // The template is found before the transaction: it reads the notes.
     const template =
@@ -4128,6 +4168,17 @@ export class NotesTools {
       const nextTimes =
         schedule !== 'weekly' ? undefined : times === undefined ? was.times : (times ?? undefined);
       if (nextTimes !== was.times) update['times'] = nextTimes ?? FieldValue.delete();
+      // Its own weekday (2026-11-25): checked against the schedule and the
+      // target it will have; it goes when the habit leaves weekly, or is
+      // given a target of several days, in the same write.
+      const weekday = habitWeekdayArg(args.weekday, schedule, nextTimes);
+      const nextWeekday =
+        schedule !== 'weekly' || (nextTimes ?? 1) > 1
+          ? undefined
+          : weekday === undefined
+            ? was.weekday
+            : (weekday ?? undefined);
+      if (nextWeekday !== was.weekday) update['weekday'] = nextWeekday ?? FieldValue.delete();
       if (time === null && was.time !== undefined) update['time'] = FieldValue.delete();
       if (typeof time === 'string' && time !== was.time) update['time'] = time;
       if (tz !== undefined && tz !== was.tz) update['tz'] = tz;
@@ -4152,7 +4203,7 @@ export class NotesTools {
           next: undefined,
         };
       const merged: Data = { ...was, ...update };
-      for (const k of ['time', 'times', 'choices', 'template'])
+      for (const k of ['time', 'times', 'weekday', 'choices', 'template'])
         if (update[k] instanceof FieldValue) delete merged[k];
       if (merged['nudge'] === true && merged['time'] === undefined)
         throw new ToolError(
@@ -4240,6 +4291,16 @@ export class NotesTools {
         found.createdAt === undefined ? undefined : habitToday(found.createdAt, zone);
       if (createdOn !== undefined && date < createdOn)
         throw new ToolError(`${h.name} began on ${createdOn}; ${date} is before it`);
+      // Its own weekday (2026-11-25): that day only, today or yesterday.
+      const own = habitWeekday(h);
+      if (own !== undefined && !habitDayLoggable(h, date, today, { weekStart, createdOn })) {
+        const next = habitNextDueDay(h, today);
+        throw new ToolError(
+          `${h.name} is for ${WEEKDAY_NAMES[own]}s only, and ${date} is a ` +
+            `${WEEKDAY_NAMES[weekdayOf(date)]}: log it for a ${WEEKDAY_NAMES[own]}, on the ` +
+            `day or the day after; it is next due on ${next}`,
+        );
+      }
       if (!habitDayLoggable(h, date, today, { weekStart, createdOn }))
         throw new ToolError(
           `${h.name} is ${h.schedule}, and yesterday (${yesterday}) is in the same ` +
@@ -4311,6 +4372,9 @@ export class NotesTools {
       date: logged.date,
       state: args.state,
       changed: logged.changed,
+      // Its own weekday and the next day it is due (2026-11-25).
+      ...(view.weekday !== undefined ? { weekday: view.weekday } : {}),
+      ...('nextDue' in view ? { nextDue: view.nextDue } : {}),
       today: view.today,
       yesterday: view.yesterday,
       ...('thisPeriod' in view ? { thisPeriod: view.thisPeriod } : {}),
@@ -4357,6 +4421,8 @@ export class NotesTools {
           id: h.id,
           name: h.name,
           ...(h.time !== undefined ? { time: h.time } : {}),
+          // Its own weekday (2026-11-25): listed only on that day.
+          ...(h.weekday !== undefined ? { weekday: h.weekday } : {}),
           state: settled === 'none' ? ('due' as const) : settled,
           ...(h.thisWeek && h.thisWeek.target > 1 ? { thisWeek: h.thisWeek } : {}),
         };

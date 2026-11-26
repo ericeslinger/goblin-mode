@@ -362,8 +362,146 @@ describe('The Habits screen (#324)', () => {
     r.api.set.mockClear();
     buttonNamed(form, 'Save')!.click();
     expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
-      { schedule: 'weekly', times: 'DELETE', updatedAt: expect.anything() },
+      { schedule: 'weekly', times: 'DELETE', weekday: 'DELETE', updatedAt: expect.anything() },
     ]);
+  });
+
+  describe('on its own weekday (2026-11-25)', () => {
+    const pick = async (
+      r: { fixture: { whenStable(): Promise<unknown> } },
+      sel: HTMLSelectElement,
+      v: string,
+    ) => {
+      sel.value = v;
+      sel.dispatchEvent(new Event('change'));
+      await r.fixture.whenStable();
+    };
+
+    it('adds one, a set day and several times a week each undoing the other', async () => {
+      const r = await render();
+      await r.habits([]);
+      buttonNamed(r.el, 'Add your first habit')!.click();
+      await r.fixture.whenStable();
+      const form = r.el.querySelector<HTMLElement>('form[aria-label="New habit"]')!;
+      expect(form.querySelector('select[name="weekday"]')).toBeNull();
+      type(form, 'input[name="name"]', 'Take out the garbage');
+      await pick(r, form.querySelector<HTMLSelectElement>('select[name="schedule"]')!, 'weekly');
+      const day = form.querySelector<HTMLSelectElement>('select[name="weekday"]')!;
+      const times = form.querySelector<HTMLSelectElement>('select[name="times"]')!;
+      expect(day.closest('label')?.textContent).toContain('Which day');
+      expect([...day.options].map((o) => o.textContent?.trim())).toEqual([
+        'Any day',
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ]);
+      expect(day.value).toBe('');
+      await pick(r, times, '3');
+      await pick(r, day, 'Wed');
+      expect(times.value).toBe('1');
+      await pick(r, times, '2');
+      expect(day.value).toBe('');
+      await pick(r, day, 'Wed');
+      type(form, 'input[name="time"]', '19:00');
+      buttonNamed(form, 'Add')!.click();
+      const written = r.api.set.mock.lastCall![2] as Record<string, unknown>;
+      expect(written).toMatchObject({ schedule: 'weekly', weekday: 'Wed', time: '19:00' });
+      expect(written).not.toHaveProperty('times');
+    });
+
+    it('changes the day in Edit in one write, and leaving weekly removes it', async () => {
+      const r = await render();
+      await r.habits([
+        habitDoc('bins', {
+          name: 'Bins',
+          schedule: 'weekly',
+          weekday: 'Wed',
+          time: '19:00',
+          nudge: true,
+        }),
+      ]);
+      buttonNamed(r.el, 'Edit Bins')!.click();
+      await r.fixture.whenStable();
+      const form = r.el.querySelector<HTMLElement>('form[aria-label="Edit Bins"]')!;
+      const day = form.querySelector<HTMLSelectElement>('select[name="weekday"]')!;
+      expect(day.value).toBe('Wed');
+      expect(form.textContent).toContain('One push on Wednesday at 19:00 if not done that day.');
+      await pick(r, day, 'Thu');
+      expect(form.textContent).toContain('read again by the new schedule');
+      expect(form.textContent).toContain('One push on Thursday at 19:00 if not done that day.');
+      r.api.set.mockClear();
+      buttonNamed(form, 'Save')!.click();
+      expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
+        { schedule: 'weekly', times: 'DELETE', weekday: 'Thu', updatedAt: expect.anything() },
+      ]);
+      await r.fixture.whenStable();
+      buttonNamed(r.el, 'Edit Bins')!.click();
+      await r.fixture.whenStable();
+      const edit = r.el.querySelector<HTMLElement>('form[aria-label="Edit Bins"]')!;
+      await pick(r, edit.querySelector<HTMLSelectElement>('select[name="times"]')!, '2');
+      expect(edit.querySelector<HTMLSelectElement>('select[name="weekday"]')!.value).toBe('');
+      r.api.set.mockClear();
+      buttonNamed(edit, 'Save')!.click();
+      expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
+        { schedule: 'weekly', times: 2, weekday: 'DELETE', updatedAt: expect.anything() },
+      ]);
+    });
+
+    it('says its day, when it is next due, and marks the other days not its own', async () => {
+      const r = await render();
+      const made = { schedule: 'weekly', createdAt: NOW - 30 * DAY };
+      // Today is Tuesday 6 October.
+      await r.habits(
+        [
+          habitDoc('bins', { ...made, name: 'Bins', weekday: 'Tue', time: '19:00', nudge: true }),
+          habitDoc('glass', { ...made, name: 'Glass', weekday: 'Wed' }),
+          habitDoc('paper', { ...made, name: 'Paper', weekday: 'Fri' }),
+          habitDoc('rec', { ...made, name: 'Recycling', weekday: 'Mon' }),
+        ],
+        { 'rec_2026-10': { '05': { state: 'done' } } },
+      );
+      const bins = card(r.el, 'Bins');
+      expect(bins.querySelector('.meta')?.textContent).toBe(
+        'Every Tuesday · 19:00 · Nudge on · No streak yet',
+      );
+      expect(bins.querySelector('.period')?.textContent).toBe('Due today');
+      expect(buttonNamed(bins, 'Done today: Bins')).toBeDefined();
+      const glass = card(r.el, 'Glass');
+      expect(glass.querySelector('.meta')?.textContent).toBe('Every Wednesday · No streak yet');
+      expect(glass.querySelector('.period')?.textContent).toBe('Next due tomorrow');
+      expect(buttonNamed(glass, 'Done today: Glass')).toBeUndefined();
+      expect(buttonNamed(glass, 'Done yesterday: Glass')).toBeUndefined();
+      const said = [...glass.querySelectorAll('.strip li .visually-hidden')].map(
+        (d) => d.textContent,
+      );
+      // Wed 30 Sep to Tue 6 Oct: Wednesday the 30th missed.
+      expect(said).toEqual([
+        'Wed 30 Sept: missed',
+        'Thu 1 Oct: not its day',
+        'Fri 2 Oct: not its day',
+        'Sat 3 Oct: not its day',
+        'Sun 4 Oct: not its day',
+        'Mon 5 Oct: not its day',
+        'Tue 6 Oct: not its day',
+      ]);
+      expect(glass.querySelectorAll('.strip li.off')).toHaveLength(6);
+      expect(card(r.el, 'Paper').querySelector('.period')?.textContent).toBe(
+        'Next due on Fri 9 Oct',
+      );
+      const rec = card(r.el, 'Recycling');
+      expect(rec.querySelector('.period')?.textContent).toBe(
+        'Done this week, yesterday · Next due on Mon 12 Oct',
+      );
+      expect(rec.querySelector('.meta')?.textContent).toBe('Every Monday · Streak: 1 week');
+      // Its Monday as yesterday, still to be changed.
+      expect(buttonNamed(rec, 'Done yesterday: Recycling')?.getAttribute('aria-pressed')).toBe(
+        'true',
+      );
+    });
   });
 
   describe('N times a week (2026-11-23)', () => {
@@ -433,7 +571,7 @@ describe('The Habits screen (#324)', () => {
       r.api.set.mockClear();
       buttonNamed(form, 'Save')!.click();
       expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
-        { schedule: 'weekly', times: 3, updatedAt: expect.anything() },
+        { schedule: 'weekly', times: 3, weekday: 'DELETE', updatedAt: expect.anything() },
       ]);
       await r.fixture.whenStable();
       buttonNamed(r.el, 'Edit Pottery')!.click();
@@ -447,7 +585,7 @@ describe('The Habits screen (#324)', () => {
       r.api.set.mockClear();
       buttonNamed(edit, 'Save')!.click();
       expect(r.api.set.mock.calls.map((c) => c[2])).toEqual([
-        { schedule: 'daily', times: 'DELETE', updatedAt: expect.anything() },
+        { schedule: 'daily', times: 'DELETE', weekday: 'DELETE', updatedAt: expect.anything() },
       ]);
     });
 
@@ -603,6 +741,53 @@ describe('habit lines', () => {
     const noon = habitsConfig({ quietFrom: '12:00', quietTo: '14:00' });
     expect(habitWhen({ ...daily, time: '22:30' }, noon)).toBe('22:30 · Nudge on');
     expect(habitWhen({ ...daily, time: '13:00' }, noon)).toBe('13:00 · Nudge at 14:00');
+  });
+
+  it('words a habit on its own weekday: its day, when next due, its nudge (2026-11-25)', () => {
+    const config = habitsConfig({});
+    const bins = {
+      schedule: 'weekly' as const,
+      weekday: 'Wed' as const,
+      time: '19:00',
+      nudge: true,
+    };
+    expect(habitWhen(bins, config)).toBe('Every Wednesday · 19:00 · Nudge on');
+    expect(habitWhen(bins, config, 'screen')).toBe('Every Wednesday · 19:00 · Nudge on');
+    expect(habitWhen({ ...bins, time: '23:00' }, config, 'screen')).toBe(
+      'Every Wednesday · 23:00 · Nudge at 22:00',
+    );
+    expect(habitWhen({ ...bins, nudge: false, time: undefined }, config)).toBe('Every Wednesday');
+    expect(nudgeHint('weekly', '19:00', config, 1, 'Wed')).toBe(
+      'One push on Wednesday at 19:00 if not done that day.',
+    );
+    expect(nudgeHint('weekly', '05:00', config, 1, 'Sun')).toBe(
+      'One push on Sunday at 06:00, when the quiet hours (22:00 to 06:00) end, if not done ' +
+        'that day.',
+    );
+    // A weekday on a daily habit, or with a target, is not one.
+    expect(nudgeHint('daily', '19:00', config, 1, 'Wed')).toBe(
+      'One push at 19:00 if not logged by then.',
+    );
+    const today = '2026-10-06';
+    expect(periodLine({ schedule: 'weekly', state: 'none', nextDue: today }, today)).toBe(
+      'Due today',
+    );
+    expect(periodLine({ schedule: 'weekly', state: 'none', nextDue: '2026-10-07' }, today)).toBe(
+      'Next due tomorrow',
+    );
+    expect(periodLine({ schedule: 'weekly', state: 'none', nextDue: '2026-10-11' }, today)).toBe(
+      'Next due on Sun 11 Oct',
+    );
+    expect(
+      periodLine({ schedule: 'weekly', state: 'done', settledOn: today, nextDue: today }, today),
+    ).toBe('Done this week, today');
+    expect(
+      periodLine(
+        { schedule: 'weekly', state: 'skipped', settledOn: '2026-10-05', nextDue: '2026-10-12' },
+        today,
+      ),
+    ).toBe('Skipped this week, yesterday · Next due on Mon 12 Oct');
+    expect(dayState('off', 'weekly')).toEqual({ mark: '', words: 'not its day' });
   });
 
   it('words a habit of several days a week: how often, its count, its nudge (2026-11-23)', () => {

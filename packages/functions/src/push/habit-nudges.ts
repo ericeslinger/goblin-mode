@@ -4,7 +4,8 @@
 // habit's on the last day of its period, and every day read in the
 // module's zone (Eric's decisions, 2026-11-22). A weekly habit of
 // `times` (2026-11-23) on each late day of its week where the days left
-// are no more than the done days still needed, never two for a day. The core, over a small
+// are no more than the done days still needed, never two for a day. One
+// with its own weekday (2026-11-25) on that day of the week. The core, over a small
 // store, so it runs in specs without Firestore or FCM
 // (habit-nudge-store.ts is the store over Firestore, habit-nudge-push.ts
 // the wiring). What is due is the schema's `habitNudgeDue`; nothing here
@@ -18,6 +19,7 @@ import {
   habitNudgeDue,
   habitPeriod,
   habitPeriodCount,
+  habitWeekday,
 } from '@mossgoblin/schema';
 import type { Device, PushMessage, PushSender, PushStore } from './send-due';
 import { MAX_AHEAD_MS, UPCOMING_MS, type WakeQueue } from './wake';
@@ -75,18 +77,23 @@ const NOT_YET: Record<Habit['schedule'], string> = {
 /**
  * The push for a habit's nudge: its name, and a tap opens Right Now. A
  * weekly habit of `times` (2026-11-23) says how far its week has come,
- * "Right Now · 1 of 3 this week", when `progress` is given.
+ * "Right Now · 1 of 3 this week", when `progress` is given. One with its
+ * own weekday (2026-11-25, `onItsDay`), nudged on that day, says today's,
+ * as a daily one does.
  */
 export function nudgeMessage(
   id: string,
   name: string,
   schedule: Habit['schedule'] = 'daily',
   progress?: { done: number; target: number },
+  onItsDay = false,
 ): PushMessage {
   const body =
     progress && progress.target > 1
       ? `${progress.done} of ${progress.target} this week`
-      : NOT_YET[schedule];
+      : onItsDay
+        ? 'not done yet today'
+        : NOT_YET[schedule];
   return {
     // One per habit: a later one replaces it.
     tag: `habit-${id}`,
@@ -170,7 +177,13 @@ export async function sendNudges(
     if (!targets.length) continue;
     const results = await sender.send(
       targets.map((d) => d.token),
-      nudgeMessage(h.id, h.habit.name, h.habit.schedule, progress),
+      nudgeMessage(
+        h.id,
+        h.habit.name,
+        h.habit.schedule,
+        progress,
+        habitWeekday(h.habit) !== undefined,
+      ),
     );
     for (const [i, result] of results.entries()) {
       if (result === 'sent') report.sent++;

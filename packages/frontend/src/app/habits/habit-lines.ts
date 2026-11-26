@@ -5,6 +5,7 @@ import {
   type HabitSchedule,
   type HabitsConfig,
   type Weekday,
+  WEEKDAYS,
   addDays,
   habitNudgePlan,
 } from '@mossgoblin/schema';
@@ -31,12 +32,38 @@ export const SCHEDULE_LABELS: Record<HabitSchedule, string> = {
 
 /**
  * How often in words, a weekly habit's days a week with it (2026-11-23):
- * "Once a week", "Twice a week", "3 times a week".
+ * "Once a week", "Twice a week", "3 times a week"; or its own day of the
+ * week (2026-11-25), "Every Wednesday".
  */
-export function scheduleLabel(schedule: HabitSchedule, times?: number): string {
-  if (schedule !== 'weekly' || !times || times < 2) return SCHEDULE_LABELS[schedule];
-  return times === 2 ? 'Twice a week' : `${times} times a week`;
+export function scheduleLabel(schedule: HabitSchedule, times?: number, weekday?: Weekday): string {
+  if (schedule !== 'weekly') return SCHEDULE_LABELS[schedule];
+  if (times !== undefined && times >= 2) {
+    return times === 2 ? 'Twice a week' : `${times} times a week`;
+  }
+  if (weekday !== undefined) return `Every ${WEEKDAY_NAMES[weekday]}`;
+  return SCHEDULE_LABELS[schedule];
 }
+
+/** A weekday's whole name: "Sunday". */
+const WEEKDAY_NAMES: Record<Weekday, string> = {
+  Mon: 'Monday',
+  Tue: 'Tuesday',
+  Wed: 'Wednesday',
+  Thu: 'Thursday',
+  Fri: 'Friday',
+  Sat: 'Saturday',
+  Sun: 'Sunday',
+};
+
+/**
+ * Which day of the week, as the add form and Edit offer it for a weekly
+ * habit (2026-11-25): Any day unless chosen, which stores nothing, then
+ * Monday to Sunday.
+ */
+export const WEEKDAY_CHOICES: readonly { value: Weekday | ''; label: string }[] = [
+  { value: '', label: 'Any day' },
+  ...WEEKDAYS.map((value) => ({ value, label: WEEKDAY_NAMES[value] })),
+];
 
 /**
  * How many times a week, as the add form and Edit offer it for a weekly
@@ -131,17 +158,6 @@ export function streakLine(schedule: HabitSchedule, count: number, complete = tr
   return `Streak: ${complete ? '' : 'at least '}${count} ${count === 1 ? one : many}`;
 }
 
-/** A weekday's whole name: "Sunday". */
-const WEEKDAY_NAMES: Record<Weekday, string> = {
-  Mon: 'Monday',
-  Tue: 'Tuesday',
-  Wed: 'Wednesday',
-  Thu: 'Thursday',
-  Fri: 'Friday',
-  Sat: 'Saturday',
-  Sun: 'Sunday',
-};
-
 /**
  * A nudge's words on a habit's line (step 4 of #324; Eric's decisions
  * of 2026-11-22): a daily habit's "Nudge on" at its own time, "Nudge at
@@ -153,6 +169,8 @@ const WEEKDAY_NAMES: Record<Weekday, string> = {
 function nudgeWords(plan: HabitNudgePlan): string {
   if (plan.kind === 'off' || plan.kind === 'no-time') return '';
   const moved = plan.kind !== 'at';
+  // Its own weekday (2026-11-25): that day, which its line names already.
+  if (plan.weekday !== undefined) return moved ? `Nudge at ${plan.time}` : 'Nudge on';
   // Several days a week (2026-11-23): on the late days still needed.
   if (plan.times !== undefined)
     return moved ? `Nudge late in the week at ${plan.time}` : 'Nudge late in the week';
@@ -174,12 +192,15 @@ function nudgeWords(plan: HabitNudgePlan): string {
  * says it (review of #330, 2026-11-22; `nudgeWords`): "Nudge on" only
  * when a push goes at its time on its day, "Nudge at 06:00" when the
  * quiet hours move it, a weekly or monthly one's naming its day
- * (Eric's decisions of 2026-11-22), and nothing when none goes.
+ * (Eric's decisions of 2026-11-22), and nothing when none goes. A
+ * weekly one with its own weekday (2026-11-25) says it in both places,
+ * "Every Wednesday", and its nudge as a daily one's, on that day.
  */
 export function habitWhen(
   h: {
     schedule: HabitSchedule;
     times?: number;
+    weekday?: Weekday;
     time?: string;
     nudge?: boolean;
     archived?: boolean;
@@ -195,8 +216,8 @@ export function habitWhen(
   const kind =
     h.schedule === 'daily'
       ? ''
-      : on === 'screen'
-        ? scheduleLabel(h.schedule, h.times)
+      : on === 'screen' || (h.schedule === 'weekly' && h.weekday !== undefined && !h.times)
+        ? scheduleLabel(h.schedule, h.times, h.weekday)
         : weekCount(h.count) || THIS_PERIOD[h.schedule];
   const parts = [...(kind ? [kind] : []), ...(h.time ? [h.time] : []), ...(nudge ? [nudge] : [])];
   return parts.join(' · ');
@@ -225,9 +246,38 @@ export function ordinal(n: number): string {
  * "Done this week, today", "Done this week, on Monday", "Skipped this
  * month, on the 3rd". A seven-day strip shows most of a week but little
  * of a month, so the line says the period whole. None for a daily
- * habit, whose strip and Today row say it all.
+ * habit, whose strip and Today row say it all. A weekly one with its own
+ * weekday (2026-11-25): "Due today" on its day with nothing logged; on
+ * any other day when it is next due, "Next due tomorrow", "Next due on
+ * Wed 2 Dec", after how its week stands once settled ("Done this week,
+ * yesterday · Next due on Wed 2 Dec").
  */
 export function periodLine(
+  h: {
+    schedule: HabitSchedule;
+    state: 'done' | 'skipped' | 'none';
+    settledOn?: string;
+    count?: { done: number; target: number };
+    nextDue?: string;
+  },
+  today: string,
+): string {
+  if (h.schedule === 'daily') return '';
+  if (h.nextDue !== undefined) {
+    const next =
+      h.nextDue === today
+        ? ''
+        : h.nextDue === addDays(today, 1)
+          ? 'Next due tomorrow'
+          : `Next due on ${dayName(h.nextDue)}`;
+    if (h.state === 'none') return next || 'Due today';
+    return [settledLine({ ...h, count: undefined }, today), next].filter(Boolean).join(' · ');
+  }
+  return settledLine(h, today);
+}
+
+/** How a weekly or monthly habit's period stands, its days counted or settled. */
+function settledLine(
   h: {
     schedule: HabitSchedule;
     state: 'done' | 'skipped' | 'none';
@@ -236,7 +286,6 @@ export function periodLine(
   },
   today: string,
 ): string {
-  if (h.schedule === 'daily') return '';
   // Several days a week (2026-11-23): its count, met or not, unless the
   // week was skipped, which the line says as for any weekly habit.
   const count = weekCount(h.count);
@@ -290,6 +339,8 @@ export function dayState(
       return { mark: '', words: 'not logged yet' };
     case 'before':
       return { mark: '', words: 'before the habit began' };
+    case 'off':
+      return { mark: '', words: 'not its day' };
   }
 }
 
@@ -300,15 +351,18 @@ export function dayState(
  * 2026-11-22: a time in the quiet hours before midnight goes as they
  * begin, one after it as they end; a weekly habit is nudged on the last
  * day of its week ("One push on Sunday at 21:00 if not done this
- * week."), a monthly one on the last day of its month.
+ * week."), a monthly one on the last day of its month; one with its own
+ * weekday on that day (2026-11-25, "One push on Wednesday at 19:00 if not
+ * done that day.").
  */
 export function nudgeHint(
   schedule: HabitSchedule,
   time: string,
   config: HabitsConfig,
   times?: number,
+  weekday?: Weekday,
 ): string {
-  const plan = habitNudgePlan({ schedule, time, nudge: true, times }, config);
+  const plan = habitNudgePlan({ schedule, time, nudge: true, times, weekday }, config);
   if (plan.kind === 'off' || plan.kind === 'no-time') return 'A nudge needs a time of day.';
   const quiet = `quiet hours (${config.quietFrom} to ${config.quietTo})`;
   const why =
@@ -317,6 +371,8 @@ export function nudgeHint(
       : plan.kind === 'early'
         ? `, as the ${quiet} begin,`
         : '';
+  if (plan.weekday !== undefined)
+    return `One push on ${WEEKDAY_NAMES[plan.weekday]} at ${plan.time}${why} if not done that day.`;
   // Several days a week (2026-11-23): one a day at most, late in the week.
   if (plan.times !== undefined)
     return (
