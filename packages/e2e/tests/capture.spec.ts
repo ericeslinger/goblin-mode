@@ -73,6 +73,9 @@ test('typing offline reaches another device once back online', async ({ page, br
   // they sync.
   await expect(page.getByRole('status')).toHaveText('synced', { timeout: 15_000 });
   await expect(page.getByText('does not have its note key yet')).toHaveCount(0);
+  // The word can show before the write is sent (2026-11-26, #312):
+  // wait until the emulator has it before the other device reads.
+  await letItSave(page);
 
   const other = await browser.newContext({ ...devices['Pixel 7'] });
   const second = await other.newPage();

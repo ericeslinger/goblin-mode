@@ -99,6 +99,19 @@ export async function signInAs(
   await expect
     .poll(() => page.evaluate((uid) => localStorage.getItem(`goblin.noteKey.${uid}`), persona.uid))
     .not.toBeNull();
+  // And until Firestore's client has started (2026-11-26, #312): a
+  // `goto` straight after sign-in unloaded the page between the client
+  // taking the tabs' primary lease and its hook that gives it up, so
+  // the next document waited out the 5 s lease with no connection, and
+  // a second device read an empty garden. Capped, for a page offline.
+  await page
+    .evaluate(() =>
+      Promise.race([
+        (globalThis as { mossgoblinSynced?: () => Promise<void> }).mossgoblinSynced?.(),
+        new Promise((done) => setTimeout(done, 5000)),
+      ]),
+    )
+    .catch(() => undefined);
 }
 
 /**

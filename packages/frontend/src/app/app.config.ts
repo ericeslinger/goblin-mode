@@ -5,10 +5,11 @@ import {
   provideBrowserGlobalErrorListeners,
   provideEnvironmentInitializer,
 } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withNavigationErrorHandler } from '@angular/router';
 import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { CaptureService } from './capture/capture.service';
+import { reloadOnChunkError } from './chunk-reload';
 import { FIREBASE, initFirebase } from './firebase';
 import { rememberModules } from './home/start-on';
 import { LastPlaceService } from './launch/last-place.service';
@@ -20,7 +21,11 @@ import { ThemeService } from './theme/theme.service';
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes),
+    // A screen whose code failed to load is loaded afresh, once (#312).
+    provideRouter(
+      routes,
+      withNavigationErrorHandler((error) => reloadOnChunkError(error)),
+    ),
     { provide: FIREBASE, useFactory: () => initFirebase(location.hostname) },
     // sw.js takes shared files (#46), then loads Angular's ngsw-worker.js.
     provideServiceWorker('sw.js', {
