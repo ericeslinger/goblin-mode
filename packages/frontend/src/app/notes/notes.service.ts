@@ -231,8 +231,13 @@ export interface NoteRecord {
   shareId?: string;
 }
 
-/** Public-copy writes waiting for the server, kept on the device (2026-11-26). */
-export const PENDING_SHARES_KEY = 'goblin.pendingShares';
+/**
+ * Public-copy writes waiting for the server, kept on the device
+ * (2026-11-26). Its own key: `goblin.pendingShares` is the share
+ * sheet's (share-store.ts), and writing there emptied the shares
+ * waiting to be filed (a full run caught it).
+ */
+export const PUBLIC_COPY_WRITES_KEY = 'goblin.publicCopyWrites';
 /** A share write the server does not have yet: what it does, to which note. */
 export interface PendingShare {
   noteId: string;
@@ -2336,7 +2341,7 @@ export class NotesService {
    */
   readonly sharesWaiting = computed(() => this.pendingShares());
   private readonly pendingShares = signal<Record<string, PendingShare>>(
-    this.store.get<Record<string, PendingShare>>(PENDING_SHARES_KEY) ?? {},
+    this.store.get<Record<string, PendingShare>>(PUBLIC_COPY_WRITES_KEY) ?? {},
   );
 
   /** `writes` as one batch for share `shareId`, said to wait until the server has it. */
@@ -2364,8 +2369,8 @@ export class NotesService {
 
   private setPendingShares(next: Record<string, PendingShare>): void {
     this.pendingShares.set(next);
-    if (Object.keys(next).length) this.store.set(PENDING_SHARES_KEY, next);
-    else this.store.remove(PENDING_SHARES_KEY);
+    if (Object.keys(next).length) this.store.set(PUBLIC_COPY_WRITES_KEY, next);
+    else this.store.remove(PUBLIC_COPY_WRITES_KEY);
   }
 
   /**

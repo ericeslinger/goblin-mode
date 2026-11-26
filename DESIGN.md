@@ -7095,7 +7095,7 @@ nor a note naming a copy that was not made. The rules allow each batch
 *Honest while offline (review of #343).* A batch lands on the device at
 once and reaches the server later. Until the server has it, the app
 keeps it as waiting (`NotesService.sharesWaiting`, kept on the device
-under `goblin.pendingShares` so a reload still knows; cleared when the
+under `goblin.publicCopyWrites` so a reload still knows; cleared when the
 batch resolves, or when `waitForPendingWrites` resolves after a
 reload), and never says more than is true: a share made offline "works
 once this device is back online"; a stop made offline (on the back, in

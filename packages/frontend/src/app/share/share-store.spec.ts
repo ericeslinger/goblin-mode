@@ -66,4 +66,11 @@ describe('ShareStore', () => {
     a.done('at:5');
     expect(remove).toHaveBeenCalledWith('5');
   });
+
+  it('shares its storage key with nothing else (2026-11-26)', async () => {
+    // The public copies' waiting writes once took this key and emptied
+    // the shares waiting to be filed.
+    const { PUBLIC_COPY_WRITES_KEY } = await import('../notes/notes.service');
+    expect(PUBLIC_COPY_WRITES_KEY).not.toBe(PENDING_SHARES_KEY);
+  });
 });
