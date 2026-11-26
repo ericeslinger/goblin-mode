@@ -134,6 +134,7 @@ import {
   habitZone,
   type Weekday,
   zonedDay,
+  isShareId,
 } from '@mossgoblin/schema';
 import {
   type CollectionReference,
@@ -1283,6 +1284,9 @@ export class NotesTools {
           }
         : {}),
       ...takesView(takes, d['fromTemplate']),
+      // Eric shared a public copy of it (2026-11-26). Only that it is: no
+      // tool gives the link, or makes, changes or stops a share.
+      ...(isShareId(d['shareId']) ? { shared: true } : {}),
       ...webLabel(d),
     };
   }

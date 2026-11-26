@@ -186,6 +186,7 @@ export const SETTINGS_PAGE_NAMES = [
   'AI assistants',
   'Notifications',
   'This device',
+  'Shared links',
   'Account',
 ] as const;
 export type SettingsPageName = (typeof SETTINGS_PAGE_NAMES)[number];

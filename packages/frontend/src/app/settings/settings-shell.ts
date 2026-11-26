@@ -8,6 +8,7 @@ import { buildInfo } from '../build-info';
 import { PageHeader } from '../home/page-header';
 import { StartOnService } from '../home/start-on';
 import { ModulesService } from '../modules/modules.service';
+import { NotesService } from '../notes/notes.service';
 import { type PushState, PushService } from '../push/push.service';
 import { TemplatesService } from '../templates/templates.service';
 import { ThemeService } from '../theme/theme.service';
@@ -156,6 +157,13 @@ export class SettingsShell {
   private readonly modules = inject(ModulesService);
   private readonly templates = inject(TemplatesService);
   private readonly push = inject(PushService);
+  private readonly notes = inject(NotesService);
+
+  /** Shared links' line: how many notes have a public copy now. */
+  private sharedLine(): string {
+    const n = this.notes.shared().length;
+    return n ? `${n} note${n === 1 ? '' : 's'} shared` : 'Nothing shared';
+  }
 
   private readonly modeWord = { system: 'follows the system', light: 'light', dark: 'dark' };
   private readonly pushWord: Record<PushState, string> = {
@@ -185,6 +193,7 @@ export class SettingsShell {
       assistants: 'Connecting, your keys, the daily digest',
       notifications: user ? this.pushWord[this.push.state()] : '',
       device: `Downloads and version ${buildInfo.sha}`,
+      shared: user ? this.sharedLine() : '',
       // Nothing while sign-in is still being restored.
       account: user ? (user.email ?? 'Signed in') : user === null ? 'Not signed in' : '',
     };

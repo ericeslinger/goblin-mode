@@ -296,9 +296,19 @@ describe("get_note says a note's kind, source and import", () => {
     put('t1');
     const note = await tools().getNote({ id: 't1' });
     expect(note.kind).toBe('text');
-    for (const k of ['source', 'importState', 'importError', 'fromWeb']) {
+    for (const k of ['source', 'importState', 'importError', 'fromWeb', 'shared']) {
       expect(note).not.toHaveProperty(k);
     }
+  });
+
+  it('says a note Eric shared is shared, never its link (2026-11-26)', async () => {
+    const shareId = 'AbCdEfGhIjKlMnOpQrStUvWxYz012-_9';
+    put('t1', { shareId });
+    const note = await tools().getNote({ id: 't1' });
+    expect(note).toMatchObject({ shared: true });
+    expect(JSON.stringify(note)).not.toContain(shareId);
+    const list = await tools().listNotes({});
+    expect(JSON.stringify(list)).not.toContain(shareId);
   });
 });
 

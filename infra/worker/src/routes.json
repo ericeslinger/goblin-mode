@@ -6,5 +6,6 @@
   ["/oauth/register", "oauth"],
   ["/oauth/token", "oauth"],
   ["/oauth/approve", "oauth"],
-  ["/oauth/revoke", "oauth"]
+  ["/oauth/revoke", "oauth"],
+  ["/s", "publicShare"]
 ]

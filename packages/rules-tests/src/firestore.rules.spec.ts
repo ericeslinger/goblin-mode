@@ -1261,3 +1261,133 @@ describe('everything else is denied', () => {
     }
   });
 });
+
+// A note's public copy (2026-11-26, Eric; DESIGN.md, Sharing a public
+// copy): the one collection outside users/{uid}, and still its owner's
+// alone. It is public only as the page the publicShare function renders
+// with the admin SDK: no other client, signed in or not, gets or lists
+// one, nor finds them by a collection-group query.
+describe('shares: a public copy, its owner’s alone in the rules', () => {
+  const ID = 'AbCdEfGhIjKlMnOpQrStUvWxYz012-_9';
+  const OTHER = 'ZZCdEfGhIjKlMnOpQrStUvWxYz012-_9';
+  const path = (id = ID) => `shares/${id}`;
+  const share = (over: Record<string, unknown> = {}) => ({
+    owner: 'owner',
+    noteId: 'n1',
+    kind: 'note',
+    title: 'Glaze recipe',
+    body: 'Two parts *feldspar*.',
+    sharedAt: now(),
+    updatedAt: now(),
+    ...over,
+  });
+
+  it('only the owner gets one; a stranger and a signed-out client cannot, even by its id', async () => {
+    await seed(path(), share());
+    await assertSucceeds(owner().doc(path()).get());
+    await assertFails(intruder().doc(path()).get());
+    await assertFails(anonymous().doc(path()).get());
+    // Nor learn whether an id is there.
+    await assertFails(anonymous().doc(path(OTHER)).get());
+    await assertFails(intruder().doc(path(OTHER)).get());
+  });
+
+  it('no one but the owner lists them, and the owner only their own', async () => {
+    await seed(path(), share());
+    await seed(path(OTHER), share({ owner: 'intruder', noteId: 'n2' }));
+    for (const db of [anonymous(), intruder()]) {
+      await assertFails(db.collection('shares').get());
+      await assertFails(db.collection('shares').where('owner', '==', 'owner').get());
+    }
+    await assertFails(owner().collection('shares').get());
+    await assertSucceeds(owner().collection('shares').where('owner', '==', 'owner').get());
+  });
+
+  it('no collection-group query finds them for anyone but their owner', async () => {
+    await seed(path(), share());
+    for (const db of [anonymous(), intruder(), owner()]) {
+      await assertFails(db.collectionGroup('shares').get());
+    }
+    for (const db of [anonymous(), intruder()]) {
+      await assertFails(db.collectionGroup('shares').where('owner', '==', 'owner').get());
+    }
+  });
+
+  it('the signed-in owner makes one, at an id of the shape the app makes', async () => {
+    await assertSucceeds(owner().doc(path()).set(share()));
+    await assertSucceeds(
+      owner()
+        .doc(path(OTHER))
+        .set(share({ kind: 'recipe', source: 'https://x.test/r' })),
+    );
+    // Too short, too long, or outside base64url.
+    await assertFails(owner().doc('shares/short').set(share()));
+    await assertFails(owner().doc(`shares/${ID}x`).set(share()));
+    await assertFails(owner().doc('shares/AbCdEfGhIjKlMnOpQrStUvWxYz012.+9').set(share()));
+  });
+
+  it('a create claiming another owner, or signed out, is refused', async () => {
+    await assertFails(intruder().doc(path()).set(share()));
+    await assertFails(anonymous().doc(path()).set(share()));
+    await assertFails(
+      anonymous()
+        .doc(path())
+        .set(share({ owner: '' })),
+    );
+  });
+
+  it('holds the shape and its bounds: nothing more than the copy', async () => {
+    const ref = owner().doc(path());
+    await assertFails(ref.set(share({ kind: 'concept' })));
+    await assertFails(ref.set(share({ body: 42 })));
+    await assertFails(ref.set(share({ tags: ['glaze'] })));
+    await assertFails(ref.set(share({ links: [] })));
+    await assertFails(ref.set(share({ title: 'x'.repeat(1001) })));
+    await assertFails(ref.set(share({ body: 'x'.repeat(200_001) })));
+    await assertSucceeds(ref.set(share({ body: 'x'.repeat(200_000) })));
+    await assertFails(ref.set(share({ source: 7 })));
+    const { sharedAt: _dropped, ...missing } = share();
+    await assertFails(ref.set(missing));
+    await assertSucceeds(ref.set(share({ title: 'x'.repeat(1000) })));
+  });
+
+  it('only the owner updates one, never its owner or note', async () => {
+    await seed(path(), share());
+    const update = { title: 'Glaze, v2', body: 'Three parts', updatedAt: now() };
+    await assertFails(
+      intruder()
+        .doc(path())
+        .set(share({ ...update }), { merge: true }),
+    );
+    await assertFails(intruder().doc(path()).update(update));
+    await assertFails(anonymous().doc(path()).update(update));
+    await assertSucceeds(owner().doc(path()).update(update));
+    await assertFails(owner().doc(path()).update({ owner: 'intruder' }));
+    await assertFails(owner().doc(path()).update({ noteId: 'n9' }));
+    await assertFails(
+      owner()
+        .doc(path())
+        .update({ tags: ['x'] }),
+    );
+    // Another user cannot take it over by writing it whole as theirs.
+    await assertFails(
+      intruder()
+        .doc(path())
+        .set(share({ owner: 'intruder' })),
+    );
+  });
+
+  it('only the owner stops one', async () => {
+    await seed(path(), share());
+    await assertFails(intruder().doc(path()).delete());
+    await assertFails(anonymous().doc(path()).delete());
+    await assertSucceeds(owner().doc(path()).delete());
+  });
+
+  it('a note may carry its share id, as a string', async () => {
+    const note = valid['users/owner/notes/n1'];
+    const ref = owner().doc('users/owner/notes/n1');
+    await assertSucceeds(ref.set({ ...note(), shareId: ID }));
+    await assertFails(ref.set({ ...note(), shareId: 7 }));
+  });
+});

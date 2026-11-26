@@ -6,7 +6,9 @@
 // app's own origin. Some routes are the Worker's own: `/api/episode`,
 // the podcast episode proxy for offline downloads (#180, src/episode.ts),
 // and `/api/note-key` with `/api/note-key/for`, the note key service
-// (note encryption step 2, src/note-key.ts).
+// (note encryption step 2, src/note-key.ts). And `/s/<id>`, a note's
+// public page (2026-11-26, src/share-route.ts): checked here, rendered
+// by the `publicShare` function.
 
 import { type EpisodeEnv, proxyEpisode } from './episode';
 import {
@@ -17,6 +19,7 @@ import {
   serviceNoteKey,
 } from './note-key';
 import routes from './routes.json';
+import { isSharePath, serveShare } from './share-route';
 
 export interface Env extends EpisodeEnv, NoteKeyEnv {
   ASSETS: Fetcher;
@@ -135,13 +138,35 @@ function reorder(q: URLSearchParams): string {
   return out.toString();
 }
 
+/** `request` sent on to Cloud Function `fn`, at the same path, as the app's own domain. */
+function forward(request: Request, origin: string, fn: string): Promise<Response> {
+  const url = new URL(request.url);
+  const target = new URL(`${origin}/${fn}${url.pathname}${url.search}`);
+  const headers = new Headers(request.headers);
+  headers.set('x-forwarded-host', url.host);
+  headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
+  return fetch(target, {
+    method: request.method,
+    headers,
+    body: request.body,
+    redirect: 'manual',
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/share') {
       return request.method === 'POST' ? shareFallback(request) : env.ASSETS.fetch(request);
     }
-    // The Worker's own routes, before the functions' (#180, note keys).
+    // The Worker's own routes, before the functions' (#180, note keys,
+    // public copies).
+    if (isSharePath(url.pathname)) {
+      return serveShare(
+        request,
+        env.FUNCTIONS_ORIGIN ? (r) => forward(r, env.FUNCTIONS_ORIGIN, 'publicShare') : undefined,
+      );
+    }
     if (url.pathname === '/api/episode') return proxyEpisode(request, env);
     if (url.pathname === NOTE_KEY_PATH) return appNoteKey(request, env);
     if (url.pathname === NOTE_KEY_FOR_PATH) return serviceNoteKey(request, env);
@@ -150,15 +175,6 @@ export default {
     if (!env.FUNCTIONS_ORIGIN)
       return new Response('functions origin not configured', { status: 503 });
 
-    const target = new URL(`${env.FUNCTIONS_ORIGIN}/${fn}${url.pathname}${url.search}`);
-    const headers = new Headers(request.headers);
-    headers.set('x-forwarded-host', url.host);
-    headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
-    return fetch(target, {
-      method: request.method,
-      headers,
-      body: request.body,
-      redirect: 'manual',
-    });
+    return forward(request, env.FUNCTIONS_ORIGIN, fn);
   },
 } satisfies ExportedHandler<Env>;

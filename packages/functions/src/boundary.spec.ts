@@ -44,6 +44,7 @@ const EXPORTS = [
   'indexArticles',
   'searchArticles',
   'importFeedlySaves',
+  'publicShare',
 ];
 
 vi.mock('firebase-admin/app', () => ({ initializeApp: vi.fn() }));

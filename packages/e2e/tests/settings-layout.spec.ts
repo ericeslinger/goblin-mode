@@ -118,6 +118,11 @@ const HOLDS: Record<
     ],
     not: (p) => p.getByRole('switch', { name: 'Projects' }),
   },
+  // What is public (2026-11-26): nothing yet in a fresh account.
+  'Shared links': {
+    has: (p) => [p.getByText('Nothing is shared.')],
+    not: (p) => p.getByRole('button', { name: 'Sign out' }),
+  },
   Account: {
     has: (p) => [
       p.getByText(`Signed in as ${OWNER.email}`),

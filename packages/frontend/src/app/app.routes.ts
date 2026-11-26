@@ -169,6 +169,12 @@ export const routes: Routes = [
     path: 'dev-sign-in',
     loadComponent: () => import('./dev-sign-in/dev-sign-in').then((m) => m.DevSignIn),
   },
+  // A note's public copy (2026-11-26) is the Worker's page: handed back
+  // to the network if a service worker from before served the app here.
+  {
+    path: 's/:id',
+    loadComponent: () => import('./public-copy/public-page-route').then((m) => m.PublicPageRoute),
+  },
   // A path this version does not know may be one a newer version does.
   { path: '**', component: UnknownRoute },
 ];

@@ -8,6 +8,7 @@ import { dataKeyFor } from '../note-keys/client';
 import { KeptTimes } from './history';
 import { historyOnWrite, titleOnWrite } from './on-write';
 import type { Titler } from './title';
+import { firestoreShareStore, stopSharesOnWrite } from './share-stop';
 import { firestoreTrashStore, sweepTrash } from './trash';
 
 const NOTE = 'users/{uid}/notes/{noteId}';
@@ -23,6 +24,7 @@ const kept = new KeptTimes();
  * so, remember the text it replaced, and merge a write over text its
  * writer had not seen (on-write.ts). A sealed note is opened with one
  * codec for the event; one that cannot be opened here is left as stored.
+ * And a public copy the note no longer stands behind is stopped.
  */
 export const noteHistory = onDocumentWritten(NOTE, async (event) => {
   const { uid, noteId } = event.params;
@@ -39,6 +41,21 @@ export const noteHistory = onDocumentWritten(NOTE, async (event) => {
     logger,
     kept,
   );
+  // A note in Trash, deleted, or naming another share stops its public
+  // copy (2026-11-26, share-stop.ts); the app does too, in the same tap.
+  try {
+    const stopped = await stopSharesOnWrite(
+      firestoreShareStore(db),
+      uid,
+      noteId,
+      event.data?.before?.data(),
+      event.data?.after?.data(),
+    );
+    if (stopped.length)
+      logger.info('noteHistory: shares stopped', { noteId, count: stopped.length });
+  } catch (err) {
+    logger.error('noteHistory: could not stop a share', { noteId, err: String(err) });
+  }
 });
 
 let titler: Titler | null | undefined;

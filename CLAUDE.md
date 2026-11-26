@@ -23,7 +23,14 @@ stack playbook and the `house-style` plugin (enabled in
   mistakes: writing to production from a dev server, and a deployed page
   waiting on an emulator.
 - **Owner-only data.** Everything lives under `users/{uid}` and the rules
-  allow only that uid. `oauth/` is server-only. A rules change needs a
+  allow only that uid. One collection lives outside it (Eric,
+  2026-11-26): `shares/{shareId}`, a note's public copy, still readable
+  and writable only by its owner in the rules; it is public only as the
+  page the `publicShare` function renders at `/s/<shareId>`, and only
+  for the deployment owner's (`OWNER_UID`) shares (DESIGN.md, Sharing a
+  public copy). Publishing is Eric's act in the app: no MCP tool makes,
+  changes or stops a share or returns its link. `oauth/`
+  is server-only. A rules change needs a
   rules test in `packages/rules-tests`. The `isValid*` shape
   validators in `firestore.rules` are generated from the zod schemas:
   change the schema and run `npm run rules:gen`, never edit them by

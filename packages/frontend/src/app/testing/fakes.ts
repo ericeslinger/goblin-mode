@@ -142,6 +142,18 @@ export class FakeNotes {
   setArchived = vi.fn((_id: string, _archived: boolean) => undefined);
   setDeleted = vi.fn((_id: string, _deleted: boolean) => undefined);
   setGardenHold = vi.fn((_id: string, _held: boolean) => undefined);
+  /** Public copies (2026-11-26): the notes carrying a share id. */
+  readonly shared = computed(() => this.notes().filter((n) => n.shareId !== undefined));
+  shareRefusal = vi.fn((_id: string): string | undefined => undefined);
+  share = vi.fn((id: string) => {
+    const shareId = `S${String(++this.n).padStart(31, '0')}`;
+    this.notes.update((list) => list.map((n) => (n.id === id ? { ...n, shareId } : n)));
+    return shareId as string | undefined;
+  });
+  updateShare = vi.fn((_id: string) => undefined);
+  stopShare = vi.fn((id: string) => {
+    this.notes.update((list) => list.map((n) => (n.id === id ? { ...n, shareId: undefined } : n)));
+  });
   setWeek = vi.fn((_id: string, _start: string) => undefined);
   createRecipe = vi.fn((name: string) =>
     this.names().has(name.trim().toLowerCase()) ? undefined : `new${++this.n}`,

@@ -14,6 +14,8 @@ export const SETTINGS_PAGES = [
   { id: 'assistants', name: 'AI assistants' },
   { id: 'notifications', name: 'Notifications' },
   { id: 'device', name: 'This device' },
+  // What is public (2026-11-26): every note shared as a link.
+  { id: 'shared', name: 'Shared links' },
   { id: 'account', name: 'Account' },
 ] as const;
 

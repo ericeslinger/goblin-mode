@@ -2,6 +2,9 @@
 // way Workers Static Assets will in production, and forwards the server
 // routes to the functions emulator the way the Worker forwards them to
 // Cloud Functions (same route table: infra/worker/src/routes.json).
+// That includes `/s/<id>`, a note's public page, rendered by the
+// `publicShare` function (2026-11-26); the Worker's own check of the
+// id's shape before forwarding is covered by its specs, not here.
 //
 // It also stands in for one of the Worker's own routes, the note key
 // service's `POST /api/note-key` (note encryption step 2), with the

@@ -60,6 +60,8 @@ import {
   openText,
   sealText,
   withFieldValue,
+  isShareId,
+  newShareId,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -82,6 +84,7 @@ import { NOW, ONLINE, RANDOM_BYTES } from '../platform/platform';
 import { NoteKeyService } from './note-key.service';
 import { type PendingWrites, isPendingWrite, lost, nextPending } from './pending-writes';
 import { KeyWaitNotice } from './key-wait-notice';
+import { shareCopyOf, shareRefusal } from '../public-copy/share-copy';
 
 /** Names linked before their concept could be made (needs the server). */
 export const PENDING_CONCEPTS_KEY = 'goblin.pendingConcepts';
@@ -219,6 +222,11 @@ export interface NoteRecord {
    * is `SEALED_TITLE`, never the sealed text, and nothing writes to it.
    */
   locked?: true;
+  /**
+   * The id of the note's public copy, `shares/{shareId}`, while it is
+   * shared (2026-11-26): the link's secret part.
+   */
+  shareId?: string;
 }
 
 /** What a note this device cannot open shows in place of its title. */
@@ -589,6 +597,7 @@ export function toRecord(
     ...(typeof data['baseHash'] === 'string' && data['baseHash']
       ? { baseHash: data['baseHash'] }
       : {}),
+    ...(isShareId(data['shareId']) ? { shareId: data['shareId'] } : {}),
   };
 }
 
@@ -1804,11 +1813,16 @@ export class NotesService {
     if (deleted ? !this.exists(id) : !this.trashed(id)) return;
     // Known from here on by the snapshot, in Trash or back in the list.
     if (deleted) this.written.delete(id);
+    // A note in Trash is not shared (2026-11-26): its public copy goes
+    // with the same tap, and Restore does not bring it back.
+    const shared = deleted ? this.find(id)?.shareId : undefined;
+    if (shared) this.api.remove(this.fb.db, paths.share(shared)).catch(report);
     const update = {
       deletedAt: deleted ? this.api.timestamp(this.now()) : this.api.removeField(),
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),
+      ...(shared ? { shareId: this.api.removeField() } : {}),
     };
     this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
@@ -2156,6 +2170,9 @@ export class NotesService {
   remove(id: string): void {
     // A locked note is never deleted for looking empty (step 3a).
     if (!this.uid || this.locked(id)) return;
+    // Its public copy goes with it (2026-11-26).
+    const shared = (this.find(id) ?? this.trashed(id))?.shareId;
+    if (shared) this.api.remove(this.fb.db, paths.share(shared)).catch(report);
     this.written.delete(id);
     // Emptied or bare: nothing typed in it is left to keep.
     this.forget(PENDING_SAVES_KEY, id);
@@ -2165,6 +2182,72 @@ export class NotesService {
     this.snapshot.update((snap) => snap && { ...snap, docs: snap.docs.filter((d) => d.id !== id) });
     this.api.remove(this.fb.db, paths.note(this.uid, id)).catch(report);
   }
+
+  /**
+   * Why note `id` cannot be shared now (2026-11-26), or undefined when it
+   * can: only plain notes and recipes, opened here, their words saved.
+   */
+  shareRefusal(id: string): string | undefined {
+    return shareRefusal(this.find(id), this.heldForKey(id));
+  }
+
+  /**
+   * Shares a public copy of note `id` (2026-11-26, Eric; DESIGN.md,
+   * Sharing a public copy): a new `shares/{shareId}` document with the
+   * note's title and body as they are now, and the id on the note. Both
+   * go through the persistent cache like every write, so offline the
+   * share is made here and its link works once it syncs. A new id
+   * every time, made on this device: a link once stopped never comes
+   * back. Returns the id, or undefined when the note cannot be shared.
+   */
+  share(id: string): string | undefined {
+    const note = this.find(id);
+    if (!this.uid || !note || note.shareId || this.shareRefusal(id)) return undefined;
+    const copy = shareCopyOf(note)!;
+    const shareId = newShareId(this.random);
+    const now = this.api.serverTime();
+    const data = { owner: this.uid, noteId: id, ...copy, sharedAt: now, updatedAt: now };
+    this.api.set(this.fb.db, paths.share(shareId), data, false).catch(report);
+    // The note's own fields stay as they were, its edited time too:
+    // sharing is not an edit.
+    this.api.set(this.fb.db, paths.note(this.uid, id), { shareId }, true).catch(report);
+    return shareId;
+  }
+
+  /**
+   * Writes note `id`'s title and body as they are now over its public
+   * copy (Update the shared copy): never on its own, only when asked.
+   */
+  updateShare(id: string): void {
+    const note = this.find(id);
+    if (!this.uid || !note?.shareId || this.shareRefusal(id)) return;
+    const copy = shareCopyOf(note)!;
+    const data = {
+      ...copy,
+      ...(copy.source ? {} : { source: this.api.removeField() }),
+      updatedAt: this.api.serverTime(),
+    };
+    this.api.set(this.fb.db, paths.share(note.shareId), data, true).catch(report);
+  }
+
+  /**
+   * Stops sharing note `id`: its public copy is deleted, so the link
+   * answers nothing from the next load, and the note forgets the id.
+   * Sharing again makes a new link. A locked note's copy is deleted
+   * too; the note keeps its id until it opens here.
+   */
+  stopShare(id: string): void {
+    const note = this.find(id) ?? this.trashed(id);
+    if (!this.uid || !note?.shareId) return;
+    this.api.remove(this.fb.db, paths.share(note.shareId)).catch(report);
+    if (note.locked) return;
+    this.api
+      .set(this.fb.db, paths.note(this.uid, id), { shareId: this.api.removeField() }, true)
+      .catch(report);
+  }
+
+  /** The notes shared now, as Settings, Shared links, lists them: newest edit first. */
+  readonly shared = computed(() => this.records().filter((n) => n.shareId !== undefined));
 
   /** A stable id for this device, recorded on each write (see DESIGN). */
   deviceId(): string {

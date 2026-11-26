@@ -25,6 +25,7 @@
 // | habitLogs | client, direct | a tick must work offline (#324); one doc per habit per month, id derived |
 // | oauth (top level) | function only | MCP auth state, never client-readable |
 // | secrets (top level) | function only | a gardener's encrypted provider keys (#144), never client-readable |
+// | shares (top level) | client, direct | a note's public copy (2026-11-26): owner-only; public only as the page publicShare renders |
 //
 // Direct-write collections get shape validators generated from these
 // schemas into firestore.rules; that generator lands with the first
@@ -309,8 +310,48 @@ export const Note = z.object({
    * is merged by noteHistory (#37).
    */
   baseHash: z.string().optional(),
+  /**
+   * The note's public copy, when it has one (2026-11-26, Eric): the id
+   * of its `shares/{shareId}` document, which is also the link's
+   * secret part. Set and cleared by Eric's app alone; a stopped share
+   * clears it, and sharing again makes a new id (shares.ts).
+   */
+  shareId: z.string().optional(),
 });
 export type Note = z.infer<typeof Note>;
+
+/** What a public copy is of: a plain note or a recipe (2026-11-26). */
+export const ShareKind = z.enum(['note', 'recipe']);
+export type ShareKind = z.infer<typeof ShareKind>;
+
+/** The longest title and body a public copy holds, in characters (shares.ts). */
+export const SHARE_TITLE_MAX = 1000;
+export const SHARE_BODY_MAX = 200_000;
+
+/**
+ * A note's public copy, `shares/{shareId}` (2026-11-26, Eric): the first
+ * data outside `users/{uid}`, still its owner's alone in the rules; it
+ * is public only as the page the `publicShare` function renders from it
+ * for the link `/s/<shareId>`. A snapshot, not live: the title and
+ * body as the app wrote them when Eric shared the note or last updated
+ * the copy, plain (never sealed) and with the app's machinery taken out
+ * (`publicCopy`). Nothing else of the note is here: no tags, links,
+ * history, reminders or assistant fields. `owner` and `noteId` let the
+ * rules keep every change to the owner and let the app find its note;
+ * neither is ever shown on the public page. `source` is a recipe's
+ * link, when it has one.
+ */
+export const Share = z.object({
+  owner: z.string().min(1),
+  noteId: z.string().min(1),
+  kind: ShareKind,
+  title: z.string().max(SHARE_TITLE_MAX),
+  body: z.string().max(SHARE_BODY_MAX),
+  source: z.string().max(4096).optional(),
+  sharedAt: Timestamp,
+  updatedAt: Timestamp,
+});
+export type Share = z.infer<typeof Share>;
 
 /** Why history kept a version (packages/schema/src/history.ts). */
 export const KeepReason = z.enum(['device', 'author', 'interval', 'deleted']);
@@ -1064,6 +1105,8 @@ export const paths = {
   usage: (uid: string, day: string) => `users/${uid}/usage/${day}`,
   /** Server only: the texts recent writes replaced, for merges. */
   replaced: (uid: string, noteId: string) => `users/${uid}/notes/${noteId}/replaced`,
+  /** A note's public copy (2026-11-26): top level, owner-only, shown by publicShare. */
+  share: (shareId: string) => `shares/${shareId}`,
   /** Storage: an attachment's files, under its id. */
   attachmentFiles: (uid: string, id: string) => `users/${uid}/attachments/${id}`,
 };
