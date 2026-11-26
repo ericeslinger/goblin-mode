@@ -90,8 +90,6 @@ export interface ShareSweepStore {
    * (`owner`), or every share when `owner` is undefined.
    */
   page(owner: string | undefined, after: string | undefined, limit: number): Promise<SweptShare[]>;
-  /** Up to `limit` shares of any owner but `owner`. */
-  notOf(owner: string, limit: number): Promise<SweptShare[]>;
   /** The note's `shareId` and whether it is in Trash, or undefined when it is gone. */
   note(owner: string, noteId: string): Promise<{ shareId?: unknown; trashed: boolean } | undefined>;
   remove(id: string): Promise<void>;
@@ -99,8 +97,6 @@ export interface ShareSweepStore {
 
 /** Shares read a page at a time. */
 export const SHARE_SWEEP_PAGE = 500;
-/** The most shares of other accounts one daily run deletes. */
-export const STRANGER_SHARES_PER_RUN = 500;
 
 /**
  * Daily, beside the Trash sweep: every share whose note is gone, in
@@ -111,17 +107,18 @@ export const STRANGER_SHARES_PER_RUN = 500;
  *
  * With the deployment's owner known (OWNER_UID), it pages through
  * every one of the owner's shares by an owner filter, so no number of
- * other documents can push one out of reach (review of #343), and then
- * deletes up to STRANGER_SHARES_PER_RUN shares of other accounts: any
- * signed-in account can write a share of its own, and the page never
- * shows one, so they are only storage. Without an owner (a fork that
- * has not set it, where no share is shown either) it pages through
- * every share and keeps those that stand behind a note.
+ * other documents can push one out of reach (review of #343). Shares
+ * of other accounts are left alone: the page never shows one, and a
+ * pass that deleted them (tried, and taken out in the same review)
+ * would delete the owner's own copies were OWNER_UID ever set wrong.
+ * Without an owner (a fork that has not set it, where no share is
+ * shown either) it pages through every share and keeps those that
+ * stand behind a note.
  */
 export async function sweepShares(
   store: ShareSweepStore,
   ownerUid: string | undefined,
-): Promise<{ looked: number; removed: number; strangers: number }> {
+): Promise<{ looked: number; removed: number }> {
   let looked = 0;
   let removed = 0;
   let after: string | undefined;
@@ -145,14 +142,7 @@ export async function sweepShares(
     if (page.length < SHARE_SWEEP_PAGE) break;
     after = page[page.length - 1].id;
   }
-  let strangers = 0;
-  if (ownerUid) {
-    for (const share of await store.notOf(ownerUid, STRANGER_SHARES_PER_RUN)) {
-      await store.remove(share.id);
-      strangers++;
-    }
-  }
-  return { looked, removed, strangers };
+  return { looked, removed };
 }
 
 /** The reconciliation's store over Firestore, as the admin SDK. */
@@ -169,10 +159,6 @@ export function firestoreShareSweepStore(db: Firestore): ShareSweepStore {
       q = q.orderBy(FieldPath.documentId()).limit(limit);
       if (after) q = q.startAfter(after);
       return (await q.get()).docs.map(one);
-    },
-    async notOf(owner, limit) {
-      const snap = await db.collection('shares').where('owner', '!=', owner).limit(limit).get();
-      return snap.docs.map(one);
     },
     async note(owner, noteId) {
       const snap = await db.doc(`users/${owner}/notes/${noteId}`).get();

@@ -68,7 +68,7 @@ describe('the share stop over Firestore', () => {
     expect((await db.doc('users/u1/notes/n1').get()).get('shareId')).toBe(B);
   });
 
-  it('sweeps every one of the owner’s shares past a page of them, and strangers’ shares', async () => {
+  it('sweeps every one of the owner’s shares past a page of them, leaving other accounts’ alone', async () => {
     const batch = db.batch();
     const count = SHARE_SWEEP_PAGE + 5;
     for (let i = 0; i < count; i++) {
@@ -85,9 +85,9 @@ describe('the share stop over Firestore', () => {
     batch.set(db.doc(`shares/${sid('A', 9)}`), { owner: 'stranger', noteId: 'x' });
     await batch.commit();
     const report = await sweepShares(firestoreShareSweepStore(db), 'u1');
-    expect(report).toEqual({ looked: count, removed: 1, strangers: 1 });
+    expect(report).toEqual({ looked: count, removed: 1 });
     expect(await exists(`shares/${sid('Z', count - 1)}`)).toBe(false);
     expect(await exists(`shares/${sid('Z', 0)}`)).toBe(true);
-    expect(await exists(`shares/${sid('A', 9)}`)).toBe(false);
+    expect(await exists(`shares/${sid('A', 9)}`)).toBe(true);
   });
 });

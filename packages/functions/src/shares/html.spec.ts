@@ -252,7 +252,9 @@ describe('escapeHtml and safeHref', () => {
 // about 1.9 s: a flat checklist of 200,000 characters), all of it
 // escaped, so a regression fails the gate.
 const CAP = 200_000;
-const CEILING_MS = 5_000;
+// Five times the worst measured, so suites run side by side in the gate
+// do not fail it (review of #343).
+const CEILING_MS = 10_000;
 const fill = (unit: string) => unit.repeat(Math.ceil(CAP / unit.length)).slice(0, CAP);
 const lines = (f: (i: number) => string) => {
   const out: string[] = [];

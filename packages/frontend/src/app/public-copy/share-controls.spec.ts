@@ -176,6 +176,13 @@ describe('ShareControls (2026-11-26)', () => {
     expect(el.textContent).not.toContain('answers nothing');
     expect(el.textContent).not.toContain('Still public.');
     expect(button('Stop sharing')).toBeTruthy();
+    // Stopped since from another device: the refusal is no longer true
+    // of the note, and is not said (third review of #343).
+    notes.notes.update((l) => l.map(({ shareId: _, ...n }) => n));
+    await refresh();
+    await fixture.whenStable();
+    expect(el.textContent).not.toContain('did not reach the server');
+    expect(button('Share a copy')).toBeTruthy();
   });
 
   it('says a refused share made nothing public, and a refused update changed nothing', async () => {

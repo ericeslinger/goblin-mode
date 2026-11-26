@@ -4,7 +4,6 @@ import {
   type ShareSweepStore,
   forgetDeletedShare,
   SHARE_SWEEP_PAGE,
-  STRANGER_SHARES_PER_RUN,
   stopSharesOnWrite,
   sweepShares,
 } from './share-stop';
@@ -115,7 +114,6 @@ describe('sweepShares, daily (review of #343)', () => {
           .filter((x) => owner === undefined || x.owner === owner)
           .filter((x) => after === undefined || x.id > after)
           .slice(0, limit),
-      notOf: async (owner, limit) => sorted.filter((x) => x.owner !== owner).slice(0, limit),
       note: async (owner, noteId) => notes[`${owner}/${noteId}`],
       remove: async (x) => void removed.push(x),
     };
@@ -141,7 +139,7 @@ describe('sweepShares, daily (review of #343)', () => {
       },
     );
     // No owner set (a fork): every share is looked at.
-    expect(await sweepShares(s, undefined)).toEqual({ looked: 5, removed: 4, strangers: 0 });
+    expect(await sweepShares(s, undefined)).toEqual({ looked: 5, removed: 4 });
     expect(removed.sort()).toEqual([B, C, D, E].sort());
   });
 
@@ -164,8 +162,9 @@ describe('sweepShares, daily (review of #343)', () => {
     expect(report.looked).toBe(mine.length);
     // The last of the owner's, in Trash, is found and removed.
     expect(removed).toContain(mine[mine.length - 1].id);
-    // Other accounts' shares, never shown, go a bounded number a run.
-    expect(report.strangers).toBe(STRANGER_SHARES_PER_RUN);
+    // Other accounts' shares are left alone: a wrong OWNER_UID must
+    // never delete the real owner's copies (review of #343).
     expect(report.removed).toBe(1);
+    expect(removed).toEqual([mine[mine.length - 1].id]);
   });
 });

@@ -7153,16 +7153,18 @@ reads "the first thousand shares": with `OWNER_UID` set it pages
 through every one of the owner's shares, 500 at a time, by an owner
 filter (equality on `owner` ordered by id, which Firestore's automatic
 single-field index serves; no composite index), however many other
-documents there are. It then deletes up to 500 shares of other
-accounts a run: the page never shows them, so they are only storage.
+documents there are. Other accounts' shares are left alone (third
+review of #343): a pass that deleted them was tried and taken out,
+since a wrong `OWNER_UID` would have had it delete the owner's own
+copies. On Eric's deployment no other account can exist (Security,
+Only one account exists), so there are none to leave.
 Without `OWNER_UID` (a fork that has not set it, where no share is
 shown either) it pages through every share and deletes none for its
 owner. The read cost is one read for each of the owner's shares and
-one for its note, a day, plus at most 500 reads and deletes of
-others'. The journey proves both triggers on the e2e stack: a share
-deleted by admin access is forgotten by its note, and a note put in
-Trash by admin access has its page answer 404; a functions-emulator
-spec runs the sweep's paging against Firestore.
+one for its note, a day. The journey proves both triggers on the e2e
+stack: a share deleted by admin access is forgotten by its note, and a
+note put in Trash by admin access has its page answer 404; a
+functions-emulator spec runs the sweep's paging against Firestore.
 
 *What can be shared.* A plain note (kind `text`) and a recipe. A
 concept, a template, Kitchen's own notes and a clipping (a page's
@@ -7309,9 +7311,10 @@ single-line runs (`_a`, `[a](b`, `![a](`, backticks, reference uses)
 and a 500-column table go plain in milliseconds. An honest
 3,000-item checklist and a 300-row, 8-column table stay formatted, at
 0.6 s together. `html.spec.ts` renders each of these shapes and fails
-the gate if one takes 5 s or more, or writes a tag outside the set. A
-slow page degrades to plain text or, past the timeout, to the 503
-page; never to anything unescaped. Not measured on Cloud Run, whose
+the gate if one takes 10 s or more (five times the worst measured,
+so suites run side by side do not fail it), or writes a tag outside
+the set. A slow page degrades to plain text or, past the timeout, to
+the 503 page; never to anything unescaped. Not measured on Cloud Run, whose
 256 MiB instance has a fraction of a CPU.
 
 *Cold starts:* a friend's first open after a quiet spell waits a

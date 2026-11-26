@@ -201,8 +201,11 @@ export class ShareControls {
    * the page says the act did not happen.
    */
   protected readonly refused = computed(() => {
+    // Only while it is still true of the note (review of #343): a share
+    // or a stop made since from another device or window settles it.
+    const shared = this.note().shareId !== undefined;
     const all = Object.values(this.notes.sharesWaiting()).filter(
-      (w) => w.failed && w.noteId === this.note().id,
+      (w) => w.failed && w.noteId === this.note().id && (w.op === 'share' ? !shared : shared),
     );
     return all.sort((a, b) => b.at - a.at)[0];
   });
