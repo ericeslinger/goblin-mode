@@ -186,16 +186,36 @@ export class ShareControls {
   /** This share's write the server does not have yet, if any (2026-11-26, review of #343). */
   protected readonly waiting = computed(() => {
     const id = this.note().shareId;
-    return id ? this.notes.sharesWaiting()[id] : undefined;
+    const w = id ? this.notes.sharesWaiting()[id] : undefined;
+    return w?.failed ? undefined : w;
   });
   /** A stop of this note's share the server does not have yet: the copy is still public. */
   protected readonly stopping = computed(() =>
     Object.values(this.notes.sharesWaiting()).some(
-      (w) => w.op === 'stop' && w.noteId === this.note().id,
+      (w) => w.op === 'stop' && w.noteId === this.note().id && !w.failed,
     ),
   );
+  /**
+   * The last write for this note the server refused (review of #343):
+   * the cache has taken it back, so the note shows as it truly is, and
+   * the page says the act did not happen.
+   */
+  protected readonly refused = computed(() => {
+    const all = Object.values(this.notes.sharesWaiting()).filter(
+      (w) => w.failed && w.noteId === this.note().id,
+    );
+    return all.sort((a, b) => b.at - a.at)[0];
+  });
   /** What the last act did, never saying a copy is gone or changed before the server has it. */
   protected readonly message = computed(() => {
+    const refused = this.refused();
+    if (refused?.op === 'stop') {
+      return 'Stopping did not reach the server: the copy is still public. Try Stop sharing again.';
+    }
+    if (refused?.op === 'share') return 'Sharing did not reach the server: nothing is public.';
+    if (refused?.op === 'update') {
+      return 'The update did not reach the server: the link still shows the copy as it was.';
+    }
     const acted = this.acted();
     if (acted === 'update') {
       return this.waiting()?.op === 'update'

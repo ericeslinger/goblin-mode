@@ -238,12 +238,30 @@ export interface NoteRecord {
  * waiting to be filed (a full run caught it).
  */
 export const PUBLIC_COPY_WRITES_KEY = 'goblin.publicCopyWrites';
-/** A share write the server does not have yet: what it does, to which note. */
-export interface PendingShare {
+/**
+ * A public-copy write: what it does, to which note, for which account.
+ * Waiting until the server has it; `failed` once the server refused it
+ * (review of #343: a refused batch is never read as done).
+ */
+export interface PublicCopyWrite {
+  uid: string;
   noteId: string;
   title: string;
   op: 'share' | 'update' | 'stop';
   at: number;
+  failed?: true;
+}
+
+/** Whether a stored value is a public-copy write of today's shape. */
+function isCopyWrite(v: unknown): v is PublicCopyWrite {
+  const w = v as Partial<PublicCopyWrite> | null;
+  return (
+    !!w &&
+    typeof w.uid === 'string' &&
+    typeof w.noteId === 'string' &&
+    typeof w.at === 'number' &&
+    (w.op === 'share' || w.op === 'update' || w.op === 'stop')
+  );
 }
 
 /** What a note this device cannot open shows in place of its title. */
@@ -859,9 +877,11 @@ export class NotesService {
       this.settlePendingShares();
     };
     globalThis.addEventListener?.('online', back);
+    globalThis.addEventListener?.('storage', this.copyWritesChanged as EventListener);
     inject(DestroyRef).onDestroy(() => {
       this.stop?.();
       globalThis.removeEventListener?.('online', back);
+      globalThis.removeEventListener?.('storage', this.copyWritesChanged as EventListener);
     });
   }
 
@@ -2334,61 +2354,113 @@ export class NotesService {
   }
 
   /**
-   * Public-copy writes this device made that the server does not have
-   * yet, by share id (2026-11-26): kept on the device, so a stop made
-   * offline is still said to be waiting after a reload. A shared copy
-   * is never said to be gone while it may still be public.
+   * The signed-in account's public-copy writes this device made that the
+   * server does not have yet, or that it refused, by share id
+   * (2026-11-26, review of #343). Kept on the device per account, so a
+   * stop made offline is still said to be waiting after a reload or a
+   * sign-out: Firestore keeps an account's queued writes in its cache
+   * when the account signs out and sends them when it signs in here
+   * again, so the record keeps them for it too, shown only to it. A
+   * shared copy is never said to be gone while it may still be public,
+   * nor a refused write said to be done.
    */
-  readonly sharesWaiting = computed(() => this.pendingShares());
-  private readonly pendingShares = signal<Record<string, PendingShare>>(
-    this.store.get<Record<string, PendingShare>>(PUBLIC_COPY_WRITES_KEY) ?? {},
-  );
+  readonly sharesWaiting = computed(() => {
+    const uid = this.auth.user()?.uid;
+    const all = this.copyWrites();
+    return uid
+      ? Object.fromEntries(Object.entries(all).filter(([, w]) => w.uid === uid))
+      : ({} as Record<string, PublicCopyWrite>);
+  });
+  private readonly copyWrites = signal<Record<string, PublicCopyWrite>>(this.storedCopyWrites());
 
-  /** `writes` as one batch for share `shareId`, said to wait until the server has it. */
-  private shareWrite(
-    shareId: string,
-    noteId: string,
-    op: PendingShare['op'],
-    writes: BatchWrite[],
-  ): void {
-    const title = (this.find(noteId) ?? this.trashed(noteId))?.title ?? '';
-    const entry: PendingShare = { noteId, title, op, at: this.now() };
-    this.setPendingShares({ ...this.pendingShares(), [shareId]: entry });
-    const done = () => {
-      const now = this.pendingShares();
-      if (now[shareId] !== undefined && now[shareId].at === entry.at && now[shareId].op === op) {
-        const { [shareId]: _done, ...rest } = now;
-        this.setPendingShares(rest);
-      }
-    };
-    this.api.commit(this.fb.db, writes).then(done, (err) => {
-      done();
-      report(err);
-    });
-  }
-
-  private setPendingShares(next: Record<string, PendingShare>): void {
-    this.pendingShares.set(next);
-    if (Object.keys(next).length) this.store.set(PUBLIC_COPY_WRITES_KEY, next);
-    else this.store.remove(PUBLIC_COPY_WRITES_KEY);
+  /** Every account's writes as storage holds them now, any other window's included. */
+  private storedCopyWrites(): Record<string, PublicCopyWrite> {
+    const raw = this.store.get<Record<string, unknown>>(PUBLIC_COPY_WRITES_KEY) ?? {};
+    return Object.fromEntries(
+      Object.entries(raw).filter((e): e is [string, PublicCopyWrite] => isCopyWrite(e[1])),
+    );
   }
 
   /**
-   * Share writes kept from an earlier load: gone once the server has
-   * every write made so far (Firestore keeps them across a reload and
-   * sends them when it can).
+   * Changes the record from what storage holds now, so two windows
+   * writing it lose nothing of each other's.
+   */
+  private changeCopyWrites(
+    change: (all: Record<string, PublicCopyWrite>) => Record<string, PublicCopyWrite>,
+  ): void {
+    const next = change(this.storedCopyWrites());
+    if (Object.keys(next).length) this.store.set(PUBLIC_COPY_WRITES_KEY, next);
+    else this.store.remove(PUBLIC_COPY_WRITES_KEY);
+    this.copyWrites.set(next);
+  }
+
+  /** Another window changed the record: show what storage holds now. */
+  private readonly copyWritesChanged = (e: StorageEvent) => {
+    if (e.key === PUBLIC_COPY_WRITES_KEY || e.key === null) {
+      this.copyWrites.set(this.storedCopyWrites());
+    }
+  };
+
+  /**
+   * `writes` as one batch for share `shareId`. Said to wait until the
+   * server has it; cleared only when the batch resolves; marked failed
+   * when it is refused, and then the cache takes the batch back, so the
+   * note shows as it truly is and the page says the act did not happen.
+   */
+  private shareWrite(
+    shareId: string,
+    noteId: string,
+    op: PublicCopyWrite['op'],
+    writes: BatchWrite[],
+  ): void {
+    const uid = this.uid!;
+    const title = (this.find(noteId) ?? this.trashed(noteId))?.title ?? '';
+    const entry: PublicCopyWrite = { uid, noteId, title, op, at: this.now() };
+    const same = (w: PublicCopyWrite | undefined) => w?.at === entry.at && w.op === op;
+    this.changeCopyWrites((all) => {
+      // A new act on the note replaces what was said of a refused one.
+      const kept = Object.entries(all).filter(
+        ([, w]) => !(w.failed && w.uid === uid && w.noteId === noteId),
+      );
+      return { ...Object.fromEntries(kept), [shareId]: entry };
+    });
+    this.api.commit(this.fb.db, writes).then(
+      () =>
+        this.changeCopyWrites((all) => {
+          if (!same(all[shareId])) return all;
+          const { [shareId]: _done, ...rest } = all;
+          return rest;
+        }),
+      (err) => {
+        this.changeCopyWrites((all) =>
+          same(all[shareId]) ? { ...all, [shareId]: { ...entry, failed: true } } : all,
+        );
+        report(err);
+      },
+    );
+  }
+
+  /**
+   * The signed-in account's waiting writes from an earlier load: gone
+   * once the server has every write this account made so far (Firestore
+   * keeps them across a reload and sends them when it can). Never
+   * another account's, and never a refused one.
    */
   private settlePendingShares(): void {
-    const before = this.pendingShares();
-    if (!Object.keys(before).length) return;
+    const uid = this.uid;
+    if (!uid) return;
+    const before = Object.entries(this.copyWrites()).filter(([, w]) => w.uid === uid && !w.failed);
+    if (!before.length) return;
     this.api.synced(this.fb.db).then(
-      () => {
-        const now = this.pendingShares();
-        const rest = Object.fromEntries(
-          Object.entries(now).filter(([k, v]) => before[k]?.at !== v.at),
-        );
-        this.setPendingShares(rest);
-      },
+      () =>
+        this.changeCopyWrites((all) => {
+          const out = { ...all };
+          for (const [id, w] of before) {
+            const now = out[id];
+            if (now && now.at === w.at && now.op === w.op && !now.failed) delete out[id];
+          }
+          return out;
+        }),
       () => undefined,
     );
   }

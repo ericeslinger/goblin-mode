@@ -191,21 +191,56 @@ function render(node: Node, depth: number): string {
 /**
  * The most container markers (quotes, list items) a line may open, and
  * the most columns of leading space it may have: deeper is flattened to
- * this before the parse. The grammar's cost grows with the square of
- * nesting (review of #343: 100,000 nested quotes took 29 s).
+ * this before the parse (review of #343: 100,000 nested quotes took
+ * 29 s). Inside fenced code nothing is changed.
  */
 export const MAX_NESTING = 16;
 export const MAX_INDENT = 64;
-/**
- * The most markdown marks one block (lines between blank lines) may
- * hold before the body is shown as plain text: emphasis, link and image
- * marks in the tens of thousands made the grammar take seconds (review
- * of #343: `_a` 100,000 times, 10 s).
- */
-export const MAX_MARKS_PER_BLOCK = 2_000;
 
-const MARKS = /[*_[\]()!<>`~|\\]/g;
+/**
+ * The body is parsed in stretches of about this many lines (or
+ * characters), cut where markdown starts afresh anyway (after a blank
+ * line, or before a line that opens a top-level list item or quote),
+ * or at twice that before any line at the margin but a table's, never
+ * inside fenced code, because the grammar's cost on nested lists grows with the
+ * square of the lines it reads at once (review of #343: 8,000 lines of
+ * 16 nested markers, 32.8 s). A note shorter than this is parsed whole,
+ * as before. Cut, a long list becomes several lists, numbered on.
+ */
+export const STRETCH_LINES = 60;
+export const STRETCH_CHARS = 6_000;
+
+/**
+ * A stretch past either budget is shown as its plain text, escaped, in
+ * a preformatted block of its own; the rest of the body keeps its
+ * formatting. Marks: emphasis, link, image, code and HTML characters,
+ * after each line's list or checkbox opening (`_a` 100,000 times took
+ * 10 s). Nesting work: its lines times the extra container markers on
+ * them (a stretch of 600 lines with 15 extra each took 0.7 s). Table
+ * cells, below.
+ */
+export const MAX_MARKS = 2_000;
+export const MAX_NESTING_WORK = 400_000;
+/**
+ * The most extra container markers the whole body may parse: past this,
+ * a nested stretch is plain (16 nested markers on each of 5,400 lines
+ * took about 2 s within the other limits).
+ */
+export const MAX_BODY_NESTING = 10_000;
+/**
+ * The most lines the whole body may parse; past this the rest is plain
+ * (66,000 short lines of text and rules took about 1.5 s, by the number
+ * of nodes; a note of 200,000 characters seldom has a fifth as many).
+ */
+export const MAX_BODY_LINES = 20_000;
+/** The most table cells (`|`) a stretch may hold: a 500-column table of 200 rows took 2 s. */
+export const MAX_CELLS = 20_000;
+
+const MARKS = /[*_[\]()!<>`~\\]/g;
 const CONTAINER = /^[ \t]*(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))[ \t]?/;
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+/** A line that starts a top-level list item or quote: markdown starts afresh there. */
+const TOP_LEVEL = /^(?:>|[-*+][ \t]|\d{1,9}[.)][ \t])/;
 
 /** `line` with no more than MAX_NESTING containers opened and MAX_INDENT columns of indent. */
 function boundLine(line: string): string {
@@ -225,30 +260,171 @@ function boundLine(line: string): string {
   return prefix + rest;
 }
 
-/** Whether some block of `markdown` holds more marks than MAX_MARKS_PER_BLOCK. */
-export function tooManyMarks(markdown: string): boolean {
-  for (const block of markdown.split(/\n[ \t]*\n/)) {
-    let n = 0;
-    MARKS.lastIndex = 0;
-    while (MARKS.exec(block)) if (++n > MAX_MARKS_PER_BLOCK) return true;
+/** A line's container markers, and what follows them (its checkbox too). */
+function opening(line: string): { markers: number; rest: string } {
+  let rest = line;
+  let markers = 0;
+  for (let m = CONTAINER.exec(rest); m; m = CONTAINER.exec(rest)) {
+    markers++;
+    rest = rest.slice(m[0].length);
   }
-  return false;
+  return { markers, rest: rest.replace(/^\[[ xX]\][ \t]/, '') };
 }
 
-/** `markdown` with every line's nesting and indent bounded (boundLine). */
-export function boundNesting(markdown: string): string {
-  return markdown.split('\n').map(boundLine).join('\n');
+/** Whether `lines` would cost the grammar more than the budgets allow. */
+/** The extra container markers on `lines` (each line's beyond its first), outside fenced code. */
+export function nestingOf(lines: readonly string[]): number {
+  let extra = 0;
+  let fence: string | undefined;
+  for (const line of lines) {
+    const mark = FENCE.exec(line)?.[1];
+    if (fence !== undefined) {
+      if (mark && mark[0] === fence[0] && mark.length >= fence.length) fence = undefined;
+      continue;
+    }
+    if (mark) {
+      fence = mark;
+      continue;
+    }
+    extra += Math.max(0, opening(line).markers - 1);
+  }
+  return extra;
+}
+
+export function tooCostly(lines: readonly string[]): boolean {
+  let marks = 0;
+  let extra = 0;
+  let cells = 0;
+  let fence: string | undefined;
+  for (const line of lines) {
+    // Fenced code is read as it is, with no marks in it.
+    const mark = FENCE.exec(line)?.[1];
+    if (fence !== undefined) {
+      if (mark && mark[0] === fence[0] && mark.length >= fence.length) fence = undefined;
+      continue;
+    }
+    if (mark) {
+      fence = mark;
+      continue;
+    }
+    const { markers, rest } = opening(line);
+    extra += Math.max(0, markers - 1);
+    for (let i = rest.indexOf('|'); i !== -1; i = rest.indexOf('|', i + 1)) {
+      if (++cells > MAX_CELLS) return true;
+    }
+    MARKS.lastIndex = 0;
+    while (MARKS.exec(rest)) if (++marks > MAX_MARKS) return true;
+  }
+  return lines.length * extra > MAX_NESTING_WORK;
+}
+
+/** A stretch of the body, to parse as markdown or to show as plain text. */
+export interface Stretch {
+  lines: string[];
+  plain: boolean;
+}
+
+/**
+ * The body bounded (boundLine, outside fenced code) and cut into
+ * stretches (STRETCH_LINES), each judged against the budgets.
+ */
+export function stretches(markdown: string): Stretch[] {
+  const out: Stretch[] = [];
+  let current: string[] = [];
+  let chars = 0;
+  let fence: string | undefined;
+  let blankBefore = false;
+  let nesting = 0;
+  let parsed = 0;
+  const flush = () => {
+    if (current.length) {
+      const extra = nestingOf(current);
+      if (parsed + current.length > MAX_BODY_LINES) {
+        out.push({ lines: current, plain: true });
+      } else if (extra && nesting + extra > MAX_BODY_NESTING) {
+        out.push({ lines: current, plain: true });
+      } else if (tooCostly(current)) {
+        out.push(...byBlock(current));
+      } else {
+        nesting += extra;
+        parsed += current.length;
+        out.push({ lines: current, plain: false });
+      }
+    }
+    current = [];
+    chars = 0;
+  };
+  for (const raw of markdown.split('\n')) {
+    const fenceMark = FENCE.exec(raw)?.[1];
+    const inFence = fence !== undefined;
+    const big = current.length >= STRETCH_LINES || chars >= STRETCH_CHARS;
+    // Twice that with no fresh start: any line at the margin will do,
+    // but a table's row, which would lose its header (a paragraph cut
+    // there becomes two, a lazy line a paragraph of its own).
+    const huge = current.length >= 2 * STRETCH_LINES || chars >= 2 * STRETCH_CHARS;
+    const fresh = blankBefore || TOP_LEVEL.test(raw);
+    if (!inFence && ((big && fresh) || (huge && /^[^\s|]/.test(raw)))) flush();
+    const line = inFence ? raw : boundLine(raw);
+    current.push(line);
+    chars += line.length + 1;
+    if (inFence) {
+      if (fenceMark && fenceMark[0] === fence![0] && fenceMark.length >= fence!.length) {
+        fence = undefined;
+      }
+    } else if (fenceMark) {
+      fence = fenceMark;
+    }
+    blankBefore = !inFence && !raw.trim();
+  }
+  flush();
+  return out;
+}
+
+/**
+ * A costly stretch cut at its blank lines (outside fenced code) into
+ * blocks, each judged on its own: only a costly block is plain, and
+ * the cheap ones around it, together, are markdown.
+ */
+function byBlock(lines: readonly string[]): Stretch[] {
+  const blocks: string[][] = [];
+  let block: string[] = [];
+  let fence: string | undefined;
+  for (const line of lines) {
+    block.push(line);
+    const mark = FENCE.exec(line)?.[1];
+    if (fence !== undefined) {
+      if (mark && mark[0] === fence[0] && mark.length >= fence.length) fence = undefined;
+    } else if (mark) {
+      fence = mark;
+    } else if (!line.trim()) {
+      blocks.push(block);
+      block = [];
+    }
+  }
+  if (block.length) blocks.push(block);
+  const out: Stretch[] = [];
+  for (const b of blocks) {
+    const plain = tooCostly(b);
+    const last = out[out.length - 1];
+    if (last && last.plain === plain && !plain) last.lines.push(...b);
+    else out.push({ lines: [...b], plain });
+  }
+  return out;
 }
 
 /**
  * A note body as the public page's HTML: see the head of this file. A
- * body of a shape the grammar is slow on (tooManyMarks) is shown as its
- * plain text, escaped, in one preformatted block; it is never passed
- * through unescaped.
+ * stretch of a shape the grammar is slow on (`tooCostly`) is shown as
+ * its plain text, escaped, in a preformatted block of its own; it is
+ * never passed through unescaped, and the rest keeps its formatting.
  */
 export function shareBodyHtml(markdown: string): string {
-  const bounded = boundNesting(markdown);
-  if (tooManyMarks(bounded)) return `<pre class="plain">${escapeHtml(markdown)}</pre>\n`;
-  const tree: Root = parseNote(bounded);
-  return blocks(tree as { children: Node[] }, 0);
+  return stretches(markdown)
+    .map((s) => {
+      const text = s.lines.join('\n');
+      if (s.plain) return `<pre class="plain">${escapeHtml(text)}</pre>\n`;
+      const tree: Root = parseNote(text);
+      return blocks(tree as { children: Node[] }, 0);
+    })
+    .join('');
 }

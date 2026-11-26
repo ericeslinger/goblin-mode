@@ -7095,18 +7095,43 @@ nor a note naming a copy that was not made. The rules allow each batch
 *Honest while offline (review of #343).* A batch lands on the device at
 once and reaches the server later. Until the server has it, the app
 keeps it as waiting (`NotesService.sharesWaiting`, kept on the device
-under `goblin.publicCopyWrites` so a reload still knows; cleared when the
-batch resolves, or when `waitForPendingWrites` resolves after a
-reload), and never says more than is true: a share made offline "works
-once this device is back online"; a stop made offline (on the back, in
-Settings or by Trash) is "Still public" until the server has it, and
-Settings, Shared links, lists such copies under Still public; an update
-made offline says the link still shows the copy as it was. Only then
-does the app say "Stopped. The link answers nothing now". When the
-app cannot read a copy it believes is shared (the rules refuse a read
-of a share that is no longer there, and a refusal for any other reason
-looks the same), it says "This copy could not be read here" and keeps
-Stop sharing, rather than claim the copy is gone.
+under `goblin.publicCopyWrites`, a key of its own: `goblin.pendingShares`
+is the share sheet's), and never says more than is true: a share made
+offline "works once this device is back online"; a stop made offline
+(on the back, in Settings or by Trash) is "Still public" until the
+server has it, and Settings, Shared links, lists such copies under
+Still public; an update made offline says the link still shows the
+copy as it was. Only then does the app say "Stopped. The link answers
+nothing now". When the app cannot read a copy it believes is shared
+(the rules refuse a read of a share that is no longer there, and a
+refusal for any other reason looks the same), it says "This copy could
+not be read here" and keeps Stop sharing, rather than claim the copy
+is gone.
+
+*A refused write is never done (second review of #343).* A record is
+cleared only when its batch resolves, or, after a reload, when
+`waitForPendingWrites` resolves for the account. A batch the server
+refuses (the rules, or any error) is marked failed instead, and the
+cache takes it back, so the note shows as it truly is: a refused stop
+leaves the note shared, and the back says "Stopping did not reach the
+server: the copy is still public. Try Stop sharing again", with Stop
+sharing offered, and Settings says the same on its row; a refused
+share says nothing is public; a refused update says the link still
+shows the copy as it was. A failed record goes when the next act on
+the same note starts.
+
+*Per account, and two windows.* Each record carries its account's uid,
+as the held saves do; only the signed-in account's are shown, and only
+its own are cleared when its writes reach the server, so another
+account's titles and links never show and its first snapshot never
+clears another's. Firestore keeps an account's queued writes in its
+persistent cache when it signs out (this app never clears the cache)
+and sends them when that account signs in on this device again; the
+records do the same: kept at sign-out, shown again to their account.
+Every change to the records is made from what storage holds at that
+moment, so two windows lose nothing of each other's, and each window
+follows the other's changes by the `storage` event, as the share
+sheet's store does.
 
 *The server's side.* `noteHistory` stops a share first, on every note
 write that puts the note in Trash, deletes it, or drops or changes its
@@ -7121,6 +7146,23 @@ trigger on a share's deletion, takes the id off its note if the note
 still names it, so a note and its copy cannot disagree for long
 whichever device or state stopped it: a locked note's Stop deletes the
 copy alone, since nothing is written to a locked note on the device.
+
+*The sweep cannot be starved (second review of #343).* Any signed-in
+account can write share documents of its own, so the sweep never
+reads "the first thousand shares": with `OWNER_UID` set it pages
+through every one of the owner's shares, 500 at a time, by an owner
+filter (equality on `owner` ordered by id, which Firestore's automatic
+single-field index serves; no composite index), however many other
+documents there are. It then deletes up to 500 shares of other
+accounts a run: the page never shows them, so they are only storage.
+Without `OWNER_UID` (a fork that has not set it, where no share is
+shown either) it pages through every share and deletes none for its
+owner. The read cost is one read for each of the owner's shares and
+one for its note, a day, plus at most 500 reads and deletes of
+others'. The journey proves both triggers on the e2e stack: a share
+deleted by admin access is forgotten by its note, and a note put in
+Trash by admin access has its page answer 404; a functions-emulator
+spec runs the sweep's paging against Firestore.
 
 *What can be shared.* A plain note (kind `text`) and a recipe. A
 concept, a template, Kitchen's own notes and a clipping (a page's
@@ -7227,22 +7269,50 @@ characters of prose renders in about 0.6 s.
 
 *Shapes the grammar is slow on (review of #343).* Some bodies cost far
 more than prose of the same length. Measured at 200,000 characters
-before any guard: `> ` 100,000 times (nested quotes) 29 s, `_a`
-100,000 times 10 s, `[a](b` 40,000 times 9.8 s, `![a](` 30,000 times
-5.4 s: at the function's 30 s, a 503. The renderer now bounds what
-reaches the parser, cheaply and before it: no line opens more than 16
-containers (quotes, list items) or keeps more than 64 columns of
-indent, deeper being flattened (`boundNesting`); and a body with a
-block of more than 2,000 markdown marks (`*`, `_`, brackets, `!`, `<`,
-backticks and the like, between blank lines) is shown whole as its
-plain text, escaped, in one preformatted block (`tooManyMarks`).
-After the guard, the same four shapes take 18 ms, 1 ms, 1 ms and 1 ms;
-the worst found under the limit (blocks of 999 `*a` repeated to
-200,000 characters) about 1.6 s, `[a](b` and `![a](` blocks about
-0.9 s and 0.6 s, measured in Node on the development container, not
-on Cloud Run. A slow page degrades to plain text or, past the timeout,
-to the 503 page; never to anything unescaped. A checklist of a few
-hundred items in one block stays markdown.
+with no guard: `> ` 100,000 times (nested quotes) 29 s, `_a` 100,000
+times 10 s, `[a](b` 40,000 times 9.8 s, `![a](` 30,000 times 5.4 s;
+and, under the first guard (a cap per line and per block), 16 nested
+ordered list markers on each of 8,000 lines 32.8 s, the unordered
+twin over 100 s, 25,000 reference definitions 2.3 s, 20,000 reference
+uses 1.6 s. Past the function's 30 s, a 503.
+
+The renderer (`html.ts`, second review of #343) now bounds the work
+before the parser sees it, cheaply:
+
+- no line opens more than 16 containers (quotes, list items) or keeps
+  more than 64 columns of indent, deeper being flattened; never inside
+  fenced code, whose lines are left as they are;
+- the body is parsed in stretches of about 60 lines or 6,000
+  characters, cut only where markdown starts afresh (after a blank
+  line, or before a top-level list item or quote), or, at twice that
+  with no such place, before any line at the margin but a table row,
+  and never inside fenced code; a note shorter than a stretch is
+  parsed whole, as before, and a long list cut there becomes several
+  lists, numbered on;
+- a stretch over a budget (2,000 marks of emphasis, links, images,
+  code or HTML after each line's list or checkbox opening; 20,000
+  table cells; lines times extra container markers 400,000) is cut at
+  its blank lines and only the blocks over the budget are shown as
+  plain text, escaped, in a preformatted block; the rest keeps its
+  formatting;
+- across the whole body at most 10,000 extra container markers and
+  20,000 lines are parsed; stretches past either are plain.
+
+After the guard, at the 200,000-character cap, in Node on the
+development container, alone: 16 nested ordered markers a line 0.8 s,
+unordered 0.8 s, quotes inside lists 0.6 s, an outline 16 deep 1.1 s,
+two nested markers a line 1.5 s, reference definitions 0.3 s,
+definitions with uses 0.7 s, 66,000 lines of text and rules 0.8 s,
+alternating fences 0.6 s, prose 0.9 s, and the worst found, a flat
+checklist of 200,000 characters (about 10,000 items), 1.9 s; the
+single-line runs (`_a`, `[a](b`, `![a](`, backticks, reference uses)
+and a 500-column table go plain in milliseconds. An honest
+3,000-item checklist and a 300-row, 8-column table stay formatted, at
+0.6 s together. `html.spec.ts` renders each of these shapes and fails
+the gate if one takes 5 s or more, or writes a tag outside the set. A
+slow page degrades to plain text or, past the timeout, to the 503
+page; never to anything unescaped. Not measured on Cloud Run, whose
+256 MiB instance has a fraction of a CPU.
 
 *Cold starts:* a friend's first open after a quiet spell waits a
 second or two while the function starts; accepted, with no minimum

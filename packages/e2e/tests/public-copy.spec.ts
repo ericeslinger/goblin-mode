@@ -1,5 +1,13 @@
 import type { Browser, Page } from '@playwright/test';
-import { expect, letItSave, openSettings, signInAs, test, typeLines } from '../src/fixtures';
+import {
+  FIRESTORE_EMULATOR,
+  expect,
+  letItSave,
+  openSettings,
+  signInAs,
+  test,
+  typeLines,
+} from '../src/fixtures';
 import { OWNER } from '../src/personas';
 
 // A note's public copy (2026-11-26, Eric; DESIGN.md, Sharing a public
@@ -200,5 +208,59 @@ test('a shared recipe’s page carries schema.org Recipe JSON-LD', async ({ page
   // A data block, not a script: the policy, which allows no script,
   // refused nothing on the page.
   expect(refused).toEqual([]);
+  await context.close();
+});
+
+/** A document in this stack's emulator, by admin access (`Bearer owner`), as the server would. */
+async function admin(method: 'DELETE' | 'PATCH', path: string, fields?: object, mask?: string) {
+  const base = `http://${FIRESTORE_EMULATOR}/v1/projects/demo-mossgoblin/databases/(default)/documents`;
+  const res = await fetch(`${base}/${path}${mask ? `?updateMask.fieldPaths=${mask}` : ''}`, {
+    method,
+    headers: { authorization: 'Bearer owner', 'content-type': 'application/json' },
+    ...(fields ? { body: JSON.stringify({ fields }) } : {}),
+  });
+  if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+}
+
+// The server's own steps (review of #343): a share deleted by anything
+// but this device is forgotten by its note (shareDeleted), and a note
+// put in Trash by anything but this app has its copy stopped by the
+// note trigger (noteHistory).
+test('the server keeps a note and its copy in step', async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await signInAs(page, OWNER);
+  await note(page).click();
+  await typeLines(page, ['Kiln schedule', 'Bisque Tuesday']);
+  await letItSave(page);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Share a copy' }).click();
+  const first = await sharedLink(page);
+  await letItSave(page);
+  await openSettings(page, 'Shared links');
+  const row = page.getByRole('list', { name: 'Shared notes' }).getByRole('listitem');
+  const noteHref = (await row.getByRole('link').getAttribute('href'))!;
+  const noteId = noteHref.split('/').pop()!;
+
+  // Deleted on the server: the note stops naming it.
+  await admin('DELETE', `shares/${first.split('/').pop()}`);
+  await expect(page.getByText('Nothing is shared.')).toBeVisible({ timeout: 30_000 });
+
+  // Shared again, then put in Trash by another writer: the page goes.
+  await page.goto(noteHref);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('button', { name: 'Share a copy' }).click();
+  const again = await sharedLink(page);
+  await letItSave(page);
+  const { context, stranger } = await openAsStranger(browser, again);
+  await expect(stranger.getByRole('heading', { level: 1 })).toHaveText('Kiln schedule');
+  await admin(
+    'PATCH',
+    `users/${OWNER.uid}/notes/${noteId}`,
+    { deletedAt: { timestampValue: new Date().toISOString() } },
+    'deletedAt',
+  );
+  await expect
+    .poll(async () => (await stranger.goto(again))!.status(), { timeout: 30_000 })
+    .toBe(404);
   await context.close();
 });

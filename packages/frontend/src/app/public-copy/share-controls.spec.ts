@@ -160,6 +160,49 @@ describe('ShareControls (2026-11-26)', () => {
     expect(el.textContent).toContain('The shared copy now shows the note as it is.');
   });
 
+  it('says a refused stop failed and the copy is still public, Stop still offered (review of #343)', async () => {
+    const { el, notes, button, refresh, fixture } = await render(
+      { ...glaze(), shareId: SHARE },
+      { online: false },
+    );
+    button('Stop sharing')!.click();
+    await refresh();
+    // The server refuses; the cache takes the batch back: shared again.
+    notes.refuse(SHARE);
+    notes.notes.update((l) => l.map((n) => ({ ...n, shareId: SHARE })));
+    await refresh();
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Stopping did not reach the server: the copy is still public');
+    expect(el.textContent).not.toContain('answers nothing');
+    expect(el.textContent).not.toContain('Still public.');
+    expect(button('Stop sharing')).toBeTruthy();
+  });
+
+  it('says a refused share made nothing public, and a refused update changed nothing', async () => {
+    const shared = await render(glaze(), { online: false });
+    shared.button('Share a copy')!.click();
+    const id = shared.notes.find('n1')!.shareId!;
+    shared.notes.refuse(id);
+    shared.notes.notes.update((l) => l.map((n) => ({ ...n, shareId: undefined })));
+    await shared.refresh();
+    expect(shared.el.textContent).toContain('Sharing did not reach the server: nothing is public.');
+    expect(shared.button('Share a copy')).toBeTruthy();
+    TestBed.resetTestingModule();
+    const updated = await render(
+      { ...glaze(), body: 'Glaze\nThree parts', shareId: SHARE },
+      { online: false },
+    );
+    updated.api.push({ kind: 'note', title: 'Glaze', body: 'Two parts' });
+    await updated.fixture.whenStable();
+    updated.button('Update the shared copy')!.click();
+    updated.notes.refuse(SHARE);
+    await updated.fixture.whenStable();
+    expect(updated.el.textContent).toContain(
+      'The update did not reach the server: the link still shows the copy as it was.',
+    );
+    expect(updated.el.textContent).not.toContain('now shows the note as it is');
+  });
+
   it('says a copy it cannot read could not be read, never that it is gone', async () => {
     const { el, api, fixture, button } = await render({ ...glaze(), shareId: SHARE });
     api.push('gone');

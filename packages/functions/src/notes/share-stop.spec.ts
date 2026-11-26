@@ -3,6 +3,8 @@ import {
   type ShareStore,
   type ShareSweepStore,
   forgetDeletedShare,
+  SHARE_SWEEP_PAGE,
+  STRANGER_SHARES_PER_RUN,
   stopSharesOnWrite,
   sweepShares,
 } from './share-stop';
@@ -100,15 +102,22 @@ describe('forgetDeletedShare (review of #343)', () => {
 });
 
 describe('sweepShares, daily (review of #343)', () => {
+  const id = (n: number) => `S${String(n).padStart(31, '0')}`;
   function sweep(
     shares: { id: string; owner?: unknown; noteId?: unknown }[],
     notes: Record<string, { shareId?: unknown; trashed: boolean }>,
   ) {
     const removed: string[] = [];
+    const sorted = [...shares].sort((a, b) => (a.id < b.id ? -1 : 1));
     const s: ShareSweepStore = {
-      shares: async () => shares,
+      page: async (owner, after, limit) =>
+        sorted
+          .filter((x) => owner === undefined || x.owner === owner)
+          .filter((x) => after === undefined || x.id > after)
+          .slice(0, limit),
+      notOf: async (owner, limit) => sorted.filter((x) => x.owner !== owner).slice(0, limit),
       note: async (owner, noteId) => notes[`${owner}/${noteId}`],
-      remove: async (id) => void removed.push(id),
+      remove: async (x) => void removed.push(x),
     };
     return { s, removed };
   }
@@ -131,7 +140,32 @@ describe('sweepShares, daily (review of #343)', () => {
         'u1/n3': { shareId: undefined, trashed: false },
       },
     );
-    expect(await sweepShares(s)).toEqual({ looked: 5, removed: 4 });
-    expect(removed).toEqual([B, C, D, E]);
+    // No owner set (a fork): every share is looked at.
+    expect(await sweepShares(s, undefined)).toEqual({ looked: 5, removed: 4, strangers: 0 });
+    expect(removed.sort()).toEqual([B, C, D, E].sort());
+  });
+
+  it('cannot be starved: pages through every one of the owner’s shares, whatever else there is', async () => {
+    const junk = Array.from({ length: 3_000 }, (_, i) => ({
+      id: id(i),
+      owner: `stranger${i}`,
+      noteId: 'x',
+    }));
+    // The owner's, sorting after all the junk, more than a page of them.
+    const mine = Array.from({ length: SHARE_SWEEP_PAGE + 20 }, (_, i) => ({
+      id: `Z${String(i).padStart(31, '0')}`,
+      owner: 'u1',
+      noteId: `n${i}`,
+    }));
+    const notes: Record<string, { shareId?: unknown; trashed: boolean }> = {};
+    mine.forEach((m, i) => (notes[`u1/n${i}`] = { shareId: m.id, trashed: i === mine.length - 1 }));
+    const { s, removed } = sweep([...junk, ...mine], notes);
+    const report = await sweepShares(s, 'u1');
+    expect(report.looked).toBe(mine.length);
+    // The last of the owner's, in Trash, is found and removed.
+    expect(removed).toContain(mine[mine.length - 1].id);
+    // Other accounts' shares, never shown, go a bounded number a run.
+    expect(report.strangers).toBe(STRANGER_SHARES_PER_RUN);
+    expect(report.removed).toBe(1);
   });
 });

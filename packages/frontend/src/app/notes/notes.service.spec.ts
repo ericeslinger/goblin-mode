@@ -35,6 +35,7 @@ import {
   PENDING_MOODS_KEY,
   PENDING_NAMES_KEY,
   PENDING_SAVES_KEY,
+  PUBLIC_COPY_WRITES_KEY,
   SHARED_IMPORT_WAITING,
 } from './notes.service';
 
@@ -137,6 +138,10 @@ function setup(opts: { reload?: boolean; key?: DataKey | undefined } = {}) {
     /** Batches wait for a server that does not answer, as offline. */
     offline: () => {
       commitResult = () => new Promise<void>(() => undefined);
+    },
+    /** Batches are refused by the server, as the rules or a seam would. */
+    refusing: () => {
+      commitResult = () => Promise.reject(new Error('refused'));
     },
   };
 }
@@ -2673,14 +2678,80 @@ describe('NotesService', () => {
       );
       // A reload while offline still says so.
       const r = setup({ reload: true });
+      r.signIn('u1');
       expect(r.notes.sharesWaiting()[SHARE]).toEqual(expect.objectContaining({ op: 'stop' }));
       // Back, the server has every write: it is said no more.
-      r.signIn('u1');
       r.push([glaze]);
       await Promise.resolve();
       await Promise.resolve();
       expect(r.api.synced).toHaveBeenCalled();
       expect(r.notes.sharesWaiting()).toEqual({});
+    });
+
+    it('marks a refused batch failed, never done, until a new act on the note (review of #343)', async () => {
+      const t = setup();
+      t.signIn('u1');
+      t.push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      t.refusing();
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      t.notes.stopShare('n1');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(t.notes.sharesWaiting()[SHARE]).toEqual(
+        expect.objectContaining({ op: 'stop', failed: true, uid: 'u1' }),
+      );
+      // A later settle never clears a refused write.
+      t.push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(t.notes.sharesWaiting()[SHARE]?.failed).toBe(true);
+      // Trying again replaces it.
+      t.offline();
+      t.notes.stopShare('n1');
+      expect(t.notes.sharesWaiting()[SHARE]).toEqual(expect.not.objectContaining({ failed: true }));
+    });
+
+    it('keeps each account’s writes to itself, through sign-out (review of #343)', async () => {
+      const t = setup();
+      t.signIn('u2');
+      t.push([{ id: 'n9', data: { ...glaze.data, title: 'Theirs', shareId: SHARE } }]);
+      t.offline();
+      t.notes.stopShare('n9');
+      expect(Object.keys(t.notes.sharesWaiting())).toEqual([SHARE]);
+      // Signed out: kept (Firestore keeps u2's queued writes too), shown to no one.
+      t.user.set(null);
+      TestBed.tick();
+      expect(t.notes.sharesWaiting()).toEqual({});
+      expect(localStorage.getItem(PUBLIC_COPY_WRITES_KEY)).toContain('Theirs');
+      // Another account sees none of it, and its first snapshot clears none of it.
+      t.signIn('u1');
+      t.push([glaze]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(t.notes.sharesWaiting()).toEqual({});
+      expect(localStorage.getItem(PUBLIC_COPY_WRITES_KEY)).toContain('Theirs');
+      // Back as u2, the stop is still said to wait.
+      t.signIn('u2');
+      expect(t.notes.sharesWaiting()[SHARE]?.title).toBe('Theirs');
+    });
+
+    it('merges with another window’s writes, and follows its changes (review of #343)', () => {
+      const t = setup();
+      t.signIn('u1');
+      t.push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      const OTHER = 'ZZCdEfGhIjKlMnOpQrStUvWxYz012-_9';
+      const theirs = { uid: 'u1', noteId: 'n2', title: 'Kiln', op: 'stop', at: 5 };
+      // Another window wrote its own entry since this one loaded.
+      localStorage.setItem(PUBLIC_COPY_WRITES_KEY, JSON.stringify({ [OTHER]: theirs }));
+      t.offline();
+      t.notes.stopShare('n1');
+      const stored = JSON.parse(localStorage.getItem(PUBLIC_COPY_WRITES_KEY)!);
+      expect(Object.keys(stored).sort()).toEqual([SHARE, OTHER].sort());
+      // The other window clears its own: this one follows.
+      const { [OTHER]: _gone, ...mine } = stored;
+      localStorage.setItem(PUBLIC_COPY_WRITES_KEY, JSON.stringify(mine));
+      window.dispatchEvent(new StorageEvent('storage', { key: PUBLIC_COPY_WRITES_KEY }));
+      expect(Object.keys(t.notes.sharesWaiting())).toEqual([SHARE]);
     });
 
     it('stops waiting once the batch reaches the server', async () => {

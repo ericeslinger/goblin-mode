@@ -51,7 +51,7 @@ import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
 import type { ProposalRecord } from '../claude/proposals.service';
-import type { NoteRecord, NotesService, PendingShare } from '../notes/notes.service';
+import type { NoteRecord, NotesService, PublicCopyWrite } from '../notes/notes.service';
 import type { Transcription } from '../attachments/attachments.service';
 import type { HistoryApi } from '../history/history';
 
@@ -145,13 +145,20 @@ export class FakeNotes {
   /** Public copies (2026-11-26): the notes carrying a share id. */
   readonly shared = computed(() => this.notes().filter((n) => n.shareId !== undefined));
   /** Share writes the server does not have yet, by share id (2026-11-26). */
-  readonly sharesWaiting = signal<Record<string, PendingShare>>({});
+  readonly sharesWaiting = signal<Record<string, PublicCopyWrite>>({});
   /** Set to make the next share writes wait, as offline: they stay in `sharesWaiting`. */
   offline = false;
-  private waitFor(shareId: string, noteId: string, op: PendingShare['op']): void {
+  private waitFor(shareId: string, noteId: string, op: PublicCopyWrite['op']): void {
     if (!this.offline) return;
     const title = this.find(noteId)?.title ?? '';
-    this.sharesWaiting.update((w) => ({ ...w, [shareId]: { noteId, title, op, at: 1 } }));
+    this.sharesWaiting.update((w) => ({
+      ...w,
+      [shareId]: { uid: 'u1', noteId, title, op, at: 1 },
+    }));
+  }
+  /** The server refused share `shareId`'s write: marked failed, as NotesService marks it. */
+  refuse(shareId: string): void {
+    this.sharesWaiting.update((w) => ({ ...w, [shareId]: { ...w[shareId], failed: true } }));
   }
   shareRefusal = vi.fn((_id: string): string | undefined => undefined);
   share = vi.fn((id: string) => {

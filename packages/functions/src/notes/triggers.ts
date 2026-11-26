@@ -119,7 +119,10 @@ export const trashSweep = onSchedule(
     // Shares first, and on their own (2026-11-26): a copy whose note is
     // gone, in Trash or names another share stops, whatever else fails.
     try {
-      const shares = await sweepShares(firestoreShareSweepStore(db));
+      const shares = await sweepShares(
+        firestoreShareSweepStore(db),
+        process.env['OWNER_UID'] || undefined,
+      );
       if (shares.removed) logger.info('trashSweep: shares', shares);
     } catch (err) {
       logger.error('trashSweep: shares', { err: String(err) });

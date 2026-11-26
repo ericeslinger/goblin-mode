@@ -3,11 +3,12 @@ import {
   MAX_DEPTH,
   MAX_INDENT,
   MAX_NESTING,
-  boundNesting,
+  STRETCH_LINES,
   escapeHtml,
   safeHref,
   shareBodyHtml,
-  tooManyMarks,
+  stretches,
+  tooCostly,
 } from './html';
 
 /** Every tag the renderer may write, by name. */
@@ -243,50 +244,120 @@ describe('escapeHtml and safeHref', () => {
   });
 });
 
-// Review of #343: shapes the grammar is slow on, measured at 200,000
-// characters before this guard: '> ' x100000 29 s, '_a' x100000 10 s,
-// '[a](b' x40000 9.8 s, '![a](' x30000 5.4 s.
-describe('bodies the grammar is slow on', () => {
-  it('shows a block with too many marks as its plain text, escaped, at once', () => {
-    for (const body of [
-      '_a'.repeat(100_000),
-      '[a](b'.repeat(40_000),
-      '![a]('.repeat(30_000),
-      `<script>${'*a'.repeat(5_000)}`,
-    ]) {
-      expect(tooManyMarks(body)).toBe(true);
-      const started = Date.now();
-      const html = shareBodyHtml(body);
-      expect(Date.now() - started).toBeLessThan(1_000);
-      expect(html.startsWith('<pre class="plain">')).toBe(true);
-      expect(html).not.toMatch(/<(?!\/?pre)/);
-    }
+// Review of #343: shapes the grammar is slow on, at the 200,000-character
+// cap. Before any guard: '> ' x100000 29 s, '_a' x100000 10 s, '[a](b'
+// x40000 9.8 s, '![a](' x30000 5.4 s; under the first guard, 16 nested
+// ordered markers on each of 8,000 lines 32.8 s. Every shape here must
+// render under CEILING_MS on this machine (the worst measured, alone, was
+// about 1.9 s: a flat checklist of 200,000 characters), all of it
+// escaped, so a regression fails the gate.
+const CAP = 200_000;
+const CEILING_MS = 5_000;
+const fill = (unit: string) => unit.repeat(Math.ceil(CAP / unit.length)).slice(0, CAP);
+const lines = (f: (i: number) => string) => {
+  const out: string[] = [];
+  for (let i = 0, n = 0; n < CAP; i++) {
+    const l = f(i);
+    out.push(l);
+    n += l.length + 1;
+  }
+  return out.join('\n').slice(0, CAP);
+};
+
+/** Renders `body`, checks it took under the ceiling and wrote only allowed tags. */
+function renderedSafely(body: string): string {
+  const started = performance.now();
+  const html = shareBodyHtml(body);
+  expect(performance.now() - started).toBeLessThan(CEILING_MS);
+  expectOnlyAllowed(html.replace(/<\/?pre( class="plain")?>/g, ''));
+  return html;
+}
+
+describe('bodies the grammar is slow on (review of #343)', () => {
+  const shapes: [string, () => string][] = [
+    ['nested quotes on one line', () => fill('> ')],
+    ['16 nested ordered markers a line', () => lines((i) => `${'1. '.repeat(16)}x${i}`)],
+    ['16 nested unordered markers a line', () => lines((i) => `${'- '.repeat(16)}x${i}`)],
+    ['8 nested markers, indented', () => lines((i) => `  ${'- '.repeat(8)}x${i}`)],
+    ['quotes inside lists', () => lines((i) => `${'- > '.repeat(8)}x${i}`)],
+    ['an outline 16 deep', () => lines((i) => `${'  '.repeat(i % 16)}- x${i}`)],
+    ['two nested markers a line', () => lines((i) => `- - x${i}`)],
+    ['a flat checklist', () => lines((i) => `- [ ] item ${i}`)],
+    ['prose', () => lines(() => 'Some words *here* and [a link](https://x.example)\n')],
+    ['reference definitions', () => lines((i) => `[d${i}]: https://x.example/${i}`)],
+    ['reference uses', () => fill('[d1] ')],
+    [
+      'definitions and uses',
+      () => lines((i) => (i % 2 ? `[d${i}]: https://x.example/` : `[d${i - 1}] x`)),
+    ],
+    ['an emphasis run', () => fill('_a')],
+    ['emphasis lines', () => lines(() => '*a'.repeat(60))],
+    ['link openers', () => fill('[a](b')],
+    ['image openers', () => fill('![a](')],
+    ['backtick runs', () => lines(() => '``a`'.repeat(40))],
+    [
+      'a wide table',
+      () =>
+        [
+          '|' + 'a|'.repeat(500),
+          '|' + '-|'.repeat(500),
+          ...Array.from({ length: 200 }, () => '|' + 'x|'.repeat(500)),
+        ]
+          .join('\n')
+          .slice(0, CAP),
+    ],
+    ['lines and rules', () => lines((i) => (i % 2 ? '---' : 'x'))],
+    ['fences', () => lines((i) => (i % 2 ? '```' : 'x'))],
+  ];
+  for (const [name, make] of shapes) {
+    it(`${name}: under ${CEILING_MS} ms, escaped`, { timeout: 60_000 }, () => {
+      renderedSafely(make());
+    });
+  }
+
+  it('shows only the costly stretch as plain text; the rest keeps its formatting', () => {
+    const body = `# Glaze\n\nTwo parts *feldspar*.\n\n${'_a'.repeat(5_000)}\n\nAfter **it**.`;
+    const html = renderedSafely(body);
+    expect(html).toContain('<h2>Glaze</h2>');
+    expect(html).toContain('<strong>feldspar</strong>');
+    expect(html).toContain('<pre class="plain">_a_a');
+    expect(html).toContain('After <strong>it</strong>.');
   });
 
-  it('flattens nesting past MAX_NESTING before the parse', () => {
-    expect(boundNesting(`${'> '.repeat(100)}x`)).toBe(`${'> '.repeat(MAX_NESTING)}x`);
-    expect(boundNesting(`${' '.repeat(500)}- x`)).toBe(`${' '.repeat(MAX_INDENT)}- x`);
-    expect(boundNesting('> - 1. quoted list')).toBe('> - 1. quoted list');
-    const started = Date.now();
-    const html = shareBodyHtml('> '.repeat(100_000));
-    expect(Date.now() - started).toBeLessThan(2_000);
-    expect((html.match(/<blockquote>/g) ?? []).length).toBeLessThanOrEqual(MAX_NESTING);
+  it('keeps an honest long checklist and table formatted', { timeout: 60_000 }, () => {
+    const checklist = Array.from({ length: 3_000 }, (_, i) => `- [ ] item ${i}`).join('\n');
+    const list = renderedSafely(checklist);
+    expect(list).not.toContain('class="plain"');
+    expect(list.match(/type="checkbox"/g)).toHaveLength(3_000);
+    const table = [
+      '|a|b|c|d|e|f|g|h|',
+      '|-|-|-|-|-|-|-|-|',
+      ...Array.from({ length: 300 }, (_, i) => `|${i}|b|c|d|e|f|g|h|`),
+    ].join('\n');
+    const rows = renderedSafely(table);
+    expect(rows).not.toContain('class="plain"');
+    expect(rows.match(/<tr>/g)).toHaveLength(301);
   });
 
-  it('keeps an ordinary note as markdown, a checklist of hundreds included', () => {
-    const list = Array.from({ length: 500 }, (_, i) => `- [ ] item ${i}`).join('\n');
-    expect(tooManyMarks(list)).toBe(false);
-    expect(shareBodyHtml(list)).toContain('<ul class="tasks">');
+  it('flattens nesting past MAX_NESTING, never inside fenced code', () => {
+    const [deep] = stretches(`${'> '.repeat(100)}x`);
+    expect(deep.lines[0]).toBe(`${'> '.repeat(MAX_NESTING)}x`);
+    const [indented] = stretches(`${' '.repeat(500)}- x`);
+    expect(indented.lines[0]).toBe(`${' '.repeat(MAX_INDENT)}- x`);
+    const code = '```\n' + `${' '.repeat(100)}kept\n` + `${'> '.repeat(40)}kept\n` + '```';
+    expect(stretches(code)[0].lines.join('\n')).toBe(code);
+    expect(shareBodyHtml(code)).toContain(`${' '.repeat(100)}kept`);
   });
 
-  it('renders the worst blocks under the limit within a few seconds', () => {
-    for (const block of ['*a'.repeat(999), '[a](b'.repeat(399), '![a]('.repeat(333)]) {
-      const body = `${block}\n\n`.repeat(99).slice(0, 200_000);
-      expect(tooManyMarks(body)).toBe(false);
-      const started = Date.now();
-      shareBodyHtml(body);
-      // About 1.6 s at most in Node here; the function's timeout is 30 s.
-      expect(Date.now() - started).toBeLessThan(10_000);
-    }
+  it('parses a note shorter than a stretch whole, as before', () => {
+    const note = Array.from({ length: STRETCH_LINES - 1 }, (_, i) => `line ${i}`).join('\n');
+    expect(stretches(note)).toHaveLength(1);
+  });
+
+  it('never cuts inside fenced code', () => {
+    const body = '```\n' + 'x\n'.repeat(5 * STRETCH_LINES) + '```\nafter';
+    const parts = stretches(body);
+    expect(parts[0].lines.join('\n')).toContain('x\n'.repeat(5 * STRETCH_LINES - 1));
+    expect(tooCostly(parts[0].lines)).toBe(false);
   });
 });

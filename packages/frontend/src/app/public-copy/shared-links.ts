@@ -25,6 +25,11 @@ import { shareLink } from './share-controls';
           <li>
             <a class="title" [routerLink]="['/n', n.id]">{{ n.title || 'Untitled' }}</a>
             <span class="link">{{ link(n.shareId!) }}</span>
+            @if (refusedStop(n.shareId!)) {
+              <span class="refused" role="status"
+                >Stopping did not reach the server: this copy is still public.</span
+              >
+            }
             <button
               type="button"
               [attr.aria-label]="'Stop sharing ' + (n.title || 'Untitled')"
@@ -79,6 +84,10 @@ import { shareLink } from './share-controls';
       font-size: 13px;
       overflow-wrap: anywhere;
     }
+    .refused {
+      font-size: 14px;
+      font-weight: 600;
+    }
     .muted {
       color: var(--quiet);
     }
@@ -108,17 +117,23 @@ export class SharedLinks {
   protected readonly said = computed(() => {
     const s = this.stopped();
     if (!s) return '';
-    const waiting = Object.values(this.notes.sharesWaiting()).some(
+    const left = Object.values(this.notes.sharesWaiting()).some(
       (w) => w.op === 'stop' && w.noteId === s.noteId,
     );
-    return waiting ? '' : `Stopped sharing ${s.title || 'Untitled'}.`;
+    return left ? '' : `Stopped sharing ${s.title || 'Untitled'}.`;
   });
   /** Stops this device made that the server does not have yet: those copies are still public. */
   protected readonly stopping = computed(() =>
     Object.entries(this.notes.sharesWaiting())
-      .filter(([, w]) => w.op === 'stop')
+      .filter(([, w]) => w.op === 'stop' && !w.failed)
       .map(([id, w]) => ({ id, title: w.title })),
   );
+
+  /** Whether this device's stop of `shareId` was refused by the server. */
+  protected refusedStop(shareId: string): boolean {
+    const w = this.notes.sharesWaiting()[shareId];
+    return !!w?.failed && w.op === 'stop';
+  }
 
   protected link(shareId: string): string {
     return shareLink(this.origin, shareId);
