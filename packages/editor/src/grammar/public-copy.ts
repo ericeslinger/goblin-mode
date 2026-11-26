@@ -40,23 +40,30 @@ interface Edit {
   text: string;
 }
 
-function collect(node: Nodes | WikiLink | Root, edits: Edit[]): void {
-  const start = node.position?.start.offset;
-  const end = node.position?.end.offset;
-  if (node.type === 'wikiLink') {
-    if (start !== undefined && end !== undefined) {
-      edits.push({ start, end, text: asWords(node.alias ?? node.target) });
+/**
+ * The edits for every wiki link and attached image under `root`. A loop
+ * over a stack rather than recursion, so no nesting is too deep for it
+ * (review of #343: 5,000 nested quotes overflowed the call stack).
+ */
+function collect(root: Root, edits: Edit[]): void {
+  const stack: (Nodes | WikiLink | Root)[] = [root];
+  while (stack.length) {
+    const node = stack.pop()!;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (node.type === 'wikiLink') {
+      if (start !== undefined && end !== undefined) {
+        edits.push({ start, end, text: asWords(node.alias ?? node.target) });
+      }
+      continue;
     }
-    return;
-  }
-  if (node.type === 'image' && node.url.startsWith(ATTACHMENT_SCHEME)) {
-    if (start !== undefined && end !== undefined) edits.push({ start, end, text: '' });
-    return;
-  }
-  // Code keeps its text exactly, `[[x]]` included.
-  if (node.type === 'code' || node.type === 'inlineCode') return;
-  if ('children' in node) {
-    for (const child of node.children as Nodes[]) collect(child, edits);
+    if (node.type === 'image' && node.url.startsWith(ATTACHMENT_SCHEME)) {
+      if (start !== undefined && end !== undefined) edits.push({ start, end, text: '' });
+      continue;
+    }
+    // Code keeps its text exactly, `[[x]]` included.
+    if (node.type === 'code' || node.type === 'inlineCode') continue;
+    if ('children' in node) stack.push(...(node.children as Nodes[]));
   }
 }
 

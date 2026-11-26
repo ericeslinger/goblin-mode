@@ -29,12 +29,11 @@ stack playbook and the `house-style` plugin (enabled in
   page the `publicShare` function renders at `/s/<shareId>`, and only
   for the deployment owner's (`OWNER_UID`) shares (DESIGN.md, Sharing a
   public copy). Publishing is Eric's act in the app: no MCP tool makes,
-  changes or stops a share or returns its link. `oauth/`
-  is server-only. A rules change needs a
-  rules test in `packages/rules-tests`. The `isValid*` shape
-  validators in `firestore.rules` are generated from the zod schemas:
-  change the schema and run `npm run rules:gen`, never edit them by
-  hand.
+  changes or stops a share or returns its link. `oauth/` is
+  server-only. A rules change needs a rules test in
+  `packages/rules-tests`. The `isValid*` shape validators in
+  `firestore.rules` are generated from the zod schemas: change the
+  schema and run `npm run rules:gen`, never edit them by hand.
 - **Never lose a keystroke.** Note writes go through the Firestore
   persistent cache, never a network-only path, and nothing in the
   capture flow waits on the network or on auth before accepting input.

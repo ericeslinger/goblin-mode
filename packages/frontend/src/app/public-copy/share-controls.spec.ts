@@ -27,6 +27,7 @@ function sharesApi() {
 
 async function render(note: NoteRecord, { online = true } = {}) {
   const notes = new FakeNotes();
+  notes.offline = !online;
   notes.signIn([note]);
   const api = sharesApi();
   TestBed.configureTestingModule({
@@ -118,16 +119,53 @@ describe('ShareControls (2026-11-26)', () => {
     expect(button('Share a copy')).toBeTruthy();
   });
 
-  it('says offline that the link works once the device is back online', async () => {
-    const { el } = await render({ ...glaze(), shareId: SHARE }, { online: false });
-    expect(el.textContent).toContain('the link works once it is back online');
+  it('says a share made offline works once the server has it', async () => {
+    const { el, button, refresh } = await render(glaze(), { online: false });
+    button('Share a copy')!.click();
+    await refresh();
+    expect(el.textContent).toContain('the link works once this device is back online');
   });
 
-  it('says so when the copy is not there any more', async () => {
+  it('never says an offline stop is done: the copy is still public until the server has it (review of #343)', async () => {
+    const { el, notes, button, refresh, fixture } = await render(
+      { ...glaze(), shareId: SHARE },
+      { online: false },
+    );
+    button('Stop sharing')!.click();
+    await refresh();
+    expect(el.textContent).toContain('Still public.');
+    expect(el.textContent).toContain('until this device is back online');
+    expect(el.textContent).not.toContain('answers nothing');
+    expect(button('Share a copy')).toBeUndefined();
+    // The server has it: now it is said to be stopped.
+    notes.sharesWaiting.set({});
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Stopped. The link answers nothing now');
+    expect(el.textContent).not.toContain('Still public.');
+  });
+
+  it('never says an offline update is shown yet', async () => {
+    const { el, notes, button, fixture, api } = await render(
+      { ...glaze(), body: 'Glaze\nThree parts', shareId: SHARE },
+      { online: false },
+    );
+    api.push({ kind: 'note', title: 'Glaze', body: 'Two parts' });
+    await fixture.whenStable();
+    button('Update the shared copy')!.click();
+    await fixture.whenStable();
+    expect(el.textContent).toContain('the link still shows the copy as it was');
+    expect(el.textContent).not.toContain('now shows the note as it is');
+    notes.sharesWaiting.set({});
+    await fixture.whenStable();
+    expect(el.textContent).toContain('The shared copy now shows the note as it is.');
+  });
+
+  it('says a copy it cannot read could not be read, never that it is gone', async () => {
     const { el, api, fixture, button } = await render({ ...glaze(), shareId: SHARE });
     api.push('gone');
     await fixture.whenStable();
-    expect(el.textContent).toContain('The shared copy is not there any more');
+    expect(el.textContent).toContain('This copy could not be read here.');
+    expect(el.textContent).not.toMatch(/not there any more|answers nothing/);
     expect(button('Copy link')).toBeUndefined();
     expect(button('Stop sharing')).toBeTruthy();
   });
@@ -176,6 +214,21 @@ describe('SharedLinks (Settings, 2026-11-26)', () => {
     await fixture.whenStable();
     expect(el.textContent).toContain('Stopped sharing Glaze.');
     expect(el.textContent).toContain('Nothing is shared.');
+  });
+
+  it('lists a stop the server does not have yet as still public (review of #343)', async () => {
+    const { el, notes, fixture } = await renderList([{ ...glaze(), shareId: SHARE }]);
+    notes.offline = true;
+    el.querySelector<HTMLButtonElement>('button[aria-label="Stop sharing Glaze"]')!.click();
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Still public');
+    expect(el.textContent).toContain(`/s/${SHARE}`);
+    expect(el.textContent).not.toContain('Stopped sharing Glaze.');
+    expect(el.textContent).not.toContain('Nothing is shared.');
+    notes.sharesWaiting.set({});
+    await fixture.whenStable();
+    expect(el.textContent).toContain('Stopped sharing Glaze.');
+    expect(el.textContent).not.toContain('Still public');
   });
 
   it('says when nothing is shared', async () => {

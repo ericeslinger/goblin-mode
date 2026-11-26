@@ -220,4 +220,14 @@ describe('a recipe’s page', () => {
     // 30 s is the function's timeout.
     expect(Date.now() - started).toBeLessThan(15_000);
   });
+
+  it('checks the source’s scheme itself, whoever calls it', () => {
+    for (const source of ['javascript:alert(1)', 'data:text/html,x', 'mailto:a@b.example', '/x']) {
+      const html = renderSharePage({ ...recipe, source });
+      expect(html).not.toContain(source);
+      expect(html).not.toContain('class="from"');
+      expect(recipeJsonLd({ ...recipe, source: undefined })).not.toHaveProperty('isBasedOn');
+      expect(html).not.toContain('isBasedOn');
+    }
+  });
 });

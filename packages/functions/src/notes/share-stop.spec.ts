@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type ShareStore, stopSharesOnWrite } from './share-stop';
+import {
+  type ShareStore,
+  type ShareSweepStore,
+  forgetDeletedShare,
+  stopSharesOnWrite,
+  sweepShares,
+} from './share-stop';
 
 const A = 'AbCdEfGhIjKlMnOpQrStUvWxYz012-_9';
 const B = 'ZZCdEfGhIjKlMnOpQrStUvWxYz012-_9';
@@ -73,5 +79,59 @@ describe('stopSharesOnWrite (2026-11-26)', () => {
       [],
     );
     expect(s.read).not.toHaveBeenCalled();
+  });
+});
+
+describe('forgetDeletedShare (review of #343)', () => {
+  it('takes the id off the note its document named', async () => {
+    const s = store({});
+    expect(await forgetDeletedShare(s, A, { owner: 'u1', noteId: 'n1' })).toBe(true);
+    expect(s.forgot).toEqual([`n1:${A}`]);
+  });
+
+  it('does nothing for a document without an owner and note, or a path in them', async () => {
+    const s = store({});
+    expect(await forgetDeletedShare(s, A, undefined)).toBe(false);
+    expect(await forgetDeletedShare(s, A, { owner: 'u1' })).toBe(false);
+    expect(await forgetDeletedShare(s, A, { owner: 'u1/notes/x', noteId: 'n1' })).toBe(false);
+    expect(await forgetDeletedShare(s, 'bad', { owner: 'u1', noteId: 'n1' })).toBe(false);
+    expect(s.forgot).toEqual([]);
+  });
+});
+
+describe('sweepShares, daily (review of #343)', () => {
+  function sweep(
+    shares: { id: string; owner?: unknown; noteId?: unknown }[],
+    notes: Record<string, { shareId?: unknown; trashed: boolean }>,
+  ) {
+    const removed: string[] = [];
+    const s: ShareSweepStore = {
+      shares: async () => shares,
+      note: async (owner, noteId) => notes[`${owner}/${noteId}`],
+      remove: async (id) => void removed.push(id),
+    };
+    return { s, removed };
+  }
+
+  it('keeps a share its note names, and removes one gone, trashed, or not named', async () => {
+    const C = 'CCCdEfGhIjKlMnOpQrStUvWxYz012-_9';
+    const D = 'DDDdEfGhIjKlMnOpQrStUvWxYz012-_9';
+    const E = 'EEEdEfGhIjKlMnOpQrStUvWxYz012-_9';
+    const { s, removed } = sweep(
+      [
+        { id: A, owner: 'u1', noteId: 'n1' },
+        { id: B, owner: 'u1', noteId: 'n2' },
+        { id: C, owner: 'u1', noteId: 'n3' },
+        { id: D, owner: 'u1', noteId: 'n4' },
+        { id: E, owner: 'u1/x', noteId: 'n5' },
+      ],
+      {
+        'u1/n1': { shareId: A, trashed: false },
+        'u1/n2': { shareId: B, trashed: true },
+        'u1/n3': { shareId: undefined, trashed: false },
+      },
+    );
+    expect(await sweepShares(s)).toEqual({ looked: 5, removed: 4 });
+    expect(removed).toEqual([B, C, D, E]);
   });
 });

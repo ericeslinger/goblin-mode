@@ -40,6 +40,7 @@ import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
 import { ModulesService } from '../modules/modules.service';
 import { SAVE_DELAY_MS } from '../capture/capture.service';
+import { ONLINE } from '../platform/platform';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
 import { ShareControls } from '../public-copy/share-controls';
 
@@ -339,8 +340,11 @@ function stamp(ms: number | undefined): string {
       @if (confirmingDelete()) {
         <p class="confirm">
           <span id="delete-note"
-            >Delete this note? It stays in Trash for {{ trashDays }} days.</span
-          >
+            >Delete this note? It stays in Trash for {{ trashDays }} days.
+            @if (note().shareId) {
+              Its shared copy stops too{{ online() ? '' : ', once this device is back online' }}.
+            }
+          </span>
           <button type="button" class="primary" aria-describedby="delete-note" (click)="delete()">
             Yes
           </button>
@@ -610,6 +614,9 @@ export class NoteBack {
     return note.id !== this.grocery.listId();
   });
   protected readonly sentAt = computed(() => stamp(this.note().sentAt));
+  /** Whether this device is online, read when Delete is asked (2026-11-26). */
+  private readonly isOnline = inject(ONLINE);
+  protected readonly online = computed(() => (this.confirmingDelete(), this.isOnline()));
   /**
    * Share a copy (2026-11-26): a plain note or a recipe, or any note
    * already shared, so its link can always be seen and stopped.

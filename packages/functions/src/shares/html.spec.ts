@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_DEPTH, escapeHtml, safeHref, shareBodyHtml } from './html';
+import {
+  MAX_DEPTH,
+  MAX_INDENT,
+  MAX_NESTING,
+  boundNesting,
+  escapeHtml,
+  safeHref,
+  shareBodyHtml,
+  tooManyMarks,
+} from './html';
 
 /** Every tag the renderer may write, by name. */
 const ALLOWED = new Set([
@@ -230,6 +239,54 @@ describe('escapeHtml and safeHref', () => {
     expect(safeHref('mailto:x@y.example')).toBe('mailto:x@y.example');
     for (const bad of ['javascript:x', 'data:x', '/x', '//x.example', 'ftp://x', 'https://']) {
       expect(safeHref(bad)).toBeUndefined();
+    }
+  });
+});
+
+// Review of #343: shapes the grammar is slow on, measured at 200,000
+// characters before this guard: '> ' x100000 29 s, '_a' x100000 10 s,
+// '[a](b' x40000 9.8 s, '![a](' x30000 5.4 s.
+describe('bodies the grammar is slow on', () => {
+  it('shows a block with too many marks as its plain text, escaped, at once', () => {
+    for (const body of [
+      '_a'.repeat(100_000),
+      '[a](b'.repeat(40_000),
+      '![a]('.repeat(30_000),
+      `<script>${'*a'.repeat(5_000)}`,
+    ]) {
+      expect(tooManyMarks(body)).toBe(true);
+      const started = Date.now();
+      const html = shareBodyHtml(body);
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(html.startsWith('<pre class="plain">')).toBe(true);
+      expect(html).not.toMatch(/<(?!\/?pre)/);
+    }
+  });
+
+  it('flattens nesting past MAX_NESTING before the parse', () => {
+    expect(boundNesting(`${'> '.repeat(100)}x`)).toBe(`${'> '.repeat(MAX_NESTING)}x`);
+    expect(boundNesting(`${' '.repeat(500)}- x`)).toBe(`${' '.repeat(MAX_INDENT)}- x`);
+    expect(boundNesting('> - 1. quoted list')).toBe('> - 1. quoted list');
+    const started = Date.now();
+    const html = shareBodyHtml('> '.repeat(100_000));
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect((html.match(/<blockquote>/g) ?? []).length).toBeLessThanOrEqual(MAX_NESTING);
+  });
+
+  it('keeps an ordinary note as markdown, a checklist of hundreds included', () => {
+    const list = Array.from({ length: 500 }, (_, i) => `- [ ] item ${i}`).join('\n');
+    expect(tooManyMarks(list)).toBe(false);
+    expect(shareBodyHtml(list)).toContain('<ul class="tasks">');
+  });
+
+  it('renders the worst blocks under the limit within a few seconds', () => {
+    for (const block of ['*a'.repeat(999), '[a](b'.repeat(399), '![a]('.repeat(333)]) {
+      const body = `${block}\n\n`.repeat(99).slice(0, 200_000);
+      expect(tooManyMarks(body)).toBe(false);
+      const started = Date.now();
+      shareBodyHtml(body);
+      // About 1.6 s at most in Node here; the function's timeout is 30 s.
+      expect(Date.now() - started).toBeLessThan(10_000);
     }
   });
 });

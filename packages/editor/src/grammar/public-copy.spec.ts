@@ -60,4 +60,12 @@ describe('publicCopy', () => {
   it('is empty for an empty body', () => {
     expect(publicCopy('')).toBe('');
   });
+
+  it('reads any nesting without running out of stack (review of #343)', () => {
+    const deep = `${'> '.repeat(5_000)}[[Vik]] deep`;
+    const out = publicCopy(deep);
+    expect(out.endsWith('Vik deep')).toBe(true);
+    const list = Array.from({ length: 300 }, (_, i) => `${'  '.repeat(i)}- [[n${i}]]`).join('\n');
+    expect(publicCopy(list)).toContain('- n299');
+  });
 });

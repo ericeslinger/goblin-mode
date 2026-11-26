@@ -27,12 +27,14 @@ export function shareCopyOf(note: NoteRecord): ShareCopy | undefined {
   if (!kind || note.locked) return undefined;
   const source = kind === 'recipe' ? shareSource(note.source?.url) : undefined;
   const title = note.title.trim().slice(0, SHARE_TITLE_MAX);
-  return {
-    kind,
-    title,
-    body: withoutTitleLine(publicCopy(note.body), title),
-    ...(source ? { source } : {}),
-  };
+  // Never thrown into a template: a body the grammar cannot read has no copy.
+  let body: string;
+  try {
+    body = withoutTitleLine(publicCopy(note.body), title);
+  } catch {
+    return undefined;
+  }
+  return { kind, title, body, ...(source ? { source } : {}) };
 }
 
 /**
@@ -74,8 +76,9 @@ export function shareRefusal(
   if (!note) return 'This note is not saved yet.';
   if (note.locked) return 'This note is sealed and its key is not on this device yet.';
   if (heldForKey) return 'Its words are still waiting on this device to be saved.';
+  if (!shareKindOf(note.kind)) return 'Only notes and recipes can be shared.';
   const copy = shareCopyOf(note);
-  if (!copy) return 'Only notes and recipes can be shared.';
+  if (!copy) return 'Its text could not be read for sharing.';
   if (!copy.title.trim() && !copy.body.trim()) return 'There is nothing in it to share yet.';
   if (copy.body.length > SHARE_BODY_MAX) {
     return (

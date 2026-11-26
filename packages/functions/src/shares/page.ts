@@ -107,7 +107,15 @@ export function recipeJsonLd(share: PublicShare): Record<string, unknown> {
 }
 
 /** The page for a share: its title, a recipe's source, its body. */
-export function renderSharePage(share: PublicShare): string {
+export function renderSharePage(given: PublicShare): string {
+  // The source is checked here too, not only by loadShare: http and
+  // https alone reach the link and the JSON-LD (review of #343).
+  const { source: raw, ...rest } = given;
+  const href = raw ? safeHref(raw) : undefined;
+  const share: PublicShare = {
+    ...rest,
+    ...(href && /^https?:/.test(href) ? { source: href } : {}),
+  };
   const title = share.title.trim() || 'Untitled';
   let head = `<meta property="og:title" content="${escapeHtml(title)}">\n`;
   if (share.kind === 'recipe') {

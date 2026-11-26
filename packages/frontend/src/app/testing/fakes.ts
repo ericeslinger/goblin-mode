@@ -51,7 +51,7 @@ import { READING_API, type ReadingApi } from '../reading/reading.service';
 import { REMINDERS_API, type RemindersApi } from '../reminders/reminders.service';
 import { SETTINGS_API, type SettingsApi } from '../theme/theme-sync.service';
 import type { ProposalRecord } from '../claude/proposals.service';
-import type { NoteRecord, NotesService } from '../notes/notes.service';
+import type { NoteRecord, NotesService, PendingShare } from '../notes/notes.service';
 import type { Transcription } from '../attachments/attachments.service';
 import type { HistoryApi } from '../history/history';
 
@@ -144,14 +144,29 @@ export class FakeNotes {
   setGardenHold = vi.fn((_id: string, _held: boolean) => undefined);
   /** Public copies (2026-11-26): the notes carrying a share id. */
   readonly shared = computed(() => this.notes().filter((n) => n.shareId !== undefined));
+  /** Share writes the server does not have yet, by share id (2026-11-26). */
+  readonly sharesWaiting = signal<Record<string, PendingShare>>({});
+  /** Set to make the next share writes wait, as offline: they stay in `sharesWaiting`. */
+  offline = false;
+  private waitFor(shareId: string, noteId: string, op: PendingShare['op']): void {
+    if (!this.offline) return;
+    const title = this.find(noteId)?.title ?? '';
+    this.sharesWaiting.update((w) => ({ ...w, [shareId]: { noteId, title, op, at: 1 } }));
+  }
   shareRefusal = vi.fn((_id: string): string | undefined => undefined);
   share = vi.fn((id: string) => {
     const shareId = `S${String(++this.n).padStart(31, '0')}`;
     this.notes.update((list) => list.map((n) => (n.id === id ? { ...n, shareId } : n)));
+    this.waitFor(shareId, id, 'share');
     return shareId as string | undefined;
   });
-  updateShare = vi.fn((_id: string) => undefined);
+  updateShare = vi.fn((id: string) => {
+    const shareId = this.find(id)?.shareId;
+    if (shareId) this.waitFor(shareId, id, 'update');
+  });
   stopShare = vi.fn((id: string) => {
+    const shareId = this.find(id)?.shareId;
+    if (shareId) this.waitFor(shareId, id, 'stop');
     this.notes.update((list) => list.map((n) => (n.id === id ? { ...n, shareId: undefined } : n)));
   });
   setWeek = vi.fn((_id: string, _start: string) => undefined);

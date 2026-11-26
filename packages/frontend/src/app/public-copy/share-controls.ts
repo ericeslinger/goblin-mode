@@ -1,7 +1,6 @@
 import { DOCUMENT } from '@angular/common';
 import {
   Component,
-  DestroyRef,
   InjectionToken,
   computed,
   effect,
@@ -14,7 +13,6 @@ import { SHARE_PATH, paths } from '@mossgoblin/schema';
 import { type Firestore, doc, onSnapshot } from 'firebase/firestore';
 import { FIREBASE } from '../firebase';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
-import { ONLINE } from '../platform/platform';
 import { type ShareCopy, sameCopy, shareCopyOf } from './share-copy';
 
 /** A share's document as this device has it: its copy, or `gone` when there is none. */
@@ -75,12 +73,14 @@ export function shareLink(origin: string, shareId: string): string {
       <p class="shared" role="status">
         <strong>Shared.</strong> Anyone with the link can read this copy of the title and text. It
         is not listed anywhere.
-        @if (!online()) {
-          It is saved on this device and the link works once it is back online.
+        @if (waiting()?.op === 'share') {
+          It is saved on this device, and the link works once this device is back online.
         }
       </p>
       @if (gone()) {
-        <p class="muted">The shared copy is not there any more; the link answers nothing.</p>
+        <p class="muted">
+          This copy could not be read here. Stop sharing makes sure no copy stays public.
+        </p>
       } @else {
         <p class="link">
           <a
@@ -113,14 +113,19 @@ export function shareLink(origin: string, shareId: string): string {
         A public copy of the title and text, at a link only people you send it to can find. Not its
         tags, links, history or anything else on this side.
       </p>
-      @if (refusal(); as why) {
+      @if (stopping()) {
+        <p class="stopping" role="status">
+          <strong>Still public.</strong> Sharing is stopped on this device, but the copy stays
+          public until this device is back online and the stop reaches the server.
+        </p>
+      } @else if (refusal(); as why) {
         <p class="muted">{{ why }}</p>
       } @else {
         <button type="button" (click)="share()">Share a copy</button>
       }
     }
-    @if (said()) {
-      <p role="status" class="said">{{ said() }}</p>
+    @if (message()) {
+      <p role="status" class="said">{{ message() }}</p>
     }
   `,
   styles: `
@@ -173,11 +178,35 @@ export class ShareControls {
   private readonly api = inject(SHARES_API);
   private readonly fb = inject(FIREBASE);
   private readonly origin = inject(DOCUMENT).defaultView?.location.origin ?? '';
-  private readonly isOnline = inject(ONLINE);
-  protected readonly online = signal(this.isOnline());
   /** The share's document as this device has it, while the note is shared. */
   private readonly sharedDoc = signal<SharedDoc | undefined>(undefined);
   protected readonly said = signal('');
+  /** What was last done here, said by `message` as the server has it or not. */
+  private readonly acted = signal<'update' | 'stop' | undefined>(undefined);
+  /** This share's write the server does not have yet, if any (2026-11-26, review of #343). */
+  protected readonly waiting = computed(() => {
+    const id = this.note().shareId;
+    return id ? this.notes.sharesWaiting()[id] : undefined;
+  });
+  /** A stop of this note's share the server does not have yet: the copy is still public. */
+  protected readonly stopping = computed(() =>
+    Object.values(this.notes.sharesWaiting()).some(
+      (w) => w.op === 'stop' && w.noteId === this.note().id,
+    ),
+  );
+  /** What the last act did, never saying a copy is gone or changed before the server has it. */
+  protected readonly message = computed(() => {
+    const acted = this.acted();
+    if (acted === 'update') {
+      return this.waiting()?.op === 'update'
+        ? 'The update is saved on this device. Until it reaches the server, the link still shows the copy as it was.'
+        : 'The shared copy now shows the note as it is.';
+    }
+    if (acted === 'stop' && !this.stopping()) {
+      return 'Stopped. The link answers nothing now; sharing again makes a new link.';
+    }
+    return this.said();
+  });
 
   protected readonly link = computed(() => shareLink(this.origin, this.note().shareId ?? ''));
   protected readonly gone = computed(() => this.sharedDoc() === 'gone');
@@ -209,39 +238,39 @@ export class ShareControls {
     const noteId = computed(() => this.note().id);
     effect(() => {
       noteId();
-      untracked(() => this.said.set(''));
-    });
-    const view = inject(DOCUMENT).defaultView;
-    const onLine = () => this.online.set(this.isOnline());
-    view?.addEventListener('online', onLine);
-    view?.addEventListener('offline', onLine);
-    inject(DestroyRef).onDestroy(() => {
-      view?.removeEventListener('online', onLine);
-      view?.removeEventListener('offline', onLine);
+      untracked(() => {
+        this.said.set('');
+        this.acted.set(undefined);
+      });
     });
   }
 
   protected share(): void {
     const id = this.notes.share(this.note().id);
+    this.acted.set(undefined);
     this.said.set(id ? '' : 'Could not share this note.');
   }
 
   protected update(): void {
+    this.said.set('');
     this.notes.updateShare(this.note().id);
-    this.said.set('The shared copy now shows the note as it is.');
+    this.acted.set('update');
   }
 
   protected stop(): void {
+    this.said.set('');
     this.notes.stopShare(this.note().id);
-    this.said.set('Stopped. The link answers nothing now; sharing again makes a new link.');
+    this.acted.set('stop');
   }
 
   protected async copy(): Promise<void> {
     const url = this.link();
     try {
       await navigator.clipboard.writeText(url);
+      this.acted.set(undefined);
       this.said.set('Link copied.');
     } catch {
+      this.acted.set(undefined);
       this.said.set(`Could not copy; the link is ${url}`);
     }
   }

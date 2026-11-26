@@ -7072,25 +7072,55 @@ is readable by no one with the link. (Changed 2026-11-26, the same
 day: the first build let anyone `get` a share by id so the Worker
 could read it over Firestore's REST API; moving the page to a
 function made that rule unneeded, and it is gone.) A share the owner
-stopped is refused, not read as missing, so the app takes a refused
-read of its own share as gone.
+stopped is refused, not read as missing; the app says it could not
+read it, below, rather than that it is gone.
 
 *A snapshot.* The app writes the copy through the persistent cache
-like every write: offline the share is made on the device and the
-link works once it syncs, and the back says so. The copy holds the
-title and body as they were when shared or last updated: Update the
-shared copy is offered when the note says something the copy does
-not (the app watches the share's document, by id, to compare), never
-on its own. Stop sharing deletes the document and clears the field.
-Moving a note to Trash stops its share in the same tap
-(`NotesService.setDeleted`), as does a note removed for good; Restore
-does not bring it back. Archiving leaves it shared. On the server,
-`noteHistory` stops a share on every note write that puts the note in
-Trash, deletes it, or drops or changes its `shareId`
-(`packages/functions/src/notes/share-stop.ts`), for a device on an
-older version or any writer that dropped the field: a copy no note
-names would be public and listed nowhere. It removes only a share of
-that owner and note.
+like every write. The copy holds the title and body as they were when
+shared or last updated: Update the shared copy is offered when the
+note says something the copy does not (the app watches the share's
+document, by id, to compare), never on its own. Stop sharing deletes
+the document and clears the field. Moving a note to Trash stops its
+share in the same tap (`NotesService.setDeleted`), as does a note
+removed for good; Restore does not bring it back. Archiving leaves it
+shared.
+
+*One batch each (review of #343).* Share, update, stop, Trash and
+remove each write the share's document and the note's field (or the
+note's deletion) in one Firestore batch, through the persistent cache,
+so a refused write can never leave a public copy that no note names,
+nor a note naming a copy that was not made. The rules allow each batch
+(a rules test commits each).
+
+*Honest while offline (review of #343).* A batch lands on the device at
+once and reaches the server later. Until the server has it, the app
+keeps it as waiting (`NotesService.sharesWaiting`, kept on the device
+under `goblin.pendingShares` so a reload still knows; cleared when the
+batch resolves, or when `waitForPendingWrites` resolves after a
+reload), and never says more than is true: a share made offline "works
+once this device is back online"; a stop made offline (on the back, in
+Settings or by Trash) is "Still public" until the server has it, and
+Settings, Shared links, lists such copies under Still public; an update
+made offline says the link still shows the copy as it was. Only then
+does the app say "Stopped. The link answers nothing now". When the
+app cannot read a copy it believes is shared (the rules refuse a read
+of a share that is no longer there, and a refusal for any other reason
+looks the same), it says "This copy could not be read here" and keeps
+Stop sharing, rather than claim the copy is gone.
+
+*The server's side.* `noteHistory` stops a share first, on every note
+write that puts the note in Trash, deletes it, or drops or changes its
+`shareId` (`packages/functions/src/notes/share-stop.ts`), before and
+apart from History, so neither can skip the other. It removes only a
+share of that owner and note. A failure there is logged, not retried:
+History is not safe to run twice. The backstop is daily: `trashSweep`
+first runs `sweepShares`, which deletes every share whose note is
+gone, in Trash, or no longer names it, so a note in Trash is public
+for a day at most if every other step failed. And `shareDeleted`, a
+trigger on a share's deletion, takes the id off its note if the note
+still names it, so a note and its copy cannot disagree for long
+whichever device or state stopped it: a locked note's Stop deletes the
+copy alone, since nothing is written to a locked note on the device.
 
 *What can be shared.* A plain note (kind `text`) and a recipe. A
 concept, a template, Kitchen's own notes and a clipping (a page's
@@ -7098,8 +7128,12 @@ text, not Eric's) are not offered. A sealed note locked on this
 device cannot be shared from it: the app holds a note's plain title
 and body only in the record `toRecord` opens with the device's key,
 so the copy is made from that opened record, and no key is ever
-written to the share or sent to the Worker or a function. A note whose words wait
-on the device for the key is not shared until they are saved. Note
+written to the share or sent to the Worker or a function. A note whose
+words wait on the device for the key is not shared until they are
+saved. A body the grammar cannot read for the copy (review of #343:
+5,000 nested quotes once overflowed the stack; `publicCopy` now walks
+the tree with a loop) is refused with a plain line, never thrown into
+the back of the note. Note
 text is sealed at rest; a share is by its nature a plain, public copy,
 and the Settings and back words say so.
 
@@ -7188,11 +7222,31 @@ and its cost decided where the page renders. Measured warm in Node:
 5,000 characters 17 ms, 20,000 59 ms, 100,000 383 ms, 500,000 4.9 s.
 Cloudflare's free plan allows about 10 ms of CPU a request, so in the
 Worker an ordinary note would sit at or over it. A function has the
-time; the body's bound came down to 200,000 characters, which renders
-in under a second (about 0.8 s by those numbers), inside the
-function's 30 s. *Cold starts:* a friend's first open after a quiet
-spell waits a second or two while the function starts; accepted, with
-no minimum instances, which would cost money for a page read rarely.
+time; the body's bound came down to 200,000 characters, and 200,000
+characters of prose renders in about 0.6 s.
+
+*Shapes the grammar is slow on (review of #343).* Some bodies cost far
+more than prose of the same length. Measured at 200,000 characters
+before any guard: `> ` 100,000 times (nested quotes) 29 s, `_a`
+100,000 times 10 s, `[a](b` 40,000 times 9.8 s, `![a](` 30,000 times
+5.4 s: at the function's 30 s, a 503. The renderer now bounds what
+reaches the parser, cheaply and before it: no line opens more than 16
+containers (quotes, list items) or keeps more than 64 columns of
+indent, deeper being flattened (`boundNesting`); and a body with a
+block of more than 2,000 markdown marks (`*`, `_`, brackets, `!`, `<`,
+backticks and the like, between blank lines) is shown whole as its
+plain text, escaped, in one preformatted block (`tooManyMarks`).
+After the guard, the same four shapes take 18 ms, 1 ms, 1 ms and 1 ms;
+the worst found under the limit (blocks of 999 `*a` repeated to
+200,000 characters) about 1.6 s, `[a](b` and `![a](` blocks about
+0.9 s and 0.6 s, measured in Node on the development container, not
+on Cloud Run. A slow page degrades to plain text or, past the timeout,
+to the 503 page; never to anything unescaped. A checklist of a few
+hundred items in one block stays markdown.
+
+*Cold starts:* a friend's first open after a quiet spell waits a
+second or two while the function starts; accepted, with no minimum
+instances, which would cost money for a page read rarely.
 
 *The service worker and the router.* `ngsw-config.json` leaves
 `/s/**` out of its navigation URLs, so the app's own worker never

@@ -1384,6 +1384,40 @@ describe('shares: a public copy, its owner’s alone in the rules', () => {
     await assertSucceeds(owner().doc(path()).delete());
   });
 
+  it('allows the app’s batches: share, update, stop and Trash, each with its note (review of #343)', async () => {
+    const note = valid['users/owner/notes/n1'];
+    await seed('users/owner/notes/n1', note());
+    const db = owner();
+    const noteRef = db.doc('users/owner/notes/n1');
+    const shared = db.batch();
+    shared.set(db.doc(path()), share());
+    shared.set(noteRef, { shareId: ID }, { merge: true });
+    await assertSucceeds(shared.commit());
+    const updated = db.batch();
+    updated.set(db.doc(path()), { body: 'Three parts', updatedAt: now() }, { merge: true });
+    await assertSucceeds(updated.commit());
+    const stopped = db.batch();
+    stopped.delete(db.doc(path()));
+    stopped.set(
+      noteRef,
+      { shareId: firebase.firestore.FieldValue.delete(), updatedAt: now() },
+      { merge: true },
+    );
+    await assertSucceeds(stopped.commit());
+    // Shared again and put in Trash in one batch.
+    await seed(path(OTHER), share());
+    const trashed = db.batch();
+    trashed.delete(db.doc(path(OTHER)));
+    trashed.set(noteRef, { deletedAt: now(), updatedAt: now() }, { merge: true });
+    await assertSucceeds(trashed.commit());
+    // A stranger's batch over the owner's share fails whole.
+    await seed(path(), share());
+    const them = intruder();
+    const theirs = them.batch();
+    theirs.delete(them.doc(path()));
+    await assertFails(theirs.commit());
+  });
+
   it('a note may carry its share id, as a string', async () => {
     const note = valid['users/owner/notes/n1'];
     const ref = owner().doc('users/owner/notes/n1');

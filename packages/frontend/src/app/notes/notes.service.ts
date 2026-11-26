@@ -76,6 +76,8 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  waitForPendingWrites,
+  writeBatch,
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
@@ -229,6 +231,16 @@ export interface NoteRecord {
   shareId?: string;
 }
 
+/** Public-copy writes waiting for the server, kept on the device (2026-11-26). */
+export const PENDING_SHARES_KEY = 'goblin.pendingShares';
+/** A share write the server does not have yet: what it does, to which note. */
+export interface PendingShare {
+  noteId: string;
+  title: string;
+  op: 'share' | 'update' | 'stop';
+  at: number;
+}
+
 /** What a note this device cannot open shows in place of its title. */
 export const SEALED_TITLE = 'Sealed note';
 
@@ -373,6 +385,8 @@ function refusingLocked(api: NotesApi, locked: (path: string) => boolean): Notes
     createIfAbsent: (db, path, data) =>
       locked(path) ? refuse() : api.createIfAbsent(db, path, data),
     remove: (db, path) => (locked(path) ? refuse() : api.remove(db, path)),
+    commit: (db, writes) =>
+      writes.some((w) => locked(w.path)) ? refuse() : api.commit(db, writes),
   };
 }
 
@@ -413,7 +427,28 @@ function sealingNotes(
       const out = sealed(path, data, false);
       return 'err' in out ? Promise.reject(out.err) : api.createIfAbsent(db, path, out.data);
     },
+    commit: (db, writes) => {
+      const out: BatchWrite[] = [];
+      for (const w of writes) {
+        if (!w.data) {
+          out.push(w);
+          continue;
+        }
+        const one = sealed(w.path, w.data, w.merge ?? false);
+        if ('err' in one) return Promise.reject(one.err);
+        out.push({ ...w, data: one.data });
+      }
+      return api.commit(db, out);
+    },
   };
+}
+
+/** One write of a batch: `data` set (merged or whole) at `path`, or the document deleted. */
+export interface BatchWrite {
+  path: string;
+  /** Without it, the document is deleted. */
+  data?: Record<string, unknown>;
+  merge?: boolean;
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -429,6 +464,14 @@ export interface NotesApi {
   /** Writes `data` only if no document is there; needs the server. */
   createIfAbsent(db: Firestore, path: string, data: Record<string, unknown>): Promise<boolean>;
   remove(db: Firestore, path: string): Promise<void>;
+  /**
+   * Several writes as one, all or none, through the persistent cache
+   * like any write: it lands at once and resolves when the server has
+   * it (2026-11-26, a share and its note together).
+   */
+  commit(db: Firestore, writes: BatchWrite[]): Promise<void>;
+  /** Resolves once every write made so far has reached the server. */
+  synced(db: Firestore): Promise<void>;
   serverTime(): unknown;
   /** A Timestamp at `ms`, for a stamp taken from the device's clock. */
   timestamp(ms: number): unknown;
@@ -473,6 +516,15 @@ export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
         return true;
       }),
     remove: (db, path) => deleteDoc(doc(db, path)),
+    commit: (db, writes) => {
+      const batch = writeBatch(db);
+      for (const w of writes) {
+        if (w.data) batch.set(doc(db, w.path), w.data, { merge: w.merge ?? false });
+        else batch.delete(doc(db, w.path));
+      }
+      return batch.commit();
+    },
+    synced: (db) => waitForPendingWrites(db),
     serverTime: () => serverTimestamp(),
     timestamp: (ms) => Timestamp.fromMillis(ms),
     removeField: () => deleteField(),
@@ -747,6 +799,7 @@ export class NotesService {
           // #204). Offline, they wait on the device for the server.
           if (!fromCache && !this.replayed) {
             this.replayed = true;
+            this.settlePendingShares();
             // Saves held on the device for the key since sign-in are
             // replayed here too: nothing else wakes them when the key
             // came before this snapshot (review on #276, a fresh device
@@ -796,7 +849,10 @@ export class NotesService {
       });
     });
     // Concepts waiting for the server are made when it is back.
-    const back = () => this.makePendingConcepts();
+    const back = () => {
+      this.makePendingConcepts();
+      this.settlePendingShares();
+    };
     globalThis.addEventListener?.('online', back);
     inject(DestroyRef).onDestroy(() => {
       this.stop?.();
@@ -1816,7 +1872,6 @@ export class NotesService {
     // A note in Trash is not shared (2026-11-26): its public copy goes
     // with the same tap, and Restore does not bring it back.
     const shared = deleted ? this.find(id)?.shareId : undefined;
-    if (shared) this.api.remove(this.fb.db, paths.share(shared)).catch(report);
     const update = {
       deletedAt: deleted ? this.api.timestamp(this.now()) : this.api.removeField(),
       updatedAt: this.api.serverTime(),
@@ -1824,6 +1879,14 @@ export class NotesService {
       deviceId: this.deviceId(),
       ...(shared ? { shareId: this.api.removeField() } : {}),
     };
+    if (shared) {
+      // One batch: the copy is never left public behind a note in Trash.
+      this.shareWrite(shared, id, 'stop', [
+        { path: paths.share(shared) },
+        { path: paths.note(this.uid, id), data: update, merge: true },
+      ]);
+      return;
+    }
     this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
 
@@ -2170,9 +2233,7 @@ export class NotesService {
   remove(id: string): void {
     // A locked note is never deleted for looking empty (step 3a).
     if (!this.uid || this.locked(id)) return;
-    // Its public copy goes with it (2026-11-26).
     const shared = (this.find(id) ?? this.trashed(id))?.shareId;
-    if (shared) this.api.remove(this.fb.db, paths.share(shared)).catch(report);
     this.written.delete(id);
     // Emptied or bare: nothing typed in it is left to keep.
     this.forget(PENDING_SAVES_KEY, id);
@@ -2180,6 +2241,14 @@ export class NotesService {
     this.forget(PENDING_NAMES_KEY, id);
     this.hold(id, false);
     this.snapshot.update((snap) => snap && { ...snap, docs: snap.docs.filter((d) => d.id !== id) });
+    if (shared) {
+      // Its public copy goes with it, in the same batch (2026-11-26).
+      this.shareWrite(shared, id, 'stop', [
+        { path: paths.share(shared) },
+        { path: paths.note(this.uid, id) },
+      ]);
+      return;
+    }
     this.api.remove(this.fb.db, paths.note(this.uid, id)).catch(report);
   }
 
@@ -2194,23 +2263,27 @@ export class NotesService {
   /**
    * Shares a public copy of note `id` (2026-11-26, Eric; DESIGN.md,
    * Sharing a public copy): a new `shares/{shareId}` document with the
-   * note's title and body as they are now, and the id on the note. Both
-   * go through the persistent cache like every write, so offline the
-   * share is made here and its link works once it syncs. A new id
-   * every time, made on this device: a link once stopped never comes
-   * back. Returns the id, or undefined when the note cannot be shared.
+   * note's title and body as they are now, and the id on the note, in
+   * one batch through the persistent cache, so they never disagree:
+   * offline the share is made here and its link works once it syncs. A
+   * new id every time, made on this device: a link once stopped never
+   * comes back. Returns the id, or undefined when the note cannot be
+   * shared.
    */
   share(id: string): string | undefined {
     const note = this.find(id);
     if (!this.uid || !note || note.shareId || this.shareRefusal(id)) return undefined;
-    const copy = shareCopyOf(note)!;
+    const copy = shareCopyOf(note);
+    if (!copy) return undefined;
     const shareId = newShareId(this.random);
     const now = this.api.serverTime();
     const data = { owner: this.uid, noteId: id, ...copy, sharedAt: now, updatedAt: now };
-    this.api.set(this.fb.db, paths.share(shareId), data, false).catch(report);
     // The note's own fields stay as they were, its edited time too:
     // sharing is not an edit.
-    this.api.set(this.fb.db, paths.note(this.uid, id), { shareId }, true).catch(report);
+    this.shareWrite(shareId, id, 'share', [
+      { path: paths.share(shareId), data },
+      { path: paths.note(this.uid, id), data: { shareId }, merge: true },
+    ]);
     return shareId;
   }
 
@@ -2221,29 +2294,98 @@ export class NotesService {
   updateShare(id: string): void {
     const note = this.find(id);
     if (!this.uid || !note?.shareId || this.shareRefusal(id)) return;
-    const copy = shareCopyOf(note)!;
+    const copy = shareCopyOf(note);
+    if (!copy) return;
     const data = {
       ...copy,
       ...(copy.source ? {} : { source: this.api.removeField() }),
       updatedAt: this.api.serverTime(),
     };
-    this.api.set(this.fb.db, paths.share(note.shareId), data, true).catch(report);
+    this.shareWrite(note.shareId, id, 'update', [
+      { path: paths.share(note.shareId), data, merge: true },
+    ]);
   }
 
   /**
-   * Stops sharing note `id`: its public copy is deleted, so the link
-   * answers nothing from the next load, and the note forgets the id.
-   * Sharing again makes a new link. A locked note's copy is deleted
-   * too; the note keeps its id until it opens here.
+   * Stops sharing note `id`: its public copy is deleted and the note
+   * forgets the id, in one batch. Until the server has the batch (this
+   * device offline) the copy is still public, and `sharesWaiting` says
+   * so. Sharing again makes a new link. A locked note's copy is deleted
+   * alone, since nothing is written to a locked note here; the server
+   * then takes the id off the note (`shareDeleted`).
    */
   stopShare(id: string): void {
     const note = this.find(id) ?? this.trashed(id);
     if (!this.uid || !note?.shareId) return;
-    this.api.remove(this.fb.db, paths.share(note.shareId)).catch(report);
-    if (note.locked) return;
-    this.api
-      .set(this.fb.db, paths.note(this.uid, id), { shareId: this.api.removeField() }, true)
-      .catch(report);
+    const writes: BatchWrite[] = [{ path: paths.share(note.shareId) }];
+    if (!note.locked) {
+      writes.push({
+        path: paths.note(this.uid, id),
+        data: { shareId: this.api.removeField() },
+        merge: true,
+      });
+    }
+    this.shareWrite(note.shareId, id, 'stop', writes);
+  }
+
+  /**
+   * Public-copy writes this device made that the server does not have
+   * yet, by share id (2026-11-26): kept on the device, so a stop made
+   * offline is still said to be waiting after a reload. A shared copy
+   * is never said to be gone while it may still be public.
+   */
+  readonly sharesWaiting = computed(() => this.pendingShares());
+  private readonly pendingShares = signal<Record<string, PendingShare>>(
+    this.store.get<Record<string, PendingShare>>(PENDING_SHARES_KEY) ?? {},
+  );
+
+  /** `writes` as one batch for share `shareId`, said to wait until the server has it. */
+  private shareWrite(
+    shareId: string,
+    noteId: string,
+    op: PendingShare['op'],
+    writes: BatchWrite[],
+  ): void {
+    const title = (this.find(noteId) ?? this.trashed(noteId))?.title ?? '';
+    const entry: PendingShare = { noteId, title, op, at: this.now() };
+    this.setPendingShares({ ...this.pendingShares(), [shareId]: entry });
+    const done = () => {
+      const now = this.pendingShares();
+      if (now[shareId] !== undefined && now[shareId].at === entry.at && now[shareId].op === op) {
+        const { [shareId]: _done, ...rest } = now;
+        this.setPendingShares(rest);
+      }
+    };
+    this.api.commit(this.fb.db, writes).then(done, (err) => {
+      done();
+      report(err);
+    });
+  }
+
+  private setPendingShares(next: Record<string, PendingShare>): void {
+    this.pendingShares.set(next);
+    if (Object.keys(next).length) this.store.set(PENDING_SHARES_KEY, next);
+    else this.store.remove(PENDING_SHARES_KEY);
+  }
+
+  /**
+   * Share writes kept from an earlier load: gone once the server has
+   * every write made so far (Firestore keeps them across a reload and
+   * sends them when it can).
+   */
+  private settlePendingShares(): void {
+    const before = this.pendingShares();
+    if (!Object.keys(before).length) return;
+    this.api.synced(this.fb.db).then(
+      () => {
+        const now = this.pendingShares();
+        const rest = Object.fromEntries(
+          Object.entries(now).filter(([k, v]) => before[k]?.at !== v.at),
+        );
+        this.setPendingShares(rest);
+      },
+      () => undefined,
+    );
   }
 
   /** The notes shared now, as Settings, Shared links, lists them: newest edit first. */

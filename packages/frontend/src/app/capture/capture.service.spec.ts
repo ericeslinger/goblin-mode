@@ -778,6 +778,8 @@ describe('CaptureService, when the page goes before the cache has the text (#200
       ),
       createIfAbsent: vi.fn(() => Promise.resolve(true)),
       remove: vi.fn(() => Promise.resolve()),
+      commit: vi.fn(() => Promise.resolve()),
+      synced: vi.fn(() => Promise.resolve()),
       serverTime: () => 'SERVER_TIME',
       timestamp: (ms: number) => ({ ms }),
       removeField: () => 'REMOVED',

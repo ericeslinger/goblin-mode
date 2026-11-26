@@ -56,6 +56,7 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-si
   background: var(--surface); padding: 0 0.2em; }
 pre { overflow-x: auto; background: var(--surface); padding: 12px; border: 1px solid var(--rule); }
 pre code { padding: 0; }
+pre.plain { white-space: pre-wrap; font: inherit; overflow-x: visible; }
 hr { border: 0; border-top: 1px solid var(--rule); margin: 32px 0; }
 table { border-collapse: collapse; display: block; overflow-x: auto; }
 th, td { border: 1px solid var(--rule); padding: 4px 8px; text-align: left; }
@@ -67,7 +68,7 @@ footer { max-width: 40rem; margin: 48px auto 0; padding-top: 16px; border-top: 1
  * SHARE_STYLE's CSP source, its SHA-256 in base64; a spec pins it to
  * the stylesheet, so a change to one without the other fails the gate.
  */
-export const SHARE_STYLE_HASH = "'sha256-dGp6ihEcC7a+7GEqUT1yZ34NBWPsuv5ARWy0Fxc7F7I='";
+export const SHARE_STYLE_HASH = "'sha256-lFDmzxdyM1PZKSxXAvEl4dhSqKXZVcuXB7qGNxfbTPA='";
 
 /**
  * Headers for every answer on `/s/`: a policy that allows the one

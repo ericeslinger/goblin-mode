@@ -43,23 +43,34 @@ const REL = 'noopener noreferrer nofollow';
 type Node = Nodes | WikiLink;
 
 /** The words of a node and everything under it, as text. */
-function words(node: Node): string {
-  switch (node.type) {
-    case 'text':
-    case 'inlineCode':
-    case 'code':
-    case 'html':
-      return node.value;
-    case 'wikiLink':
-      return node.alias ?? node.target;
-    case 'image':
-    case 'imageReference':
-      return node.alt ?? '';
-    case 'break':
-      return '\n';
-    default:
-      return 'children' in node ? (node.children as Node[]).map(words).join('') : '';
+/** The words of a node and everything under it, as text; a loop, so no depth is too deep. */
+function words(root: Node): string {
+  let out = '';
+  const stack: Node[] = [root];
+  while (stack.length) {
+    const node = stack.pop()!;
+    switch (node.type) {
+      case 'text':
+      case 'inlineCode':
+      case 'code':
+      case 'html':
+        out += node.value;
+        break;
+      case 'wikiLink':
+        out += node.alias ?? node.target;
+        break;
+      case 'image':
+      case 'imageReference':
+        out += node.alt ?? '';
+        break;
+      case 'break':
+        out += '\n';
+        break;
+      default:
+        if ('children' in node) stack.push(...[...(node.children as Node[])].reverse());
+    }
   }
+  return out;
 }
 
 function children(node: { children: Node[] }, depth: number): string {
@@ -177,8 +188,67 @@ function render(node: Node, depth: number): string {
   }
 }
 
-/** A note body as the public page's HTML: see the head of this file. */
+/**
+ * The most container markers (quotes, list items) a line may open, and
+ * the most columns of leading space it may have: deeper is flattened to
+ * this before the parse. The grammar's cost grows with the square of
+ * nesting (review of #343: 100,000 nested quotes took 29 s).
+ */
+export const MAX_NESTING = 16;
+export const MAX_INDENT = 64;
+/**
+ * The most markdown marks one block (lines between blank lines) may
+ * hold before the body is shown as plain text: emphasis, link and image
+ * marks in the tens of thousands made the grammar take seconds (review
+ * of #343: `_a` 100,000 times, 10 s).
+ */
+export const MAX_MARKS_PER_BLOCK = 2_000;
+
+const MARKS = /[*_[\]()!<>`~|\\]/g;
+const CONTAINER = /^[ \t]*(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))[ \t]?/;
+
+/** `line` with no more than MAX_NESTING containers opened and MAX_INDENT columns of indent. */
+function boundLine(line: string): string {
+  let rest = line;
+  let prefix = '';
+  for (let n = 0; n < MAX_NESTING; n++) {
+    const m = CONTAINER.exec(rest);
+    if (!m) break;
+    prefix += m[0];
+    rest = rest.slice(m[0].length);
+  }
+  // Past the cap, further markers are dropped, and so is deep indent.
+  while (CONTAINER.test(rest)) rest = rest.replace(CONTAINER, '');
+  const indent = /^[ \t]*/.exec(prefix + rest)![0];
+  if (indent.length > MAX_INDENT)
+    return ' '.repeat(MAX_INDENT) + (prefix + rest).slice(indent.length);
+  return prefix + rest;
+}
+
+/** Whether some block of `markdown` holds more marks than MAX_MARKS_PER_BLOCK. */
+export function tooManyMarks(markdown: string): boolean {
+  for (const block of markdown.split(/\n[ \t]*\n/)) {
+    let n = 0;
+    MARKS.lastIndex = 0;
+    while (MARKS.exec(block)) if (++n > MAX_MARKS_PER_BLOCK) return true;
+  }
+  return false;
+}
+
+/** `markdown` with every line's nesting and indent bounded (boundLine). */
+export function boundNesting(markdown: string): string {
+  return markdown.split('\n').map(boundLine).join('\n');
+}
+
+/**
+ * A note body as the public page's HTML: see the head of this file. A
+ * body of a shape the grammar is slow on (tooManyMarks) is shown as its
+ * plain text, escaped, in one preformatted block; it is never passed
+ * through unescaped.
+ */
 export function shareBodyHtml(markdown: string): string {
-  const tree: Root = parseNote(markdown);
+  const bounded = boundNesting(markdown);
+  if (tooManyMarks(bounded)) return `<pre class="plain">${escapeHtml(markdown)}</pre>\n`;
+  const tree: Root = parseNote(bounded);
   return blocks(tree as { children: Node[] }, 0);
 }

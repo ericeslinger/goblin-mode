@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { NotesService } from '../notes/notes.service';
 import { shareLink } from './share-controls';
@@ -35,8 +35,23 @@ import { shareLink } from './share-controls';
           </li>
         }
       </ul>
-    } @else {
+    } @else if (!stopping().length) {
       <p class="muted">Nothing is shared. Share a copy from the back of a note or a recipe.</p>
+    }
+    @if (stopping().length) {
+      <h2 id="still-public">Still public</h2>
+      <p>
+        Sharing is stopped on this device for these, but each copy stays public until this device is
+        back online and the stop reaches the server.
+      </p>
+      <ul class="shared" aria-labelledby="still-public">
+        @for (s of stopping(); track s.id) {
+          <li>
+            <span class="title">{{ s.title || 'Untitled' }}</span>
+            <span class="link">{{ link(s.id) }}</span>
+          </li>
+        }
+      </ul>
     }
     @if (said()) {
       <p role="status">{{ said() }}</p>
@@ -84,7 +99,26 @@ import { shareLink } from './share-controls';
 export class SharedLinks {
   protected readonly notes = inject(NotesService);
   private readonly origin = inject(DOCUMENT).defaultView?.location.origin ?? '';
-  protected readonly said = signal('');
+  /** The last note stopped here. */
+  private readonly stopped = signal<{ noteId: string; title: string } | undefined>(undefined);
+  /**
+   * Said as stopped only once the server has the stop; until then the
+   * copy is listed under Still public.
+   */
+  protected readonly said = computed(() => {
+    const s = this.stopped();
+    if (!s) return '';
+    const waiting = Object.values(this.notes.sharesWaiting()).some(
+      (w) => w.op === 'stop' && w.noteId === s.noteId,
+    );
+    return waiting ? '' : `Stopped sharing ${s.title || 'Untitled'}.`;
+  });
+  /** Stops this device made that the server does not have yet: those copies are still public. */
+  protected readonly stopping = computed(() =>
+    Object.entries(this.notes.sharesWaiting())
+      .filter(([, w]) => w.op === 'stop')
+      .map(([id, w]) => ({ id, title: w.title })),
+  );
 
   protected link(shareId: string): string {
     return shareLink(this.origin, shareId);
@@ -92,6 +126,6 @@ export class SharedLinks {
 
   protected stop(id: string, title: string): void {
     this.notes.stopShare(id);
-    this.said.set(`Stopped sharing ${title || 'Untitled'}.`);
+    this.stopped.set({ noteId: id, title });
   }
 }

@@ -1,6 +1,6 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions/v2';
-import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onDocumentDeleted, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { claudeTitler, federationFromEnv } from './claude-titler';
 import { NoteCodec } from '../mcp/note-text';
@@ -8,7 +8,13 @@ import { dataKeyFor } from '../note-keys/client';
 import { KeptTimes } from './history';
 import { historyOnWrite, titleOnWrite } from './on-write';
 import type { Titler } from './title';
-import { firestoreShareStore, stopSharesOnWrite } from './share-stop';
+import {
+  firestoreShareStore,
+  firestoreShareSweepStore,
+  forgetDeletedShare,
+  stopSharesOnWrite,
+  sweepShares,
+} from './share-stop';
 import { firestoreTrashStore, sweepTrash } from './trash';
 
 const NOTE = 'users/{uid}/notes/{noteId}';
@@ -29,6 +35,28 @@ const kept = new KeptTimes();
 export const noteHistory = onDocumentWritten(NOTE, async (event) => {
   const { uid, noteId } = event.params;
   const db = getFirestore();
+  // First, and on its own: a note in Trash, deleted, or naming another
+  // share stops its public copy (2026-11-26, share-stop.ts); the app
+  // does too, in the same tap. Neither this nor History can skip the
+  // other (review of #343). A failure is logged, not retried (History
+  // is not safe to run twice): the daily sweepShares removes any copy
+  // whose note is gone, in Trash or no longer names it.
+  try {
+    const stopped = await stopSharesOnWrite(
+      firestoreShareStore(db),
+      uid,
+      noteId,
+      event.data?.before?.data(),
+      event.data?.after?.data(),
+    );
+    if (stopped.length)
+      logger.info('noteHistory: shares stopped', { noteId, count: stopped.length });
+  } catch (err) {
+    logger.error('noteHistory: could not stop a share; the daily sweep will', {
+      noteId,
+      err: String(err),
+    });
+  }
   await historyOnWrite(
     db,
     new NoteCodec(uid, dataKeyFor),
@@ -41,21 +69,6 @@ export const noteHistory = onDocumentWritten(NOTE, async (event) => {
     logger,
     kept,
   );
-  // A note in Trash, deleted, or naming another share stops its public
-  // copy (2026-11-26, share-stop.ts); the app does too, in the same tap.
-  try {
-    const stopped = await stopSharesOnWrite(
-      firestoreShareStore(db),
-      uid,
-      noteId,
-      event.data?.before?.data(),
-      event.data?.after?.data(),
-    );
-    if (stopped.length)
-      logger.info('noteHistory: shares stopped', { noteId, count: stopped.length });
-  } catch (err) {
-    logger.error('noteHistory: could not stop a share', { noteId, err: String(err) });
-  }
 });
 
 let titler: Titler | null | undefined;
@@ -95,13 +108,35 @@ export const noteTitle = onDocumentWritten(
 
 /**
  * Daily: the notes in Trash 30 days or more go for good, with their
- * History and replaced texts (#217), a batch at a time.
+ * History and replaced texts (#217), a batch at a time; and, first,
+ * any public copy whose note no longer stands behind it (2026-11-26).
  */
 export const trashSweep = onSchedule(
   // A retried run finds only what is left: removing is idempotent.
   { schedule: 'every 24 hours', timeZone: 'UTC', timeoutSeconds: 540 },
   async () => {
-    const report = await sweepTrash(firestoreTrashStore(getFirestore()), Date.now());
+    const db = getFirestore();
+    // Shares first, and on their own (2026-11-26): a copy whose note is
+    // gone, in Trash or names another share stops, whatever else fails.
+    try {
+      const shares = await sweepShares(firestoreShareSweepStore(db));
+      if (shares.removed) logger.info('trashSweep: shares', shares);
+    } catch (err) {
+      logger.error('trashSweep: shares', { err: String(err) });
+    }
+    const report = await sweepTrash(firestoreTrashStore(db), Date.now());
     if (report.due) logger.info('trashSweep', report);
   },
 );
+
+/**
+ * A share's document deleted (2026-11-26): its note forgets the id, if
+ * it still names it (share-stop.ts, forgetDeletedShare).
+ */
+export const shareDeleted = onDocumentDeleted('shares/{shareId}', async (event) => {
+  await forgetDeletedShare(
+    firestoreShareStore(getFirestore()),
+    event.params.shareId,
+    event.data?.data(),
+  );
+});
