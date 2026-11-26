@@ -365,9 +365,13 @@ const LATER_MS = 60 * 60 * 1000;
       cursor: pointer;
       flex: 1;
     }
+    /* In the ink, underlined: the accent on Today's tint falls short
+       of 4.5 to 1 in three light themes (review of #342). */
     .recipe {
       flex: 1;
       padding: var(--space-1) 0;
+      color: var(--ink);
+      text-decoration: underline;
     }
     .ideas {
       flex-basis: 100%;
