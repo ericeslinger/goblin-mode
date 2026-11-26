@@ -161,6 +161,25 @@ describe('MealPlanHeader (#129)', () => {
     expect(edits).toEqual([]);
   });
 
+  it('links a planned recipe to its note, with Change beside it (Eric, 2026-11-26)', async () => {
+    const { el, fixture } = await render('- [ ] Mon dinner: [[Dal]] (half recipe)\n');
+    const link = el.querySelector<HTMLAnchorElement>('a.recipe')!;
+    expect(link.textContent).toBe('Dal (half recipe)');
+    expect(link.getAttribute('href')).toBe('/n/r-dal');
+    // Changing the slot is its own button now.
+    const change = buttonNamed(el, 'Change Mon dinner, Oct 19: Dal (half recipe)');
+    expect(change.textContent?.trim()).toBe('Change');
+    change.click();
+    await fixture.whenStable();
+    expect(el.querySelector('input[aria-label="Recipe for Mon dinner, Oct 19"]')).not.toBeNull();
+  });
+
+  it('keeps a slot naming no recipe that exists a button, not a link', async () => {
+    const { el } = await render('- [ ] Mon dinner: [[Not a recipe yet]]\n- [ ] Tue dinner: out\n');
+    expect(el.querySelector('a.recipe')).toBeNull();
+    expect(buttonNamed(el, 'Change Mon dinner, Oct 19: Not a recipe yet')).toBeDefined();
+  });
+
   it('asks about a made delivery, or asks again later', async () => {
     const { el, fixture, edits, reminders } = await render(body);
     const answer = el.querySelector<HTMLInputElement>(

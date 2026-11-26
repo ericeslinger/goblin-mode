@@ -145,6 +145,18 @@ const LATER_MS = 60 * 60 * 1000;
                       </ul>
                     }
                   }
+                } @else if (recipeId(s); as id) {
+                  <!-- A planned recipe links to it (Eric, 2026-11-26);
+                     changing the slot is its own button then. -->
+                  <a class="recipe" [routerLink]="['/n', id]">{{ plain(s.text) }}</a>
+                  <button
+                    type="button"
+                    class="change"
+                    [attr.aria-label]="'Change ' + label(s) + ': ' + plain(s.text)"
+                    (click)="editing.set(s.line); refused.set('')"
+                  >
+                    Change
+                  </button>
                 } @else {
                   <!-- The slot's plain words (#285): [[Dal]] reads Dal. -->
                   <button
@@ -353,6 +365,10 @@ const LATER_MS = 60 * 60 * 1000;
       cursor: pointer;
       flex: 1;
     }
+    .recipe {
+      flex: 1;
+      padding: var(--space-1) 0;
+    }
     .ideas {
       flex-basis: 100%;
       display: grid;
@@ -388,6 +404,14 @@ const LATER_MS = 60 * 60 * 1000;
     @media (pointer: coarse) {
       .ideas {
         row-gap: 24px;
+      }
+      .recipe {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+      }
+      .change {
+        min-height: 44px;
       }
     }
   `,
@@ -530,6 +554,12 @@ export class MealPlanHeader {
     this.edited.emit(addSlotNote(this.body(), this.start(), s.day, s.meal, text));
     const id = s.recipe && this.notes.names().get(normalizeName(s.recipe));
     if (id) this.notes.addRecipeNote(id, `- ${shortDate(s.date)}: ${text}`);
+  }
+
+  /** The note of a slot's recipe, when it names one that exists. */
+  protected recipeId(s: Slot): string | undefined {
+    const id = s.recipe && this.notes.names().get(normalizeName(s.recipe));
+    return id && this.notes.find(id)?.kind === 'recipe' ? id : undefined;
   }
 
   /** Asks again in an hour, as a reminder that opens this plan. */

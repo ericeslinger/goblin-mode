@@ -33,10 +33,17 @@ test('a week is planned, a dinner made and noted, and Claude plans too', async (
   await plan.getByRole('button', { name: 'Change Mon dinner, Oct 19: nothing planned' }).click();
   await plan.getByRole('combobox', { name: 'Recipe for Mon dinner, Oct 19' }).fill('Shakshuka');
   await plan.getByRole('button', { name: 'Plan it' }).click();
-  // The slot shows the recipe's name, not its link's brackets (#285).
+  // The slot shows the recipe's name, not its link's brackets (#285),
+  // as a link to the recipe (2026-11-26), with Change beside it.
   await expect(
     plan.getByRole('button', { name: 'Change Mon dinner, Oct 19: Shakshuka' }),
-  ).toHaveText('Shakshuka');
+  ).toHaveText('Change');
+  await plan.getByRole('link', { name: 'Shakshuka', exact: true }).click();
+  await expect(page).toHaveURL(/\/n\/(?!meals-)\w+$/);
+  await expect(page.getByRole('region', { name: 'Meal plan' })).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/n\/meals-2026-10-19$/);
+  await expect(plan.getByRole('link', { name: 'Shakshuka', exact: true })).toBeVisible();
   await plan.getByRole('button', { name: 'Change Tue dinner, Oct 20: nothing planned' }).click();
   await plan.getByRole('button', { name: 'Delivery' }).click();
   // The week is the screen; the text it wrote is behind Edit as text (#288).
