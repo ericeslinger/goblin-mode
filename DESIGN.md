@@ -2154,6 +2154,9 @@ the note page with its week drawn above its text (`MealPlanHeader`;
 since #288, 2026-11-15, the week is the screen and the text is behind
 Edit as text): tap a slot to plan a recipe (one that exists, by name),
 delivery or out, or to clear it; tick it made; Previous and Next week.
+(Changed 2026-11-26, Eric: a slot holding a recipe that exists shows
+its name as a link to the recipe, with a Change button beside it for
+what the tap did; any other slot is still tapped to plan.)
 Every change is an edit of the text, through the editor, so typing
 there is kept, and taps inside one typing pause are saved together; a
 late snapshot of the text before them is not taken for news
