@@ -24,6 +24,7 @@ import {
   madeLine,
   normalizeName,
   paths,
+  shareKindOf,
   shortDate,
   takesInstructions,
   templateParts,
@@ -39,7 +40,9 @@ import { ConceptHeader } from '../links/concept-header';
 import { NoteLinks } from '../links/note-links';
 import { ModulesService } from '../modules/modules.service';
 import { SAVE_DELAY_MS } from '../capture/capture.service';
+import { ONLINE } from '../platform/platform';
 import { NotesService, type NoteRecord } from '../notes/notes.service';
+import { ShareControls } from '../public-copy/share-controls';
 
 /** "Oct 17, 9:05 PM", in the device's own words. */
 function stamp(ms: number | undefined): string {
@@ -61,7 +64,8 @@ function stamp(ms: number | undefined): string {
  * Instructions for Claude (a template's since #111, any note's that
  * takes them since #231); for a grocery list, which dinners want each
  * item (#207); its tags, History and Map, Archive, and Delete (#217),
- * which puts it in Trash after a one-line confirm. The front keeps the
+ * which puts it in Trash after a one-line confirm, and its public copy
+ * (Share a copy, 2026-11-26). The front keeps the
  * text. From the context column's breakpoint (2026-11-16, #289) the
  * note screen keeps it open beside the text, `column`, in a column's
  * order; under it, it is flipped to as before.
@@ -69,7 +73,7 @@ function stamp(ms: number | undefined): string {
 @Component({
   selector: 'app-note-back',
   host: { '[class.column]': 'column()' },
-  imports: [ConceptHeader, NgTemplateOutlet, NoteLinks, PutBack, RouterLink],
+  imports: [ConceptHeader, NgTemplateOutlet, NoteLinks, PutBack, RouterLink, ShareControls],
   template: `
     <ng-template #headPart>
       <h2 class="title">{{ note().title || 'Untitled' }}</h2>
@@ -277,6 +281,11 @@ function stamp(ms: number | undefined): string {
         </p>
       }
     </ng-template>
+    <ng-template #sharePart>
+      @if (shareable()) {
+        <app-share-controls [note]="note()" />
+      }
+    </ng-template>
     <ng-template #changesPart>
       <h3 id="claude-changes">What assistants changed</h3>
       @if (!loaded()) {
@@ -331,8 +340,11 @@ function stamp(ms: number | undefined): string {
       @if (confirmingDelete()) {
         <p class="confirm">
           <span id="delete-note"
-            >Delete this note? It stays in Trash for {{ trashDays }} days.</span
-          >
+            >Delete this note? It stays in Trash for {{ trashDays }} days.
+            @if (note().shareId) {
+              Its shared copy stops too{{ online() ? '' : ', once this device is back online' }}.
+            }
+          </span>
           <button type="button" class="primary" aria-describedby="delete-note" (click)="delete()">
             Yes
           </button>
@@ -359,6 +371,7 @@ function stamp(ms: number | undefined): string {
         <p class="more-links">
           <ng-container *ngTemplateOutlet="placesPart" />
         </p>
+        <ng-container *ngTemplateOutlet="sharePart" />
         <ng-container *ngTemplateOutlet="changesPart" />
         <ng-container *ngTemplateOutlet="sendPart" />
         <ng-container *ngTemplateOutlet="kindPart" />
@@ -372,6 +385,7 @@ function stamp(ms: number | undefined): string {
         <ng-container *ngTemplateOutlet="kindPart" />
         <ng-container *ngTemplateOutlet="takesPart" />
         <ng-container *ngTemplateOutlet="sourcesPart" />
+        <ng-container *ngTemplateOutlet="sharePart" />
         <ng-container *ngTemplateOutlet="sendPart" />
         <ng-container *ngTemplateOutlet="changesPart" />
         <ng-container *ngTemplateOutlet="linksPart" />
@@ -600,6 +614,16 @@ export class NoteBack {
     return note.id !== this.grocery.listId();
   });
   protected readonly sentAt = computed(() => stamp(this.note().sentAt));
+  /** Whether this device is online, read when Delete is asked (2026-11-26). */
+  private readonly isOnline = inject(ONLINE);
+  protected readonly online = computed(() => (this.confirmingDelete(), this.isOnline()));
+  /**
+   * Share a copy (2026-11-26): a plain note or a recipe, or any note
+   * already shared, so its link can always be seen and stopped.
+   */
+  protected readonly shareable = computed(
+    () => !!this.note().shareId || !!shareKindOf(this.note().kind),
+  );
 
   /** Do it now (#144 step 3): the garden's own agent, on Eric's Anthropic key. */
   private readonly keys = inject(KeysService);

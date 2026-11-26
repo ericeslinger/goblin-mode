@@ -31,6 +31,7 @@ import { NOW } from '../platform/platform';
 import { type PushState, PushService } from '../push/push.service';
 import { RemindersService } from '../reminders/reminders.service';
 import { TemplatesService } from '../templates/templates.service';
+import { SharedLinks } from '../public-copy/shared-links';
 import { ThemePicker } from '../theme/theme-picker';
 import { reloadPage } from '../unknown-route';
 import { FIRST_PAGE, START_CHOICES, type SettingsPageId } from './settings-pages';
@@ -46,7 +47,7 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
  */
 @Component({
   selector: 'app-settings',
-  imports: [RouterLink, ThemePicker],
+  imports: [RouterLink, SharedLinks, ThemePicker],
   template: `
     @switch (shown()) {
       @case ('appearance') {
@@ -532,6 +533,9 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
         @if (updateStatus()) {
           <p role="status">{{ updateStatus() }}</p>
         }
+      }
+      @case ('shared') {
+        <app-shared-links />
       }
       @case ('account') {
         @if (auth.user(); as user) {

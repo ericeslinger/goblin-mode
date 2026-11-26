@@ -6,3 +6,4 @@ export { ATTACHMENT_SCHEME, attachmentIds, tasks, wikiLinkTargets, type Task } f
 export { findWikiLinks, remarkWikiLinks, type WikiLink } from './wikilink';
 export { driveFile, driveFiles, type DriveFile } from './drive';
 export { plainText } from './plain';
+export { publicCopy } from './public-copy';

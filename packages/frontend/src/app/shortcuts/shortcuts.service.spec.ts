@@ -491,6 +491,7 @@ describe('the app-wide keys (#289)', () => {
         'Settings: AI assistants',
         'Settings: Notifications',
         'Settings: This device',
+        'Settings: Shared links',
         'Settings: Account',
       ]);
       expect(all.find((c) => c.label === 'Go to Notes')?.keys).toBe('g n');

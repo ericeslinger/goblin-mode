@@ -107,6 +107,14 @@ describe('NoteBack (#112)', () => {
     expect(el.querySelector('a[href="/history?note=pots"]')).not.toBeNull();
   });
 
+  it('offers Share a copy on a note or a recipe, never on a concept (2026-11-26)', async () => {
+    const { el } = await render(noteRecord('pots', 'Pots'), []);
+    expect(el.querySelector('app-share-controls')).not.toBeNull();
+    TestBed.resetTestingModule();
+    const concept = await render({ ...noteRecord('c-kiln', 'Kiln'), kind: 'concept' }, []);
+    expect(concept.el.querySelector('app-share-controls')).toBeNull();
+  });
+
   it('offers Put back on the runs that changed it (#154)', async () => {
     const { el } = await render(noteRecord('pots', 'Pots'), [
       run('putback-r1', 'Put back “Filed Lovers vase here”', ['pots']),

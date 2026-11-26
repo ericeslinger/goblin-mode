@@ -60,6 +60,8 @@ import {
   openText,
   sealText,
   withFieldValue,
+  isShareId,
+  newShareId,
 } from '@mossgoblin/schema';
 import {
   type Firestore,
@@ -74,6 +76,8 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  waitForPendingWrites,
+  writeBatch,
 } from 'firebase/firestore';
 import { AuthService } from '../auth.service';
 import { FIREBASE } from '../firebase';
@@ -82,6 +86,7 @@ import { NOW, ONLINE, RANDOM_BYTES } from '../platform/platform';
 import { NoteKeyService } from './note-key.service';
 import { type PendingWrites, isPendingWrite, lost, nextPending } from './pending-writes';
 import { KeyWaitNotice } from './key-wait-notice';
+import { shareCopyOf, shareRefusal } from '../public-copy/share-copy';
 
 /** Names linked before their concept could be made (needs the server). */
 export const PENDING_CONCEPTS_KEY = 'goblin.pendingConcepts';
@@ -219,6 +224,44 @@ export interface NoteRecord {
    * is `SEALED_TITLE`, never the sealed text, and nothing writes to it.
    */
   locked?: true;
+  /**
+   * The id of the note's public copy, `shares/{shareId}`, while it is
+   * shared (2026-11-26): the link's secret part.
+   */
+  shareId?: string;
+}
+
+/**
+ * Public-copy writes waiting for the server, kept on the device
+ * (2026-11-26). Its own key: `goblin.pendingShares` is the share
+ * sheet's (share-store.ts), and writing there emptied the shares
+ * waiting to be filed (a full run caught it).
+ */
+export const PUBLIC_COPY_WRITES_KEY = 'goblin.publicCopyWrites';
+/**
+ * A public-copy write: what it does, to which note, for which account.
+ * Waiting until the server has it; `failed` once the server refused it
+ * (review of #343: a refused batch is never read as done).
+ */
+export interface PublicCopyWrite {
+  uid: string;
+  noteId: string;
+  title: string;
+  op: 'share' | 'update' | 'stop';
+  at: number;
+  failed?: true;
+}
+
+/** Whether a stored value is a public-copy write of today's shape. */
+function isCopyWrite(v: unknown): v is PublicCopyWrite {
+  const w = v as Partial<PublicCopyWrite> | null;
+  return (
+    !!w &&
+    typeof w.uid === 'string' &&
+    typeof w.noteId === 'string' &&
+    typeof w.at === 'number' &&
+    (w.op === 'share' || w.op === 'update' || w.op === 'stop')
+  );
 }
 
 /** What a note this device cannot open shows in place of its title. */
@@ -365,6 +408,8 @@ function refusingLocked(api: NotesApi, locked: (path: string) => boolean): Notes
     createIfAbsent: (db, path, data) =>
       locked(path) ? refuse() : api.createIfAbsent(db, path, data),
     remove: (db, path) => (locked(path) ? refuse() : api.remove(db, path)),
+    commit: (db, writes) =>
+      writes.some((w) => locked(w.path)) ? refuse() : api.commit(db, writes),
   };
 }
 
@@ -405,7 +450,28 @@ function sealingNotes(
       const out = sealed(path, data, false);
       return 'err' in out ? Promise.reject(out.err) : api.createIfAbsent(db, path, out.data);
     },
+    commit: (db, writes) => {
+      const out: BatchWrite[] = [];
+      for (const w of writes) {
+        if (!w.data) {
+          out.push(w);
+          continue;
+        }
+        const one = sealed(w.path, w.data, w.merge ?? false);
+        if ('err' in one) return Promise.reject(one.err);
+        out.push({ ...w, data: one.data });
+      }
+      return api.commit(db, out);
+    },
   };
+}
+
+/** One write of a batch: `data` set (merged or whole) at `path`, or the document deleted. */
+export interface BatchWrite {
+  path: string;
+  /** Without it, the document is deleted. */
+  data?: Record<string, unknown>;
+  merge?: boolean;
 }
 
 /** The Firestore calls the service makes, as a seam for unit specs. */
@@ -421,6 +487,14 @@ export interface NotesApi {
   /** Writes `data` only if no document is there; needs the server. */
   createIfAbsent(db: Firestore, path: string, data: Record<string, unknown>): Promise<boolean>;
   remove(db: Firestore, path: string): Promise<void>;
+  /**
+   * Several writes as one, all or none, through the persistent cache
+   * like any write: it lands at once and resolves when the server has
+   * it (2026-11-26, a share and its note together).
+   */
+  commit(db: Firestore, writes: BatchWrite[]): Promise<void>;
+  /** Resolves once every write made so far has reached the server. */
+  synced(db: Firestore): Promise<void>;
   serverTime(): unknown;
   /** A Timestamp at `ms`, for a stamp taken from the device's clock. */
   timestamp(ms: number): unknown;
@@ -465,6 +539,15 @@ export const NOTES_API = new InjectionToken<NotesApi>('notes-api', {
         return true;
       }),
     remove: (db, path) => deleteDoc(doc(db, path)),
+    commit: (db, writes) => {
+      const batch = writeBatch(db);
+      for (const w of writes) {
+        if (w.data) batch.set(doc(db, w.path), w.data, { merge: w.merge ?? false });
+        else batch.delete(doc(db, w.path));
+      }
+      return batch.commit();
+    },
+    synced: (db) => waitForPendingWrites(db),
     serverTime: () => serverTimestamp(),
     timestamp: (ms) => Timestamp.fromMillis(ms),
     removeField: () => deleteField(),
@@ -589,6 +672,7 @@ export function toRecord(
     ...(typeof data['baseHash'] === 'string' && data['baseHash']
       ? { baseHash: data['baseHash'] }
       : {}),
+    ...(isShareId(data['shareId']) ? { shareId: data['shareId'] } : {}),
   };
 }
 
@@ -738,6 +822,7 @@ export class NotesService {
           // #204). Offline, they wait on the device for the server.
           if (!fromCache && !this.replayed) {
             this.replayed = true;
+            this.settlePendingShares();
             // Saves held on the device for the key since sign-in are
             // replayed here too: nothing else wakes them when the key
             // came before this snapshot (review on #276, a fresh device
@@ -787,11 +872,16 @@ export class NotesService {
       });
     });
     // Concepts waiting for the server are made when it is back.
-    const back = () => this.makePendingConcepts();
+    const back = () => {
+      this.makePendingConcepts();
+      this.settlePendingShares();
+    };
     globalThis.addEventListener?.('online', back);
+    globalThis.addEventListener?.('storage', this.copyWritesChanged as EventListener);
     inject(DestroyRef).onDestroy(() => {
       this.stop?.();
       globalThis.removeEventListener?.('online', back);
+      globalThis.removeEventListener?.('storage', this.copyWritesChanged as EventListener);
     });
   }
 
@@ -1804,12 +1894,24 @@ export class NotesService {
     if (deleted ? !this.exists(id) : !this.trashed(id)) return;
     // Known from here on by the snapshot, in Trash or back in the list.
     if (deleted) this.written.delete(id);
+    // A note in Trash is not shared (2026-11-26): its public copy goes
+    // with the same tap, and Restore does not bring it back.
+    const shared = deleted ? this.find(id)?.shareId : undefined;
     const update = {
       deletedAt: deleted ? this.api.timestamp(this.now()) : this.api.removeField(),
       updatedAt: this.api.serverTime(),
       updatedBy: 'user',
       deviceId: this.deviceId(),
+      ...(shared ? { shareId: this.api.removeField() } : {}),
     };
+    if (shared) {
+      // One batch: the copy is never left public behind a note in Trash.
+      this.shareWrite(shared, id, 'stop', [
+        { path: paths.share(shared) },
+        { path: paths.note(this.uid, id), data: update, merge: true },
+      ]);
+      return;
+    }
     this.api.set(this.fb.db, paths.note(this.uid, id), update, true).catch(report);
   }
 
@@ -2156,6 +2258,7 @@ export class NotesService {
   remove(id: string): void {
     // A locked note is never deleted for looking empty (step 3a).
     if (!this.uid || this.locked(id)) return;
+    const shared = (this.find(id) ?? this.trashed(id))?.shareId;
     this.written.delete(id);
     // Emptied or bare: nothing typed in it is left to keep.
     this.forget(PENDING_SAVES_KEY, id);
@@ -2163,8 +2266,207 @@ export class NotesService {
     this.forget(PENDING_NAMES_KEY, id);
     this.hold(id, false);
     this.snapshot.update((snap) => snap && { ...snap, docs: snap.docs.filter((d) => d.id !== id) });
+    if (shared) {
+      // Its public copy goes with it, in the same batch (2026-11-26).
+      this.shareWrite(shared, id, 'stop', [
+        { path: paths.share(shared) },
+        { path: paths.note(this.uid, id) },
+      ]);
+      return;
+    }
     this.api.remove(this.fb.db, paths.note(this.uid, id)).catch(report);
   }
+
+  /**
+   * Why note `id` cannot be shared now (2026-11-26), or undefined when it
+   * can: only plain notes and recipes, opened here, their words saved.
+   */
+  shareRefusal(id: string): string | undefined {
+    return shareRefusal(this.find(id), this.heldForKey(id));
+  }
+
+  /**
+   * Shares a public copy of note `id` (2026-11-26, Eric; DESIGN.md,
+   * Sharing a public copy): a new `shares/{shareId}` document with the
+   * note's title and body as they are now, and the id on the note, in
+   * one batch through the persistent cache, so they never disagree:
+   * offline the share is made here and its link works once it syncs. A
+   * new id every time, made on this device: a link once stopped never
+   * comes back. Returns the id, or undefined when the note cannot be
+   * shared.
+   */
+  share(id: string): string | undefined {
+    const note = this.find(id);
+    if (!this.uid || !note || note.shareId || this.shareRefusal(id)) return undefined;
+    const copy = shareCopyOf(note);
+    if (!copy) return undefined;
+    const shareId = newShareId(this.random);
+    const now = this.api.serverTime();
+    const data = { owner: this.uid, noteId: id, ...copy, sharedAt: now, updatedAt: now };
+    // The note's own fields stay as they were, its edited time too:
+    // sharing is not an edit.
+    this.shareWrite(shareId, id, 'share', [
+      { path: paths.share(shareId), data },
+      { path: paths.note(this.uid, id), data: { shareId }, merge: true },
+    ]);
+    return shareId;
+  }
+
+  /**
+   * Writes note `id`'s title and body as they are now over its public
+   * copy (Update the shared copy): never on its own, only when asked.
+   */
+  updateShare(id: string): void {
+    const note = this.find(id);
+    if (!this.uid || !note?.shareId || this.shareRefusal(id)) return;
+    const copy = shareCopyOf(note);
+    if (!copy) return;
+    const data = {
+      ...copy,
+      ...(copy.source ? {} : { source: this.api.removeField() }),
+      updatedAt: this.api.serverTime(),
+    };
+    this.shareWrite(note.shareId, id, 'update', [
+      { path: paths.share(note.shareId), data, merge: true },
+    ]);
+  }
+
+  /**
+   * Stops sharing note `id`: its public copy is deleted and the note
+   * forgets the id, in one batch. Until the server has the batch (this
+   * device offline) the copy is still public, and `sharesWaiting` says
+   * so. Sharing again makes a new link. A locked note's copy is deleted
+   * alone, since nothing is written to a locked note here; the server
+   * then takes the id off the note (`shareDeleted`).
+   */
+  stopShare(id: string): void {
+    const note = this.find(id) ?? this.trashed(id);
+    if (!this.uid || !note?.shareId) return;
+    const writes: BatchWrite[] = [{ path: paths.share(note.shareId) }];
+    if (!note.locked) {
+      writes.push({
+        path: paths.note(this.uid, id),
+        data: { shareId: this.api.removeField() },
+        merge: true,
+      });
+    }
+    this.shareWrite(note.shareId, id, 'stop', writes);
+  }
+
+  /**
+   * The signed-in account's public-copy writes this device made that the
+   * server does not have yet, or that it refused, by share id
+   * (2026-11-26, review of #343). Kept on the device per account, so a
+   * stop made offline is still said to be waiting after a reload or a
+   * sign-out: Firestore keeps an account's queued writes in its cache
+   * when the account signs out and sends them when it signs in here
+   * again, so the record keeps them for it too, shown only to it. A
+   * shared copy is never said to be gone while it may still be public,
+   * nor a refused write said to be done.
+   */
+  readonly sharesWaiting = computed(() => {
+    const uid = this.auth.user()?.uid;
+    const all = this.copyWrites();
+    return uid
+      ? Object.fromEntries(Object.entries(all).filter(([, w]) => w.uid === uid))
+      : ({} as Record<string, PublicCopyWrite>);
+  });
+  private readonly copyWrites = signal<Record<string, PublicCopyWrite>>(this.storedCopyWrites());
+
+  /** Every account's writes as storage holds them now, any other window's included. */
+  private storedCopyWrites(): Record<string, PublicCopyWrite> {
+    const raw = this.store.get<Record<string, unknown>>(PUBLIC_COPY_WRITES_KEY) ?? {};
+    return Object.fromEntries(
+      Object.entries(raw).filter((e): e is [string, PublicCopyWrite] => isCopyWrite(e[1])),
+    );
+  }
+
+  /**
+   * Changes the record from what storage holds now, so two windows
+   * writing it lose nothing of each other's.
+   */
+  private changeCopyWrites(
+    change: (all: Record<string, PublicCopyWrite>) => Record<string, PublicCopyWrite>,
+  ): void {
+    const next = change(this.storedCopyWrites());
+    if (Object.keys(next).length) this.store.set(PUBLIC_COPY_WRITES_KEY, next);
+    else this.store.remove(PUBLIC_COPY_WRITES_KEY);
+    this.copyWrites.set(next);
+  }
+
+  /** Another window changed the record: show what storage holds now. */
+  private readonly copyWritesChanged = (e: StorageEvent) => {
+    if (e.key === PUBLIC_COPY_WRITES_KEY || e.key === null) {
+      this.copyWrites.set(this.storedCopyWrites());
+    }
+  };
+
+  /**
+   * `writes` as one batch for share `shareId`. Said to wait until the
+   * server has it; cleared only when the batch resolves; marked failed
+   * when it is refused, and then the cache takes the batch back, so the
+   * note shows as it truly is and the page says the act did not happen.
+   */
+  private shareWrite(
+    shareId: string,
+    noteId: string,
+    op: PublicCopyWrite['op'],
+    writes: BatchWrite[],
+  ): void {
+    const uid = this.uid!;
+    const title = (this.find(noteId) ?? this.trashed(noteId))?.title ?? '';
+    const entry: PublicCopyWrite = { uid, noteId, title, op, at: this.now() };
+    const same = (w: PublicCopyWrite | undefined) => w?.at === entry.at && w.op === op;
+    this.changeCopyWrites((all) => {
+      // A new act on the note replaces what was said of a refused one.
+      const kept = Object.entries(all).filter(
+        ([, w]) => !(w.failed && w.uid === uid && w.noteId === noteId),
+      );
+      return { ...Object.fromEntries(kept), [shareId]: entry };
+    });
+    this.api.commit(this.fb.db, writes).then(
+      () =>
+        this.changeCopyWrites((all) => {
+          if (!same(all[shareId])) return all;
+          const { [shareId]: _done, ...rest } = all;
+          return rest;
+        }),
+      (err) => {
+        this.changeCopyWrites((all) =>
+          same(all[shareId]) ? { ...all, [shareId]: { ...entry, failed: true } } : all,
+        );
+        report(err);
+      },
+    );
+  }
+
+  /**
+   * The signed-in account's waiting writes from an earlier load: gone
+   * once the server has every write this account made so far (Firestore
+   * keeps them across a reload and sends them when it can). Never
+   * another account's, and never a refused one.
+   */
+  private settlePendingShares(): void {
+    const uid = this.uid;
+    if (!uid) return;
+    const before = Object.entries(this.copyWrites()).filter(([, w]) => w.uid === uid && !w.failed);
+    if (!before.length) return;
+    this.api.synced(this.fb.db).then(
+      () =>
+        this.changeCopyWrites((all) => {
+          const out = { ...all };
+          for (const [id, w] of before) {
+            const now = out[id];
+            if (now && now.at === w.at && now.op === w.op && !now.failed) delete out[id];
+          }
+          return out;
+        }),
+      () => undefined,
+    );
+  }
+
+  /** The notes shared now, as Settings, Shared links, lists them: newest edit first. */
+  readonly shared = computed(() => this.records().filter((n) => n.shareId !== undefined));
 
   /** A stable id for this device, recorded on each write (see DESIGN). */
   deviceId(): string {

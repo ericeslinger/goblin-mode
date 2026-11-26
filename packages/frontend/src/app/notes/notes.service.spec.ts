@@ -23,6 +23,7 @@ import { NoteKeyService } from './note-key.service';
 import { KeyWaitNotice } from './key-wait-notice';
 import { TEST_NOTE_KEY, openedWrite } from '../testing/sealed';
 import {
+  type BatchWrite,
   NOTES_API,
   type NotesApi,
   NotesService,
@@ -34,6 +35,7 @@ import {
   PENDING_MOODS_KEY,
   PENDING_NAMES_KEY,
   PENDING_SAVES_KEY,
+  PUBLIC_COPY_WRITES_KEY,
   SHARED_IMPORT_WAITING,
 } from './notes.service';
 
@@ -71,6 +73,8 @@ function setup(opts: { reload?: boolean; key?: DataKey | undefined } = {}) {
   else localStorage.clear();
   const user = signal<User | null | undefined>(undefined);
   let push: Parameters<NotesApi['listen']>[2] = () => undefined;
+  /** What a batch's commit gives: the server's answer, or none yet (offline). */
+  let commitResult = (): Promise<void> => Promise.resolve();
   const api = {
     listen: vi.fn((_db, _path, next) => {
       push = next;
@@ -83,6 +87,8 @@ function setup(opts: { reload?: boolean; key?: DataKey | undefined } = {}) {
       Promise.resolve(true),
     ),
     remove: vi.fn((_db: unknown, _path: string) => Promise.resolve()),
+    commit: vi.fn((_db: unknown, _writes: BatchWrite[]) => commitResult()),
+    synced: vi.fn((_db: unknown) => Promise.resolve()),
     serverTime: () => 'SERVER_TIME',
     timestamp: (ms: number) => ({ ms }),
     removeField: () => REMOVED,
@@ -129,6 +135,14 @@ function setup(opts: { reload?: boolean; key?: DataKey | undefined } = {}) {
     online,
     key,
     sent,
+    /** Batches wait for a server that does not answer, as offline. */
+    offline: () => {
+      commitResult = () => new Promise<void>(() => undefined);
+    },
+    /** Batches are refused by the server, as the rules or a seam would. */
+    refusing: () => {
+      commitResult = () => Promise.reject(new Error('refused'));
+    },
   };
 }
 
@@ -2518,6 +2532,331 @@ describe('NotesService', () => {
       t.notes.rename('c-kiln', 'Big kiln');
       t.notes.setInstructions('c-kiln', 'Short.');
       expect(TestBed.inject(KeyWaitNotice).refused()).toBe(false);
+    });
+  });
+  describe('a public copy (2026-11-26)', () => {
+    const glaze = {
+      id: 'n1',
+      data: {
+        kind: 'text',
+        body: '- [ ] Two parts [[Feldspar]] @goblin',
+        title: 'Glaze',
+        archived: false,
+      },
+    };
+    const gratin = {
+      id: 'r1',
+      data: {
+        kind: 'recipe',
+        title: 'Gratin',
+        body: '## Ingredients\n\n- potatoes',
+        source: { url: 'https://recipes.example/gratin', text: 'the page' },
+        tags: ['dinner'],
+        archived: false,
+      },
+    };
+    const SHARE = 'AbCdEfGhIjKlMnOpQrStUvWxYz012-_9';
+    /** Every batch committed, as its writes. */
+    const batches = (api: ReturnType<typeof setup>['api']) =>
+      api.commit.mock.calls.map((c) => c[1]);
+    /** Writes to a share's document outside a batch: there must be none. */
+    const loose = (api: ReturnType<typeof setup>['api']) => [
+      ...api.set.mock.calls.filter((c) => String(c[1]).startsWith('shares/')),
+      ...api.remove.mock.calls.filter((c) => String(c[1]).startsWith('shares/')),
+    ];
+
+    it('writes a plain copy at a new id and the id on the note, in one batch', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([glaze]);
+      const id = notes.share('n1')!;
+      expect(id).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(batches(api)).toEqual([
+        [
+          {
+            path: `shares/${id}`,
+            data: {
+              owner: 'u1',
+              noteId: 'n1',
+              kind: 'note',
+              title: 'Glaze',
+              // Its link as words; the assistant's mark gone.
+              body: '- [ ] Two parts Feldspar',
+              sharedAt: 'SERVER_TIME',
+              updatedAt: 'SERVER_TIME',
+            },
+          },
+          // The note learns its share id, and nothing else of it changes.
+          { path: 'users/u1/notes/n1', data: { shareId: id }, merge: true },
+        ],
+      ]);
+      // Never sealed: the copy is public by its nature.
+      const copy = batches(api)[0][0].data!;
+      expect(isSealed(copy['body'])).toBe(false);
+      expect(isSealed(copy['title'])).toBe(false);
+      expect(loose(api)).toEqual([]);
+    });
+
+    it('shares a recipe with its source link, and nothing else of the note', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([gratin]);
+      notes.share('r1');
+      expect(batches(api)[0][0].data).toEqual({
+        owner: 'u1',
+        noteId: 'r1',
+        kind: 'recipe',
+        title: 'Gratin',
+        body: '## Ingredients\n\n- potatoes',
+        source: 'https://recipes.example/gratin',
+        sharedAt: 'SERVER_TIME',
+        updatedAt: 'SERVER_TIME',
+      });
+    });
+
+    it('reads a note’s share id, and lists the shared notes', () => {
+      const { notes, signIn, push } = setup();
+      signIn('u1');
+      push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }, gratin]);
+      expect(notes.find('n1')?.shareId).toBe(SHARE);
+      expect(notes.find('r1')?.shareId).toBeUndefined();
+      expect(notes.shared().map((n) => n.id)).toEqual(['n1']);
+      push([{ id: 'n1', data: { ...glaze.data, shareId: 'nope' } }]);
+      expect(notes.find('n1')?.shareId).toBeUndefined();
+    });
+
+    it('updates the copy only when asked, from the note as it is now', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([{ id: 'n1', data: { ...glaze.data, body: 'Three parts', shareId: SHARE } }]);
+      expect(batches(api)).toHaveLength(0);
+      notes.updateShare('n1');
+      expect(batches(api)).toEqual([
+        [
+          {
+            path: `shares/${SHARE}`,
+            data: {
+              kind: 'note',
+              title: 'Glaze',
+              body: 'Three parts',
+              source: REMOVED,
+              updatedAt: 'SERVER_TIME',
+            },
+            merge: true,
+          },
+        ],
+      ]);
+    });
+
+    it('stops in one batch: the copy deleted, the note forgetting it; again is a new link', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      notes.stopShare('n1');
+      expect(batches(api)).toEqual([
+        [
+          { path: `shares/${SHARE}` },
+          { path: 'users/u1/notes/n1', data: { shareId: REMOVED }, merge: true },
+        ],
+      ]);
+      push([glaze]);
+      const again = notes.share('n1')!;
+      expect(again).not.toBe(SHARE);
+      push([{ id: 'n1', data: { ...glaze.data, shareId: again } }]);
+      expect(notes.share('n1')).toBeUndefined();
+      expect(loose(api)).toEqual([]);
+    });
+
+    it('says a write waits until the server has it, across a reload (review of #343)', async () => {
+      const t = setup();
+      t.signIn('u1');
+      t.push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      t.offline();
+      t.notes.stopShare('n1');
+      expect(t.notes.sharesWaiting()[SHARE]).toEqual(
+        expect.objectContaining({ noteId: 'n1', title: 'Glaze', op: 'stop' }),
+      );
+      // A reload while offline still says so.
+      const r = setup({ reload: true });
+      r.signIn('u1');
+      expect(r.notes.sharesWaiting()[SHARE]).toEqual(expect.objectContaining({ op: 'stop' }));
+      // Back, the server has every write: it is said no more.
+      r.push([glaze]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(r.api.synced).toHaveBeenCalled();
+      expect(r.notes.sharesWaiting()).toEqual({});
+    });
+
+    it('marks a refused batch failed, never done, until a new act on the note (review of #343)', async () => {
+      const t = setup();
+      t.signIn('u1');
+      t.push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      t.refusing();
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      t.notes.stopShare('n1');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(t.notes.sharesWaiting()[SHARE]).toEqual(
+        expect.objectContaining({ op: 'stop', failed: true, uid: 'u1' }),
+      );
+      // A later settle never clears a refused write.
+      t.push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(t.notes.sharesWaiting()[SHARE]?.failed).toBe(true);
+      // Trying again replaces it.
+      t.offline();
+      t.notes.stopShare('n1');
+      expect(t.notes.sharesWaiting()[SHARE]).toEqual(expect.not.objectContaining({ failed: true }));
+    });
+
+    it('keeps each account’s writes to itself, through sign-out (review of #343)', async () => {
+      const t = setup();
+      t.signIn('u2');
+      t.push([{ id: 'n9', data: { ...glaze.data, title: 'Theirs', shareId: SHARE } }]);
+      t.offline();
+      t.notes.stopShare('n9');
+      expect(Object.keys(t.notes.sharesWaiting())).toEqual([SHARE]);
+      // Signed out: kept (Firestore keeps u2's queued writes too), shown to no one.
+      t.user.set(null);
+      TestBed.tick();
+      expect(t.notes.sharesWaiting()).toEqual({});
+      expect(localStorage.getItem(PUBLIC_COPY_WRITES_KEY)).toContain('Theirs');
+      // Another account sees none of it, and its first snapshot clears none of it.
+      t.signIn('u1');
+      t.push([glaze]);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(t.notes.sharesWaiting()).toEqual({});
+      expect(localStorage.getItem(PUBLIC_COPY_WRITES_KEY)).toContain('Theirs');
+      // Back as u2, the stop is still said to wait.
+      t.signIn('u2');
+      expect(t.notes.sharesWaiting()[SHARE]?.title).toBe('Theirs');
+    });
+
+    it('merges with another window’s writes, and follows its changes (review of #343)', () => {
+      const t = setup();
+      t.signIn('u1');
+      t.push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      const OTHER = 'ZZCdEfGhIjKlMnOpQrStUvWxYz012-_9';
+      const theirs = { uid: 'u1', noteId: 'n2', title: 'Kiln', op: 'stop', at: 5 };
+      // Another window wrote its own entry since this one loaded.
+      localStorage.setItem(PUBLIC_COPY_WRITES_KEY, JSON.stringify({ [OTHER]: theirs }));
+      t.offline();
+      t.notes.stopShare('n1');
+      const stored = JSON.parse(localStorage.getItem(PUBLIC_COPY_WRITES_KEY)!);
+      expect(Object.keys(stored).sort()).toEqual([SHARE, OTHER].sort());
+      // The other window clears its own: this one follows.
+      const { [OTHER]: _gone, ...mine } = stored;
+      localStorage.setItem(PUBLIC_COPY_WRITES_KEY, JSON.stringify(mine));
+      window.dispatchEvent(new StorageEvent('storage', { key: PUBLIC_COPY_WRITES_KEY }));
+      expect(Object.keys(t.notes.sharesWaiting())).toEqual([SHARE]);
+    });
+
+    it('stops waiting once the batch reaches the server', async () => {
+      const { notes, signIn, push } = setup();
+      signIn('u1');
+      push([glaze]);
+      const id = notes.share('n1')!;
+      expect(notes.sharesWaiting()[id]?.op).toBe('share');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(notes.sharesWaiting()).toEqual({});
+    });
+
+    it('Trash stops it in the same batch as the note; Restore does not bring it back', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      notes.setDeleted('n1', true);
+      const [batch] = batches(api);
+      expect(batch[0]).toEqual({ path: `shares/${SHARE}` });
+      expect(batch[1]).toEqual({
+        path: 'users/u1/notes/n1',
+        data: expect.objectContaining({ deletedAt: { ms: CLOCK }, shareId: REMOVED }),
+        merge: true,
+      });
+      push([{ id: 'n1', data: { ...glaze.data, deletedAt: { toMillis: () => CLOCK } } }]);
+      notes.setDeleted('n1', false);
+      expect(api.set.mock.lastCall![2]).not.toHaveProperty('shareId');
+      expect(batches(api)).toHaveLength(1);
+    });
+
+    it('a note removed for good takes its copy with it, in one batch', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      notes.remove('n1');
+      expect(batches(api)).toEqual([[{ path: `shares/${SHARE}` }, { path: 'users/u1/notes/n1' }]]);
+    });
+
+    it('a locked note’s stop deletes the copy alone; the server clears the note', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      const other = newDataKey();
+      const body = sealText(other, aadFor('u1', 's1', 'body'), 'secret');
+      const title = sealText(other, aadFor('u1', 's1', 'title'), 'secret');
+      push([{ id: 's1', data: { kind: 'text', body, title, archived: false, shareId: SHARE } }]);
+      expect(notes.find('s1')?.locked).toBe(true);
+      notes.stopShare('s1');
+      expect(batches(api)).toEqual([[{ path: `shares/${SHARE}` }]]);
+    });
+
+    it('archiving leaves it shared', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([{ id: 'n1', data: { ...glaze.data, shareId: SHARE } }]);
+      notes.setArchived('n1', true);
+      expect(batches(api)).toEqual([]);
+      expect(api.set.mock.lastCall![2]).not.toHaveProperty('shareId');
+    });
+
+    it('refuses what cannot be shared, saying why', () => {
+      const { notes, api, signIn, push } = setup();
+      signIn('u1');
+      push([
+        glaze,
+        { id: 'c-kiln', data: { kind: 'concept', title: 'Kiln', body: 'x', archived: false } },
+        { id: 'e', data: { kind: 'text', title: '', body: '  ', archived: false } },
+        {
+          id: 'big',
+          data: { kind: 'text', title: 'Big', body: 'x'.repeat(200_001), archived: false },
+        },
+      ]);
+      expect(notes.shareRefusal('c-kiln')).toBe('Only notes and recipes can be shared.');
+      expect(notes.shareRefusal('e')).toBe('There is nothing in it to share yet.');
+      expect(notes.shareRefusal('gone')).toBe('This note is not saved yet.');
+      expect(notes.shareRefusal('big')).toBe(
+        'It is too long to share as a link: a shared copy holds at most 200,000 characters, ' +
+          'and this has 200,001.',
+      );
+      expect(notes.shareRefusal('n1')).toBeUndefined();
+      expect(notes.share('c-kiln')).toBeUndefined();
+      expect(notes.share('big')).toBeUndefined();
+      const other = newDataKey();
+      const sealedBody = sealText(other, aadFor('u1', 's1', 'body'), 'secret');
+      const sealedTitle = sealText(other, aadFor('u1', 's1', 'title'), 'secret');
+      push([
+        { id: 's1', data: { kind: 'text', body: sealedBody, title: sealedTitle, archived: false } },
+      ]);
+      expect(notes.shareRefusal('s1')).toBe(
+        'This note is sealed and its key is not on this device yet.',
+      );
+      expect(notes.share('s1')).toBeUndefined();
+      expect(batches(api)).toHaveLength(0);
+    });
+
+    it('a body nested past any stack is refused calmly, never thrown (review of #343)', () => {
+      const { notes, signIn, push } = setup();
+      signIn('u1');
+      push([
+        {
+          id: 'd',
+          data: { kind: 'text', title: 'Deep', body: `${'> '.repeat(5_000)}x`, archived: false },
+        },
+      ]);
+      expect(() => notes.shareRefusal('d')).not.toThrow();
     });
   });
 });

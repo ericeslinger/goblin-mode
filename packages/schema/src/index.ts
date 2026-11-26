@@ -36,3 +36,5 @@ export * from './sealed';
 export * from './sealed-note';
 export * from './text-hash';
 export * from './note-key';
+export * from './shares';
+export * from './share-shell';

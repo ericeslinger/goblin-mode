@@ -54,7 +54,11 @@ and `boundary.spec.ts` freezes the exported names.
 ## Data model
 
 Everything lives under the owner's uid, so the rules are one line of
-ownership and the MCP server reads the same paths as the app.
+ownership and the MCP server reads the same paths as the app. (Since
+2026-11-26, one collection lives outside it: `shares/`, a note's
+public copy, still its owner's alone in the rules, and public only as
+the page the `publicShare` function renders; Sharing a public copy,
+below.)
 
 ```
 users/{uid}
@@ -88,6 +92,9 @@ users/{uid}
                               usage/digest the last digest pushed (#237)
 oauth/...                     MCP auth state, server-only
 secrets/{uid}                 encrypted provider keys, server-only (#144)
+shares/{shareId}              a note's public copy (2026-11-26):
+                              owner-only, written by the owner's app,
+                              shown by publicShare at /s/<shareId>
 ```
 
 Ids are generated client-side (Firestore auto ids) so a note exists the
@@ -6047,6 +6054,7 @@ Functions, so the MCP endpoint and OAuth live on mossgoblin.garden:
 | `/oauth/register`, `/oauth/token` | `oauth` | Dynamic client registration, token exchange |
 | `/oauth/authorize` | client route | Google sign-in, then consent |
 | `/api/episode` | the Worker itself | Podcast episodes for offline downloads (#180) |
+| `/s/<shareId>` | `publicShare` | A note's public page, server-rendered; the Worker refuses a malformed id and sets the page's headers (2026-11-26) |
 
 Other functions: `noteHistory`, `noteTitle` and `reminderScheduled`
 (Firestore triggers), `reminderWake` (a Cloud Tasks queue),
@@ -6118,7 +6126,7 @@ it, one backticked tool name per row.
 | --- | --- | --- |
 | `search_notes` | Notes whose title, text or synonyms hold every word of a query | Search paragraph below |
 | `list_notes` | Recent notes, newest first, optionally since a time or of one kind | Search paragraph below, Recipes (#127) |
-| `get_note` | One note in full with its kind, links, backlinks and Drive files; `takes`, how it takes new material (mode, set or inherited, and `modeBrief`); its `source.url`, and a recipe's `importState` and `importError` (2026-11-15) | Links and concepts (#28), Document modes (#231), Importing a recipe (#128) |
+| `get_note` | One note in full with its kind, links, backlinks and Drive files; `takes`, how it takes new material (mode, set or inherited, and `modeBrief`); its `source.url`, and a recipe's `importState` and `importError` (2026-11-15); `shared: true` when Eric shared a public copy, never its link (2026-11-26) | Links and concepts (#28), Document modes (#231), Importing a recipe (#128), Sharing a public copy |
 | `create_note` | A new markdown note (`updatedBy: 'claude'`) | As built, below |
 | `create_concept` | A new person, project or other concept; refused if a name is taken; a project's stages, item tags and stage; a deleted concept's name brings it back from Trash (#217) | Organize tools (#34), Projects (#41), Stages and items |
 | `create_recipe` | A recipe from its name, ingredient lines, steps, notes, servings and source; Kitchen only | Recipes (#127) |
@@ -7016,6 +7024,346 @@ project, Firestore paths, the connector URL, the `goblin-titles`
 service account (renaming it means new IAM grants), and the
 device-local `goblin.*` keys, so no pending draft is stranded; M5
 re-keys those by uid (#53).
+
+## Sharing a public copy (Eric, 2026-11-26)
+
+Eric's ask: share a note or a recipe with friends as a public link,
+like a gist or a Google doc anyone with the link can read, not a blog.
+The copy is readable by anyone who has the link, but its address is
+not memorable or discoverable, and nothing leads from one share to
+another. Only the title and what Eric thinks of as the body go: none
+of the back of the note. Part 1 (this) is the title and text of notes
+and recipes, the public page and stopping a share; part 2 adds media.
+
+**Stored.** `shares/{shareId}`, the first data outside `users/{uid}`
+(CLAUDE.md, Owner-only data, changed the same day). The `Share` schema
+in `packages/schema/src/model.ts`, with generated rules validators:
+`owner` (uid), `noteId`, `kind` (`note` or `recipe`), `title`, `body`
+(plain markdown), a recipe's `source` link when it has one (http or
+https only), `sharedAt` and `updatedAt`. Nothing else: no tags, links,
+concepts, history, reminders, takes or assistant fields. Bounds:
+title 1,000 characters, body 200,000 (since the move to a function,
+below; it was 500,000), source 4,096. A note has no bound but
+Firestore's 1 MiB document; the app refuses to share a longer note,
+saying how long it is and how long a copy may be. The note records
+`shareId`, a new optional field, so the app knows it is shared and
+Settings can list what is.
+
+*The id.* `newShareId` (`packages/schema/src/shares.ts`): 24 bytes of
+`crypto.getRandomValues`, 32 characters of base64url, 192 bits. Never
+derived from the note, its title or the uid, and not the 20-character
+auto id, whose alphabet of 62 gives about 119 bits, under the 128
+asked for. An id of Firestore's reserved shape `__...__` is drawn
+again. Sharing again after a stop makes a new id, so an old link never
+comes back.
+
+*Rules.* A share is its owner's alone, as everything else is: `get`
+and `list` only by the signed-in owner of the document, and no
+collection-group rule matches `shares`. A stranger and a signed-out
+client can neither get one, even by its id, nor list any, and the
+rules tests prove it (unauthenticated and other-user gets and lists,
+collection-group queries). `create` only by a signed-in user naming
+themselves as `owner`, at an id of the shape above, of a valid shape
+within the bounds; `update` and `delete` only by
+`resource.data.owner`, with `owner` and `noteId` unchanged. The copy
+is public only as the page `publicShare` renders from it with the
+admin SDK, so the raw document, with the owner's uid and the note id,
+is readable by no one with the link. (Changed 2026-11-26, the same
+day: the first build let anyone `get` a share by id so the Worker
+could read it over Firestore's REST API; moving the page to a
+function made that rule unneeded, and it is gone.) A share the owner
+stopped is refused, not read as missing; the app says it could not
+read it, below, rather than that it is gone.
+
+*A snapshot.* The app writes the copy through the persistent cache
+like every write. The copy holds the title and body as they were when
+shared or last updated: Update the shared copy is offered when the
+note says something the copy does not (the app watches the share's
+document, by id, to compare), never on its own. Stop sharing deletes
+the document and clears the field. Moving a note to Trash stops its
+share in the same tap (`NotesService.setDeleted`), as does a note
+removed for good; Restore does not bring it back. Archiving leaves it
+shared.
+
+*One batch each (review of #343).* Share, update, stop, Trash and
+remove each write the share's document and the note's field (or the
+note's deletion) in one Firestore batch, through the persistent cache,
+so a refused write can never leave a public copy that no note names,
+nor a note naming a copy that was not made. The rules allow each batch
+(a rules test commits each).
+
+*Honest while offline (review of #343).* A batch lands on the device at
+once and reaches the server later. Until the server has it, the app
+keeps it as waiting (`NotesService.sharesWaiting`, kept on the device
+under `goblin.publicCopyWrites`, a key of its own: `goblin.pendingShares`
+is the share sheet's), and never says more than is true: a share made
+offline "works once this device is back online"; a stop made offline
+(on the back, in Settings or by Trash) is "Still public" until the
+server has it, and Settings, Shared links, lists such copies under
+Still public; an update made offline says the link still shows the
+copy as it was. Only then does the app say "Stopped. The link answers
+nothing now". When the app cannot read a copy it believes is shared
+(the rules refuse a read of a share that is no longer there, and a
+refusal for any other reason looks the same), it says "This copy could
+not be read here" and keeps Stop sharing, rather than claim the copy
+is gone.
+
+*A refused write is never done (second review of #343).* A record is
+cleared only when its batch resolves, or, after a reload, when
+`waitForPendingWrites` resolves for the account. A batch the server
+refuses (the rules, or any error) is marked failed instead, and the
+cache takes it back, so the note shows as it truly is: a refused stop
+leaves the note shared, and the back says "Stopping did not reach the
+server: the copy is still public. Try Stop sharing again", with Stop
+sharing offered, and Settings says the same on its row; a refused
+share says nothing is public; a refused update says the link still
+shows the copy as it was. A failed record goes when the next act on
+the same note starts.
+
+*Per account, and two windows.* Each record carries its account's uid,
+as the held saves do; only the signed-in account's are shown, and only
+its own are cleared when its writes reach the server, so another
+account's titles and links never show and its first snapshot never
+clears another's. Firestore keeps an account's queued writes in its
+persistent cache when it signs out (this app never clears the cache)
+and sends them when that account signs in on this device again; the
+records do the same: kept at sign-out, shown again to their account.
+Every change to the records is made from what storage holds at that
+moment, so two windows lose nothing of each other's, and each window
+follows the other's changes by the `storage` event, as the share
+sheet's store does.
+
+*The server's side.* `noteHistory` stops a share first, on every note
+write that puts the note in Trash, deletes it, or drops or changes its
+`shareId` (`packages/functions/src/notes/share-stop.ts`), before and
+apart from History, so neither can skip the other. It removes only a
+share of that owner and note. A failure there is logged, not retried:
+History is not safe to run twice. The backstop is daily: `trashSweep`
+first runs `sweepShares`, which deletes every share whose note is
+gone, in Trash, or no longer names it, so a note in Trash is public
+for a day at most if every other step failed. And `shareDeleted`, a
+trigger on a share's deletion, takes the id off its note if the note
+still names it, so a note and its copy cannot disagree for long
+whichever device or state stopped it: a locked note's Stop deletes the
+copy alone, since nothing is written to a locked note on the device.
+
+*The sweep cannot be starved (second review of #343).* Any signed-in
+account can write share documents of its own, so the sweep never
+reads "the first thousand shares": with `OWNER_UID` set it pages
+through every one of the owner's shares, 500 at a time, by an owner
+filter (equality on `owner` ordered by id, which Firestore's automatic
+single-field index serves; no composite index), however many other
+documents there are. Other accounts' shares are left alone (third
+review of #343): a pass that deleted them was tried and taken out,
+since a wrong `OWNER_UID` would have had it delete the owner's own
+copies. On Eric's deployment no other account can exist (Security,
+Only one account exists), so there are none to leave.
+Without `OWNER_UID` (a fork that has not set it, where no share is
+shown either) it pages through every share and deletes none for its
+owner. The read cost is one read for each of the owner's shares and
+one for its note, a day. The journey proves both triggers on the e2e
+stack: a share deleted by admin access is forgotten by its note, and a
+note put in Trash by admin access has its page answer 404; a
+functions-emulator spec runs the sweep's paging against Firestore.
+
+*What can be shared.* A plain note (kind `text`) and a recipe. A
+concept, a template, Kitchen's own notes and a clipping (a page's
+text, not Eric's) are not offered. A sealed note locked on this
+device cannot be shared from it: the app holds a note's plain title
+and body only in the record `toRecord` opens with the device's key,
+so the copy is made from that opened record, and no key is ever
+written to the share or sent to the Worker or a function. A note whose
+words wait on the device for the key is not shared until they are
+saved. A body the grammar cannot read for the copy (review of #343:
+5,000 nested quotes once overflowed the stack; `publicCopy` now walks
+the tree with a loop) is refused with a plain line, never thrown into
+the back of the note. Note
+text is sealed at rest; a share is by its nature a plain, public copy,
+and the Settings and back words say so.
+
+*What the body becomes* (`publicCopy`, `packages/editor` grammar): a
+`[[name]]` or `[[name|label]]` is its name or label as words; a
+`#tag` stays as the words it is; checkbox lines stay, shown
+read-only; the assistant's `@goblin` at the end of a checkbox item is
+dropped, the item kept; a `✳ Mossgoblin:` line (why the assistant
+could not do an item) is dropped; its findings under `✳ Mossgoblin,
+from the web:` stay as the note shows them, plain words already; an
+attached image (`attachment:`) is dropped until part 2. Reminders
+are their own documents, not text in a body, so none is in a copy.
+Everything else stays as written, raw HTML included, and the page
+shows it as text. A first line that is the title (a note titled by its
+first words) is left out of the copy's body, so the page shows the
+title once, as its heading; a line break inside a paragraph stays a
+line break on the page, as the editor shows it.
+
+**The public page** is `/s/<shareId>`, rendered by the `publicShare`
+function (`packages/functions/src/shares`: `page.ts`, `html.ts`,
+`http.ts`; 256 MiB, 30 s, no sign-in) and forwarded to it by the
+Worker like the other function routes (`routes.json`; `/s` and `/s/*`
+are in `run_worker_first`). The Worker does the cheap part itself
+(`infra/worker/src/share-route.ts`): anything but GET or HEAD is a
+405, a malformed id gets the one 404 without forwarding, the request
+goes on with nothing of the reader's (no cookie, no credentials), and
+whatever comes back carries the page's own headers: a 200 the page, a
+404 the same 404 bytes, anything else the 503 page. The function
+checks the id's shape again, reads the share with the admin SDK, and
+answers server-rendered HTML with no scripts, no Firebase SDK and no
+Angular. It shows a share only when its `owner` is the deployment's
+owner (`OWNER_UID`, the uid the MCP server already serves; `e2e-owner`
+in the e2e stack, from `scripts/e2e.sh`), so anyone else who signs in
+with a Google account and writes a share of their own never has it
+shown under this domain; without `OWNER_UID` no share is shown. A
+share that is not there, was stopped, is not the owner's, or has a
+malformed id gets one 404 page and status, the same bytes; a read
+that fails is a 503 saying to try again. The page's fixed parts (its
+stylesheet and that stylesheet's hash, its headers, its shell and the
+404) are one module the Worker and the function share
+(`packages/schema/src/share-shell.ts`). Nothing on the page names the
+owner, the note or any other share, and nothing links into the app.
+
+*Safety.* The page is on the app's origin and a body can hold text
+from the web, so `html.ts` writes the HTML itself from the
+app's one grammar (`parseNote`, so `*bold*` is bold as in the editor)
+with a fixed set of tags and attributes and every character of text
+escaped. Raw HTML is shown as text; a link's address must be absolute
+http, https or mailto, else the link is its words, with `rel="noopener
+noreferrer nofollow"`; an image is its alt text, a link to it on the
+web, since the page loads no images. Nesting past 40 levels is shown
+as text. Headers: `Content-Security-Policy: default-src 'none';
+style-src 'sha256-...'; img-src 'self' data:; base-uri 'none';
+form-action 'none'; frame-ancestors 'none'`, the style source being
+the page's one stylesheet by its hash, not `'unsafe-inline'`;
+`X-Robots-Tag: noindex,
+nofollow`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options:
+nosniff`, and `Cache-Control: private, no-store`, so Stop sharing
+takes effect at the next load, at the cost of one Firestore read per
+view. No CORS headers.
+
+*Look.* One readable column in Herbarium's colours, light and dark by
+`prefers-color-scheme`; the title as h1, a recipe's "From <site>"
+link, the body, and "Shared from Mossgoblin". Open Graph title only,
+no description from the body, so a link preview in a chat app shows
+the title and nothing more (Eric's to overrule).
+
+*Recipes.* Eric asked whether there is a standard format for sharing
+recipes: there is, schema.org `Recipe` as JSON-LD, which recipe sites
+embed and recipe apps read, this app's importer among them. A recipe's
+page carries one: `name`, `recipeIngredient` from its Ingredients,
+`recipeInstructions` as `HowToStep`s from its Method (the schema's
+recipe helpers), and `isBasedOn` for its source link. The JSON has
+`<`, `>`, `&`, U+2028 and U+2029 escaped, so it cannot end or bend the
+element. A data block is allowed under the policy above: in the HTML
+standard's "prepare the script element", a type that is not a
+JavaScript MIME type returns at step 15, before the Content Security
+Policy check for inline scripts at step 23, so it is never executed or
+checked (MDN, script type: "treated as a data block, and won't be
+processed by the browser"; checked 2026-11-26). The journey checks
+Chrome reports no policy refusal on the page, and a functions spec
+feeds the page to `recipeFromJsonLd` and gets the recipe back.
+
+*Why a function (2026-11-26).* The grammar is remark, as in the app,
+and its cost decided where the page renders. Measured warm in Node:
+5,000 characters 17 ms, 20,000 59 ms, 100,000 383 ms, 500,000 4.9 s.
+Cloudflare's free plan allows about 10 ms of CPU a request, so in the
+Worker an ordinary note would sit at or over it. A function has the
+time; the body's bound came down to 200,000 characters, and 200,000
+characters of prose renders in about 0.6 s.
+
+*Shapes the grammar is slow on (review of #343).* Some bodies cost far
+more than prose of the same length. Measured at 200,000 characters
+with no guard: `> ` 100,000 times (nested quotes) 29 s, `_a` 100,000
+times 10 s, `[a](b` 40,000 times 9.8 s, `![a](` 30,000 times 5.4 s;
+and, under the first guard (a cap per line and per block), 16 nested
+ordered list markers on each of 8,000 lines 32.8 s, the unordered
+twin over 100 s, 25,000 reference definitions 2.3 s, 20,000 reference
+uses 1.6 s. Past the function's 30 s, a 503.
+
+The renderer (`html.ts`, second review of #343) now bounds the work
+before the parser sees it, cheaply:
+
+- no line opens more than 16 containers (quotes, list items) or keeps
+  more than 64 columns of indent, deeper being flattened; never inside
+  fenced code, whose lines are left as they are;
+- the body is parsed in stretches of about 60 lines or 6,000
+  characters, cut only where markdown starts afresh (after a blank
+  line, or before a top-level list item or quote), or, at twice that
+  with no such place, before any line at the margin but a table row,
+  and never inside fenced code; a note shorter than a stretch is
+  parsed whole, as before, and a long list cut there becomes several
+  lists, numbered on;
+- a stretch over a budget (2,000 marks of emphasis, links, images,
+  code or HTML after each line's list or checkbox opening; 20,000
+  table cells; lines times extra container markers 400,000) is cut at
+  its blank lines and only the blocks over the budget are shown as
+  plain text, escaped, in a preformatted block; the rest keeps its
+  formatting;
+- across the whole body at most 10,000 extra container markers and
+  20,000 lines are parsed; stretches past either are plain.
+
+After the guard, at the 200,000-character cap, in Node on the
+development container, alone: 16 nested ordered markers a line 0.8 s,
+unordered 0.8 s, quotes inside lists 0.6 s, an outline 16 deep 1.1 s,
+two nested markers a line 1.5 s, reference definitions 0.3 s,
+definitions with uses 0.7 s, 66,000 lines of text and rules 0.8 s,
+alternating fences 0.6 s, prose 0.9 s, and the worst found, a flat
+checklist of 200,000 characters (about 10,000 items), 1.9 s; the
+single-line runs (`_a`, `[a](b`, `![a](`, backticks, reference uses)
+and a 500-column table go plain in milliseconds. An honest
+3,000-item checklist and a 300-row, 8-column table stay formatted, at
+0.6 s together. `html.spec.ts` renders each of these shapes and fails
+the gate if one takes 10 s or more (five times the worst measured,
+so suites run side by side do not fail it), or writes a tag outside
+the set. A slow page degrades to plain text or, past the timeout, to
+the 503 page; never to anything unescaped. Not measured on Cloud Run, whose
+256 MiB instance has a fraction of a CPU.
+
+*Cold starts:* a friend's first open after a quiet spell waits a
+second or two while the function starts; accepted, with no minimum
+instances, which would cost money for a page read rarely.
+
+*The service worker and the router.* `ngsw-config.json` leaves
+`/s/**` out of its navigation URLs, so the app's own worker never
+answers a link with the app. An older installed worker would; the
+app's `s/:id` route hands such a load back to the network once,
+with `ngsw-bypass`, and says so rather than loop where no Worker
+serves the path (`ng serve`; the dev servers do not serve `/s/`).
+
+**In the app.** The back of the note has Share a copy (under its
+sources, beside Send to an assistant): before sharing, a line on what
+goes and what does not; after, "Shared. Anyone with the link can read
+this copy of the title and text. It is not listed anywhere.", the
+link, Copy link, Update the shared copy and Stop sharing. Settings,
+Shared links, lists every shared note with its link and Stop
+sharing, so what is public can always be seen; its row says how many.
+
+**The assistant.** No MCP tool makes, updates or stops a share, and
+none returns a share link: publishing is Eric's act in the app
+alone. A note can hold web text, and an assistant that could publish
+would be a way out for it. `get_note` says `shared: true`; INSTRUCTIONS
+says the same and to point Eric at Share a copy.
+
+**Tests.** Schema (the id, the shape), the grammar (`publicCopy`), the
+Worker (the route, its own 404 and 405, forwarding, the headers put
+back), functions (the page, its headers and 404s, the owner check,
+hostile input to the renderer, the server's stop, `get_note`, the
+importer round trip), the frontend (share, update, stop, Settings, offline
+words, Trash), the rules tests, and the journey
+(`packages/e2e/tests/public-copy.spec.ts`). The e2e stack serves the
+app from `scripts/serve-static.mjs`, which forwards `/s/*` to the
+stack's functions emulator through the same route table, so the
+journey reads every page through the real `publicShare`; the Worker's
+own gate in front of it is covered by its specs. A first call starts
+the function's process, and the journeys stop idle ones every tenth
+account reset (`packages/e2e/src/fixtures.ts`).
+
+**Part 2: media (not built).** A share will carry its photos and
+attachments as public copies of their own: files copied at share time
+to a path under the share, `shares/{shareId}/...` in Storage, owner-only
+in the rules like the document, named by it, and served by
+`publicShare` itself from `/s/<id>/f/<n>` under the same owner check,
+which keeps `img-src 'self'`. An
+attachment's own path stays owner-only. Stop sharing and Trash will
+delete the copies with the document.
 
 ## Security
 

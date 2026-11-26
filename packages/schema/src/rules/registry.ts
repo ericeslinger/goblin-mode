@@ -15,6 +15,7 @@ import {
   ReaderSettings,
   Reminder,
   Settings,
+  Share,
   Timestamp,
 } from '../model';
 import { generatedBlock, type ValidatedCollection } from './generate';
@@ -31,6 +32,7 @@ export const CLIENT_WRITTEN: ValidatedCollection[] = [
   { name: 'AssistantSettings', schema: AssistantSettings },
   { name: 'Habit', schema: Habit },
   { name: 'HabitLog', schema: HabitLog },
+  { name: 'Share', schema: Share },
 ];
 
 /**

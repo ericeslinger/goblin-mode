@@ -738,7 +738,7 @@ test.describe('the context column at 1440 by 900', () => {
     await expect(side).toBeVisible();
     await expect(side.getByRole('heading', { level: 2 })).toHaveText('Kiln log');
     await expect(side.getByRole('heading', { level: 3 })).toHaveText(
-      ['Linked from', 'Tags', 'What assistants changed', 'Send to an assistant'],
+      ['Linked from', 'Tags', 'Share a copy', 'What assistants changed', 'Send to an assistant'],
       { timeout: 15_000 },
     );
     const linkedFrom = side.getByRole('region', { name: 'Linked from' });
