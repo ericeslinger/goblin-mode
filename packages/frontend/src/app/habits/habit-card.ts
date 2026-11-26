@@ -428,7 +428,11 @@ export class HabitCard {
       state?: 'done' | 'skipped';
       answer?: HabitShownAnswer;
     }[] = [];
-    if (h.due && !this.settledElsewhere()) {
+    // Only a habit with its own weekday is kept to its due day: any
+    // other keeps today's row whenever its period is not settled
+    // elsewhere, so an entry on today can always be cleared (review of
+    // #341).
+    if ((h.weekday === undefined || h.due) && !this.settledElsewhere()) {
       out.push({
         when: 'today',
         label: 'Today',

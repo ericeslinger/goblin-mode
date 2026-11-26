@@ -5,8 +5,8 @@
 // module's zone (Eric's decisions, 2026-11-22). A weekly habit of
 // `times` (2026-11-23) on each late day of its week where the days left
 // are no more than the done days still needed, never two for a day. One
-// with its own weekday (2026-11-25) on that day of the week. The core, over a small
-// store, so it runs in specs without Firestore or FCM
+// with its own weekday (2026-11-25) on that day of the week. The core,
+// over a small store, so it runs in specs without Firestore or FCM
 // (habit-nudge-store.ts is the store over Firestore, habit-nudge-push.ts
 // the wiring). What is due is the schema's `habitNudgeDue`; nothing here
 // decides it again.

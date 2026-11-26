@@ -316,6 +316,19 @@ describe('The Habits screen (#324)', () => {
     ]);
   });
 
+  it('keeps today’s row for a weekly habit done earlier and again today (review of #341)', async () => {
+    const r = await render();
+    // Done Monday the 5th, and an entry on today, Tuesday, too (a tick
+    // on a second device): not due, but its row stays so it can be cleared.
+    await r.habits(
+      [habitDoc('pots', { name: 'Pots', schedule: 'weekly', createdAt: NOW - 30 * DAY })],
+      {
+        'pots_2026-10': { '05': { state: 'done' }, '06': { state: 'done' } },
+      },
+    );
+    expect(card(r.el, 'Pots').querySelector('[role="group"]')).not.toBeNull();
+  });
+
   it('adds a habit once a week or once a month (step 5 of #324)', async () => {
     const r = await render();
     await r.habits([]);
