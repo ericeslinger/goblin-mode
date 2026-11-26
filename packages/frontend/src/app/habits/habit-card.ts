@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { type HabitAnswer, type HabitSchedule } from '@mossgoblin/schema';
+import { type HabitAnswer, type HabitSchedule, type Weekday } from '@mossgoblin/schema';
 import { ModulesService } from '../modules/modules.service';
 import { PushService } from '../push/push.service';
 import { HabitAnswerFields } from './habit-answer-fields';
@@ -8,6 +8,7 @@ import { HabitAsk } from './habit-ask';
 import {
   SCHEDULE_CHOICES,
   TIMES_CHOICES,
+  WEEKDAY_CHOICES,
   answerWords,
   dayInitial,
   dayName,
@@ -153,14 +154,24 @@ import {
         @if (schedule() === 'weekly') {
           <label>
             How many times a week
-            <select name="times" (change)="times.set(+value($event))">
+            <select name="times" (change)="timesTo(+value($event))">
               @for (n of timesChoices; track n.value) {
                 <option [value]="n.value" [selected]="times() === n.value">{{ n.label }}</option>
               }
             </select>
           </label>
+          <label>
+            Which day
+            <select name="weekday" (change)="weekdayTo(value($event))">
+              @for (w of weekdayChoices; track w.value) {
+                <option [value]="w.value" [selected]="weekday() === w.value">{{ w.label }}</option>
+              }
+            </select>
+          </label>
         }
-        @if (schedule() !== h.schedule || formTimes() !== (h.times ?? 1)) {
+        @if (
+          schedule() !== h.schedule || formTimes() !== (h.times ?? 1) || formWeekday() !== h.weekday
+        ) {
           <p class="hint">What is logged stays, read again by the new schedule.</p>
         }
         <label>
@@ -271,6 +282,10 @@ import {
     .before .mark {
       border-color: var(--rule);
     }
+    /* Not its day (2026-11-25): no ring, so its own day stands out. */
+    .off .mark {
+      border-color: transparent;
+    }
     .strip li:last-child .initial {
       font-weight: 600;
       color: var(--ink);
@@ -377,6 +392,13 @@ export class HabitCard {
   protected readonly timesChoices = TIMES_CHOICES;
   /** The days a week the form would save: 1 unless weekly. */
   protected readonly formTimes = computed(() => (this.schedule() === 'weekly' ? this.times() : 1));
+  /** A weekly habit's own day in the form (2026-11-25); '' is any day. */
+  protected readonly weekday = signal<Weekday | ''>('');
+  protected readonly weekdayChoices = WEEKDAY_CHOICES;
+  /** The day the form would save: none unless weekly, once a week, a day chosen. */
+  protected readonly formWeekday = computed(() =>
+    this.schedule() === 'weekly' && this.times() === 1 ? this.weekday() || undefined : undefined,
+  );
   protected readonly answer = signal<HabitAnswer>('done');
   protected readonly choices = signal<string[]>([]);
   protected readonly template = signal<string | undefined>(undefined);
@@ -393,7 +415,9 @@ export class HabitCard {
 
   /**
    * Today's row, unless its week or month was settled on another day
-   * (the period line says why), and yesterday's while it can be logged.
+   * (the period line says why) or, for a habit with its own weekday
+   * (2026-11-25), today is not that day; and yesterday's while it can be
+   * logged.
    */
   protected readonly rows = computed(() => {
     const h = this.habit();
@@ -404,7 +428,11 @@ export class HabitCard {
       state?: 'done' | 'skipped';
       answer?: HabitShownAnswer;
     }[] = [];
-    if (!this.settledElsewhere()) {
+    // Only a habit with its own weekday is kept to its due day: any
+    // other keeps today's row whenever its period is not settled
+    // elsewhere, so an entry on today can always be cleared (review of
+    // #341).
+    if ((h.weekday === undefined || h.due) && !this.settledElsewhere()) {
       out.push({
         when: 'today',
         label: 'Today',
@@ -433,7 +461,13 @@ export class HabitCard {
 
   /** What a nudge at the time in the form would do. */
   protected readonly hint = computed(() =>
-    nudgeHint(this.schedule(), this.time(), this.modules.habitsConfig(), this.formTimes()),
+    nudgeHint(
+      this.schedule(),
+      this.time(),
+      this.modules.habitsConfig(),
+      this.formTimes(),
+      this.formWeekday(),
+    ),
   );
 
   /** This device cannot be sent a nudge as things stand. */
@@ -480,6 +514,7 @@ export class HabitCard {
     this.nudge.set(this.habit().nudge);
     this.schedule.set(this.habit().schedule);
     this.times.set(this.habit().times ?? 1);
+    this.weekday.set(this.habit().weekday ?? '');
     this.answer.set(this.habit().answer);
     this.choices.set([...(this.habit().choices ?? [])]);
     this.template.set(this.habit().template);
@@ -494,6 +529,21 @@ export class HabitCard {
   protected nudgeTo(on: boolean): void {
     this.nudge.set(on);
     if (on && ['off', 'error'].includes(this.push.state())) void this.push.enable();
+  }
+
+  /**
+   * How many times a week chosen (2026-11-25): more than once has no set
+   * day, so the day goes back to any day.
+   */
+  protected timesTo(n: number): void {
+    this.times.set(n);
+    if (n > 1) this.weekday.set('');
+  }
+
+  /** Which day chosen (2026-11-25): a set day is once a week. */
+  protected weekdayTo(w: string): void {
+    this.weekday.set(w as Weekday | '');
+    if (w) this.times.set(1);
   }
 
   protected value(event: Event): string {
@@ -548,8 +598,12 @@ export class HabitCard {
     const name = this.name().trim();
     if (!name) return;
     if (name !== h.name) this.habits.rename(h.id, name);
-    if (this.schedule() !== h.schedule || this.formTimes() !== (h.times ?? 1))
-      this.habits.setSchedule(h.id, this.schedule(), this.formTimes());
+    if (
+      this.schedule() !== h.schedule ||
+      this.formTimes() !== (h.times ?? 1) ||
+      this.formWeekday() !== h.weekday
+    )
+      this.habits.setSchedule(h.id, this.schedule(), this.formTimes(), this.formWeekday());
     const choices = this.answer() === 'choice' ? this.choices() : undefined;
     const template = this.answer() === 'note' ? this.template() : undefined;
     if (

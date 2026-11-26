@@ -17,10 +17,10 @@ import { AuthService } from '../auth.service';
 import { PageHeader } from '../home/page-header';
 import { ModulesService } from '../modules/modules.service';
 import { SignIn } from '../sign-in/sign-in';
-import type { HabitAnswer, HabitSchedule } from '@mossgoblin/schema';
+import type { HabitAnswer, HabitSchedule, Weekday } from '@mossgoblin/schema';
 import { HabitAnswerFields } from './habit-answer-fields';
 import { HabitCard } from './habit-card';
-import { SCHEDULE_CHOICES, TIMES_CHOICES } from './habit-lines';
+import { SCHEDULE_CHOICES, TIMES_CHOICES, WEEKDAY_CHOICES } from './habit-lines';
 import { HabitRefusals } from './habit-refusals';
 import { JournalOfferLine } from './journal-offer';
 import { type HabitUndoable, HabitsService, answerFields } from './habits.service';
@@ -101,10 +101,20 @@ import { type HabitUndoable, HabitsService, answerFields } from './habits.servic
               @if (schedule() === 'weekly') {
                 <label>
                   How many times a week
-                  <select name="times" (change)="times.set(+value($event))">
+                  <select name="times" (change)="timesTo(+value($event))">
                     @for (n of timesChoices; track n.value) {
                       <option [value]="n.value" [selected]="times() === n.value">
                         {{ n.label }}
+                      </option>
+                    }
+                  </select>
+                </label>
+                <label>
+                  Which day
+                  <select name="weekday" (change)="weekdayTo(value($event))">
+                    @for (w of weekdayChoices; track w.value) {
+                      <option [value]="w.value" [selected]="weekday() === w.value">
+                        {{ w.label }}
                       </option>
                     }
                   </select>
@@ -260,6 +270,9 @@ export class Habits {
   /** A weekly habit's days a week (2026-11-23), 1 to 7: once unless chosen. */
   protected readonly times = signal(1);
   protected readonly timesChoices = TIMES_CHOICES;
+  /** A weekly habit's own day (2026-11-25): '' is any day, unless chosen. */
+  protected readonly weekday = signal<Weekday | ''>('');
+  protected readonly weekdayChoices = WEEKDAY_CHOICES;
   protected readonly answer = signal<HabitAnswer>('done');
   protected readonly choices = signal<string[]>([]);
   protected readonly template = signal<string | undefined>(undefined);
@@ -331,6 +344,18 @@ export class Habits {
     return (event.target as HTMLInputElement).value;
   }
 
+  /** More than once a week has no set day (2026-11-25): back to any day. */
+  protected timesTo(n: number): void {
+    this.times.set(n);
+    if (n > 1) this.weekday.set('');
+  }
+
+  /** A set day is once a week (2026-11-25). */
+  protected weekdayTo(w: string): void {
+    this.weekday.set(w as Weekday | '');
+    if (w) this.times.set(1);
+  }
+
   protected add(event: Event): void {
     event.preventDefault();
     if (!this.name().trim()) return;
@@ -338,6 +363,9 @@ export class Habits {
       name: this.name(),
       schedule: this.schedule(),
       ...(this.schedule() === 'weekly' && this.times() > 1 ? { times: this.times() } : {}),
+      ...(this.schedule() === 'weekly' && this.times() === 1 && this.weekday()
+        ? { weekday: this.weekday() as Weekday }
+        : {}),
       time: this.time() || undefined,
       answer: this.answer(),
       ...(this.answer() === 'choice' ? { choices: this.choices() } : {}),
@@ -351,6 +379,7 @@ export class Habits {
     this.time.set('');
     this.schedule.set('daily');
     this.times.set(1);
+    this.weekday.set('');
     this.answer.set('done');
     this.choices.set([]);
     this.template.set(undefined);

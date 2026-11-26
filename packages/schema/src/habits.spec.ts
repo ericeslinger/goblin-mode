@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   HABIT_NUDGE_LATE_MS,
   canLogHabitDay,
+  habitDayInWeek,
   habitDayKey,
   habitDayLoggable,
   habitDue,
@@ -9,11 +10,13 @@ import {
   habitLogId,
   habitLogMonths,
   habitMonth,
+  habitNextDueDay,
   habitPeriod,
   habitPeriodCount,
   habitPeriodState,
   habitSettledOn,
   habitTimes,
+  habitWeekday,
   habitStreak,
   habitNextNudge,
   habitNudgeAt,
@@ -1382,6 +1385,286 @@ describe('N times a week (Eric, 2026-11-23)', () => {
       expect(
         habitNextNudge({ ...nudged, times: 2 }, Date.parse('2026-11-16T15:00:00Z'), config),
       ).toBe(SAT);
+    });
+  });
+});
+
+describe('a weekly habit on its own weekday (Eric, 2026-11-25)', () => {
+  // Weeks from Monday: 2026-11-16 to 22, 23 to 29, then 11-30 to 12-06.
+  // Wednesdays: 11-11, 11-18, 11-25, 12-02.
+  const garbage = { schedule: 'weekly', weekday: 'Wed', archived: false } as const;
+  const sunday = { schedule: 'weekly', weekday: 'Sun', archived: false } as const;
+  const monday = { schedule: 'weekly', weekday: 'Mon', archived: false } as const;
+
+  it('stores a weekday on a weekly habit only, never with a target', () => {
+    for (const weekday of ['Mon', 'Wed', 'Sun']) {
+      expect(Habit.safeParse(habit({ schedule: 'weekly', weekday })).success).toBe(true);
+    }
+    expect(Habit.safeParse(habit({ schedule: 'daily', weekday: 'Wed' })).success).toBe(false);
+    expect(Habit.safeParse(habit({ schedule: 'monthly', weekday: 'Wed' })).success).toBe(false);
+    expect(Habit.safeParse(habit({ schedule: 'weekly', weekday: 'Wed', times: 2 })).success).toBe(
+      false,
+    );
+    for (const weekday of ['Wednesday', 'wed', 3, '']) {
+      expect(Habit.safeParse(habit({ schedule: 'weekly', weekday })).success).toBe(false);
+    }
+  });
+
+  it('reads the weekday on a weekly habit of once a week only', () => {
+    expect(habitWeekday(garbage)).toBe('Wed');
+    expect(habitWeekday(weekly)).toBeUndefined();
+    expect(habitWeekday({ schedule: 'daily', weekday: 'Wed' })).toBeUndefined();
+    expect(habitWeekday({ schedule: 'weekly', weekday: 'Wed', times: 2 })).toBeUndefined();
+    expect(habitDayInWeek(garbage, '2026-11-20')).toBe('2026-11-18');
+    expect(habitDayInWeek(garbage, '2026-11-16')).toBe('2026-11-18');
+    // Weeks from Thursday: the Wednesday is the week's last day.
+    expect(habitDayInWeek(garbage, '2026-11-20', 'Thu')).toBe('2026-11-25');
+    expect(habitDayInWeek(weekly, '2026-11-20')).toBeUndefined();
+    expect(habitNextDueDay(garbage, '2026-11-18')).toBe('2026-11-18');
+    expect(habitNextDueDay(garbage, '2026-11-19')).toBe('2026-11-25');
+    expect(habitNextDueDay(garbage, '2026-11-17')).toBe('2026-11-18');
+    expect(habitNextDueDay(daily, '2026-11-17')).toBeUndefined();
+  });
+
+  it('is due on its weekday only, logged or not', () => {
+    const none = log({});
+    expect(habitDue(garbage, none, '2026-11-17')).toBe(false);
+    expect(habitDue(garbage, none, '2026-11-18')).toBe(true);
+    expect(habitDue(garbage, none, '2026-11-19')).toBe(false);
+    expect(habitDue(garbage, doneOn('2026-11-18'), '2026-11-18')).toBe(true);
+    // Done on another day of the week: still due on its own.
+    expect(habitDue(garbage, doneOn('2026-11-16'), '2026-11-18')).toBe(true);
+    expect(habitDue({ ...garbage, archived: true }, none, '2026-11-18')).toBe(false);
+  });
+
+  it('meets the week by its weekday, and skips it by its weekday', () => {
+    expect(habitPeriodState(garbage, doneOn('2026-11-18'), '2026-11-20')).toBe('done');
+    expect(habitSettledOn(garbage, doneOn('2026-11-18'), '2026-11-20')).toBe('2026-11-18');
+    expect(habitPeriodCount(garbage, doneOn('2026-11-18'), '2026-11-20')).toEqual({
+      done: 1,
+      target: 1,
+    });
+    // Another day of the week does not count.
+    const tuesday = doneOn('2026-11-17');
+    expect(habitPeriodState(garbage, tuesday, '2026-11-20')).toBe('none');
+    expect(habitSettledOn(garbage, tuesday, '2026-11-20')).toBeUndefined();
+    expect(habitPeriodCount(garbage, tuesday, '2026-11-20')).toEqual({ done: 0, target: 1 });
+    expect(habitPeriodState(garbage, log({ '2026-11-18': skipped }), '2026-11-16')).toBe('skipped');
+    expect(habitPeriodState(garbage, log({ '2026-11-17': skipped }), '2026-11-16')).toBe('none');
+  });
+
+  it('logs its weekday today, or yesterday after the fact, and no other day', () => {
+    // Wednesday 11-18.
+    expect(habitDayLoggable(garbage, '2026-11-18', '2026-11-18')).toBe(true);
+    expect(habitDayLoggable(garbage, '2026-11-17', '2026-11-18')).toBe(false);
+    // Thursday: Wednesday as yesterday, not Thursday itself.
+    expect(habitDayLoggable(garbage, '2026-11-18', '2026-11-19')).toBe(true);
+    expect(habitDayLoggable(garbage, '2026-11-19', '2026-11-19')).toBe(false);
+    // Friday: nothing.
+    expect(habitDayLoggable(garbage, '2026-11-18', '2026-11-20')).toBe(false);
+    expect(habitDayLoggable(garbage, '2026-11-20', '2026-11-20')).toBe(false);
+    expect(habitDayLoggable(garbage, '2026-11-18', '2026-11-19', { createdOn: '2026-11-19' })).toBe(
+      false,
+    );
+    // Its weekday the first of the week: yesterday within the week.
+    expect(habitDayLoggable(monday, '2026-11-16', '2026-11-17')).toBe(true);
+    // Its weekday the last of the week: yesterday across the week's end.
+    expect(habitDayLoggable(sunday, '2026-11-22', '2026-11-23')).toBe(true);
+    expect(habitDayLoggable(sunday, '2026-11-23', '2026-11-23')).toBe(false);
+  });
+
+  it('shows its weekday by the rules for a day, the others not its day', () => {
+    // Friday 11-20, Sat 14 to Fri 20: Wednesday 18 empty and past.
+    expect(habitStrip(garbage, log({}), '2026-11-20').map((d) => d.state)).toEqual([
+      'off',
+      'off',
+      'off',
+      'off',
+      'missed',
+      'off',
+      'off',
+    ]);
+    // Thursday: Wednesday can still be logged.
+    expect(habitStrip(garbage, log({}), '2026-11-19').map((d) => d.state)[5]).toBe('open');
+    // Wednesday itself, today.
+    expect(habitStrip(garbage, log({}), '2026-11-18').map((d) => d.state)[6]).toBe('open');
+    expect(habitStrip(garbage, doneOn('2026-11-18'), '2026-11-20')[4].state).toBe('done');
+    expect(habitStrip(garbage, log({ '2026-11-18': skipped }), '2026-11-20')[4].state).toBe(
+      'skipped',
+    );
+    // A day logged that is not its day shows as logged.
+    expect(habitStrip(garbage, doneOn('2026-11-17'), '2026-11-20')[3].state).toBe('done');
+    // Before it began, before.
+    expect(
+      habitStrip(garbage, log({}), '2026-11-20', { createdOn: '2026-11-19' }).map((d) => d.state),
+    ).toEqual(['before', 'before', 'before', 'before', 'before', 'off', 'off']);
+  });
+
+  it('counts weeks by its weekday, across two months', () => {
+    const days = doneOn('2026-11-11', '2026-11-18', '2026-11-25', '2026-12-02');
+    // Friday 12-04, in the week of 11-30 to 12-06.
+    expect(habitStreak(garbage, days, '2026-12-04')).toEqual({ count: 4, complete: true });
+    expect(habitStreak(garbage, days, '2026-12-04', { loadedFrom: '2026-11-01' })).toEqual({
+      count: 4,
+      complete: true,
+    });
+    // Tuesday 12-01: this week's Wednesday still to come.
+    const before = doneOn('2026-11-11', '2026-11-18', '2026-11-25');
+    expect(habitStreak(garbage, before, '2026-12-01').count).toBe(3);
+  });
+
+  it('counts the current week against it once its day and the day after have gone', () => {
+    const days = doneOn('2026-11-11', '2026-11-18');
+    // Tuesday 11-24: Wednesday 25 to come.
+    expect(habitStreak(garbage, days, '2026-11-24').count).toBe(2);
+    // Wednesday, and Thursday (yesterday can still be logged): spared.
+    expect(habitStreak(garbage, days, '2026-11-25').count).toBe(2);
+    expect(habitStreak(garbage, days, '2026-11-26').count).toBe(2);
+    // Friday: gone empty, the streak ends.
+    expect(habitStreak(garbage, days, '2026-11-27')).toEqual({ count: 0, complete: true });
+    // Skipped instead: passed over.
+    const skip = new Map([...days, ['2026-11-25', skipped]]);
+    expect(habitStreak(garbage, skip, '2026-11-27').count).toBe(2);
+    // Another day of the week done does not save it.
+    const tue = new Map([...days, ['2026-11-24', done]]);
+    expect(habitStreak(garbage, tue, '2026-11-27').count).toBe(0);
+  });
+
+  it('on the last day of the week, spares it across the week’s end', () => {
+    const days = doneOn('2026-11-08', '2026-11-15');
+    // Monday 11-23: Sunday 22 was yesterday, still loggable.
+    expect(habitStreak(sunday, days, '2026-11-23').count).toBe(2);
+    // Tuesday: gone.
+    expect(habitStreak(sunday, days, '2026-11-24').count).toBe(0);
+    // Logged on the Monday for the Sunday: it counts for the week before.
+    const late = new Map([...days, ['2026-11-22', done]]);
+    expect(habitPeriodState(sunday, late, '2026-11-22')).toBe('done');
+    expect(habitPeriodState(sunday, late, '2026-11-23')).toBe('none');
+    expect(habitStreak(sunday, late, '2026-11-23').count).toBe(3);
+    expect(habitStreak(sunday, late, '2026-11-28').count).toBe(3);
+    // The strip on that Monday: Sunday open, the rest not its day.
+    expect(habitStrip(sunday, days, '2026-11-23').map((d) => d.state)).toEqual([
+      'off',
+      'off',
+      'off',
+      'off',
+      'off',
+      'open',
+      'off',
+    ]);
+  });
+
+  it('on the first day of the week, spares it the next day only', () => {
+    const days = doneOn('2026-11-09', '2026-11-16');
+    // Tuesday 11-24: Monday 23 yesterday, empty, spared.
+    expect(habitStreak(monday, days, '2026-11-24').count).toBe(2);
+    expect(habitStreak(monday, days, '2026-11-25').count).toBe(0);
+    // Monday 11-23 itself: today, spared.
+    expect(habitStreak(monday, days, '2026-11-23').count).toBe(2);
+  });
+
+  it('keeps weeks by the module’s week start (weeks from Sunday)', () => {
+    const weekStart = 'Sun' as const;
+    // Weeks from Sunday: 11-15 to 21, 22 to 28; Sunday is the first day.
+    const days = doneOn('2026-11-15', '2026-11-22');
+    expect(habitStreak(sunday, days, '2026-11-23', { weekStart }).count).toBe(2);
+    expect(habitDayInWeek(sunday, '2026-11-21', weekStart)).toBe('2026-11-15');
+    expect(habitDayLoggable(sunday, '2026-11-22', '2026-11-23', { weekStart })).toBe(true);
+    // Saturday the last: Saturday 21 logged on Sunday 22, the week before's.
+    const saturday = { schedule: 'weekly', weekday: 'Sat', archived: false } as const;
+    expect(habitDayLoggable(saturday, '2026-11-21', '2026-11-22', { weekStart })).toBe(true);
+    expect(habitPeriodState(saturday, doneOn('2026-11-21'), '2026-11-15', weekStart)).toBe('done');
+    expect(habitPeriodState(saturday, doneOn('2026-11-21'), '2026-11-22', weekStart)).toBe('none');
+    expect(
+      habitStreak(saturday, doneOn('2026-11-14', '2026-11-21'), '2026-11-22', { weekStart }).count,
+    ).toBe(2);
+  });
+
+  it('reads the week again by a weekday changed mid-week', () => {
+    // Done on Monday 16 as a Monday habit; made a Wednesday one on Tuesday.
+    const days = doneOn('2026-11-09', '2026-11-16');
+    expect(habitPeriodState(monday, days, '2026-11-17')).toBe('done');
+    expect(habitPeriodState(garbage, days, '2026-11-17')).toBe('none');
+    expect(habitDue(garbage, days, '2026-11-18')).toBe(true);
+    expect(habitDayLoggable(garbage, '2026-11-16', '2026-11-17')).toBe(false);
+    // Monday's tick still shows on the strip.
+    expect(habitStrip(garbage, days, '2026-11-17')[5].state).toBe('done');
+    // The Wednesday to come: the week not against it; last week's
+    // Wednesday was empty, so no streak.
+    expect(habitStreak(garbage, days, '2026-11-17').count).toBe(0);
+    expect(habitStreak(garbage, new Map([...days, ['2026-11-18', done]]), '2026-11-18').count).toBe(
+      1,
+    );
+  });
+
+  describe('its nudge', () => {
+    const NY = 'America/New_York';
+    const config = habitsConfig({});
+    const on = { on: true, config };
+    const nudged = { ...garbage, time: '19:00', tz: NY, nudge: true } as const;
+    /** 19:00 in New York (EST) on Wednesday 25 November 2026. */
+    const WED = Date.parse('2026-11-26T00:00:00Z');
+    const withDays = (days: Record<string, HabitEntry>, sentFor?: string) => ({
+      ...on,
+      entries: log(days),
+      ...(sentFor ? { sentFor } : {}),
+    });
+
+    it('plans its weekday, not the last day of the week', () => {
+      expect(habitNudgePlan(nudged, config)).toEqual({
+        kind: 'at',
+        time: '19:00',
+        schedule: 'weekly',
+        weekday: 'Wed',
+      });
+      expect(habitNudgePlan({ ...nudged, time: '23:00' }, config)).toEqual({
+        kind: 'early',
+        time: '22:00',
+        schedule: 'weekly',
+        weekday: 'Wed',
+      });
+    });
+
+    it('goes on its weekday only', () => {
+      expect(habitNudgeAt(nudged, '2026-11-25', config)).toBe(WED);
+      expect(habitNudgeAt(nudged, '2026-11-24', config)).toBeUndefined();
+      expect(habitNudgeAt(nudged, '2026-11-29', config)).toBeUndefined();
+      expect(habitNudgeDue(nudged, WED, withDays({}))).toEqual({ day: '2026-11-25', at: WED });
+      // Sunday at 19:00: not its day.
+      expect(habitNudgeDue(nudged, Date.parse('2026-11-30T00:00:00Z'), withDays({}))).toBe(
+        undefined,
+      );
+    });
+
+    it('sends none when its day holds an entry or the week was nudged', () => {
+      expect(habitNudgeDue(nudged, WED, withDays({ '2026-11-25': done }))).toBeUndefined();
+      expect(habitNudgeDue(nudged, WED, withDays({ '2026-11-25': skipped }))).toBeUndefined();
+      // Another day done does not settle its week.
+      expect(habitNudgeDue(nudged, WED, withDays({ '2026-11-24': done }))).toEqual({
+        day: '2026-11-25',
+        at: WED,
+      });
+      expect(habitNudgeDue(nudged, WED, withDays({}, '2026-11-23'))).toBeUndefined();
+      expect(habitNudgeDue(nudged, WED, withDays({}, '2026-11-18'))).toEqual({
+        day: '2026-11-25',
+        at: WED,
+      });
+      // Late by more than the bound, or changed after its moment: none.
+      expect(habitNudgeDue(nudged, WED + HABIT_NUDGE_LATE_MS + 1, withDays({}))).toBeUndefined();
+      expect(habitNudgeDue(nudged, WED, { ...withDays({}), changedAt: WED })).toBeUndefined();
+    });
+
+    it('wakes for its weekday each week', () => {
+      // Monday 11-23 at 10:00 in New York.
+      expect(habitNextNudge(nudged, Date.parse('2026-11-23T15:00:00Z'), config)).toBe(WED);
+      expect(habitNextNudge(nudged, WED, config)).toBe(Date.parse('2026-12-03T00:00:00Z'));
+      // Its weekday the last of a week starting Thursday: the same days.
+      const thu = habitsConfig({ weekStart: 'Thu' });
+      expect(habitNextNudge(nudged, Date.parse('2026-11-23T15:00:00Z'), thu)).toBe(WED);
+      expect(habitNudgeDue(nudged, WED, { on: true, config: thu, entries: log({}) })).toEqual({
+        day: '2026-11-25',
+        at: WED,
+      });
     });
   });
 });

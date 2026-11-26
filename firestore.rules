@@ -184,10 +184,11 @@ service cloud.firestore {
 
     function isValidHabit(data) {
       return data.keys().hasAll(['name', 'schedule', 'tz', 'answer', 'nudge', 'archived', 'createdAt', 'updatedAt', 'createdBy'])
-        && data.keys().hasOnly(['name', 'schedule', 'times', 'time', 'tz', 'answer', 'choices', 'template', 'nudge', 'archived', 'createdAt', 'updatedAt', 'createdBy', 'agent'])
+        && data.keys().hasOnly(['name', 'schedule', 'times', 'weekday', 'time', 'tz', 'answer', 'choices', 'template', 'nudge', 'archived', 'createdAt', 'updatedAt', 'createdBy', 'agent'])
         && data.name is string
         && (data.schedule is string && data.schedule in ['daily', 'weekly', 'monthly'])
         && (!('times' in data) || data.times is number)
+        && (!('weekday' in data) || (data.weekday is string && data.weekday in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']))
         && (!('time' in data) || data.time is string)
         && data.tz is string
         && (data.answer is string && data.answer in ['done', 'choice', 'text', 'note'])
@@ -376,6 +377,10 @@ service cloud.firestore {
           // (HABIT_TIMES_MIN, _MAX), on a weekly habit only.
           && (!('times' in data) || (data.times is int && data.times >= 2 && data.times <= 7
             && data.schedule == 'weekly'))
+          // A weekly habit's day (2026-11-25): on a weekly habit only, and
+          // never with a target of several days; the generated validator
+          // holds it to the seven names.
+          && (!('weekday' in data) || (data.schedule == 'weekly' && !('times' in data)))
           && (!('agent' in data) || (data.agent.size() >= 1 && data.agent.size() <= 100));
       }
 

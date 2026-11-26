@@ -923,6 +923,26 @@ describe('habits (#324): the gardener’s habits and their month logs', () => {
     await assertFails(ref.set({ ...habit(), schedule: 'weekly', times: '2' }));
   });
 
+  it('takes a weekly habit’s day, on weekly only and never with a target (2026-11-25)', async () => {
+    const ref = owner().doc('users/owner/habits/h1');
+    await assertSucceeds(ref.set({ ...habit(), schedule: 'weekly', weekday: 'Wed' }));
+    await assertSucceeds(ref.set({ ...habit(), schedule: 'weekly', weekday: 'Sun' }));
+    // Made daily, the day goes in the same write, or it is refused.
+    await assertFails(ref.set({ schedule: 'daily' }, { merge: true }));
+    await assertFails(ref.set({ schedule: 'monthly' }, { merge: true }));
+    await assertSucceeds(
+      ref.set(
+        { schedule: 'daily', weekday: firebase.firestore.FieldValue.delete() },
+        { merge: true },
+      ),
+    );
+    await assertFails(ref.set({ ...habit(), schedule: 'daily', weekday: 'Wed' }));
+    await assertFails(ref.set({ ...habit(), schedule: 'monthly', weekday: 'Wed' }));
+    await assertFails(ref.set({ ...habit(), schedule: 'weekly', weekday: 'Wed', times: 2 }));
+    await assertFails(ref.set({ ...habit(), schedule: 'weekly', weekday: 'Wednesday' }));
+    await assertFails(ref.set({ ...habit(), schedule: 'weekly', weekday: 3 }));
+  });
+
   it('merges a day into a month’s log, as two devices ticking offline do', async () => {
     const ref = owner().doc('users/owner/habitLogs/h1_2026-11');
     await assertSucceeds(ref.set(habitLog()));

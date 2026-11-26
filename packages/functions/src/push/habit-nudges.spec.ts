@@ -281,6 +281,56 @@ describe('nudges for N times a week (2026-11-23)', () => {
   });
 });
 
+describe('nudges for a weekly habit on its own weekday (2026-11-25)', () => {
+  const done: HabitEntry = { state: 'done', at: { seconds: 1, nanoseconds: 0 } };
+  /** 19:00 in New York on Wednesday 25 and Sunday 29 November 2026. */
+  const WED = Date.parse('2026-11-26T00:00:00Z');
+  const SUN = Date.parse('2026-11-30T00:00:00Z');
+  const garbage = () => ({
+    uid: 'u1',
+    id: 'garbage',
+    habit: habit({
+      name: 'Take out the garbage',
+      schedule: 'weekly',
+      weekday: 'Wed',
+      time: '19:00',
+    }),
+  });
+
+  it('nudges on its weekday, not the week’s last day, once, saying today', async () => {
+    const { store, sender, marks } = fakes([garbage()]);
+    expect((await sendNudges(store, sender, SUN - 7 * 86_400_000)).pushed).toBe(0);
+    expect((await sendNudges(store, sender, WED)).pushed).toBe(1);
+    expect(marks['u1']).toEqual({ garbage: '2026-11-25' });
+    expect((await sendNudges(store, sender, WED + 60_000)).pushed).toBe(0);
+    expect((await sendNudges(store, sender, SUN)).pushed).toBe(0);
+    expect(sender.send).toHaveBeenCalledWith(
+      ['t1'],
+      expect.objectContaining({
+        title: 'Take out the garbage',
+        body: 'Right Now · not done yet today',
+      }),
+    );
+  });
+
+  it('sends none when its day is logged; another day logged does not stop it', async () => {
+    const ticked = fakes([garbage()], { logged: { 'garbage/2026-11-25': done } });
+    expect((await sendNudges(ticked.store, ticked.sender, WED)).pushed).toBe(0);
+    const other = fakes([garbage()], { logged: { 'garbage/2026-11-24': done } });
+    expect((await sendNudges(other.store, other.sender, WED)).pushed).toBe(1);
+  });
+
+  it('wakes for its weekday', async () => {
+    const enqueue = vi.fn<WakeQueue['enqueue']>(async () => undefined);
+    const q: WakeQueue = { enqueue };
+    // Monday 23 November, 10:00 in New York.
+    expect(
+      await wakeForNudge(q, garbage(), habitsConfig({}), Date.parse('2026-11-23T15:00:00Z')),
+    ).toBe(true);
+    expect(enqueue).toHaveBeenCalledWith('u1', 'garbage', WED, expect.any(String));
+  });
+});
+
 describe('nudges follow the device’s zone (Eric, 2026-11-22)', () => {
   it('reads the day and time in the module’s zone, not the habit’s', async () => {
     // Made in New York; the app last ran in Paris, where 21:00 on the

@@ -816,3 +816,112 @@ describe('N times a week (2026-11-23)', () => {
     );
   });
 });
+
+describe('a weekly habit on its own weekday (2026-11-25)', () => {
+  // T is Saturday 2026-11-21 in Los Angeles; the week runs from Monday the 16th.
+  it('makes, lists, logs and changes one, due on its day only', async () => {
+    await habitsOn({ tz: LA });
+    const t = tools();
+    const bins = await t.createHabit({
+      name: 'Take out the garbage',
+      schedule: 'weekly',
+      weekday: 'Sat',
+      time: '19:00',
+      nudge: true,
+    });
+    expect(bins).toMatchObject({ schedule: 'weekly', weekday: 'Sat', time: '19:00' });
+    expect((await db.doc(`users/u1/habits/${bins.id}`).get()).get('weekday')).toBe('Sat');
+    expect(bins.nudgeNote).toMatch(
+      /^One push on Saturday each week at 19:00, only if that day is not yet done or skipped, .*never a second that week\.$/,
+    );
+    const wed = await t.createHabit({ name: 'Recycling', schedule: 'weekly', weekday: 'Wed' });
+    await expect(t.createHabit({ name: 'Run', weekday: 'Wed' })).rejects.toThrow(
+      /weekday goes only with a weekly habit/,
+    );
+    await expect(
+      t.createHabit({ name: 'Run', schedule: 'weekly', weekday: 'Wed', timesAWeek: 2 }),
+    ).rejects.toThrow(/weekday is for a habit once a week/);
+
+    const listed = await t.listHabits({});
+    expect(listed.find((h) => h.id === bins.id)).toMatchObject({
+      weekday: 'Sat',
+      due: true,
+      nextDue: '2026-11-21',
+    });
+    expect(listed.find((h) => h.id === wed.id)).toMatchObject({
+      weekday: 'Wed',
+      due: false,
+      nextDue: '2026-11-25',
+    });
+    const context = (await t.getContext({ habits: true })) as {
+      habits?: { name: string; weekday?: string }[];
+    };
+    expect(context.habits?.map((h) => [h.name, h.weekday])).toEqual([
+      ['Take out the garbage', 'Sat'],
+    ]);
+
+    const logged = await t.logHabit({ habit: 'Take out the garbage', state: 'done' });
+    expect(logged).toMatchObject({
+      date: '2026-11-21',
+      weekday: 'Sat',
+      nextDue: '2026-11-21',
+      thisPeriod: 'done',
+      streak: { count: 1, unit: 'weeks' },
+    });
+    await expect(t.logHabit({ habit: 'Recycling', state: 'done' })).rejects.toThrow(
+      'Recycling is for Wednesdays only, and 2026-11-21 is a Saturday: log it for a ' +
+        'Wednesday, on the day or the day after; it is next due on 2026-11-25',
+    );
+
+    // Changed: null clears it; a target of several days, or another
+    // schedule, takes it away in the same write.
+    await expect(
+      t.updateHabit({ habit: 'Recycling', weekday: 'Mon', schedule: 'daily' }),
+    ).rejects.toThrow(/weekday goes only with a weekly habit/);
+    const any = await t.updateHabit({ habit: 'Recycling', weekday: null });
+    expect(any).toMatchObject({ changed: true, schedule: 'weekly' });
+    expect(any).not.toHaveProperty('weekday');
+    expect((await db.doc(`users/u1/habits/${wed.id}`).get()).get('weekday')).toBeUndefined();
+    await t.updateHabit({ habit: 'Recycling', weekday: 'Thu' });
+    expect((await db.doc(`users/u1/habits/${wed.id}`).get()).get('weekday')).toBe('Thu');
+    const thrice = await t.updateHabit({ habit: 'Recycling', timesAWeek: 3 });
+    expect(thrice).toMatchObject({ timesAWeek: 3 });
+    expect(thrice).not.toHaveProperty('weekday');
+    await expect(t.updateHabit({ habit: 'Recycling', weekday: 'Mon' })).rejects.toThrow(
+      /one of 3 days a week has no set day/,
+    );
+    await t.updateHabit({ habit: 'Recycling', weekday: 'Mon', timesAWeek: 1 });
+    expect((await db.doc(`users/u1/habits/${wed.id}`).get()).data()).toMatchObject({
+      weekday: 'Mon',
+    });
+    expect((await db.doc(`users/u1/habits/${wed.id}`).get()).get('times')).toBeUndefined();
+    const monthly = await t.updateHabit({ habit: 'Recycling', schedule: 'monthly' });
+    expect(monthly).not.toHaveProperty('weekday');
+    expect((await db.doc(`users/u1/habits/${wed.id}`).get()).get('weekday')).toBeUndefined();
+  });
+
+  it('logs its day as yesterday the day after, even across a week’s end', async () => {
+    await habitsOn({ tz: LA });
+    // Made on Thursday 19th, its day Friday 20th; today is Saturday.
+    await tools(T - 2 * 86_400_000).createHabit({
+      name: 'Bins',
+      schedule: 'weekly',
+      weekday: 'Fri',
+    });
+    const t = tools();
+    expect(await t.logHabit({ habit: 'Bins', state: 'done', date: '2026-11-20' })).toMatchObject({
+      date: '2026-11-20',
+      thisPeriod: 'done',
+    });
+    // A Sunday habit, its day the last of the week, logged on Monday 23rd.
+    await tools(T - 2 * 86_400_000).createHabit({
+      name: 'Sweep',
+      schedule: 'weekly',
+      weekday: 'Sun',
+    });
+    const monday = tools(T + 2 * 86_400_000);
+    const swept = await monday.logHabit({ habit: 'Sweep', state: 'done', date: '2026-11-22' });
+    expect(swept).toMatchObject({ date: '2026-11-22', thisPeriod: 'none', nextDue: '2026-11-29' });
+    expect(swept.streak).toMatchObject({ count: 1 });
+  });
+});

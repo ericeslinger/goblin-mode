@@ -207,6 +207,25 @@ describe('Right Now’s Habits (#324)', () => {
     expect(section(r.el)!.querySelector('[aria-label^="Yesterday?"]')).toBeNull();
   });
 
+  it('lists a habit on its own weekday only, named so (2026-11-25)', async () => {
+    const r = await render();
+    const made = { schedule: 'weekly', createdAt: NOW - 30 * DAY };
+    // Tuesday 6 October.
+    await r.habits([
+      habitDoc('bins', { ...made, name: 'Bins', weekday: 'Tue', time: '19:00' }),
+      habitDoc('glass', { ...made, name: 'Glass', weekday: 'Wed' }),
+      habitDoc('rec', { ...made, name: 'Recycling', weekday: 'Mon' }),
+    ]);
+    expect(rows(r.el)).toEqual(['Bins']);
+    expect(section(r.el)!.querySelector('li .when')?.textContent).toBe('Every Tuesday · 19:00');
+    expect(section(r.el)!.querySelector('[aria-label^="Yesterday?"]')).toBeNull();
+    buttonNamed(r.el, 'Done: Bins')!.click();
+    r.api.pushLog('bins_2026-10', { '06': { state: 'done' } });
+    await r.fixture.whenStable();
+    expect(rows(r.el)).toEqual([]);
+    expect(section(r.el)!.querySelector('.settled')?.textContent).toBe('Done today: Bins');
+  });
+
   it('shows a weekly or monthly habit each day of its period until settled (step 5)', async () => {
     const r = await render();
     const made = { createdAt: NOW - 30 * DAY };

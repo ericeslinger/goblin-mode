@@ -568,6 +568,95 @@ test('habits: twice a week, counted, ticked today and yesterday, kept', async ({
   expect(Object.values(habits).map((h) => h['times'])).toEqual([{ integerValue: '2' }]);
 });
 
+// On its own weekday (Eric, 2026-11-25): "take out the garbage every
+// Wednesday at 7 PM". Whatever day the run is on, one habit is pinned to
+// today's weekday and one to the day after tomorrow's, read from the
+// page's clock, fixed at the real now in UTC, so midnight passing during
+// the run moves neither. Today's is on Right Now, ticked and kept across
+// a reload; the other is not on Right Now, and the Habits screen names
+// its day and when it is next due.
+test('habits: on its own weekday, on Right Now that day only', async ({ page }) => {
+  test.setTimeout(150_000);
+  await signInAs(page, OWNER);
+  await switchModulesOn(page, 'Habits');
+  const realNow = Date.now();
+  const NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const todayIs = new Date(realNow).getUTCDay();
+  const today = NAMES[todayIs];
+  const later = NAMES[(todayIs + 2) % 7];
+  await page.clock.setFixedTime(realNow);
+  await page.goto('/habits');
+
+  /** Adds a weekly habit pinned to `day`, at 19:00. */
+  const addOn = async (name: string, day: string) => {
+    const first = page.getByRole('button', { name: 'Add your first habit' });
+    if (await first.isVisible()) await first.click();
+    else await page.getByRole('button', { name: 'Add a habit' }).click();
+    const form = page.getByRole('form', { name: 'New habit' });
+    await form.getByRole('textbox', { name: 'Habit' }).fill(name);
+    await expect(form.getByRole('combobox', { name: 'Which day' })).toHaveCount(0);
+    await form.getByRole('combobox', { name: 'How often' }).selectOption({ label: 'Once a week' });
+    const which = form.getByRole('combobox', { name: 'Which day' });
+    await expect(which).toHaveValue('');
+    // Twice a week first: a set day takes it back to once.
+    const times = form.getByRole('combobox', { name: 'How many times a week' });
+    await times.selectOption({ label: 'Twice' });
+    await which.selectOption({ label: day });
+    await expect(times).toHaveValue('1');
+    await form.getByLabel(/Time of day/).fill('19:00');
+    await form.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(card(page, name)).toBeVisible();
+  };
+  await addOn('Take out the garbage', today);
+  await addOn('Water the ferns', later);
+  const garbage = card(page, 'Take out the garbage');
+  const ferns = card(page, 'Water the ferns');
+  await expect(garbage).toContainText(`Every ${today} · 19:00`);
+  await expect(garbage).toContainText('Due today');
+  await expect(ferns).toContainText(`Every ${later} · 19:00`);
+  await expect(ferns).toContainText(`Next due on ${later.slice(0, 3)}`);
+  await expect(ferns.getByRole('button', { name: 'Done today: Water the ferns' })).toHaveCount(0);
+  await expect(
+    ferns.getByRole('list', { name: 'The last seven days of Water the ferns' }),
+  ).toContainText(': not its day');
+  await letItSave(page);
+
+  // Right Now: today's only, ticked, kept across a reload.
+  await page.goto('/right-now');
+  const section = habitsOnRightNow(page);
+  await expect(section.getByRole('listitem')).toHaveText([
+    new RegExp(`^Take out the garbage\\s*Every ${today} · 19:00`),
+  ]);
+  await section.getByRole('button', { name: 'Done: Take out the garbage' }).click();
+  await expect(section).toContainText('Done today: Take out the garbage');
+  await expect(section.getByRole('listitem')).toHaveCount(0);
+  await letItSave(page);
+  await page.reload();
+  await expect(section).toContainText('Done today: Take out the garbage');
+  await expect(section.getByRole('listitem')).toHaveCount(0);
+  await expect(section).not.toContainText('Water the ferns');
+
+  // The Habits screen: done today, its day named; the other's next day.
+  await page.goto('/habits');
+  await expect(garbage).toContainText('Done this week, today');
+  await expect(garbage).toContainText(`Every ${today} · 19:00 · Streak: 1 week`);
+  await expect(
+    garbage.getByRole('button', { name: 'Done today: Take out the garbage' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(ferns).toContainText(`Next due on ${later.slice(0, 3)}`);
+  expect(await noSidewaysScroll(page)).toBe(true);
+  await noSeriousViolations(page);
+  const habits = await storedDocs('habits');
+  expect(
+    Object.values(habits)
+      .map((h) => (h['weekday'] as { stringValue?: string } | undefined)?.stringValue)
+      .sort(),
+  ).toEqual([today.slice(0, 3), later.slice(0, 3)].sort());
+  expect(Object.values(habits).map((h) => h['times'])).toEqual([undefined, undefined]);
+  const stored = Object.values(await storedLogs()).flatMap((d) => Object.values(d));
+  expect(stored).toEqual(['done']);
+});
+
 /** The owner's stored documents in `collection` as admin: each one's fields, by id. */
 async function storedDocs(collection: string): Promise<Record<string, Record<string, unknown>>> {
   const res = await fetch(

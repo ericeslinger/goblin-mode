@@ -500,15 +500,25 @@ describe('HabitsService (#324)', () => {
     habits.setSchedule('floss', 'weekly');
     expect(lastWrite(api)).toEqual({
       path: 'users/u1/habits/floss',
-      data: { schedule: 'weekly', times: 'DELETE', updatedAt: NOW },
+      data: { schedule: 'weekly', times: 'DELETE', weekday: 'DELETE', updatedAt: NOW },
       merge: true,
     });
     // Twice a week (2026-11-23): written with it; a target on another
     // schedule, or of one, is none.
     habits.setSchedule('floss', 'weekly', 2);
-    expect(lastWrite(api).data).toEqual({ schedule: 'weekly', times: 2, updatedAt: NOW });
+    expect(lastWrite(api).data).toEqual({
+      schedule: 'weekly',
+      times: 2,
+      weekday: 'DELETE',
+      updatedAt: NOW,
+    });
     habits.setSchedule('floss', 'monthly', 2);
-    expect(lastWrite(api).data).toEqual({ schedule: 'monthly', times: 'DELETE', updatedAt: NOW });
+    expect(lastWrite(api).data).toEqual({
+      schedule: 'monthly',
+      times: 'DELETE',
+      weekday: 'DELETE',
+      updatedAt: NOW,
+    });
     habits.add({ name: 'Pots', schedule: 'weekly', times: 2 });
     expect(lastWrite(api).data).toMatchObject({ schedule: 'weekly', times: 2 });
     habits.add({ name: 'Bins', schedule: 'daily', times: 2 });
@@ -547,6 +557,78 @@ describe('HabitsService (#324)', () => {
     TestBed.tick();
     expect(habits.placed().map((h) => [h.due, h.state])).toEqual([[true, 'none']]);
     expect(habits.placed()[0]).toMatchObject({ yesterdayLoggable: true, yesterdayOpen: false });
+  });
+
+  it('keeps a weekly habit to its own weekday: due, listed and logged on it only (2026-11-25)', () => {
+    const { habits, api, push, setNow } = setup();
+    const made = { schedule: 'weekly', createdAt: NOW - 30 * DAY };
+    // Today is Tuesday the 6th.
+    push([
+      habitDoc('bins', { ...made, name: 'Bins', weekday: 'Tue' }),
+      habitDoc('glass', { ...made, name: 'Glass', weekday: 'Wed' }),
+      habitDoc('rec', { ...made, name: 'Recycling', weekday: 'Mon' }),
+    ]);
+    const by = (id: string) => habits.placed().find((h) => h.id === id)!;
+    expect(by('bins')).toMatchObject({ weekday: 'Tue', due: true, nextDue: '2026-10-06' });
+    expect(by('glass')).toMatchObject({ due: false, nextDue: '2026-10-07' });
+    // Monday's yesterday can still be logged, for its own week.
+    expect(by('rec')).toMatchObject({
+      due: false,
+      nextDue: '2026-10-12',
+      yesterdayLoggable: true,
+      yesterdayOpen: true,
+    });
+    expect(by('bins').yesterdayLoggable).toBe(false);
+    expect(habits.toDo().map((h) => h.id)).toEqual(['bins']);
+    // Not its day: refused here as by the assistant.
+    habits.log(by('glass'), '2026-10-06', 'done');
+    habits.log(by('bins'), '2026-10-05', 'done');
+    expect(api.set).not.toHaveBeenCalled();
+    habits.log(by('rec'), '2026-10-05', 'done');
+    expect(lastWrite(api)).toMatchObject({
+      path: 'users/u1/habitLogs/rec_2026-10',
+      data: { days: { '05': { state: 'done' } } },
+    });
+    habits.log(by('bins'), '2026-10-06', 'done');
+    expect(lastWrite(api).path).toBe('users/u1/habitLogs/bins_2026-10');
+    // Wednesday: Glass due, Bins not, its Tuesday as yesterday.
+    setNow(NOW + DAY);
+    vi.advanceTimersByTime(TICK_MS);
+    TestBed.tick();
+    expect(habits.toDo().map((h) => h.id)).toEqual(['glass']);
+    expect(by('bins')).toMatchObject({ due: false, yesterdayLoggable: true });
+  });
+
+  it('writes a weekly habit’s own day with its schedule, never with a target (2026-11-25)', () => {
+    const { habits, api } = setup();
+    habits.add({ name: 'Bins', schedule: 'weekly', weekday: 'Wed' });
+    expect(lastWrite(api).data).toMatchObject({ schedule: 'weekly', weekday: 'Wed' });
+    habits.add({ name: 'Run', schedule: 'daily', weekday: 'Wed' });
+    expect(lastWrite(api).data).not.toHaveProperty('weekday');
+    habits.add({ name: 'Pots', schedule: 'weekly', times: 2, weekday: 'Wed' });
+    expect(lastWrite(api).data).toMatchObject({ times: 2 });
+    expect(lastWrite(api).data).not.toHaveProperty('weekday');
+    habits.setSchedule('bins', 'weekly', 1, 'Thu');
+    expect(lastWrite(api).data).toEqual({
+      schedule: 'weekly',
+      times: 'DELETE',
+      weekday: 'Thu',
+      updatedAt: NOW,
+    });
+    habits.setSchedule('bins', 'weekly', 3, 'Thu');
+    expect(lastWrite(api).data).toEqual({
+      schedule: 'weekly',
+      times: 3,
+      weekday: 'DELETE',
+      updatedAt: NOW,
+    });
+    habits.setSchedule('bins', 'daily', 1, 'Thu');
+    expect(lastWrite(api).data).toEqual({
+      schedule: 'daily',
+      times: 'DELETE',
+      weekday: 'DELETE',
+      updatedAt: NOW,
+    });
   });
 
   it('renames, sets or clears the time, and archives with merged writes', () => {
