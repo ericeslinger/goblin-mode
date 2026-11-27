@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { logger } from 'firebase-functions/v2';
 import { describe, expect, it, vi } from 'vitest';
 import { type HttpRequest, type OAuthDeps, handleOAuth, registrationAsked } from './http';
 import { memoryOAuthStore } from './memory-store';
@@ -152,5 +153,45 @@ describe('handleOAuth', () => {
     });
     expect(registrationAsked('not json')).toEqual({ body: 'string' });
     expect(registrationAsked({ redirect_uris: 'one' })).toMatchObject({ redirect_uris: 'one' });
+  });
+
+  it('logs a refused registration: what it asked, the agent cut short, no other header', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      const out = await call(
+        deps(),
+        req('POST', '/oauth/register', {
+          headers: {
+            'user-agent': 'A'.repeat(500),
+            authorization: 'Bearer secret-token',
+          },
+          body: { redirect_uris: ['https://evil.example/cb'], ['k'.repeat(200)]: 'v' },
+        }),
+      );
+      // The answer is as it was.
+      expect(out.statusCode).toBe(400);
+      expect(out.body).toMatchObject({ error: 'invalid_redirect_uri' });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const [message, entry] = warn.mock.calls[0] as [string, Record<string, unknown>];
+      expect(message).toBe('oauth: registration refused');
+      expect(entry['agent']).toBe('A'.repeat(200));
+      expect(JSON.stringify(entry)).not.toContain('secret-token');
+      expect((entry['asked'] as { fields: string[] }).fields).toEqual([
+        'redirect_uris',
+        'k'.repeat(60),
+      ]);
+      // A body that is no object is refused the same, and logged as its kind.
+      for (const body of [null, 7, 'text', ['a']]) {
+        const again = await call(deps(), req('POST', '/oauth/register', { body }));
+        expect(again.statusCode).toBe(400);
+      }
+      expect(warn).toHaveBeenCalledTimes(5);
+      // Nothing is logged for a registration that is taken.
+      warn.mockClear();
+      await call(deps(), req('POST', '/oauth/register', { body: { redirect_uris: [CALLBACK] } }));
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

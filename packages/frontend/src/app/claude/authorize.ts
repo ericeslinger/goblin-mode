@@ -17,10 +17,14 @@ const PARAMS = [
 ];
 
 /**
- * Google's redirect host, where Gemini's hosted app has a code sent
- * (2026-11-27); the server allows only Gemini's own paths on it.
+ * Google's redirect hosts, where Gemini's hosted app has a code sent
+ * (2026-11-27); the server allows only Gemini's own paths on them.
  */
-const GEMINI_REDIRECT_ORIGIN = 'https://oauth-redirect.googleusercontent.com';
+const GEMINI_REDIRECT_ORIGINS = [
+  'https://oauth-redirect.googleusercontent.com',
+  'https://oauth-redirect-sandbox.googleusercontent.com',
+  'https://oauth-redirect-test.googleusercontent.com',
+];
 
 /** An app on this computer: its callback is http on a loopback host (#142). */
 const LOOPBACK = /^http:\/\/(127\.0\.0\.1|\[::1\]|localhost)(:\d+)?$/;
@@ -103,7 +107,7 @@ export class Authorize {
    * name alone.
    */
   protected whose(c: Consent): string {
-    return c.redirectOrigin === GEMINI_REDIRECT_ORIGIN
+    return GEMINI_REDIRECT_ORIGINS.includes(c.redirectOrigin)
       ? `Gemini (through Google, ${c.redirectOrigin})`
       : c.redirectOrigin;
   }

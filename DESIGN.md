@@ -6206,21 +6206,34 @@ is slow.
   `/mcp auth mossgoblin`). Hosted web clients other than claude.ai are
   added to the list one at a time, once checked.
 - **Gemini on the web (Eric, 2026-11-27).** Its custom connected app
-  registers itself, as claude.ai does, with a callback on Google's
-  shared redirect host:
-  `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-<id>`.
-  Registration now takes that host for a path of exactly that shape
-  and no query (`isGeminiRedirect`), and no other path on it: other
-  Google products have codes sent to the same host under paths of
-  their own. A client registered so is named Gemini unless it names
-  itself, and the consent page says the return is to Gemini, through
-  Google. As with claude.ai, anyone may register such a client; only
-  Eric, signed in, can approve one, and the page tells him to allow
-  only what he just asked to connect. Not established when built:
-  that Gemini completes the rest of the flow (a public client with
-  PKCE and no secret); the dialog's Client ID and secret fields are
-  for servers with made-in-advance credentials, which this has none
-  of.
+  registers itself, as claude.ai does, with callbacks on Google's
+  shared redirect hosts. Its dialog shows one,
+  `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-<id>`,
+  and taking that alone (#344) was not enough: it registers six at
+  once, on three hosts (`oauth-redirect`, `oauth-redirect-sandbox` and
+  `oauth-redirect-test`, each `.googleusercontent.com`) under two
+  prefixes (`/r/` and `/a/`), all with the one id, as a public client
+  with no secret, under the name Google. That was read from the log a
+  refused registration now writes (`oauth: registration refused`,
+  #345: its callbacks, how it means to sign in and the names of its
+  fields, each cut short), since the server refuses a registration
+  unless every callback in it is allowed. Registration takes those
+  three hosts for a path of exactly that shape under either prefix,
+  written to the letter with no query (`isGeminiRedirect`), and no
+  other path on them: other Google products have codes sent to the
+  same hosts under paths of their own. A client registered so is named
+  Gemini unless it names itself something other than Google, and the
+  consent page says the return is to Gemini, through Google. As with
+  claude.ai, anyone may register such a client; only Eric, signed in,
+  can approve one, and the page tells him to allow only what he just
+  asked to connect. Assumed, not read in Google's documentation: that
+  a code sent to such a path reaches only the Gemini connection that
+  owns its id, and that this holds on the sandbox and test hosts and
+  under `/a/` as it does under `/r/` on the main one. Anyone can
+  register any id, so the allowance is only as safe as that; what does
+  not rest on it is that Eric alone approves. The dialog's Client ID
+  and secret fields are for servers with made-in-advance credentials,
+  which this has none of.
 - **Send to an assistant (#143, 2026-10-25).** Eric: "The write a
   note > it gets fully ingested story is too good." A note's back has
   Send to an assistant, with an optional ask. It sets `sendState:

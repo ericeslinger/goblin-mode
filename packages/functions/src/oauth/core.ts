@@ -12,18 +12,31 @@ import { createHash, randomBytes } from 'node:crypto';
 export const ALLOWED_REDIRECT_ORIGINS = ['https://claude.ai', 'https://claude.com'];
 /**
  * Gemini's hosted app (Eric, 2026-11-27, #142): it sends a code to
- * Google's shared redirect host, at a path Google makes for one
+ * Google's shared redirect hosts, at a path Google makes for one
  * person's custom MCP connection. Other Google products use the same
- * host with paths of their own (`/r/<project>`), so the host alone is
+ * hosts with paths of their own (`/r/<project>`), so a host alone is
  * never enough: only this shape of path, and no query.
+ *
+ * What it really registers, read from the log of a refusal the same
+ * day: six callbacks at once, the one its dialog shows and five more,
+ * on three hosts (`oauth-redirect`, `-sandbox` and `-test`) under two
+ * prefixes (`/r/` and `/a/`), all with the one id. A registration is
+ * refused unless every callback in it is allowed, so all six shapes
+ * are.
  */
-export const GEMINI_REDIRECT_ORIGIN = 'https://oauth-redirect.googleusercontent.com';
-const GEMINI_REDIRECT_PATH = /^\/r\/user_bound_custom-mcp-[A-Za-z0-9_-]{8,128}$/;
+export const GEMINI_REDIRECT_ORIGINS = [
+  'https://oauth-redirect.googleusercontent.com',
+  'https://oauth-redirect-sandbox.googleusercontent.com',
+  'https://oauth-redirect-test.googleusercontent.com',
+];
+const GEMINI_REDIRECT_PATH = /^\/[ra]\/user_bound_custom-mcp-[A-Za-z0-9_-]{8,128}$/;
 
-/** Gemini's hosted callback: Google's redirect host, a custom-MCP path. */
+/** Gemini's hosted callback: one of Google's redirect hosts, a custom-MCP path. */
 export function isGeminiRedirect(url: URL): boolean {
   return (
-    url.origin === GEMINI_REDIRECT_ORIGIN && !url.search && GEMINI_REDIRECT_PATH.test(url.pathname)
+    GEMINI_REDIRECT_ORIGINS.includes(url.origin) &&
+    !url.search &&
+    GEMINI_REDIRECT_PATH.test(url.pathname)
   );
 }
 
@@ -164,7 +177,7 @@ function allowedRedirect(uri: unknown): uri is string {
       // parser tidies into shape (dot segments, a backslash, a bare `?`,
       // capitals in the host) is refused, so what is stored is what was
       // checked.
-      (isGeminiRedirect(url) && uri === `${GEMINI_REDIRECT_ORIGIN}${url.pathname}`) ||
+      (isGeminiRedirect(url) && uri === `${url.origin}${url.pathname}`) ||
       isLoopback(url))
   );
 }
@@ -201,15 +214,14 @@ export async function register(
   // Shown on the consent page and written into notes as the assistant's
   // name (#142), so kept to plain text.
   const name = typeof body['client_name'] === 'string' ? cleanAgentName(body['client_name']) : '';
+  const gemini = uris.every((u) => isGeminiRedirect(new URL(u)));
   const client: Client = {
     clientId: newSecret(),
+    // Gemini's app calls itself Google, which says less than Gemini does
+    // on the consent page and beside what it writes in a note.
     clientName:
-      name ||
-      (uris.every((u) => isLoopback(new URL(u)))
-        ? 'An app'
-        : uris.every((u) => isGeminiRedirect(new URL(u)))
-          ? 'Gemini'
-          : 'Claude'),
+      (gemini && name === 'Google' ? '' : name) ||
+      (uris.every((u) => isLoopback(new URL(u))) ? 'An app' : gemini ? 'Gemini' : 'Claude'),
     redirectUris: uris as string[],
     createdAt: now,
   };

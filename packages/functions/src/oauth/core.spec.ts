@@ -104,10 +104,39 @@ describe('OAuth', () => {
     expect(
       (await register(store, { redirect_uris: [ok], client_name: 'Gemini app' }, T)).clientName,
     ).toBe('Gemini app');
-    // The host is shared by other Google products: any other path, a
+    // What Gemini really sends (the log of 2026-11-27): six callbacks,
+    // on three hosts under two prefixes, and the name Google.
+    const id = 'user_bound_custom-mcp-0123456789abcdef01234567';
+    const six = ['oauth-redirect-sandbox', 'oauth-redirect-test', 'oauth-redirect'].flatMap((h) =>
+      ['r', 'a'].map((prefix) => `https://${h}.googleusercontent.com/${prefix}/${id}`),
+    );
+    const real = await register(
+      store,
+      {
+        client_name: 'Google',
+        redirect_uris: six,
+        response_types: ['code'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        token_endpoint_auth_method: 'none',
+      },
+      T,
+    );
+    expect(real.clientName).toBe('Gemini');
+    expect(real.redirectUris).toEqual(six);
+    for (const uri of six) expect(registeredRedirect(real, uri)).toBe(true);
+    // Any other name it gives is kept; Google is not Gemini's name for a
+    // client that returns elsewhere.
+    expect(
+      (await register(store, { client_name: 'Google', redirect_uris: [CALLBACK] }, T)).clientName,
+    ).toBe('Google');
+    // The hosts are shared by other Google products: any other path, a
     // query, a look-alike host or plain http is refused.
     for (const bad of [
       `${host}/r/some-actions-project`,
+      `${host}/b/user_bound_custom-mcp-abc12345`,
+      'https://oauth-redirect-prod.googleusercontent.com/r/user_bound_custom-mcp-abc12345',
+      'https://oauth-redirect-sandbox.googleusercontent.com/r/some-actions-project',
+      `https://oauth-redirect-test.googleusercontent.com/a/user_bound_custom-mcp-abc12345?x=1`,
       `${host}/r/user_bound_custom-mcp-`,
       `${host}/r/user_bound_custom-mcp-abc12345/extra`,
       `${host}/r/user_bound_custom-mcp-abc12345?next=https://evil.example`,
