@@ -6191,7 +6191,7 @@ is slow.
 - **Registration** accepts public clients whose redirect URIs are on
   `https://claude.ai` or `https://claude.com`, or http on a loopback
   host, so a stranger cannot register a client that sends codes
-  elsewhere.
+  elsewhere. (Since 2026-11-27 also Gemini's hosted callback, below.)
 - **Other assistants (#142, 2026-10-24).** Eric wants Gemini and other
   platforms on the same server, sooner than M5. An app on the
   gardener's own computer, such as Gemini CLI, signs in through a
@@ -6205,6 +6205,22 @@ is slow.
   `~/.gemini/settings.json`, then
   `/mcp auth mossgoblin`). Hosted web clients other than claude.ai are
   added to the list one at a time, once checked.
+- **Gemini on the web (Eric, 2026-11-27).** Its custom connected app
+  registers itself, as claude.ai does, with a callback on Google's
+  shared redirect host:
+  `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-<id>`.
+  Registration now takes that host for a path of exactly that shape
+  and no query (`isGeminiRedirect`), and no other path on it: other
+  Google products have codes sent to the same host under paths of
+  their own. A client registered so is named Gemini unless it names
+  itself, and the consent page says the return is to Gemini, through
+  Google. As with claude.ai, anyone may register such a client; only
+  Eric, signed in, can approve one, and the page tells him to allow
+  only what he just asked to connect. Not established when built:
+  that Gemini completes the rest of the flow (a public client with
+  PKCE and no secret); the dialog's Client ID and secret fields are
+  for servers with made-in-advance credentials, which this has none
+  of.
 - **Send to an assistant (#143, 2026-10-25).** Eric: "The write a
   note > it gets fully ingested story is too good." A note's back has
   Send to an assistant, with an optional ask. It sets `sendState:

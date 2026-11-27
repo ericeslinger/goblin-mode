@@ -1,8 +1,8 @@
 // The OAuth 2.1 authorization server MCP clients sign in through
-// (DESIGN.md, MCP server): claude.ai's custom connectors, and apps on
-// the gardener's own computer such as Gemini CLI (#142). Dynamic client
-// registration, the
-// authorization code flow with PKCE (S256 only), refresh token rotation.
+// (DESIGN.md, MCP server): claude.ai's custom connectors, Gemini on the
+// web (2026-11-27), and apps on the gardener's own computer such as
+// Gemini CLI (#142). Dynamic client registration, the authorization
+// code flow with PKCE (S256 only), refresh token rotation.
 // The only identity is the owner's Firebase sign-in, checked at approve.
 // Pure over an OAuthStore; codes and tokens are stored only as hashes.
 import { cleanAgentName } from '@mossgoblin/schema';
@@ -10,6 +10,23 @@ import { createHash, randomBytes } from 'node:crypto';
 
 /** Hosted clients that may receive a code: claude.ai's callback. */
 export const ALLOWED_REDIRECT_ORIGINS = ['https://claude.ai', 'https://claude.com'];
+/**
+ * Gemini's hosted app (Eric, 2026-11-27, #142): it sends a code to
+ * Google's shared redirect host, at a path Google makes for one
+ * person's custom MCP connection. Other Google products use the same
+ * host with paths of their own (`/r/<project>`), so the host alone is
+ * never enough: only this shape of path, and no query.
+ */
+export const GEMINI_REDIRECT_ORIGIN = 'https://oauth-redirect.googleusercontent.com';
+const GEMINI_REDIRECT_PATH = /^\/r\/user_bound_custom-mcp-[A-Za-z0-9_-]{8,128}$/;
+
+/** Gemini's hosted callback: Google's redirect host, a custom-MCP path. */
+export function isGeminiRedirect(url: URL): boolean {
+  return (
+    url.origin === GEMINI_REDIRECT_ORIGIN && !url.search && GEMINI_REDIRECT_PATH.test(url.pathname)
+  );
+}
+
 /**
  * Loopback hosts an app on the gardener's own computer listens on
  * (RFC 8252 section 7.3), over plain http. A code sent there reaches
@@ -140,7 +157,16 @@ function isLoopback(url: URL): boolean {
 
 function allowedRedirect(uri: unknown): uri is string {
   const url = parse(uri);
-  return !!url && (ALLOWED_REDIRECT_ORIGINS.includes(url.origin) || isLoopback(url));
+  return (
+    !!url &&
+    (ALLOWED_REDIRECT_ORIGINS.includes(url.origin) ||
+      // As written, to the letter (review of #344): a spelling the URL
+      // parser tidies into shape (dot segments, a backslash, a bare `?`,
+      // capitals in the host) is refused, so what is stored is what was
+      // checked.
+      (isGeminiRedirect(url) && uri === `${GEMINI_REDIRECT_ORIGIN}${url.pathname}`) ||
+      isLoopback(url))
+  );
 }
 
 /**
@@ -169,7 +195,7 @@ export async function register(
   if (!Array.isArray(uris) || uris.length === 0 || !uris.every(allowedRedirect)) {
     throw new OAuthError(
       'invalid_redirect_uri',
-      `redirect_uris must be on ${ALLOWED_REDIRECT_ORIGINS.join(' or ')}, or http on a loopback host`,
+      `redirect_uris must be on ${ALLOWED_REDIRECT_ORIGINS.join(' or ')}, Gemini's custom MCP callback, or http on a loopback host`,
     );
   }
   // Shown on the consent page and written into notes as the assistant's
@@ -177,7 +203,13 @@ export async function register(
   const name = typeof body['client_name'] === 'string' ? cleanAgentName(body['client_name']) : '';
   const client: Client = {
     clientId: newSecret(),
-    clientName: name || (uris.every((u) => isLoopback(new URL(u))) ? 'An app' : 'Claude'),
+    clientName:
+      name ||
+      (uris.every((u) => isLoopback(new URL(u)))
+        ? 'An app'
+        : uris.every((u) => isGeminiRedirect(new URL(u)))
+          ? 'Gemini'
+          : 'Claude'),
     redirectUris: uris as string[],
     createdAt: now,
   };
