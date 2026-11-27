@@ -95,6 +95,36 @@ describe('OAuth', () => {
     }
   });
 
+  it('registers Gemini’s hosted callback by its custom-MCP path only (2026-11-27)', async () => {
+    const store = memoryOAuthStore();
+    const host = 'https://oauth-redirect.googleusercontent.com';
+    const ok = `${host}/r/user_bound_custom-mcp-0123456789abcdef01234567`;
+    expect((await register(store, { redirect_uris: [ok] }, T)).clientName).toBe('Gemini');
+    expect(
+      (await register(store, { redirect_uris: [ok], client_name: 'Gemini app' }, T)).clientName,
+    ).toBe('Gemini app');
+    // The host is shared by other Google products: any other path, a
+    // query, a look-alike host or plain http is refused.
+    for (const bad of [
+      `${host}/r/some-actions-project`,
+      `${host}/r/user_bound_custom-mcp-`,
+      `${host}/r/user_bound_custom-mcp-abc12345/extra`,
+      `${host}/r/user_bound_custom-mcp-abc12345?next=https://evil.example`,
+      `${host}/r/../r/user_bound_custom-mcp-abc12345/..%2f`,
+      `${host}/`,
+      'http://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-abc12345',
+      'https://oauth-redirect.googleusercontent.com.evil.example/r/user_bound_custom-mcp-abc12345',
+      'https://evil.googleusercontent.com/r/user_bound_custom-mcp-abc12345',
+    ]) {
+      await rejects(register(store, { redirect_uris: [bad] }, T), 'invalid_redirect_uri');
+    }
+    // One of each kind in a single registration is refused if any is bad.
+    await rejects(
+      register(store, { redirect_uris: [ok, 'https://evil.example/cb'] }, T),
+      'invalid_redirect_uri',
+    );
+  });
+
   it('lets a loopback callback change port, but nothing else', async () => {
     const store = memoryOAuthStore();
     const client = await register(

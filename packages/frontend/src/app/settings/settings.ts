@@ -301,6 +301,10 @@ export const PLAN_REMINDER = 'Plan next week’s meals';
             <code>{{ mcpUrl }}</code>
           </p>
           <p>
+            For Gemini on the web, add a custom connected app there with the same URL, and allow it
+            here when it asks.
+          </p>
+          <p>
             For Gemini CLI, or another app that takes an MCP server, add it to that app's settings;
             for Gemini CLI, in <code>~/.gemini/settings.json</code>:
           </p>

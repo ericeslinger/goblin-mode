@@ -77,6 +77,19 @@ describe('Authorize', () => {
     expect(el.textContent).toContain('Allow this only if you just asked that app to connect.');
   });
 
+  it('says a return through Google’s redirect host is Gemini (2026-11-27)', async () => {
+    const { el } = await render({
+      consent: vi.fn(async () => ({
+        clientName: 'Gemini',
+        redirectOrigin: 'https://oauth-redirect.googleusercontent.com',
+      })),
+    });
+    expect(el.textContent).toContain('Gemini wants to read and change your notes');
+    expect(el.textContent).toContain(
+      'You will go back to Gemini (through Google, https://oauth-redirect.googleusercontent.com).',
+    );
+  });
+
   it('denies by going back with access_denied', async () => {
     const { el, api } = await render({});
     button(el, 'Deny')!.click();

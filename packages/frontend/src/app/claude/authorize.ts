@@ -16,6 +16,12 @@ const PARAMS = [
   'resource',
 ];
 
+/**
+ * Google's redirect host, where Gemini's hosted app has a code sent
+ * (2026-11-27); the server allows only Gemini's own paths on it.
+ */
+const GEMINI_REDIRECT_ORIGIN = 'https://oauth-redirect.googleusercontent.com';
+
 /** An app on this computer: its callback is http on a loopback host (#142). */
 const LOOPBACK = /^http:\/\/(127\.0\.0\.1|\[::1\]|localhost)(:\d+)?$/;
 
@@ -43,10 +49,8 @@ const LOOPBACK = /^http:\/\/(127\.0\.0\.1|\[::1\]|localhost)(:\d+)?$/;
             <p class="muted">It is an app on this computer, at {{ c.redirectOrigin }}.</p>
             <p class="muted">Allow this only if you just asked that app to connect.</p>
           } @else {
-            <p class="muted">You will go back to {{ c.redirectOrigin }}.</p>
-            <p class="muted">
-              Allow this only if you just asked {{ c.redirectOrigin }} to connect.
-            </p>
+            <p class="muted">You will go back to {{ whose(c) }}.</p>
+            <p class="muted">Allow this only if you just asked {{ whose(c) }} to connect.</p>
           }
           <div class="actions">
             <button type="button" class="primary" [disabled]="busy()" (click)="allow()">
@@ -91,6 +95,17 @@ export class Authorize {
 
   protected local(c: Consent): boolean {
     return LOOPBACK.test(c.redirectOrigin);
+  }
+
+  /**
+   * Where the code goes, in words: Gemini's hosted app returns through
+   * Google's own redirect host (2026-11-27), which says nothing by its
+   * name alone.
+   */
+  protected whose(c: Consent): string {
+    return c.redirectOrigin === GEMINI_REDIRECT_ORIGIN
+      ? `Gemini (through Google, ${c.redirectOrigin})`
+      : c.redirectOrigin;
   }
 
   constructor() {
