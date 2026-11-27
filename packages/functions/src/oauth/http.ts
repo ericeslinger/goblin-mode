@@ -84,6 +84,26 @@ async function idTokenUid(deps: OAuthDeps, req: HttpRequest): Promise<string> {
   }
 }
 
+/**
+ * What a registration asked for, for the log: its redirect URIs and the
+ * few fields that decide how a client signs in, each cut short, and the
+ * names of whatever else it sent.
+ */
+export function registrationAsked(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object') return { body: typeof body };
+  const b = body as Record<string, unknown>;
+  const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 300) : typeof v);
+  const list = (v: unknown) => (Array.isArray(v) ? v.slice(0, 10).map(short) : short(v));
+  return {
+    redirect_uris: list(b['redirect_uris']),
+    token_endpoint_auth_method: short(b['token_endpoint_auth_method']),
+    grant_types: list(b['grant_types']),
+    response_types: list(b['response_types']),
+    client_name: short(b['client_name']),
+    fields: Object.keys(b).slice(0, 30),
+  };
+}
+
 /** Routes one request to the OAuth endpoints. */
 export async function handleOAuth(deps: OAuthDeps, req: HttpRequest, res: HttpResponse) {
   res.set('Access-Control-Allow-Origin', '*');
@@ -151,6 +171,16 @@ export async function handleOAuth(deps: OAuthDeps, req: HttpRequest, res: HttpRe
     }
   } catch (err) {
     if (err instanceof OAuthError) {
+      // A refused registration says what was asked (2026-11-27): Gemini
+      // on the web was refused and nothing recorded why. A registration
+      // holds no secret; kept short all the same.
+      if (route === 'POST /oauth/register') {
+        logger.warn('oauth: registration refused', {
+          error: err.error,
+          asked: registrationAsked(req.body),
+          agent: (header(req, 'user-agent') ?? '').slice(0, 200),
+        });
+      }
       return res.status(err.status).json({ error: err.error, error_description: err.description });
     }
     logger.error('oauth', err);
