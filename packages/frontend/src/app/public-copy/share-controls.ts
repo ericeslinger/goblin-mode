@@ -244,10 +244,17 @@ export class ShareControls {
 
   constructor() {
     const shareId = computed(() => this.note().shareId);
+    // A share the server does not have yet is not watched (2026-11-27):
+    // the rules refuse a read of a share that is not there, so a
+    // listener begun before the first write arrived was refused for
+    // good, and the page said the copy could not be read (a full run
+    // caught it). It is watched once the server has it.
+    const unsent = computed(() => this.waiting()?.op === 'share');
     effect((onCleanup) => {
       const id = shareId();
+      const wait = unsent();
       untracked(() => this.sharedDoc.set(undefined));
-      if (!id) return;
+      if (!id || wait) return;
       onCleanup(
         this.api.watch(
           this.fb.db,

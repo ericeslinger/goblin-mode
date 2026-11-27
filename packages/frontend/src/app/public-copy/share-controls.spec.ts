@@ -69,6 +69,22 @@ describe('ShareControls (2026-11-26)', () => {
     expect(button('Stop sharing')).toBeTruthy();
   });
 
+  it('watches a new copy only once the server has it (2026-11-27)', async () => {
+    // The rules refuse a read of a share that is not there yet, and a
+    // refused listener is ended for good.
+    const { el, notes, api, button, refresh, fixture } = await render(glaze(), { online: false });
+    button('Share a copy')!.click();
+    await refresh();
+    const id = notes.find('n1')!.shareId!;
+    expect(api.watched).toEqual([]);
+    expect(el.textContent).not.toContain('could not be read');
+    expect(el.querySelector('a')?.getAttribute('href')).toContain(id);
+    // The server has the share: now it is watched.
+    notes.sharesWaiting.set({});
+    await fixture.whenStable();
+    expect(api.watched).toEqual([`shares/${id}`]);
+  });
+
   it('says why a note cannot be shared, with no button', async () => {
     const { el, notes, button, fixture } = await render(glaze());
     notes.shareRefusal.mockReturnValue(
