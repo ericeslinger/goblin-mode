@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { type HttpRequest, type OAuthDeps, handleOAuth } from './http';
+import { type HttpRequest, type OAuthDeps, handleOAuth, registrationAsked } from './http';
 import { memoryOAuthStore } from './memory-store';
 
 const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
@@ -123,5 +123,34 @@ describe('handleOAuth', () => {
       req('POST', '/oauth/revoke', { headers: { authorization: 'Bearer good' } }),
     );
     expect(out.body).toEqual({ revoked: 0 });
+  });
+
+  it('says what a refused registration asked, cut short, for the log (2026-11-27)', () => {
+    expect(
+      registrationAsked({
+        redirect_uris: ['https://a.example/cb', 'x'.repeat(400)],
+        token_endpoint_auth_method: 'client_secret_post',
+        grant_types: ['authorization_code'],
+        client_name: 'Gemini',
+        scope: 'notes',
+        software_statement: 'kept out: only its name is logged',
+      }),
+    ).toEqual({
+      redirect_uris: ['https://a.example/cb', 'x'.repeat(300)],
+      token_endpoint_auth_method: 'client_secret_post',
+      grant_types: ['authorization_code'],
+      response_types: 'undefined',
+      client_name: 'Gemini',
+      fields: [
+        'redirect_uris',
+        'token_endpoint_auth_method',
+        'grant_types',
+        'client_name',
+        'scope',
+        'software_statement',
+      ],
+    });
+    expect(registrationAsked('not json')).toEqual({ body: 'string' });
+    expect(registrationAsked({ redirect_uris: 'one' })).toMatchObject({ redirect_uris: 'one' });
   });
 });
