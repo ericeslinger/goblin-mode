@@ -100,7 +100,9 @@ export function registrationAsked(body: unknown): Record<string, unknown> {
     grant_types: list(b['grant_types']),
     response_types: list(b['response_types']),
     client_name: short(b['client_name']),
-    fields: Object.keys(b).slice(0, 30),
+    fields: Object.keys(b)
+      .slice(0, 30)
+      .map((k) => k.slice(0, 60)),
   };
 }
 
@@ -172,8 +174,8 @@ export async function handleOAuth(deps: OAuthDeps, req: HttpRequest, res: HttpRe
   } catch (err) {
     if (err instanceof OAuthError) {
       // A refused registration says what was asked (2026-11-27): Gemini
-      // on the web was refused and nothing recorded why. A registration
-      // holds no secret; kept short all the same.
+      // on the web was refused and nothing recorded why. Only the named
+      // fields are logged, each cut short, and no header but the agent.
       if (route === 'POST /oauth/register') {
         logger.warn('oauth: registration refused', {
           error: err.error,

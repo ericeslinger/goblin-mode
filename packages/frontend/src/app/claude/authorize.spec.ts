@@ -88,6 +88,15 @@ describe('Authorize', () => {
     expect(el.textContent).toContain(
       'You will go back to Gemini (through Google, https://oauth-redirect.googleusercontent.com).',
     );
+    // Gemini registers Google's sandbox and test hosts too.
+    TestBed.resetTestingModule();
+    const sandbox = await render({
+      consent: vi.fn(async () => ({
+        clientName: 'Gemini',
+        redirectOrigin: 'https://oauth-redirect-sandbox.googleusercontent.com',
+      })),
+    });
+    expect(sandbox.el.textContent).toContain('You will go back to Gemini (through Google,');
   });
 
   it('denies by going back with access_denied', async () => {
