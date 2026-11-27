@@ -238,21 +238,25 @@ export class ShareControls {
   protected readonly changed = computed(() => {
     const copy = shareCopyOf(this.note());
     const shared = this.sharedDoc();
-    if (!copy || shared === 'gone') return false;
+    // A copy the server does not have yet is the note as it was a moment
+    // ago, and is not watched: nothing to update (review of #346).
+    if (!copy || shared === 'gone' || this.unsent()) return false;
     return !sameCopy(copy, shared);
   });
+  /**
+   * This share's first write has not reached the server. It is not
+   * watched until it has (2026-11-27): the rules refuse a read of a
+   * share that is not there, so a listener begun before the write
+   * arrived was refused for good, and the page said the copy could not
+   * be read (a full run caught it).
+   */
+  private readonly unsent = computed(() => this.waiting()?.op === 'share');
 
   constructor() {
     const shareId = computed(() => this.note().shareId);
-    // A share the server does not have yet is not watched (2026-11-27):
-    // the rules refuse a read of a share that is not there, so a
-    // listener begun before the first write arrived was refused for
-    // good, and the page said the copy could not be read (a full run
-    // caught it). It is watched once the server has it.
-    const unsent = computed(() => this.waiting()?.op === 'share');
     effect((onCleanup) => {
       const id = shareId();
-      const wait = unsent();
+      const wait = this.unsent();
       untracked(() => this.sharedDoc.set(undefined));
       if (!id || wait) return;
       onCleanup(
@@ -282,6 +286,9 @@ export class ShareControls {
   }
 
   protected update(): void {
+    // Never over a share still on its way: that would make its record an
+    // update's, and the copy would be watched before it is there.
+    if (this.unsent()) return;
     this.said.set('');
     this.notes.updateShare(this.note().id);
     this.acted.set('update');

@@ -79,6 +79,18 @@ describe('ShareControls (2026-11-26)', () => {
     expect(api.watched).toEqual([]);
     expect(el.textContent).not.toContain('could not be read');
     expect(el.querySelector('a')?.getAttribute('href')).toContain(id);
+    // Nothing to update while it is on its way, even with the note
+    // edited since: Update is off, and pressing it does nothing (review
+    // of #346: it made the record an update's and the watch began early).
+    notes.notes.update((l) => l.map((n) => ({ ...n, body: 'Glaze\nThree parts' })));
+    await refresh();
+    const update = button('Update the shared copy');
+    expect(update?.disabled).toBe(true);
+    update?.click();
+    await fixture.whenStable();
+    expect(notes.updateShare).not.toHaveBeenCalled();
+    expect(notes.sharesWaiting()[id].op).toBe('share');
+    expect(api.watched).toEqual([]);
     // The server has the share: now it is watched.
     notes.sharesWaiting.set({});
     await fixture.whenStable();

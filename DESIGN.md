@@ -6228,7 +6228,10 @@ is slow.
   can approve one, and the page tells him to allow only what he just
   asked to connect. Assumed, not read in Google's documentation: that
   a code sent to such a path reaches only the Gemini connection that
-  owns its id. The dialog's Client ID and secret fields are for
+  owns its id, and that this holds on the sandbox and test hosts and
+  under `/a/` as it does under `/r/` on the main one. Anyone can
+  register any id, so the allowance is only as safe as that; what does
+  not rest on it is that Eric alone approves. The dialog's Client ID and secret fields are for
   servers with made-in-advance credentials, which this has none of.
 - **Send to an assistant (#143, 2026-10-25).** Eric: "The write a
   note > it gets fully ingested story is too good." A note's back has
