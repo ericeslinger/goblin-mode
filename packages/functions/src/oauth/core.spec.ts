@@ -10,6 +10,7 @@ import {
   authenticate,
   checkAuthorize,
   register,
+  registeredRedirect,
   token,
 } from './core';
 import { memoryOAuthStore } from './memory-store';
@@ -110,7 +111,16 @@ describe('OAuth', () => {
       `${host}/r/user_bound_custom-mcp-`,
       `${host}/r/user_bound_custom-mcp-abc12345/extra`,
       `${host}/r/user_bound_custom-mcp-abc12345?next=https://evil.example`,
-      `${host}/r/../r/user_bound_custom-mcp-abc12345/..%2f`,
+      // Spellings the URL parser would tidy into shape: refused as written.
+      `${host}/x/../r/user_bound_custom-mcp-abc12345`,
+      `${host}\\r\\user_bound_custom-mcp-abc12345`,
+      `${host}/r/user_bound_custom-mcp-abc12345?`,
+      `${host}/r/user_bound_custom-mcp-abc12345#`,
+      `${host}:443/r/user_bound_custom-mcp-abc12345`,
+      'https://OAUTH-REDIRECT.googleusercontent.com/r/user_bound_custom-mcp-abc12345',
+      `${host}:444/r/user_bound_custom-mcp-abc12345`,
+      `${host}/r/user_bound_custom-mcp-abc12345%2f..`,
+      `${host}/r/user_bound_custom-mcp-abc12345;x=1`,
       `${host}/`,
       'http://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-abc12345',
       'https://oauth-redirect.googleusercontent.com.evil.example/r/user_bound_custom-mcp-abc12345',
@@ -123,6 +133,13 @@ describe('OAuth', () => {
       register(store, { redirect_uris: [ok, 'https://evil.example/cb'] }, T),
       'invalid_redirect_uri',
     );
+    // At authorize, only the callback registered, to the letter: another
+    // id on the same host, or a query added, is not this client's.
+    const client = await register(store, { redirect_uris: [ok] }, T);
+    for (const other of [`${host}/r/user_bound_custom-mcp-ffffffffffffffffffffffff`, `${ok}?x=1`]) {
+      expect(registeredRedirect(client, other)).toBe(false);
+    }
+    expect(registeredRedirect(client, ok)).toBe(true);
   });
 
   it('lets a loopback callback change port, but nothing else', async () => {

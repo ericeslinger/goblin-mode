@@ -1,8 +1,8 @@
 // The OAuth 2.1 authorization server MCP clients sign in through
-// (DESIGN.md, MCP server): claude.ai's custom connectors, and apps on
-// the gardener's own computer such as Gemini CLI (#142). Dynamic client
-// registration, the
-// authorization code flow with PKCE (S256 only), refresh token rotation.
+// (DESIGN.md, MCP server): claude.ai's custom connectors, Gemini on the
+// web (2026-11-27), and apps on the gardener's own computer such as
+// Gemini CLI (#142). Dynamic client registration, the authorization
+// code flow with PKCE (S256 only), refresh token rotation.
 // The only identity is the owner's Firebase sign-in, checked at approve.
 // Pure over an OAuthStore; codes and tokens are stored only as hashes.
 import { cleanAgentName } from '@mossgoblin/schema';
@@ -159,7 +159,13 @@ function allowedRedirect(uri: unknown): uri is string {
   const url = parse(uri);
   return (
     !!url &&
-    (ALLOWED_REDIRECT_ORIGINS.includes(url.origin) || isGeminiRedirect(url) || isLoopback(url))
+    (ALLOWED_REDIRECT_ORIGINS.includes(url.origin) ||
+      // As written, to the letter (review of #344): a spelling the URL
+      // parser tidies into shape (dot segments, a backslash, a bare `?`,
+      // capitals in the host) is refused, so what is stored is what was
+      // checked.
+      (isGeminiRedirect(url) && uri === `${GEMINI_REDIRECT_ORIGIN}${url.pathname}`) ||
+      isLoopback(url))
   );
 }
 
